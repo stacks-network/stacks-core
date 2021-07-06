@@ -90,6 +90,10 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     IsStandard("is-standard", ClarityVersion::Clarity2),
     ParsePrincipal("parse-principal", ClarityVersion::Clarity2),
     AssemblePrincipal("assemble-principal", ClarityVersion::Clarity2),
+    StringToInt("string-to-int", ClarityVersion::Clarity2),
+    StringToUInt("string-to-uint", ClarityVersion::Clarity2),
+    IntToAscii("int-to-ascii", ClarityVersion::Clarity2),
+    IntToUtf8("int-to-utf8", ClarityVersion::Clarity2),
     ListCons("list", ClarityVersion::Clarity1),
     FetchVar("var-get", ClarityVersion::Clarity1),
     SetVar("var-set", ClarityVersion::Clarity1),
@@ -266,24 +270,68 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             BuffToIntLe => NativeFunction(
                 "native_buff_to_int_le",
                 NativeHandle::SingleArg(&conversions::native_buff_to_int_le),
-                // TODO: Create a dedicated cost function for this case.
-                ClarityCostFunction::Mul,
+                ClarityCostFunction::Unimplemented,
             ),
             BuffToUIntLe => NativeFunction(
                 "native_buff_to_uint_le",
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_le),
-                // TODO: Create a dedicated cost function for this case.
-                ClarityCostFunction::Mul,
+                ClarityCostFunction::Unimplemented,
             ),
             BuffToIntBe => NativeFunction(
                 "native_buff_to_int_be",
                 NativeHandle::SingleArg(&conversions::native_buff_to_int_be),
-                // TODO: Create a dedicated cost function for this case.
-                ClarityCostFunction::Mul,
+                ClarityCostFunction::Unimplemented,
             ),
             BuffToUIntBe => NativeFunction(
                 "native_buff_to_uint_be",
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
+                ClarityCostFunction::Unimplemented,
+            ),
+            StringToInt => NativeFunction(
+                "native_string_to_int",
+                NativeHandle::SingleArg(&conversions::native_string_to_int),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            StringToUInt => NativeFunction(
+                "native_string_to_uint",
+                NativeHandle::SingleArg(&conversions::native_string_to_uint),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            IntToAscii => NativeFunction(
+                "native_int_to_ascii",
+                NativeHandle::SingleArg(&conversions::native_int_to_ascii),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            IntToUtf8 => NativeFunction(
+                "native_int_to_utf8",
+                NativeHandle::SingleArg(&conversions::native_int_to_utf8),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            StringToInt => NativeFunction(
+                "native_string_to_int",
+                NativeHandle::SingleArg(&conversions::native_string_to_int),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            StringToUInt => NativeFunction(
+                "native_string_to_uint",
+                NativeHandle::SingleArg(&conversions::native_string_to_uint),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            IntToAscii => NativeFunction(
+                "native_int_to_ascii",
+                NativeHandle::SingleArg(&conversions::native_int_to_ascii),
+                // TODO: Create a dedicated cost function for this case.
+                ClarityCostFunction::Mul,
+            ),
+            IntToUtf8 => NativeFunction(
+                "native_int_to_utf8",
+                NativeHandle::SingleArg(&conversions::native_int_to_utf8),
                 // TODO: Create a dedicated cost function for this case.
                 ClarityCostFunction::Mul,
             ),

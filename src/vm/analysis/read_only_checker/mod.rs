@@ -181,8 +181,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | Secp256k1Verify | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet
             | UnwrapErrRet | IsOkay | IsNone | Asserts | Unwrap | UnwrapErr | Match | IsErr
             | IsSome | TryRet | ToUInt | ToInt | BuffToIntLe | BuffToUIntLe | BuffToIntBe
-            | IsStandard | ParsePrincipal | AssemblePrincipal | BuffToUIntBe | Append | Concat
-            | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo | TupleGet
+            | BuffToUIntBe | IsStandard | ParsePrincipal | AssemblePrincipal || IntToAscii | IntToUtf8 | StringToInt | StringToUInt | Append
+            | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo | TupleGet
             | TupleMerge | Len | Print | AsContract | Begin | FetchVar | GetStxBalance
             | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply | ElementAt
             | IndexOf => {

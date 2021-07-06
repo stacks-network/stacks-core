@@ -291,6 +291,63 @@ Note: This function is only available starting with Stacks 2.1.",
 "#,
 };
 
+const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(string-to-int (string-ascii|string-utf8))",
+    description: "Converts a string, either `string-ascii` or `string-utf8`, to an optional-wrapped signed integer.
+If the input string does not represent a valid integer, then the function returns `none`. Otherwise it returns
+an integer wrapped in `some`.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(string-to-int "1") ;; Returns (some 1)
+(string-to-int u"-1") ;; Returns (some -1)
+(string-to-int "a") ;; Returns none
+"#,
+};
+
+const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(string-to-uint (string-ascii|string-utf8))",
+    description:
+        "Converts a string, either `string-ascii` or `string-utf8`, to an optional-wrapped unsigned integer.
+If the input string does not represent a valid integer, then the function returns `none`. Otherwise it returns
+an unsigned integer wrapped in `some`.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(string-to-uint "1") ;; Returns (some u1)
+(string-to-uint u"1") ;; Returns (some u1)
+(string-to-uint "a") ;; Returns none
+"#,
+};
+
+const INT_TO_ASCII_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(int-to-ascii (int|uint))",
+    description: "Converts an integer, either `int` or `uint`, to a `string-ascii` string-value representation.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(int-to-ascii 1) ;; Returns "1"
+(int-to-ascii u1) ;; Returns "1"
+(int-to-ascii -1) ;; Returns "-1"
+"#,
+};
+
+const INT_TO_UTF8_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(int-to-utf8 (int|uint))",
+    description: "Converts an integer, either `int` or `uint`, to a `string-utf8` string-value representation.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(int-to-utf8 1) ;; Returns u"1"
+(int-to-utf8 u1) ;; Returns u"1"
+(int-to-utf8 -1) ;; Returns u"-1"
+"#,
+};
+
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("+ (add)"),
     signature: "(+ i1 i2...)",
@@ -1759,6 +1816,10 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
         ParsePrincipal => make_for_simple_native(&PARSE_PRINCIPAL_API, &IsStandard, name),
         AssemblePrincipal => make_for_simple_native(&ASSEMBLE_PRINCIPAL_API, &IsStandard, name),
+        StringToInt => make_for_simple_native(&STRING_TO_INT_API, &StringToInt, name),
+        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &StringToUInt, name),
+        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &IntToAscii, name),
+        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, &IntToUtf8, name),
         CmpGeq => make_for_simple_native(&GEQ_API, &CmpGeq, name),
         CmpLeq => make_for_simple_native(&LEQ_API, &CmpLeq, name),
         CmpLess => make_for_simple_native(&LESS_API, &CmpLess, name),
