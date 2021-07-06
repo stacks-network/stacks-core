@@ -31,7 +31,7 @@ use burnchains::affirmation::*;
 use burnchains::bitcoin::address::BitcoinAddress;
 use burnchains::bitcoin::indexer::BitcoinIndexer;
 use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::db::tests::*;
+use burnchains::tests::db::*;
 use burnchains::{db::*, *};
 use chainstate;
 use chainstate::burn::db::sortdb::SortitionDB;

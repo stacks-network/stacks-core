@@ -777,43 +777,49 @@ impl StacksChainState {
             StacksChainState::make_block_dir(blocks_dir, consensus_hash, &block_header_hash)
                 .expect("FATAL: failed to create block directory");
 
-        // try make this thread-safe. It's okay if this block gets copied more than once; we
-        // only care that at least one copy survives for further analysis.
-        let random_bytes = thread_rng().gen::<[u8; 8]>();
-        let random_bytes_str = to_hex(&random_bytes);
-        let index_block_hash = StacksBlockId::new(consensus_hash, block_header_hash);
-        let mut invalid_path =
-            StacksChainState::get_index_block_pathbuf(blocks_dir, &index_block_hash);
-        invalid_path
-            .file_name()
-            .expect("FATAL: index block path did not have file name");
-        invalid_path.set_extension(&format!("invalid-{}", &random_bytes_str));
-
-        fs::copy(&block_path, &invalid_path).expect(&format!(
-            "FATAL: failed to copy '{}' to '{}'",
-            &block_path,
-            &invalid_path.to_string_lossy(),
-        ));
-
-        // already freed?
-        let sz = fs::metadata(&invalid_path)
-            .expect(&format!(
-                "FATAL: failed to stat '{}'",
-                &invalid_path.to_string_lossy()
-            ))
+        let sz = fs::metadata(&block_path)
+            .expect(&format!("FATAL: failed to stat '{}'", &block_path))
             .len();
 
         if sz > 0 {
-            // truncate the original
-            fs::OpenOptions::new()
-                .read(false)
-                .write(true)
-                .truncate(true)
-                .open(&block_path)
+            // try make this thread-safe. It's okay if this block gets copied more than once; we
+            // only care that at least one copy survives for further analysis.
+            let random_bytes = thread_rng().gen::<[u8; 8]>();
+            let random_bytes_str = to_hex(&random_bytes);
+            let index_block_hash = StacksBlockId::new(consensus_hash, block_header_hash);
+            let mut invalid_path =
+                StacksChainState::get_index_block_pathbuf(blocks_dir, &index_block_hash);
+            invalid_path
+                .file_name()
+                .expect("FATAL: index block path did not have file name");
+            invalid_path.set_extension(&format!("invalid-{}", &random_bytes_str));
+
+            fs::copy(&block_path, &invalid_path).expect(&format!(
+                "FATAL: failed to copy '{}' to '{}'",
+                &block_path,
+                &invalid_path.to_string_lossy(),
+            ));
+
+            // already freed?
+            let sz = fs::metadata(&invalid_path)
                 .expect(&format!(
-                    "FATAL: Failed to mark block path '{}' as free",
-                    &block_path
-                ));
+                    "FATAL: failed to stat '{}'",
+                    &invalid_path.to_string_lossy()
+                ))
+                .len();
+
+            if sz > 0 {
+                // truncate the original
+                fs::OpenOptions::new()
+                    .read(false)
+                    .write(true)
+                    .truncate(true)
+                    .open(&block_path)
+                    .expect(&format!(
+                        "FATAL: Failed to mark block path '{}' as free",
+                        &block_path
+                    ));
+            }
         }
     }
 
