@@ -181,7 +181,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | AsContract | ElementAt | IndexOf | Map | Filter | Fold => {
                 return Err(Error::FunctionNotPermitted(function));
             }
-            BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe | IsStandard => {
+            BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             IsStandard | ParsePrincipal | AssemblePrincipal => {
