@@ -2336,7 +2336,7 @@ fn test_parse_principal() {
     let bad_expected = [
         CheckErrors::NoSuchParsePrincipalProperty("not_an_argument".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::ParsePrincipalPropertyName,
+        CheckErrors::ParsePrincipalExpectPropertyName,
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {

@@ -126,7 +126,7 @@ pub enum CheckErrors {
     NoSuchBlockInfoProperty(String),
     GetBlockInfoExpectPropertyName,
     NoSuchParsePrincipalProperty(String),
-    ParsePrincipalPropertyName,
+    ParsePrincipalExpectPropertyName,
 
     NameAlreadyUsed(String),
 
@@ -369,7 +369,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),
             CheckErrors::GetBlockInfoExpectPropertyName => format!("missing property name for block info introspection"),
             CheckErrors::NoSuchParsePrincipalProperty(property_name) => format!("use of unknown principal parsing property '{}'", property_name),
-            CheckErrors::ParsePrincipalPropertyName => format!("missing property name for principal parsing function"),
+            CheckErrors::ParsePrincipalExpectPropertyName => format!("missing property name for principal parsing function"),
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),

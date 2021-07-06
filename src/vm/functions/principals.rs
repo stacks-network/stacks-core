@@ -61,13 +61,11 @@ pub fn special_parse_principal(
     check_argument_count(2, args)?;
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
 
-    info!("inside");
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(CheckErrors::ParsePrincipalPropertyName)?;
+        .ok_or(CheckErrors::ParsePrincipalExpectPropertyName)?;
 
-    info!("property_name: {:?}", property_name);
     let principal_property = PrincipalProperty::lookup_by_name(property_name).ok_or(
         CheckErrors::NoSuchParsePrincipalProperty(property_name.to_string()),
     )?;
