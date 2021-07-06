@@ -4894,12 +4894,11 @@ mod test {
         for (data, errstr) in tests.iter() {
             let res = HttpRequestPreamble::consensus_deserialize(&mut data.as_bytes());
             test_debug!("Expect '{}'", errstr);
-            let expected_errstr = format!("{:?}", &res);
-            assert!(res.is_err(), "{}", expected_errstr);
+            assert!(res.is_err(), "{:?}", &res);
             assert!(
-                res.unwrap_err().to_string().find(errstr).is_some(),
-                "{}",
-                expected_errstr
+                res.as_ref().unwrap_err().to_string().find(errstr).is_some(),
+                "{:?}",
+                &res
             );
         }
     }
@@ -4947,13 +4946,16 @@ mod test {
 
         for (data, errstr) in tests.iter() {
             let sres = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
-            let expected_serrstr = format!("{:?}", &sres);
             test_debug!("Expect '{}'", errstr);
-            assert!(sres.is_err(), "{}", expected_serrstr);
+            assert!(sres.is_err(), "{:?}", &sres);
             assert!(
-                sres.unwrap_err().to_string().find(errstr).is_some(),
-                "{}",
-                expected_serrstr
+                sres.as_ref()
+                    .unwrap_err()
+                    .to_string()
+                    .find(errstr)
+                    .is_some(),
+                "{:?}",
+                &sres
             );
         }
     }
@@ -5213,13 +5215,16 @@ mod test {
 
         for (data, errstr) in tests.iter() {
             let sres = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
-            let expected_serrstr = format!("{:?}", &sres);
             test_debug!("Expect '{}', got: {:?}", errstr, &sres);
-            assert!(sres.is_err(), "{}", expected_serrstr);
+            assert!(sres.is_err(), "{:?}", &sres);
             assert!(
-                sres.unwrap_err().to_string().find(errstr).is_some(),
-                "{}",
-                expected_serrstr
+                sres.as_ref()
+                    .unwrap_err()
+                    .to_string()
+                    .find(errstr)
+                    .is_some(),
+                "{:?}",
+                &sres
             );
         }
     }
@@ -5465,16 +5470,16 @@ mod test {
             let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
             let (preamble, offset) = http.read_preamble(bad_content_length.as_bytes()).unwrap();
             let e = http.read_payload(&preamble, &bad_content_length.as_bytes()[offset..]);
-            let estr = format!("{:?}", &e);
 
-            assert!(e.is_err(), "{}", estr);
+            assert!(e.is_err(), "{:?}", &e);
             assert!(
-                e.unwrap_err()
+                e.as_ref()
+                    .unwrap_err()
                     .to_string()
                     .find("-length body for")
                     .is_some(),
-                "{}",
-                estr
+                "{:?}",
+                &e
             );
         }
 
