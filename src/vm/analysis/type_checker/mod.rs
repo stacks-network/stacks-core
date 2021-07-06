@@ -231,7 +231,7 @@ impl FunctionType {
                 let is_clarity2: bool = clarity_version == ClarityVersion::Clarity2;
                 // Step 1: Check the first argument on its own, to see that the first argument
                 // has a supported type according to this ClarityVersion.
-                let first_ok = match first {
+                let first_type_supported = match first {
                     TypeSignature::IntType => true,
                     TypeSignature::UIntType => true,
                     TypeSignature::SequenceType(SequenceSubtype::StringType(
@@ -244,7 +244,7 @@ impl FunctionType {
                     _ => false,
                 };
 
-                if !first_ok {
+                if !first_type_supported {
                     return Err(CheckErrors::UnionTypeError(
                         vec![
                             TypeSignature::IntType,
@@ -260,7 +260,7 @@ impl FunctionType {
 
                 // Step 2: Assuming the first argument has a supported type, now check that
                 // both of the types are matching.
-                let pair_ok = match (first, second) {
+                let pair_of_types_matches = match (first, second) {
                     (TypeSignature::IntType, TypeSignature::IntType) => true,
                     (TypeSignature::UIntType, TypeSignature::UIntType) => true,
                     (
@@ -270,7 +270,7 @@ impl FunctionType {
                         TypeSignature::SequenceType(SequenceSubtype::StringType(
                             StringSubtype::ASCII(_),
                         )),
-                    ) => is_clarity2,
+                    ) => true,
                     (
                         TypeSignature::SequenceType(SequenceSubtype::StringType(
                             StringSubtype::UTF8(_),
@@ -278,15 +278,15 @@ impl FunctionType {
                         TypeSignature::SequenceType(SequenceSubtype::StringType(
                             StringSubtype::UTF8(_),
                         )),
-                    ) => is_clarity2,
+                    ) => true,
                     (
                         TypeSignature::SequenceType(SequenceSubtype::BufferType(_)),
                         TypeSignature::SequenceType(SequenceSubtype::BufferType(_)),
-                    ) => is_clarity2,
-                    (x, _) => false,
+                    ) => true,
+                    (_, _) => false,
                 };
 
-                if !pair_ok {
+                if !pair_of_types_matches {
                     return Err(CheckErrors::TypeError(first.clone(), second.clone()).into());
                 }
 
