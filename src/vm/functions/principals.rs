@@ -27,7 +27,7 @@ pub fn special_is_standard(
     context: &LocalContext,
 ) -> Result<Value> {
     check_argument_count(1, args)?;
-    runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
     let owner = eval(&args[0], env, context)?;
 
     let version = match owner {
@@ -59,7 +59,7 @@ pub fn special_parse_principal(
     context: &LocalContext,
 ) -> Result<Value> {
     check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
 
     // Handle the block property name input arg.
     let property_name = args[0]
