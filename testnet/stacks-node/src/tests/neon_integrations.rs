@@ -5361,10 +5361,9 @@ fn atlas_stress_integration_test() {
             // requests should take no more than 20ms
             assert!(
                 total_time < attempts * 50,
-                format!(
-                    "Atlas inventory request is too slow: {} >= {} * 50",
-                    total_time, attempts
-                )
+                "Atlas inventory request is too slow: {} >= {} * 50",
+                total_time,
+                attempts
             );
         }
 
@@ -5403,10 +5402,9 @@ fn atlas_stress_integration_test() {
             // requests should take no more than 40ms
             assert!(
                 total_time < attempts * 50,
-                format!(
-                    "Atlas chunk request is too slow: {} >= {} * 50",
-                    total_time, attempts
-                )
+                "Atlas chunk request is too slow: {} >= {} * 50",
+                total_time,
+                attempts
             );
         }
     }

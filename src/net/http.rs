@@ -4808,11 +4808,11 @@ mod test {
 
         for (data, request) in tests.iter() {
             let req = HttpRequestPreamble::consensus_deserialize(&mut data.as_bytes());
-            assert!(req.is_ok(), format!("{:?}", &req));
+            assert!(req.is_ok(), "{:?}", &req);
             assert_eq!(req.unwrap(), *request);
 
             let sreq = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
-            assert!(sreq.is_ok(), format!("{:?}", &sreq));
+            assert!(sreq.is_ok(), "{:?}", &sreq);
             assert_eq!(
                 sreq.unwrap(),
                 StacksHttpPreamble::Request((*request).clone())
@@ -4850,11 +4850,11 @@ mod test {
 
         for (data, request) in tests.iter() {
             let req = HttpRequestPreamble::consensus_deserialize(&mut data.as_bytes());
-            assert!(req.is_ok(), format!("{:?}", &req));
+            assert!(req.is_ok(), "{:?}", &req);
             assert_eq!(req.unwrap(), *request);
 
             let sreq = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
-            assert!(sreq.is_ok(), format!("{:?}", &sreq));
+            assert!(sreq.is_ok(), "{:?}", &sreq);
             assert_eq!(
                 sreq.unwrap(),
                 StacksHttpPreamble::Request((*request).clone())
@@ -4895,9 +4895,10 @@ mod test {
             let res = HttpRequestPreamble::consensus_deserialize(&mut data.as_bytes());
             test_debug!("Expect '{}'", errstr);
             let expected_errstr = format!("{:?}", &res);
-            assert!(res.is_err(), expected_errstr);
+            assert!(res.is_err(), "{}", expected_errstr);
             assert!(
                 res.unwrap_err().to_string().find(errstr).is_some(),
+                "{}",
                 expected_errstr
             );
         }
@@ -4948,9 +4949,10 @@ mod test {
             let sres = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
             let expected_serrstr = format!("{:?}", &sres);
             test_debug!("Expect '{}'", errstr);
-            assert!(sres.is_err(), expected_serrstr);
+            assert!(sres.is_err(), "{}", expected_serrstr);
             assert!(
                 sres.unwrap_err().to_string().find(errstr).is_some(),
+                "{}",
                 expected_serrstr
             );
         }
@@ -5059,11 +5061,11 @@ mod test {
         for (data, response) in tests.iter() {
             test_debug!("Try parsing:\n{}\n", data);
             let res = HttpResponsePreamble::consensus_deserialize(&mut data.as_bytes());
-            assert!(res.is_ok(), format!("{:?}", &res));
+            assert!(res.is_ok(), "{:?}", &res);
             assert_eq!(res.unwrap(), *response);
 
             let sres = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
-            assert!(sres.is_ok(), format!("{:?}", &sres));
+            assert!(sres.is_ok(), "{:?}", &sres);
             assert_eq!(
                 sres.unwrap(),
                 StacksHttpPreamble::Response((*response).clone())
@@ -5087,11 +5089,11 @@ mod test {
         for (data, response) in tests.iter() {
             test_debug!("Try parsing:\n{}\n", data);
             let res = HttpResponsePreamble::consensus_deserialize(&mut data.as_bytes());
-            assert!(res.is_ok(), format!("{:?}", &res));
+            assert!(res.is_ok(), "{:?}", &res);
             assert_eq!(res.unwrap(), *response);
 
             let sres = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
-            assert!(sres.is_ok(), format!("{:?}", &sres));
+            assert!(sres.is_ok(), "{:?}", &sres);
             assert_eq!(
                 sres.unwrap(),
                 StacksHttpPreamble::Response((*response).clone())
@@ -5181,7 +5183,7 @@ mod test {
         for (data, errstr) in tests.iter() {
             let res = HttpResponsePreamble::consensus_deserialize(&mut data.as_bytes());
             test_debug!("Expect '{}', got: {:?}", errstr, &res);
-            assert!(res.is_err(), format!("{:?}", &res));
+            assert!(res.is_err(), "{:?}", &res);
             assert!(res.unwrap_err().to_string().find(errstr).is_some());
         }
     }
@@ -5213,9 +5215,10 @@ mod test {
             let sres = StacksHttpPreamble::consensus_deserialize(&mut data.as_bytes());
             let expected_serrstr = format!("{:?}", &sres);
             test_debug!("Expect '{}', got: {:?}", errstr, &sres);
-            assert!(sres.is_err(), expected_serrstr);
+            assert!(sres.is_err(), "{}", expected_serrstr);
             assert!(
                 sres.unwrap_err().to_string().find(errstr).is_some(),
+                "{}",
                 expected_serrstr
             );
         }
@@ -5464,12 +5467,13 @@ mod test {
             let e = http.read_payload(&preamble, &bad_content_length.as_bytes()[offset..]);
             let estr = format!("{:?}", &e);
 
-            assert!(e.is_err(), estr);
+            assert!(e.is_err(), "{}", estr);
             assert!(
                 e.unwrap_err()
                     .to_string()
                     .find("-length body for")
                     .is_some(),
+                "{}",
                 estr
             );
         }
@@ -5977,6 +5981,7 @@ mod test {
             assert!(e.is_err());
             assert!(
                 e.unwrap_err().to_string().find(expected_error).is_some(),
+                "{}",
                 errstr
             );
         }
@@ -6351,17 +6356,15 @@ mod test {
 
         for live_header in live_headers {
             let res = HttpRequestPreamble::consensus_deserialize(&mut live_header.as_bytes());
-            assert!(
-                res.is_ok(),
-                format!("headers: {}\nerror: {:?}", live_header, &res)
-            );
+            assert!(res.is_ok(), "headers: {}\nerror: {:?}", live_header, &res);
         }
 
         for bad_live_header in bad_live_headers {
             let res = HttpRequestPreamble::consensus_deserialize(&mut bad_live_header.as_bytes());
             assert!(
                 res.is_err(),
-                format!("headers: {}\nshould not have parsed", bad_live_header)
+                "headers: {}\nshould not have parsed",
+                bad_live_header
             );
         }
     }
