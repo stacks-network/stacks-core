@@ -33,7 +33,7 @@ use vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
 use vm::types::signatures::{FunctionSignature, BUFF_20};
 use vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
-    QualifiedContractIdentifier, TupleTypeSignature, TypeSignature, Value,
+    QualifiedContractIdentifier, TraitIdentifier, TupleTypeSignature, TypeSignature, Value,
 };
 use vm::variables::NativeVariables;
 
@@ -74,7 +74,7 @@ pub struct TypeChecker<'a, 'b> {
     pub type_map: TypeMap,
     pub contract_context: ContractContext,
     pub function_return_tracker: Option<Option<TypeSignature>>,
-    db: &'a mut AnalysisDatabase<'b>,
+    pub db: &'a mut AnalysisDatabase<'b>,
     pub cost_track: LimitedCostTracker,
 }
 
@@ -281,7 +281,7 @@ impl FunctionType {
     }
 }
 
-fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {
+pub fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {
     let mut total_size = 0;
     for (_func_name, value) in trait_sig.iter() {
         total_size = total_size.cost_overflow_add(value.total_type_size()? as u64)?;
@@ -946,5 +946,17 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             // not a define.
             Ok(None)
         }
+    }
+
+    pub fn bench_analysis_use_trait_entry_in_context(
+        db: &mut AnalysisDatabase,
+        trait_identifier: &TraitIdentifier,
+    ) {
+        let result = db
+            .get_defined_trait(
+                &trait_identifier.contract_identifier,
+                &trait_identifier.name,
+            )
+            .unwrap();
     }
 }
