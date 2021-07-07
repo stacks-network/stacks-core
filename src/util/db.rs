@@ -217,6 +217,16 @@ pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
     Ok(x as i64)
 }
 
+pub fn opt_u64_to_sql(x: Option<u64>) -> Result<Option<i64>, Error> {
+    match x {
+        Some(x) => match u64_to_sql(x) {
+            Ok(x) => Ok(Some(x)),
+            Err(e) => Err(e),
+        },
+        None => Ok(None),
+    }
+}
+
 macro_rules! impl_byte_array_from_column {
     ($thing:ident) => {
         impl rusqlite::types::FromSql for $thing {
