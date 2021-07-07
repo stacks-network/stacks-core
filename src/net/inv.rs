@@ -4036,7 +4036,9 @@ mod test {
             for i in 0..num_blocks {
                 assert!(
                     peer_2_inv.has_ith_block(i + first_stacks_block_height),
-                    format!("Missing block {} (+ {})", i, first_stacks_block_height)
+                    "Missing block {} (+ {})",
+                    i,
+                    first_stacks_block_height
                 );
             }
 
@@ -4044,7 +4046,9 @@ mod test {
             for i in 1..(num_blocks - 1) {
                 assert!(
                     peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height),
-                    format!("Missing microblock {} (+ {})", i, first_stacks_block_height)
+                    "Missing microblock {} (+ {})",
+                    i,
+                    first_stacks_block_height
                 );
             }
 
@@ -4066,7 +4070,9 @@ mod test {
             for i in 0..num_blocks {
                 assert!(
                     peer_1_inv.has_ith_block(i + first_stacks_block_height),
-                    format!("Missing block {} (+ {})", i, first_stacks_block_height)
+                    "Missing block {} (+ {})",
+                    i,
+                    first_stacks_block_height
                 );
             }
         })
@@ -4245,7 +4251,9 @@ mod test {
             for i in 0..num_blocks {
                 assert!(
                     peer_2_inv.has_ith_block(i + first_stacks_block_height),
-                    format!("Missing block {} (+ {})", i, first_stacks_block_height)
+                    "Missing block {} (+ {})",
+                    i,
+                    first_stacks_block_height
                 );
             }
 
@@ -4253,7 +4261,9 @@ mod test {
             for i in 1..(num_blocks - 1) {
                 assert!(
                     peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height),
-                    format!("Missing microblock {} (+ {})", i, first_stacks_block_height)
+                    "Missing microblock {} (+ {})",
+                    i,
+                    first_stacks_block_height
                 );
             }
 
@@ -4275,7 +4285,9 @@ mod test {
             for i in 0..num_blocks {
                 assert!(
                     peer_1_inv.has_ith_block(i + first_stacks_block_height),
-                    format!("Missing block {} (+ {})", i, first_stacks_block_height)
+                    "Missing block {} (+ {})",
+                    i,
+                    first_stacks_block_height
                 );
             }
         })
