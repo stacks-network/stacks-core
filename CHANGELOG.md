@@ -14,7 +14,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   hexademical string format and supports integration with other tools. (#2684)
 - `lcov`-compatible coverage reporting has been added to `clarity-cli` for
   Clarity contract testing. (#2592)
-- The `README.md` file has new ocumentation about the release process. (#2726)
+- The `README.md` file has new documentation about the release process. (#2726)
 
 ### Changed
 
