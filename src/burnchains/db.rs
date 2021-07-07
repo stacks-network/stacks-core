@@ -36,8 +36,8 @@ use chainstate::burn::operations::{
 use chainstate::burn::BlockSnapshot;
 use chainstate::stacks::index::MarfTrieId;
 use util::db::{
-    query_row, query_row_panic, query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler,
-    u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
+    opt_u64_to_sql, query_row, query_row_panic, query_rows, sql_pragma, tx_begin_immediate,
+    tx_busy_handler, u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
 };
 
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
@@ -70,8 +70,6 @@ pub trait BurnchainHeaderReader {
         Ok(hdrs.pop())
     }
 }
-
-const NO_ANCHOR_BLOCK: u64 = i64::MAX as u64;
 
 #[derive(Debug, Clone)]
 pub struct BlockCommitMetadata {
@@ -108,18 +106,26 @@ impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
         let block_height = u64::from_column(row, "block_height")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
         let affirmation_id = u64::from_column(row, "affirmation_id")?;
-        let anchor_block_u64 = u64::from_column(row, "anchor_block")?;
-        let anchor_block = if anchor_block_u64 != NO_ANCHOR_BLOCK {
-            Some(anchor_block_u64)
-        } else {
-            None
+        let anchor_block_i64: Option<i64> = row.get_unwrap("anchor_block");
+        let anchor_block = match anchor_block_i64 {
+            Some(ab) => {
+                if ab < 0 {
+                    return Err(DBError::ParseError);
+                }
+                Some(ab as u64)
+            }
+            None => None,
         };
 
-        let anchor_block_descendant_u64 = u64::from_column(row, "anchor_block_descendant")?;
-        let anchor_block_descendant = if anchor_block_descendant_u64 != NO_ANCHOR_BLOCK {
-            Some(anchor_block_descendant_u64)
-        } else {
-            None
+        let anchor_block_descendant_i64: Option<i64> = row.get_unwrap("anchor_block_descendant");
+        let anchor_block_descendant = match anchor_block_descendant_i64 {
+            Some(abd) => {
+                if abd < 0 {
+                    return Err(DBError::ParseError);
+                }
+                Some(abd as u64)
+            }
+            None => None,
         };
 
         Ok(BlockCommitMetadata {
@@ -237,8 +243,8 @@ CREATE TABLE block_commit_metadata (
     vtxindex INTEGER NOT NULL,
     
     affirmation_id INTEGER NOT NULL,
-    anchor_block INTEGER NOT NULL,
-    anchor_block_descendant INTEGER NOT NULL,
+    anchor_block INTEGER,
+    anchor_block_descendant INTEGER,
 
     PRIMARY KEY(burn_block_hash,txid),
     FOREIGN KEY(affirmation_id) REFERENCES affirmation_maps(affirmation_id),
@@ -304,7 +310,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         let sql = "UPDATE block_commit_metadata SET affirmation_id = ?1, anchor_block_descendant = ?2 WHERE burn_block_hash = ?3 AND txid = ?4";
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(affirmation_id)?,
-            &u64_to_sql(anchor_block_descendant.unwrap_or(NO_ANCHOR_BLOCK))?,
+            &opt_u64_to_sql(anchor_block_descendant)?,
             &block_commit.burn_header_hash,
             &block_commit.txid,
         ];
@@ -353,7 +359,7 @@ impl<'a> BurnchainDBTransaction<'a> {
 
     pub fn clear_anchor_block(&self, reward_cycle: u64) -> Result<(), DBError> {
         let sql = "UPDATE block_commit_metadata SET anchor_block = ?1 WHERE anchor_block = ?2";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(NO_ANCHOR_BLOCK)?, &u64_to_sql(reward_cycle)?];
+        let args: &[&dyn ToSql] = &[&(None as Option<i64>), &u64_to_sql(reward_cycle)?];
         self.sql_tx
             .execute(sql, args)
             .map(|_| ())
@@ -379,8 +385,8 @@ impl<'a> BurnchainDBTransaction<'a> {
 
         let sql = "UPDATE block_commit_metadata SET affirmation_id = 0, anchor_block = ?1, anchor_block_descendant = ?2 WHERE block_height >= ?3 AND block_height < ?4";
         let args: &[&dyn ToSql] = &[
-            &u64_to_sql(NO_ANCHOR_BLOCK)?,
-            &u64_to_sql(NO_ANCHOR_BLOCK)?,
+            &(None as Option<i64>),
+            &(None as Option<i64>),
             &u64_to_sql(first_block_height)?,
             &u64_to_sql(last_block_height)?,
         ];
@@ -798,8 +804,8 @@ impl<'a> BurnchainDBTransaction<'a> {
             &bcm.txid,
             &u64_to_sql(bcm.block_height)?,
             &bcm.vtxindex,
-            &u64_to_sql(bcm.anchor_block.unwrap_or(NO_ANCHOR_BLOCK))?,
-            &u64_to_sql(bcm.anchor_block_descendant.unwrap_or(NO_ANCHOR_BLOCK))?,
+            &opt_u64_to_sql(bcm.anchor_block)?,
+            &opt_u64_to_sql(bcm.anchor_block_descendant)?,
             &u64_to_sql(bcm.affirmation_id)?,
         ];
         stmt.execute(args)?;
@@ -1149,7 +1155,7 @@ impl BurnchainDB {
         txid: &Txid,
     ) -> Result<bool, DBError> {
         let sql = "SELECT 1 FROM block_commit_metadata WHERE anchor_block != ?1 AND burn_block_hash = ?2 AND txid = ?3";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(NO_ANCHOR_BLOCK)?, burn_header_hash, txid];
+        let args: &[&dyn ToSql] = &[&(None as Option<i64>), burn_header_hash, txid];
         query_row(conn, sql, args)?.ok_or(DBError::NotFoundError)
     }
 
@@ -1163,10 +1169,6 @@ impl BurnchainDB {
         conn: &DBConn,
         reward_cycle: u64,
     ) -> Result<Option<(LeaderBlockCommitOp, BlockCommitMetadata)>, DBError> {
-        if reward_cycle == NO_ANCHOR_BLOCK {
-            return Ok(None);
-        }
-
         let sql = "SELECT * FROM block_commit_metadata WHERE anchor_block = ?1";
         let args: &[&dyn ToSql] = &[&u64_to_sql(reward_cycle)?];
         let commit_metadata = match query_row::<BlockCommitMetadata, _>(conn, sql, args)? {
@@ -1368,7 +1370,7 @@ impl BurnchainDB {
                                FROM affirmation_maps JOIN block_commit_metadata ON affirmation_maps.affirmation_id = block_commit_metadata.affirmation_id \
                                WHERE block_commit_metadata.anchor_block != ?1 \
                                ORDER BY affirmation_maps.weight DESC, block_commit_metadata.anchor_block DESC",
-                        &[&u64_to_sql(NO_ANCHOR_BLOCK)?]
+                        &[&(None as Option<i64>)]
         )? {
             Some(metadata) => {
                 let commit = BurnchainDB::get_block_commit(conn, &metadata.txid)?
