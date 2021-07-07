@@ -593,7 +593,7 @@ impl TestBurnchainBlock {
         );
 
         let header = block.header();
-        let indexer: BitcoinIndexer = burnchain.make_indexer().unwrap();
+        let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
 
         let mut burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap();
         burnchain_db

@@ -2687,7 +2687,7 @@ pub mod test {
                 let mut burnchain_db =
                     BurnchainDB::open(&self.config.burnchain.get_burnchaindb_path(), true).unwrap();
 
-                let indexer: BitcoinIndexer = self.config.burnchain.make_indexer().unwrap();
+                let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
                 burnchain_db
                     .raw_store_burnchain_block(
                         &self.config.burnchain,

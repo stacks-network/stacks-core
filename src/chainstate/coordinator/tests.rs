@@ -173,7 +173,7 @@ fn produce_burn_block_do_not_set_height<'a, I: Iterator<Item = &'a mut Burnchain
         parent_block_hash: par.clone(),
     };
 
-    let mut indexer: BitcoinIndexer = burnchain_conf.make_indexer().unwrap();
+    let mut indexer = BitcoinIndexer::new_unit_test(&burnchain_conf.working_dir);
     indexer.raw_store_header(header.clone()).unwrap();
 
     for op in ops.iter_mut() {
