@@ -233,7 +233,7 @@ CREATE INDEX affirmation_maps_index ON affirmation_maps(affirmation_map);
 
 -- ensure anchor block uniqueness
 CREATE TABLE anchor_blocks (
-    reward_cycle INTEGER PRIMARY KEY  -- will be i64::MAX if absent
+    reward_cycle INTEGER PRIMARY KEY
 );
 
 CREATE TABLE block_commit_metadata (
@@ -260,7 +260,6 @@ CREATE TABLE overrides (
 CREATE TABLE db_config(version TEXT NOT NULL);
 
 INSERT INTO affirmation_maps(affirmation_id,weight,affirmation_map) VALUES (0,0,""); -- empty affirmation map
-INSERT INTO anchor_blocks(reward_cycle) VALUES (9223372036854775807); -- non-existant reward cycle (i64::MAX)
 "#;
 
 impl<'a> BurnchainDBTransaction<'a> {
@@ -358,8 +357,8 @@ impl<'a> BurnchainDBTransaction<'a> {
     }
 
     pub fn clear_anchor_block(&self, reward_cycle: u64) -> Result<(), DBError> {
-        let sql = "UPDATE block_commit_metadata SET anchor_block = ?1 WHERE anchor_block = ?2";
-        let args: &[&dyn ToSql] = &[&(None as Option<i64>), &u64_to_sql(reward_cycle)?];
+        let sql = "UPDATE block_commit_metadata SET anchor_block = NULL WHERE anchor_block = ?1";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(reward_cycle)?];
         self.sql_tx
             .execute(sql, args)
             .map(|_| ())
@@ -383,10 +382,8 @@ impl<'a> BurnchainDBTransaction<'a> {
             last_block_height
         );
 
-        let sql = "UPDATE block_commit_metadata SET affirmation_id = 0, anchor_block = ?1, anchor_block_descendant = ?2 WHERE block_height >= ?3 AND block_height < ?4";
+        let sql = "UPDATE block_commit_metadata SET affirmation_id = 0, anchor_block = NULL, anchor_block_descendant = NULL WHERE block_height >= ?1 AND block_height < ?2";
         let args: &[&dyn ToSql] = &[
-            &(None as Option<i64>),
-            &(None as Option<i64>),
             &u64_to_sql(first_block_height)?,
             &u64_to_sql(last_block_height)?,
         ];
@@ -1154,8 +1151,8 @@ impl BurnchainDB {
         burn_header_hash: &BurnchainHeaderHash,
         txid: &Txid,
     ) -> Result<bool, DBError> {
-        let sql = "SELECT 1 FROM block_commit_metadata WHERE anchor_block != ?1 AND burn_block_hash = ?2 AND txid = ?3";
-        let args: &[&dyn ToSql] = &[&(None as Option<i64>), burn_header_hash, txid];
+        let sql = "SELECT 1 FROM block_commit_metadata WHERE anchor_block IS NOT NULL AND burn_block_hash = ?1 AND txid = ?2";
+        let args: &[&dyn ToSql] = &[burn_header_hash, txid];
         query_row(conn, sql, args)?.ok_or(DBError::NotFoundError)
     }
 
@@ -1368,9 +1365,9 @@ impl BurnchainDB {
         match query_row::<BlockCommitMetadata, _>(
                         conn, "SELECT block_commit_metadata.* \
                                FROM affirmation_maps JOIN block_commit_metadata ON affirmation_maps.affirmation_id = block_commit_metadata.affirmation_id \
-                               WHERE block_commit_metadata.anchor_block != ?1 \
+                               WHERE block_commit_metadata.anchor_block IS NOT NULL \
                                ORDER BY affirmation_maps.weight DESC, block_commit_metadata.anchor_block DESC",
-                        &[&(None as Option<i64>)]
+                        NO_PARAMS
         )? {
             Some(metadata) => {
                 let commit = BurnchainDB::get_block_commit(conn, &metadata.txid)?
