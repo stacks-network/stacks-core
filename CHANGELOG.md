@@ -29,8 +29,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - The UTXO staleness check is re-ordered so that it occurs before the RBF-limit
   check. This way, if stale UTXOs reached the "RBF limit" a miner will recover
   by resetting the UTXO cache. (#2694)
-- A bug is fixed in the mocknet/helium miner had a logic bug that would lead to
-  a panic if a burn block occurred without a sortition in it. (#2711)
+- A bug is fixed in the mocknet/helium miner that would lead to a panic if a
+  burn block occurred without a sortition in it. (#2711)
 - Documentation is fixed in cases where string and buffer types are allowed
   but not covered in the documentation.  (#2676)
 
