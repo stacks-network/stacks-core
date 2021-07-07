@@ -23,11 +23,12 @@ use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::{handle_binding_list, NativeFunctions};
 use vm::types::{
     BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
-    TraitIdentifier, TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64,
-    BUFF_65, MAX_VALUE_SIZE,
+    QualifiedContractIdentifier, TraitIdentifier, TupleTypeSignature, TypeSignature, Value,
+    BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };
 use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 
+use vm::analysis::AnalysisDatabase;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath};
 
@@ -435,6 +436,34 @@ fn check_contract_call(
     }
 
     Ok(expected_sig.returns)
+}
+
+pub fn bench_analysis_get_function_entry_in_context(
+    db: &mut AnalysisDatabase,
+    contract_identifier: &QualifiedContractIdentifier,
+    func_name: &ClarityName,
+) -> FunctionSignature {
+    let contract_call_function = {
+        if let Some(FunctionType::Fixed(function)) = db
+            .get_public_function_type(&contract_identifier, func_name)
+            .unwrap()
+        {
+            Ok(function)
+        } else if let Some(FunctionType::Fixed(function)) = db
+            .get_read_only_function_type(&contract_identifier, func_name)
+            .unwrap()
+        {
+            Ok(function)
+        } else {
+            Err(CheckError::new(CheckErrors::NoSuchPublicFunction(
+                contract_identifier.to_string(),
+                func_name.to_string(),
+            )))
+        }
+    }
+    .unwrap();
+
+    FunctionSignature::from(contract_call_function)
 }
 
 pub fn bench_check_contract_call(
