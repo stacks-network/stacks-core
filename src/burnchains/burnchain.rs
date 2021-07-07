@@ -567,19 +567,6 @@ impl Burnchain {
         Ok(())
     }
 
-    pub fn make_indexer<I: BurnchainIndexer + BurnchainHeaderReader>(
-        &self,
-    ) -> Result<I, burnchain_error> {
-        Burnchain::setup_chainstate_dirs(&self.working_dir)?;
-
-        let indexer: I = BurnchainIndexer::init(
-            &self.working_dir,
-            &self.network_name,
-            self.first_block_height,
-        )?;
-        Ok(indexer)
-    }
-
     fn setup_chainstate<I: BurnchainIndexer>(
         &self,
         indexer: &mut I,
@@ -621,16 +608,14 @@ impl Burnchain {
         db_path
     }
 
-    pub fn connect_db<I: BurnchainIndexer>(
+    pub fn connect_db(
         &self,
-        indexer: &I,
         readwrite: bool,
+        first_block_header_hash: BurnchainHeaderHash,
+        first_block_header_timestamp: u64,
+        epochs: Vec<StacksEpoch>,
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir)?;
-
-        let first_block_header_hash = indexer.get_first_block_header_hash()?;
-        let first_block_header_timestamp = indexer.get_first_block_header_timestamp()?;
-        let epochs = indexer.get_stacks_epochs();
 
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
@@ -984,7 +969,13 @@ impl Burnchain {
         mut indexer: I,
     ) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
         self.setup_chainstate(&mut indexer)?;
-        let (mut sortdb, mut burnchain_db) = self.connect_db(&indexer, true)?;
+        let (mut sortdb, mut burnchain_db) = self.connect_db(
+            true,
+            indexer.get_first_block_header_hash()?,
+            indexer.get_first_block_header_timestamp()?,
+            indexer.get_stacks_epochs(),
+        )?;
+
         let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
             error!("Failed to query burn chain tip from burn DB: {}", e);
             e
@@ -1202,7 +1193,13 @@ impl Burnchain {
         I: BurnchainIndexer + BurnchainHeaderReader + 'static + Send,
     {
         self.setup_chainstate(&mut indexer)?;
-        let (_, mut burnchain_db) = self.connect_db(&mut indexer, true)?;
+        let (_, mut burnchain_db) = self.connect_db(
+            true,
+            indexer.get_first_block_header_hash()?,
+            indexer.get_first_block_header_timestamp()?,
+            indexer.get_stacks_epochs(),
+        )?;
+
         let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
             error!("Failed to query burn chain tip from burn DB: {}", e);
             e

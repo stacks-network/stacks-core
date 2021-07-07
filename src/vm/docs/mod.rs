@@ -173,6 +173,154 @@ const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(to-int u238) ;; Returns 238"
 };
 
+const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-int-le (buff 16))",
+    description: "Converts a byte buffer to a signed integer use a little-endian encoding.
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a little-endian encoding, the input behaves as if it is
+zero-padded on the _right_.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(buff-to-int-le 0x01) ;; Returns 1
+(buff-to-int-le 0x01000000000000000000000000000000) ;; Returns 1
+(buff-to-int-le 0xffffffffffffffffffffffffffffffff) ;; Returns -1
+(buff-to-int-le 0x) ;; Returns 0
+"#,
+};
+
+const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-uint-le (buff 16))",
+    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding..
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a little-endian encoding, the input behaves as if it is
+zero-padded on the _right_.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(buff-to-uint-le 0x01) ;; Returns u1
+(buff-to-uint-le 0x01000000000000000000000000000000) ;; Returns u1
+(buff-to-uint-le 0xffffffffffffffffffffffffffffffff) ;; Returns u340282366920938463463374607431768211455
+(buff-to-uint-le 0x) ;; Returns u0
+"#,
+};
+
+const BUFF_TO_INT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-int-be (buff 16))",
+    description: "Converts a byte buffer to a signed integer use a big-endian encoding.
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a big-endian encoding, the input behaves as if it is
+zero-padded on the _left_.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(buff-to-int-be 0x01) ;; Returns 1
+(buff-to-int-be 0x00000000000000000000000000000001) ;; Returns 1
+(buff-to-int-be 0xffffffffffffffffffffffffffffffff) ;; Returns -1
+(buff-to-int-be 0x) ;; Returns 0
+"#,
+};
+
+const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(buff-to-uint-be (buff 16))",
+    description: "Converts a byte buffer to an unsigned integer use a big-endian encoding.
+The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
+this function uses a big-endian encoding, the input behaves as if it is
+zero-padded on the _left_.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(buff-to-uint-be 0x01) ;; Returns u1
+(buff-to-uint-be 0x00000000000000000000000000000001) ;; Returns u1
+(buff-to-uint-be 0xffffffffffffffffffffffffffffffff) ;; Returns u340282366920938463463374607431768211455
+(buff-to-uint-be 0x) ;; Returns u0
+"#,
+};
+
+const IS_STANDARD_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(is-standard standard-or-contract-principal)",
+    description: "Tests whether `standard-or-contract-principal` _matches_ the current network
+type, and therefore represents a principal that can spend tokens on the current
+network type. That is, the network is either of type `mainnet`, or `testnet`.
+Only `SPxxxx` and `SMxxxx` _c32check form_ addresses can spend tokens on
+a mainnet, whereas only `STxxxx` and `SNxxxx` _c32check forms_ addresses can spend
+tokens on a testnet. All addresses can _receive_ tokens, but only principal
+_c32check form_ addresses that match the network type can _spend_ tokens on the
+network.  This method will return `true` if and only if the principal matches
+the network type, and false otherwise.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; returns true on testnet and false on mainnet
+(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; returns true on testnet and false on mainnet
+(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; returns true on mainnet and false on testnet
+(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; returns true on mainnet and false on testnet
+(is-standard 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns false on both mainnet and testnet
+"#,
+};
+
+const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(string-to-int (string-ascii|string-utf8))",
+    description: "Converts a string, either `string-ascii` or `string-utf8`, to an optional-wrapped signed integer.
+If the input string does not represent a valid integer, then the function returns `none`. Otherwise it returns
+an integer wrapped in `some`.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(string-to-int "1") ;; Returns (some 1)
+(string-to-int u"-1") ;; Returns (some -1)
+(string-to-int "a") ;; Returns none
+"#,
+};
+
+const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(string-to-uint (string-ascii|string-utf8))",
+    description:
+        "Converts a string, either `string-ascii` or `string-utf8`, to an optional-wrapped unsigned integer.
+If the input string does not represent a valid integer, then the function returns `none`. Otherwise it returns
+an unsigned integer wrapped in `some`.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(string-to-uint "1") ;; Returns (some u1)
+(string-to-uint u"1") ;; Returns (some u1)
+(string-to-uint "a") ;; Returns none
+"#,
+};
+
+const INT_TO_ASCII_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(int-to-ascii (int|uint))",
+    description: "Converts an integer, either `int` or `uint`, to a `string-ascii` string-value representation.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(int-to-ascii 1) ;; Returns "1"
+(int-to-ascii u1) ;; Returns "1"
+(int-to-ascii -1) ;; Returns "-1"
+"#,
+};
+
+const INT_TO_UTF8_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(int-to-utf8 (int|uint))",
+    description: "Converts an integer, either `int` or `uint`, to a `string-utf8` string-value representation.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(int-to-utf8 1) ;; Returns u"1"
+(int-to-utf8 u1) ;; Returns u"1"
+(int-to-utf8 -1) ;; Returns u"-1"
+"#,
+};
+
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("+ (add)"),
     signature: "(+ i1 i2...)",
@@ -470,50 +618,89 @@ inputted value.",
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A, B, ..., N) -> X, (list A1 A2 ... Am), (list B1 B2 ... Bm), ..., (list N1 N2 ... Nm)",
+    input_type: "Function(A, B, ..., N) -> X, sequence_A, sequence_B, ..., sequence_N",
     output_type: "(list X)",
-    signature: "(map func list-A list-B ... list-N)",
-    description: "The `map` function applies the input function `func` to each element of the
-input lists, and outputs a list containing the _outputs_ from those function applications.",
-    example: "
+    signature: "(map func sequence_A sequence_B ... sequence_N)",
+    description: "The `map` function applies the function `func` to each corresponding element of the input sequences,
+and outputs a _list_ of the same type containing the outputs from those function applications.
+Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
+for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+The `func` argument must be a literal function name.
+Also, note that, no matter what kind of sequences the inputs are, the output is always a list.",
+    example: r#"
 (map not (list true false true false)) ;; Returns (false true false true)
-(map + (list 1 2 3) (list 1 2 3) (list 1 2 3)) ;; Returns (3 6 9)",
+(map + (list 1 2 3) (list 1 2 3) (list 1 2 3)) ;; Returns (3 6 9)
+(define-private (a-or-b (char (string-utf8 1))) (if (is-eq char u"a") u"a" u"b"))
+(map a-or-b u"aca") ;; Returns (u"a" u"b" u"a")
+(define-private (zero-or-one (char (buff 1))) (if (is-eq char 0x00) 0x00 0x01))
+(map zero-or-one 0x000102) ;; Returns (0x00 0x01 0x01)
+"#,
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A) -> bool, (list A)",
-    output_type: "(list A)",
-    signature: "(filter func list)",
+    input_type: "Function(A) -> bool, sequence_A",
+    output_type: "sequence_A",
+    signature: "(filter func sequence)",
     description: "The `filter` function applies the input function `func` to each element of the
-input list, and returns the same list with any elements removed for which the `func` returned `false`.",
-    example: "(filter not (list true false true false)) ;; Returns (false false)"
+input sequence, and returns the same sequence with any elements removed for which `func` returned `false`.
+Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
+for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+The `func` argument must be a literal function name.
+",
+    example: r#"
+(filter not (list true false true false)) ;; Returns (false false)
+(define-private (is-a (char (string-utf8 1))) (is-eq char u"a"))
+(filter is-a u"acabd") ;; Returns u"aa"
+(define-private (is-zero (char (buff 1))) (is-eq char 0x00))
+(filter is-zero 0x00010002) ;; Returns 0x0000
+"#,
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
-    input_type: "Function(A, B) -> B, (list A), B",
+    input_type: "Function(A, B) -> B, sequence_A, B",
     output_type: "B",
-    signature: "(fold func list initial-value)",
-    description: "The `fold` special form applies the input function `func` to each element of the
-input list _and_ the output of the previous application of the `fold` function. When invoked on
-the first list element, it uses the `initial-value` as the second input. `fold` returns the last
-value returned by the successive applications. Note that the first argument is not evaluated thus
-has to be a literal function name.",
-    example: "(fold * (list 2 2 2) 1) ;; Returns 8
+    signature: "(fold func sequence_A initial_B)",
+    description: "The `fold` function condenses `sequence_A` into a value of type
+`B` by recursively applies the function `func` to each element of the
+input sequence _and_ the output of a previous application of `func`.
+
+`fold` uses `initial_B` in the initial application of `func`, along with the
+first element of `sequence_A`. The resulting value of type `B` is used for the
+next application of `func`, along with the next element of `sequence_A` and so
+on. `fold` returns the last value of type `B` returned by these successive
+applications `func`.
+
+Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
+for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+The `func` argument must be a literal function name.
+",
+    example: r#"
+(fold * (list 2 2 2) 1) ;; Returns 8
 (fold * (list 2 2 2) 0) ;; Returns 0
 ;; calculates (- 11 (- 7 (- 3 2)))
 (fold - (list 3 7 11) 2) ;; Returns 5 
 (define-private (concat-string (a (string-ascii 20)) (b (string-ascii 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
-(fold concat-string \"cdef\" \"ab\")   ;; Returns \"fedcab\"
-(fold concat-string (list \"cd\" \"ef\") \"ab\")   ;; Returns \"efcdab\"",
+(fold concat-string "cdef" "ab")   ;; Returns "fedcab"
+(fold concat-string (list "cd" "ef") "ab")   ;; Returns "efcdab"
+(define-private (concat-buff (a (buff 20)) (b (buff 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
+(fold concat-buff 0x03040506 0x0102)   ;; Returns 0x060504030102
+"#,
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
-    input_type: "(buff, buff)|(list, list)",
-    output_type: "buff|list",
-    signature: "(concat buff-a buff-b)",
-    description: "The `concat` function takes two buffers or two lists with the same entry type,
-and returns a concatenated buffer or list of the same entry type, with max_len = max_len_a + max_len_b.",
-    example: "(concat \"hello \" \"world\") ;; Returns \"hello world\""
+    input_type: "sequence_A, sequence_A",
+    output_type: "sequence_A",
+    signature: "(concat sequence1 sequence2)",
+    description: "The `concat` function takes two sequences of the same type,
+and returns a concatenated sequence of the same type, with the resulting
+sequence_len = sequence1_len + sequence2_len.
+Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`.
+",
+    example: r#"
+(concat (list 1 2) (list 3 4)) ;; Returns (1 2 3 4)
+(concat "hello " "world") ;; Returns "hello world"
+(concat 0x0102 0x0304) ;; Returns 0x01020304
+"#,
 };
 
 const APPEND_API: SpecialAPI = SpecialAPI {
@@ -526,59 +713,72 @@ and outputs a list of the same type with max_len += 1.",
 };
 
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|list, uint",
-    output_type: "(optional buff|list)",
-    signature: "(as-max-len? buffer u10)",
-    description: "The `as-max-len?` function takes a length N (must be a literal) and a buffer or list argument, which must be typed as a list
-or buffer of length M and outputs that same list or buffer, but typed with max length N.
-
-This function returns an optional type with the resulting sequence. If the input sequence is less than
-or equal to the supplied max-len, it returns `(some <sequence>)`, otherwise it returns `none`.",
-    example: "(as-max-len? (list 2 2 2) u3) ;; Returns (some (2 2 2))
-(as-max-len? (list 1 2 3) u2) ;; Returns none"
+    input_type: "sequence_A, uint",
+    output_type: "sequence_A",
+    signature: "(as-max-len? sequence max_length)",
+    description:
+        "The `as-max-len?` function takes a sequence argument and a uint-valued, literal length argument.
+The function returns an optional type. If the input sequence length is less than
+or equal to the supplied max_length, this returns `(some sequence)`, otherwise it returns `none`.
+Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`.
+",
+    example: r#"
+(as-max-len? (list 2 2 2) u3) ;; Returns (some (2 2 2))
+(as-max-len? (list 1 2 3) u2) ;; Returns none
+(as-max-len? "hello" u10) ;; Returns (some "hello")
+(as-max-len? 0x010203 u10) ;; Returns (some 0x010203)
+"#,
 };
 
 const LEN_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|list",
+    input_type: "sequence_A",
     output_type: "uint",
-    signature: "(len buffer)",
-    description: "The `len` function returns the length of a given buffer or list.",
-    example: "(len \"blockstack\") ;; Returns u10
+    signature: "(len sequence)",
+    description: "The `len` function returns the length of a given sequence.
+Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`.
+    ",
+    example: r#"
+(len "blockstack") ;; Returns u10
 (len (list 1 2 3 4 5)) ;; Returns u5
-",
+(len 0x010203) ;; Returns u3
+"#,
 };
 
 const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|list A, uint",
-    output_type: "(optional buff|A)",
+    input_type: "sequence_A, uint",
+    output_type: "(optional A)",
     signature: "(element-at sequence index)",
-    description:
-        "The `element-at` function returns the element at `index` in the provided sequence.
-If `index` is greater than or equal to `(len sequence)`, this function returns `none`.
-For strings and buffers, this function will return 1-length strings or buffers.",
-    example: "(element-at \"blockstack\" u5) ;; Returns (some \"s\")
+    description: "The `element-at` function returns the element at `index` in the provided sequence.
+Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
+for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+",
+    example: r#"
+(element-at "blockstack" u5) ;; Returns (some "s")
 (element-at (list 1 2 3 4 5) u5) ;; Returns none
 (element-at (list 1 2 3 4 5) (+ u1 u2)) ;; Returns (some 4)
-(element-at \"abcd\" u1) ;; Returns (some \"b\")
+(element-at "abcd" u1) ;; Returns (some "b")
 (element-at 0xfb01 u1) ;; Returns (some 0x01)
-",
+"#,
 };
 
 const INDEX_OF_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|list A, buff|A",
+    input_type: "sequence_A, A",
     output_type: "(optional uint)",
     signature: "(index-of sequence item)",
     description: "The `index-of` function returns the first index at which `item` can be
-found in the provided sequence (using `is-eq` checks).
-
-If this item is not found in the sequence (or an empty string/buffer is supplied), this
-function returns `none`.",
-    example: "(index-of \"blockstack\" \"b\") ;; Returns (some u0)
-(index-of \"blockstack\" \"k\") ;; Returns (some u4)
-(index-of \"blockstack\" \"\") ;; Returns none
+found, using `is-eq` checks, in the provided sequence.
+Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
+for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+If the target item is not found in the sequence (or if an empty string or buffer is
+supplied), this function returns `none`.
+",
+    example: r#"
+(index-of "blockstack" "b") ;; Returns (some u0)
+(index-of "blockstack" "k") ;; Returns (some u4)
+(index-of "blockstack" "") ;; Returns none
 (index-of (list 1 2 3 4 5) 6) ;; Returns none
 (index-of 0xfb01 0x01) ;; Returns (some u1)
-",
+"#,
 };
 
 const LIST_API: SpecialAPI = SpecialAPI {
@@ -1242,15 +1442,13 @@ be invoked by other contracts via `contract-call?`.",
 };
 
 const DEFINE_MAP_API: DefineAPI = DefineAPI {
-    input_type: "MapName, KeyTupleDefinition, MapTupleDefinition",
+    input_type: "MapName, TypeDefinition, TypeDefinition",
     output_type: "Not Applicable",
-    signature: "(define-map map-name ((key-name-0 key-type-0) ...) ((val-name-0 val-type-0) ...))",
+    signature: "(define-map map-name key-type value-type)",
     description: "`define-map` is used to define a new datamap for use in a smart contract. Such
 maps are only modifiable by the current smart contract.
 
-Maps are defined with a key tuple type and value tuple type. These are defined using a list
-of name and type pairs, e.g., a key type might be `((id int))`, which is a tuple with a single \"id\"
-field of type `int`.
+Maps are defined with a key type and value type, often these types are tuple types.
 
 Like other kinds of definition statements, `define-map` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).",
@@ -1584,6 +1782,15 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Subtract => make_for_simple_native(&SUB_API, &Subtract, name),
         Multiply => make_for_simple_native(&MUL_API, &Multiply, name),
         Divide => make_for_simple_native(&DIV_API, &Divide, name),
+        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, &BuffToIntLe, name),
+        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &BuffToUIntLe, name),
+        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
+        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
+        IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
+        StringToInt => make_for_simple_native(&STRING_TO_INT_API, &StringToInt, name),
+        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &StringToUInt, name),
+        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &IntToAscii, name),
+        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, &IntToUtf8, name),
         CmpGeq => make_for_simple_native(&GEQ_API, &CmpGeq, name),
         CmpLeq => make_for_simple_native(&LEQ_API, &CmpLeq, name),
         CmpLess => make_for_simple_native(&LESS_API, &CmpLess, name),
@@ -1658,6 +1865,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, name),
         AtBlock => make_for_special(&AT_BLOCK, name),
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
+        StxGetAccount => make_for_simple_native(&STX_GET_BALANCE, &StxGetAccount, name),
         StxTransfer => make_for_special(&STX_TRANSFER, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
@@ -1762,12 +1970,14 @@ mod test {
         Value,
     };
 
-    use crate::clarity_vm::database::marf::MarfedKV;
     use crate::types::chainstate::VRFSeed;
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
     use crate::types::proof::ClarityMarfTrieId;
-    use crate::vm::analysis::type_check;
+    use crate::{
+        clarity_vm::database::marf::MarfedKV,
+        vm::analysis::type_checker::tests::contracts::type_check,
+    };
 
     use super::make_all_api_reference;
     use super::make_json_api_reference;
@@ -1840,6 +2050,10 @@ mod test {
                 end_height: STACKS_EPOCH_MAX,
             })
         }
+
+        fn get_burn_start_height(&self) -> u32 {
+            0
+        }
     }
 
     fn docs_execute(marf: &mut MarfedKV, program: &str) {
@@ -1878,7 +2092,8 @@ mod test {
         }
 
         let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
-        let mut contract_context = ContractContext::new(contract_id.clone());
+        let mut contract_context =
+            ContractContext::new(contract_id.clone(), crate::vm::ClarityVersion::Clarity2);
         let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
 
         global_context

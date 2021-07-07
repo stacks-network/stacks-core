@@ -27,6 +27,8 @@ use vm::types::{parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSi
 use std::collections::HashMap;
 use vm::variables::NativeVariables;
 
+use crate::vm::ClarityVersion;
+
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
 };
@@ -38,6 +40,7 @@ mod tests;
 pub struct ReadOnlyChecker<'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<ClarityName, bool>,
+    clarity_version: ClarityVersion,
 }
 
 impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
@@ -45,17 +48,18 @@ impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
-        let mut command = ReadOnlyChecker::new(analysis_db);
+        let mut command = ReadOnlyChecker::new(analysis_db, &contract_analysis.clarity_version);
         command.run(contract_analysis)?;
         Ok(())
     }
 }
 
 impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
-    fn new(db: &'a mut AnalysisDatabase<'b>) -> ReadOnlyChecker<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>, version: &ClarityVersion) -> ReadOnlyChecker<'a, 'b> {
         Self {
             db,
             defined_functions: HashMap::new(),
+            clarity_version: version.clone(),
         }
     }
 
@@ -159,7 +163,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         function: &str,
         args: &[SymbolicExpression],
     ) -> Option<CheckResult<bool>> {
-        NativeFunctions::lookup_by_name(function)
+        NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
             .map(|function| self.check_native_function(&function, args))
     }
 
@@ -176,10 +180,15 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | Keccak256 | Equals | If | Sha512 | Sha512Trunc256 | Secp256k1Recover
             | Secp256k1Verify | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet
             | UnwrapErrRet | IsOkay | IsNone | Asserts | Unwrap | UnwrapErr | Match | IsErr
-            | IsSome | TryRet | ToUInt | ToInt | Append | Concat | AsMaxLen | ContractOf
-            | PrincipalOf | ListCons | GetBlockInfo | TupleGet | TupleMerge | Len | Print
-            | AsContract | Begin | FetchVar | GetStxBalance | GetTokenBalance | GetAssetOwner
-            | GetTokenSupply | ElementAt | IndexOf => self.check_all_read_only(args),
+            | IsSome | TryRet | ToUInt | ToInt | BuffToIntLe | BuffToUIntLe | BuffToIntBe
+            | BuffToUIntBe | IntToAscii | IntToUtf8 | StringToInt | StringToUInt | IsStandard
+            | Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo
+            | TupleGet | TupleMerge | Len | Print | AsContract | Begin | FetchVar
+            | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
+            | ElementAt | IndexOf => {
+                // Check all arguments.
+                self.check_all_read_only(args)
+            }
             AtBlock => {
                 check_argument_count(2, args)?;
 

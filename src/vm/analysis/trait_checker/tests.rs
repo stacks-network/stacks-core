@@ -16,8 +16,7 @@
 
 use crate::clarity_vm::database::MemoryBackingStore;
 use vm::analysis::errors::CheckErrors;
-use vm::analysis::mem_type_check;
-use vm::analysis::type_check;
+use vm::analysis::type_checker::tests::{contracts::type_check, mem_type_check};
 use vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
 use vm::ast::errors::ParseErrors;
 use vm::ast::{build_ast, parse};

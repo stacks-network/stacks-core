@@ -561,7 +561,7 @@ impl LeaderBlockCommitOp {
                             .collect();
 
                         if check_recipients.len() == 1 {
-                            // If the number of recipients in the set was even, we need to pad
+                            // If the number of recipients in the set was odd, we need to pad
                             // with a burn address
                             check_recipients
                                 .push(StacksAddress::burn_address(burnchain.is_mainnet()))
@@ -602,8 +602,7 @@ impl LeaderBlockCommitOp {
                         if descended_from_anchor {
                             warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
                         } else {
-                            warn!(
-                                "Invalid block commit: not descended from PoX anchor, but used PoX outputs"
+                            warn!("Invalid block commit: not descended from PoX anchor, but used PoX outputs"
                             );
                         }
                         return Err(op_error::BlockCommitBadOutputs);

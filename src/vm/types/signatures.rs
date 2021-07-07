@@ -67,7 +67,7 @@ pub struct TupleTypeSignature {
     type_map: BTreeMap<ClarityName, TypeSignature>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BufferLength(pub u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,6 +131,13 @@ pub const BUFF_33: TypeSignature = SequenceType(SequenceSubtype::BufferType(Buff
 pub const BUFF_32: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(32)));
 pub const BUFF_20: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(20)));
 pub const BUFF_1: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
+
+pub const ASCII_40: TypeSignature = SequenceType(SequenceSubtype::StringType(
+    StringSubtype::ASCII(BufferLength(40)),
+));
+pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+    StringUTF8Length(40),
+)));
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
@@ -634,6 +641,20 @@ impl TypeSignature {
     pub fn min_string_utf8() -> TypeSignature {
         SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
             1_u32.try_into().unwrap(),
+        )))
+    }
+
+    pub fn max_string_ascii() -> TypeSignature {
+        SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+            BufferLength::try_from(MAX_VALUE_SIZE)
+                .expect("FAIL: Max Clarity Value Size is no longer realizable in ASCII Type"),
+        )))
+    }
+
+    pub fn max_string_utf8() -> TypeSignature {
+        SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+            StringUTF8Length::try_from(MAX_VALUE_SIZE / 4)
+                .expect("FAIL: Max Clarity Value Size is no longer realizable in UTF8 Type"),
         )))
     }
 

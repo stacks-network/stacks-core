@@ -32,12 +32,14 @@ use crate::types::proof::ClarityMarfTrieId;
 
 mod assets;
 mod contracts;
+mod conversions;
 pub mod costs;
 mod datamaps;
 mod defines;
 mod events;
 mod forking;
 mod large_contract;
+mod principals;
 mod sequences;
 mod simple_apply_eval;
 mod traits;

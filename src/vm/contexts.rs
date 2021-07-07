@@ -46,11 +46,14 @@ use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::*;
 use chainstate::stacks::Error as ChainstateError;
 
-use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
+use crate::{core::StacksEpochId, types::chainstate::StacksBlockId};
 
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::version::ClarityVersion;
+
+use vm::coverage::CoverageReporter;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -200,6 +203,7 @@ pub struct GlobalContext<'a> {
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
     pub mainnet: bool,
+    pub coverage_reporting: Option<CoverageReporter>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -218,6 +222,8 @@ pub struct ContractContext {
     pub meta_nft: HashMap<ClarityName, NonFungibleTokenMetadata>,
     pub meta_ft: HashMap<ClarityName, FungibleTokenMetadata>,
     pub data_size: u64,
+    /// track the clarity version of the contract
+    clarity_version: ClarityVersion,
 }
 
 pub struct LocalContext<'a> {
@@ -537,7 +543,10 @@ impl<'a> OwnedEnvironment<'a> {
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(false, database, LimitedCostTracker::new_free()),
-            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            default_contract: ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity1,
+            ),
             call_stack: CallStack::new(),
         }
     }
@@ -549,15 +558,29 @@ impl<'a> OwnedEnvironment<'a> {
 
         OwnedEnvironment {
             context: GlobalContext::new(false, database, cost_track),
-            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            default_contract: ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity1,
+            ),
             call_stack: CallStack::new(),
         }
+    }
+
+    pub fn set_coverage_reporter(&mut self, reporter: CoverageReporter) {
+        self.context.coverage_reporting = Some(reporter)
+    }
+
+    pub fn take_coverage_reporter(&mut self) -> Option<CoverageReporter> {
+        self.context.coverage_reporting.take()
     }
 
     pub fn new_free(mainnet: bool, database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, database, LimitedCostTracker::new_free()),
-            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            default_contract: ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity1,
+            ),
             call_stack: CallStack::new(),
         }
     }
@@ -569,7 +592,10 @@ impl<'a> OwnedEnvironment<'a> {
     ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, database, cost_tracker),
-            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            default_contract: ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity1,
+            ),
             call_stack: CallStack::new(),
         }
     }
@@ -1107,11 +1133,22 @@ impl<'a, 'b> Environment<'a, 'b> {
             let memory_use = contract_string.len() as u64;
             self.add_memory(memory_use)?;
 
+            let version = ClarityVersion::default_for_epoch(
+                match self.global_context.database.get_current_stacks_epoch() {
+                    Some(x) => x.epoch_id,
+                    None => {
+                        warn!("Failed to get current stacks epoch, defaulting to 2.0");
+                        StacksEpochId::Epoch20
+                    }
+                },
+            );
+
             let result = Contract::initialize_from_ast(
                 contract_identifier.clone(),
                 contract_content,
                 self.sponsor.clone(),
                 &mut self.global_context,
+                version,
             );
             self.drop_memory(memory_use);
             result
@@ -1382,6 +1419,7 @@ impl<'a> GlobalContext<'a> {
             asset_maps: Vec::new(),
             event_batches: Vec::new(),
             mainnet,
+            coverage_reporting: None,
         }
     }
 
@@ -1546,7 +1584,10 @@ impl<'a> GlobalContext<'a> {
 }
 
 impl ContractContext {
-    pub fn new(contract_identifier: QualifiedContractIdentifier) -> Self {
+    pub fn new(
+        contract_identifier: QualifiedContractIdentifier,
+        clarity_version: ClarityVersion,
+    ) -> Self {
         Self {
             contract_identifier,
             variables: HashMap::new(),
@@ -1559,6 +1600,7 @@ impl ContractContext {
             meta_data_var: HashMap::new(),
             meta_nft: HashMap::new(),
             meta_ft: HashMap::new(),
+            clarity_version,
         }
     }
 
@@ -1582,11 +1624,15 @@ impl ContractContext {
     }
 
     pub fn is_name_used(&self, name: &str) -> bool {
-        is_reserved(name)
+        is_reserved(name, self.get_clarity_version())
             || self.variables.contains_key(name)
             || self.functions.contains_key(name)
             || self.persisted_names.contains(name)
             || self.defined_traits.contains_key(name)
+    }
+
+    pub fn get_clarity_version(&self) -> &ClarityVersion {
+        &self.clarity_version
     }
 }
 

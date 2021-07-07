@@ -114,7 +114,7 @@ fn eval_with_new_binding(
     context: &LocalContext,
 ) -> Result<Value> {
     let mut inner_context = context.extend()?;
-    if vm::is_reserved(&bind_name)
+    if vm::is_reserved(&bind_name, env.contract_context.get_clarity_version())
         || env.contract_context.lookup_function(&bind_name).is_some()
         || inner_context.lookup_variable(&bind_name).is_some()
     {
