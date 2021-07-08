@@ -56,7 +56,7 @@ fn test_boot_definitions() {
 }
 
 #[test]
-fn test_bad_defines_clarity1() {
+fn test_bad_defines() {
     let tests = [
         ("(define-public (foo) (ok 1))", DefineTypeForbidden(DefineFunctions::PublicFunction)),
         ("(define-map foo-map ((a uint)) ((b uint))) (define-private (foo) (map-get? foo-map {a: u1}))", DefineTypeForbidden(DefineFunctions::Map)),
@@ -67,6 +67,7 @@ fn test_bad_defines_clarity1() {
         ("(define-trait foo-trait ((foo (uint)) (response uint uint)))", DefineTypeForbidden(DefineFunctions::Trait)),
     ];
 
+    // Check Clarity1.
     for (contract, error) in tests.iter() {
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity1),
@@ -75,20 +76,8 @@ fn test_bad_defines_clarity1() {
             contract
         );
     }
-}
 
-#[test]
-fn test_bad_defines_clarity2() {
-    let tests = [
-        ("(define-public (foo) (ok 1))", DefineTypeForbidden(DefineFunctions::PublicFunction)),
-        ("(define-map foo-map ((a uint)) ((b uint))) (define-private (foo) (map-get? foo-map {a: u1}))", DefineTypeForbidden(DefineFunctions::Map)),
-        ("(define-data-var foo-var uint u1) (define-private (foo) (var-get foo-var))", DefineTypeForbidden(DefineFunctions::PersistedVariable)),
-        ("(define-fungible-token tokaroos u500)", DefineTypeForbidden(DefineFunctions::FungibleToken)),
-        ("(define-fungible-token tokaroos)", DefineTypeForbidden(DefineFunctions::FungibleToken)),
-        ("(define-non-fungible-token tokaroos uint)", DefineTypeForbidden(DefineFunctions::NonFungibleToken)),
-        ("(define-trait foo-trait ((foo (uint)) (response uint uint)))", DefineTypeForbidden(DefineFunctions::Trait)),
-    ];
-
+    // Check Clarity2.
     for (contract, error) in tests.iter() {
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity2),
