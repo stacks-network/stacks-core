@@ -173,7 +173,7 @@ fn test_variables_fail_arithmetic_check_clarity2() {
             Err(VariableForbidden(NativeVariables::TxSponsor)),
         ),
         (
-            "(define-private (foo) tx-sponsor?)",
+            "(define-private (foo) is-in-mainnet)",
             Err(VariableForbidden(NativeVariables::Mainnet)),
         ),
     ];
