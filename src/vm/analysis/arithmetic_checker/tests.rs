@@ -117,8 +117,7 @@ fn test_variables_fail_arithmetic_check_clarity1() {
             Err(VariableForbidden(NativeVariables::TotalLiquidMicroSTX)),
         ),
         ("(define-private (foo) tx-sponsor?)", Ok(())),
-        ( "(define-private (foo) is-in-mainnet)", Ok(()),
-        ),
+        ("(define-private (foo) is-in-mainnet)", Ok(())),
     ];
 
     for (contract, result) in tests.iter() {
