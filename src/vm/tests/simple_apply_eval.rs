@@ -26,11 +26,11 @@ use vm::callables::DefinedFunction;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
-use vm::tests::{execute, execute_v2};
+use vm::tests::execute;
 use vm::types::signatures::{BufferLength, StringUTF8Length};
 use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
-use vm::{eval, execute as vm_execute, execute_against_version_and_network, execute_v2 as vm_execute_v2};
+use vm::{eval, execute as vm_execute, execute_against_version_and_network};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
 use crate::types::chainstate::StacksAddress;

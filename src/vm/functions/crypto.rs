@@ -121,7 +121,7 @@ pub fn special_principal_of(
     if let Ok(pub_key) = Secp256k1PublicKey::from_slice(&pub_key) {
         // Note: Clarity1 had a bug in how the address is computed (issues/2619).
         // We want to preserve the old behavior unless the version is greater.
-        let addr = if env.contract_context.clarity_version > ClarityVersion::Clarity1 {
+        let addr = if *env.contract_context.get_clarity_version() > ClarityVersion::Clarity1 {
             pubkey_to_address_v2(pub_key, env.global_context.mainnet)
         } else {
             pubkey_to_address_v1(pub_key)
