@@ -31,7 +31,7 @@ use vm::variables::NativeVariables;
 /// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
 /// map would not pass this check).
 /// This check is useful in determining the validity of new potential cost functions.
-fn arithmetic_check(contract: &str) -> Result<(), Error> {
+fn arithmetic_check(contract: &str, version: ClarityVersion) -> Result<(), Error> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let expressions = parse(&contract_identifier, contract).unwrap();
 
@@ -39,7 +39,7 @@ fn arithmetic_check(contract: &str) -> Result<(), Error> {
         contract_identifier,
         expressions,
         LimitedCostTracker::new_free(),
-        ClarityVersion::Clarity1,
+        version,
     );
 
     ArithmeticOnlyChecker::run(&analysis)
@@ -67,9 +67,20 @@ fn test_bad_defines() {
         ("(define-trait foo-trait ((foo (uint)) (response uint uint)))", DefineTypeForbidden(DefineFunctions::Trait)),
     ];
 
+    // Check Clarity1.
     for (contract, error) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract),
+            arithmetic_check(contract, ClarityVersion::Clarity1),
+            Err(error.clone()),
+            "Check contract:\n {}",
+            contract
+        );
+    }
+
+    // Check Clarity2.
+    for (contract, error) in tests.iter() {
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity2),
             Err(error.clone()),
             "Check contract:\n {}",
             contract
@@ -78,42 +89,40 @@ fn test_bad_defines() {
 }
 
 #[test]
-fn test_variables_fail_arithmetic_check() {
+fn test_variables_fail_arithmetic_check_clarity1() {
+    // Tests the behavior using Clarity1.
     let tests = [
         (
             "(define-private (foo) burn-block-height)",
-            VariableForbidden(NativeVariables::BurnBlockHeight),
+            Err(VariableForbidden(NativeVariables::BurnBlockHeight)),
         ),
         (
             "(define-private (foo) block-height)",
-            VariableForbidden(NativeVariables::BlockHeight),
+            Err(VariableForbidden(NativeVariables::BlockHeight)),
         ),
         (
             "(define-private (foo) tx-sender)",
-            VariableForbidden(NativeVariables::TxSender),
+            Err(VariableForbidden(NativeVariables::TxSender)),
         ),
         (
             "(define-private (foo) contract-caller)",
-            VariableForbidden(NativeVariables::ContractCaller),
+            Err(VariableForbidden(NativeVariables::ContractCaller)),
         ),
         (
             "(define-private (foo) is-in-regtest)",
-            VariableForbidden(NativeVariables::Regtest),
+            Err(VariableForbidden(NativeVariables::Regtest)),
         ),
         (
             "(define-private (foo) stx-liquid-supply)",
-            VariableForbidden(NativeVariables::TotalLiquidMicroSTX),
+            Err(VariableForbidden(NativeVariables::TotalLiquidMicroSTX)),
         ),
-        (
-            "(define-private (foo) tx-sponsor?)",
-            VariableForbidden(NativeVariables::TxSponsor),
-        ),
+        ("(define-private (foo) tx-sponsor?)", Ok(())),
     ];
 
-    for (contract, error) in tests.iter() {
+    for (contract, result) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract),
-            Err(error.clone()),
+            arithmetic_check(contract, ClarityVersion::Clarity1),
+            result.clone(),
             "Check contract:\n {}",
             contract
         );
@@ -126,6 +135,50 @@ fn test_variables_fail_arithmetic_check() {
 
     for contract in tests.iter() {
         check_good(contract);
+    }
+}
+
+#[test]
+fn test_variables_fail_arithmetic_check_clarity2() {
+    // Tests the behavior using Clarity2.
+    let tests = [
+        (
+            "(define-private (foo) burn-block-height)",
+            Err(VariableForbidden(NativeVariables::BurnBlockHeight)),
+        ),
+        (
+            "(define-private (foo) block-height)",
+            Err(VariableForbidden(NativeVariables::BlockHeight)),
+        ),
+        (
+            "(define-private (foo) tx-sender)",
+            Err(VariableForbidden(NativeVariables::TxSender)),
+        ),
+        (
+            "(define-private (foo) contract-caller)",
+            Err(VariableForbidden(NativeVariables::ContractCaller)),
+        ),
+        (
+            "(define-private (foo) is-in-regtest)",
+            Err(VariableForbidden(NativeVariables::Regtest)),
+        ),
+        (
+            "(define-private (foo) stx-liquid-supply)",
+            Err(VariableForbidden(NativeVariables::TotalLiquidMicroSTX)),
+        ),
+        (
+            "(define-private (foo) tx-sponsor?)",
+            Err(VariableForbidden(NativeVariables::TxSponsor)),
+        ),
+    ];
+
+    for (contract, result) in tests.iter() {
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity2),
+            result.clone(),
+            "Check contract:\n {}",
+            contract
+        );
     }
 }
 
@@ -212,7 +265,7 @@ fn test_functions() {
     for (contract, error) in bad_tests.iter() {
         eprintln!("{}", contract);
         assert_eq!(
-            arithmetic_check(contract),
+            arithmetic_check(contract, ClarityVersion::Clarity1),
             Err(error.clone()),
             "Check contract:\n {}",
             contract
