@@ -21,9 +21,9 @@ use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::errors::Error;
+use vm::execute as vm_execute;
 use vm::representations::SymbolicExpression;
 use vm::types::{PrincipalData, ResponseData, Value};
-use vm::{execute as vm_execute, execute_v2 as vm_execute_v2};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
@@ -102,10 +102,6 @@ where
 
 pub fn execute(s: &str) -> Value {
     vm_execute(s).unwrap().unwrap()
-}
-
-pub fn execute_v2(s: &str) -> Value {
-    vm_execute_v2(s).unwrap().unwrap()
 }
 
 pub fn symbols_from_values(vec: Vec<Value>) -> Vec<SymbolicExpression> {
