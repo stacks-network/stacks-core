@@ -34,8 +34,8 @@ define_versioned_named_enum!(NativeVariables(ClarityVersion) {
     NativeFalse("false", ClarityVersion::Clarity1),
     TotalLiquidMicroSTX("stx-liquid-supply", ClarityVersion::Clarity1),
     Regtest("is-in-regtest", ClarityVersion::Clarity1),
-    Mainnet("is-in-mainnet", ClarityVersion::Clarity2),
     TxSponsor("tx-sponsor?", ClarityVersion::Clarity2),
+    Mainnet("is-in-mainnet", ClarityVersion::Clarity2),
 });
 
 impl NativeVariables {

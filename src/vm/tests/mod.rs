@@ -45,6 +45,7 @@ mod defines;
 mod events;
 mod forking;
 mod large_contract;
+mod principals;
 mod sequences;
 mod simple_apply_eval;
 mod traits;
