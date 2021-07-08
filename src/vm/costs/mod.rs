@@ -506,6 +506,12 @@ fn load_cost_functions(
         if target_contract == boot_code_id("costs", mainnet) {
             // refering to one of the boot code cost functions
             let target = match ClarityCostFunction::lookup_by_name(&target_function) {
+                Some(ClarityCostFunction::Unimplemented) => {
+                    warn!("Attempted vote on unimplemented cost function";
+                              "confirmed_proposal_id" => confirmed_proposal,
+                              "cost_function" => %target_function);
+                    continue;
+                }
                 Some(cost_func) => cost_func,
                 None => {
                     warn!("Confirmed cost proposal invalid: function-name does not reference a Clarity cost function";
@@ -839,6 +845,11 @@ impl CostTracker for LimitedCostTracker {
         if self.free {
             return Ok(ExecutionCost::zero());
         }
+        if cost_function == ClarityCostFunction::Unimplemented {
+            info!("Used unimplemented cost function");
+            return Ok(ExecutionCost::zero());
+        }
+
         let cost_function_ref = self
             .cost_function_references
             .get(&cost_function)
