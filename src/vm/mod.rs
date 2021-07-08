@@ -366,35 +366,20 @@ pub fn eval_all(
     })
 }
 
-/* Run provided program in an environment specified by the user. This version of the function
-  gives the most leeway to the caller to create a custom environment.
-*/
-fn execute_program_with_context(
+pub fn execute_against_version_and_network(
     program: &str,
-    contract_id: QualifiedContractIdentifier,
-    mut contract_context: ContractContext,
-    mut global_context: GlobalContext,
+    version: ClarityVersion,
+    as_mainnet: bool,
 ) -> Result<Option<Value>> {
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract_context = ContractContext::new(contract_id.clone(), version);
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let mut global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
-}
-
-/* Run provided program in a brand new environment, specifying the ClarityVersion and the
-  network type (mainnet vs testnet). Only used by CLI and unit tests.
-*/
-pub fn execute_against_mainnet(
-    program: &str,
-    clarity_version: ClarityVersion,
-    as_mainnet: bool,
-) -> Result<Option<Value>> {
-    let contract_id = QualifiedContractIdentifier::transient();
-    let contract_context = ContractContext::new(contract_id.clone(), clarity_version);
-    let mut marf = MemoryBackingStore::new();
-    let conn = marf.as_clarity_db();
-    let global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
-    execute_program_with_context(program, contract_id, contract_context, global_context)
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
