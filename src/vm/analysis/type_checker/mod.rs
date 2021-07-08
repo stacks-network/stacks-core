@@ -291,8 +291,8 @@ fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> Chec
     Ok(total_size)
 }
 
-fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
-    if let Some(variable) = NativeVariables::lookup_by_name(variable_name) {
+fn type_reserved_variable(variable_name: &str, version: &ClarityVersion) -> Option<TypeSignature> {
+    if let Some(variable) = NativeVariables::lookup_by_name_at_version(variable_name, version) {
         use vm::variables::NativeVariables::*;
         let var_type = match variable {
             TxSender => TypeSignature::PrincipalType,
@@ -657,7 +657,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     fn lookup_variable(&mut self, name: &str, context: &TypingContext) -> TypeResult {
         runtime_cost(ClarityCostFunction::AnalysisLookupVariableConst, self, 0)?;
 
-        if let Some(type_result) = type_reserved_variable(name) {
+        if let Some(type_result) = type_reserved_variable(name, &self.clarity_version) {
             Ok(type_result)
         } else if let Some(type_result) = self.contract_context.get_variable_type(name) {
             Ok(type_result.clone())
