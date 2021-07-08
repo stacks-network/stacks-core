@@ -180,7 +180,23 @@ impl BitcoinIndexer {
     #[cfg(test)]
     pub fn new_unit_test(working_dir: &str) -> BitcoinIndexer {
         let mut working_dir_path = PathBuf::from(working_dir);
+        if fs::metadata(&working_dir_path).is_err() {
+            fs::create_dir_all(&working_dir_path).unwrap();
+        }
+
         working_dir_path.push("headers.sqlite");
+
+        // instantiate headers DB
+        let _ = SpvClient::new(
+            &working_dir_path.to_str().unwrap().to_string(),
+            0,
+            None,
+            BitcoinNetworkType::Regtest,
+            true,
+            false,
+        )
+        .unwrap();
+
         BitcoinIndexer {
             config: BitcoinIndexerConfig::default_regtest(
                 working_dir_path.to_str().unwrap().to_string(),
