@@ -213,7 +213,7 @@ impl<'a> DefinitionSorter {
                             }
                         } else if let Some(native_function) =
                             // NOTE: can use ClarityVersion::latest() here only as long as NO NEW FUNCTIONS are special cased
-                        //        in the definition sorter.
+                            // in the definition sorter.
                             NativeFunctions::lookup_by_name_at_version(
                             function_name,
                             &ClarityVersion::latest(),
