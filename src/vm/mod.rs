@@ -386,13 +386,7 @@ pub fn execute_against_version_and_network(
  *  database. Only used by CLI and unit tests.
  */
 pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
-    let contract_id = QualifiedContractIdentifier::transient();
-    info!("Executing program using Clarity version = {}", version);
-    let mut contract_context = ContractContext::new(contract_id.clone(), version);
-    let mut marf = MemoryBackingStore::new();
-    let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
-    execute_program_with_context(program, contract_id, contract_context, global_context)
+    execute_against_version_and_network(program, version, false)
 }
 
 /* Run provided program in a brand new environment, with a transient, empty

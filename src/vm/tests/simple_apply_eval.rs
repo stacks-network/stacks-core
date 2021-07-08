@@ -30,7 +30,7 @@ use vm::tests::{execute, execute_v2};
 use vm::types::signatures::{BufferLength, StringUTF8Length};
 use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
-use vm::{eval, execute as vm_execute, execute_against_mainnet, execute_v2 as vm_execute_v2};
+use vm::{eval, execute as vm_execute, execute_against_version_and_network, execute_v2 as vm_execute_v2};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
 use crate::types::chainstate::StacksAddress;
@@ -300,7 +300,7 @@ fn test_principal_of_fix() {
     // Clarity2, mainnet, should have a mainnet principal.
     assert_eq!(
         Value::Principal(mainnet_principal.clone()),
-        execute_against_mainnet(principal_of_program, ClarityVersion::Clarity2, true)
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
     );
@@ -308,7 +308,7 @@ fn test_principal_of_fix() {
     // Clarity2, testnet, should have a testnet principal.
     assert_eq!(
         Value::Principal(testnet_principal.clone()),
-        execute_against_mainnet(principal_of_program, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
     );
@@ -316,7 +316,7 @@ fn test_principal_of_fix() {
     // Clarity1, mainnet, should have a test principal (this is the bug that we need to preserve).
     assert_eq!(
         Value::Principal(testnet_principal.clone()),
-        execute_against_mainnet(principal_of_program, ClarityVersion::Clarity1, true)
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity1, true)
             .unwrap()
             .unwrap()
     );
@@ -324,7 +324,7 @@ fn test_principal_of_fix() {
     // Clarity1, testnet, should have a testnet principal.
     assert_eq!(
         Value::Principal(testnet_principal.clone()),
-        execute_against_mainnet(principal_of_program, ClarityVersion::Clarity1, false)
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity1, false)
             .unwrap()
             .unwrap()
     );
