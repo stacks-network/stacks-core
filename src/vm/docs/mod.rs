@@ -425,6 +425,7 @@ the `>=`-comparable types are expanded to include `string-ascii`, `string-utf8` 
     example: r#"(>= 1 1) ;; Returns true
 (>= 5 2) ;; Returns true
 (>= "baa" "aaa") ;; Returns true
+(>= "aaa" "aa") ;; Returns true
 (>= 0x02 0x01) ;; Returns true
 (>= 5 u2) ;; Throws type error
 "#
@@ -439,6 +440,7 @@ the `<=`-comparable types are expanded to include `string-ascii`, `string-utf8` 
     example: r#"(<= 1 1) ;; Returns true
 (<= 5 2) ;; Returns false
 (<= "aaa" "baa") ;; Returns true
+(<= "aa" "aaa") ;; Returns true
 (<= 0x01 0x02) ;; Returns true
 (<= 5 u2) ;; Throws type error
 "#
@@ -454,6 +456,7 @@ the `>`-comparable types are expanded to include `string-ascii`, `string-utf8` a
     example: r#"(> 1 2) ;; Returns false
 (> 5 2) ;; Returns true
 (> "baa" "aaa") ;; Returns true
+(> "aaa" "aa") ;; Returns true
 (> 0x02 0x01) ;; Returns true
 (> 5 u2) ;; Throws type error
 "#,
@@ -469,6 +472,7 @@ the `<`-comparable types are expanded to include `string-ascii`, `string-utf8` a
     example: r#"(< 1 2) ;; Returns true
 (< 5 2) ;; Returns false
 (< "aaa" "baa") ;; Returns true
+(< "aa" "aaa") ;; Returns true
 (< 0x01 0x02) ;; Returns true
 (< 5 u2) ;; Throws type error
 "#,

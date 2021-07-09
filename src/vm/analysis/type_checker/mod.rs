@@ -228,7 +228,7 @@ impl FunctionType {
 
                 // Note: Clarity2 expanded the comparable types to include ASCII, UTF8 and Buffer.
                 // Int and UInt have been present since Clarity1.
-                let is_clarity2: bool = clarity_version == ClarityVersion::Clarity2;
+                let is_clarity2: bool = clarity_version >= ClarityVersion::Clarity2;
                 // Step 1: Check the first argument on its own, to see that the first argument
                 // has a supported type according to this ClarityVersion.
                 let first_type_supported = match first {

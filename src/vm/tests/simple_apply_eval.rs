@@ -26,7 +26,7 @@ use vm::callables::DefinedFunction;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
-use vm::tests::{execute, execute_v2};
+use vm::tests::execute;
 use vm::types::signatures::{BufferLength, StringUTF8Length};
 use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
@@ -551,6 +551,9 @@ fn test_sequence_comparisons_clarity1() {
         ("(is-eq \"aaa\" \"aaa\")", Value::Bool(true)),
         ("(is-eq u\"aaa\" u\"aaa\")", Value::Bool(true)),
         ("(is-eq 0x010203 0x010203)", Value::Bool(true)),
+        ("(is-eq \"aa\" \"aaa\")", Value::Bool(false)),
+        ("(is-eq u\"aa\" u\"aaa\")", Value::Bool(false)),
+        ("(is-eq 0x0102 0x010203)", Value::Bool(false)),
     ];
 
     // Note: Execute against Clarity1.
@@ -658,7 +661,7 @@ fn test_sequence_comparisons_clarity2() {
     success_tests.iter().for_each(|(program, expectation)| {
         assert_eq!(
             expectation.clone(),
-            execute_v2(program),
+            vm_execute_v2(program).unwrap().unwrap(),
             "{:?}, {:?}",
             program,
             expectation.clone()
@@ -670,7 +673,7 @@ fn test_sequence_comparisons_clarity2() {
 fn test_sequence_comparisons_mismatched_types() {
     // Tests that comparing objects of different types results in an error in Clarity1.
     let error_tests = ["(> 0 u1)", "(< 0 u1)"];
-    let error_expectations: &[Error] = &[
+    let v1_error_expectations: &[Error] = &[
         CheckErrors::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Value::Int(0),
@@ -686,9 +689,39 @@ fn test_sequence_comparisons_mismatched_types() {
     // Note: Execute against Clarity1.
     error_tests
         .iter()
-        .zip(error_expectations)
+        .zip(v1_error_expectations)
         .for_each(|(program, expectation)| {
             assert_eq!(*expectation, vm_execute(program).unwrap_err())
+        });
+
+    let v2_error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
+            Value::Int(0),
+        ).into(),
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
+            Value::Int(0),
+        ).into(),
+    ];
+    // Note: Execute against Clarity2.
+    error_tests
+        .iter()
+        .zip(v2_error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute_v2(program).unwrap_err())
         });
 
     // Tests that comparing objects of different types results in an error in Clarity2.
