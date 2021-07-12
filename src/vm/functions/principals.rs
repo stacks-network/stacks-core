@@ -28,10 +28,13 @@ pub fn special_is_standard(
     let owner = eval(&args[0], env, context)?;
 
     let version = match owner {
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => version,
-        Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier { issuer, name })) => {
-            issuer.0
+        Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, _bytes))) => {
+            version
         }
+        Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier {
+            issuer,
+            name: _,
+        })) => issuer.0,
         _ => return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into()),
     };
 
