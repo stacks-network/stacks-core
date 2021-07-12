@@ -1032,7 +1032,7 @@ const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
 
 Note: Before Stacks 2.1, this function has a bug, in that the principal returned would always
 be a testnet single-signature principal, even if the function were run on the mainnet. Starting
-with Stacks 2.1, this bug is fixed, so that if this function will return a principal suited to
+with Stacks 2.1, this bug is fixed, so that this function will return a principal suited to
 the network it is called on. In particular, if this is called on the mainnet, it will
 return a single-signature mainnet principal.
     ",
