@@ -1432,6 +1432,90 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         Ok(())
     }
 
+    pub fn register_data_var_set_event(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        var: &str,
+        new_value: &Value,
+    ) -> Result<()> {
+        let event_data = VarSetEventData {
+            contract_identifier: contract_identifier.clone(),
+            var: var.to_string(),
+            new_value: new_value.clone(),
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::DataEvent(
+                DataEventType::VarSetEvent(event_data),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn register_data_map_insert_event(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        map: &str,
+        inserted_key: &Value,
+        inserted_value: &Value,
+    ) -> Result<()> {
+        let event_data = MapInsertEventData {
+            contract_identifier: contract_identifier.clone(),
+            map: map.to_string(),
+            inserted_key: inserted_key.clone(),
+            inserted_value: inserted_value.clone(),
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::DataEvent(
+                DataEventType::MapInsertEvent(event_data),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn register_data_map_update_event(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        map: &str,
+        key: &Value,
+        new_value: &Value,
+    ) -> Result<()> {
+        let event_data = MapUpdateEventData {
+            contract_identifier: contract_identifier.clone(),
+            map: map.to_string(),
+            key: key.clone(),
+            new_value: new_value.clone(),
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::DataEvent(
+                DataEventType::MapUpdateEvent(event_data),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn register_data_map_delete_event(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        map: &str,
+        deleted_key: &Value,
+    ) -> Result<()> {
+        let event_data = MapDeleteEventData {
+            contract_identifier: contract_identifier.clone(),
+            map: map.to_string(),
+            deleted_key: deleted_key.clone(),
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::DataEvent(
+                DataEventType::MapDeleteEvent(event_data),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn register_nft_mint_event(
         &mut self,
         recipient: PrincipalData,
