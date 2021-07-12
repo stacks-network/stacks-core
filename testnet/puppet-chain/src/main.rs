@@ -70,10 +70,8 @@ async fn main() -> http_types::Result<()> {
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
         let num_blocks_required = time_since_genesis / block_time.as_secs();
-        let num_blocks_for_miner = 150;
+        let num_blocks_for_miner = 101 + num_blocks_required;
         let num_blocks_for_faucet = 0;
-
-        create_wallet(&config).await;
 
         // Generate blocks for the network faucet
         let faucet_address = config.network.faucet_address.clone();
@@ -92,6 +90,9 @@ async fn main() -> http_types::Result<()> {
             let backoff = Duration::from_millis(1_000);
             sleep(backoff)
         }
+
+        println!("Creating default wallet");
+        create_wallet(&config).await;
     }
 
     // Start a loop in a separate thread, generating new blocks
@@ -427,7 +428,7 @@ impl RPCRequest {
     pub fn is_chain_bootstrapped() -> RPCRequest {
         RPCRequest {
             method: "getblockhash".to_string(),
-            params: serde_json::Value::Array(vec![150.into()]),
+            params: serde_json::Value::Array(vec![101.into()]),
             id: 0.into(),
             jsonrpc: "2.0".to_string().into(),
         }
