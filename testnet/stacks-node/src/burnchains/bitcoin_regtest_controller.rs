@@ -604,7 +604,7 @@ impl BitcoinRegtestController {
             let result = BitcoinRPCRequest::list_unspent(
                 &self.config,
                 filter_addresses.clone(),
-                false,
+                true,
                 total_required,
                 &utxos_to_exclude,
                 block_height,

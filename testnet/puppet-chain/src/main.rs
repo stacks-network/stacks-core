@@ -70,8 +70,10 @@ async fn main() -> http_types::Result<()> {
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
         let num_blocks_required = time_since_genesis / block_time.as_secs();
-        let num_blocks_for_miner = 150 + num_blocks_required;
-        let num_blocks_for_faucet = 150;
+        let num_blocks_for_miner = 150;
+        let num_blocks_for_faucet = 0;
+
+        create_wallet(&config).await;
 
         // Generate blocks for the network faucet
         let faucet_address = config.network.faucet_address.clone();
@@ -320,6 +322,35 @@ async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<
     panic!("Chain height could not be determined")
 }
 
+async fn create_wallet(config: &ConfigFile) {
+    let rpc_addr = config.network.bitcoind_rpc_host.clone();
+
+    let rpc_req = RPCRequest::create_wallet();
+
+    let stream = match TcpStream::connect(rpc_addr).await {
+        Ok(stream) => stream,
+        Err(err) => {
+            println!("ERROR: connection failed  - {:?}", err);
+            return;
+        }
+    };
+    let body = match serde_json::to_vec(&rpc_req) {
+        Ok(body) => body,
+        Err(err) => {
+            println!("ERROR: serialization failed  - {:?}", err);
+            return;
+        }
+    };
+    let req = build_request(&config, body);
+    match client::connect(stream.clone(), req).await {
+        Ok(_) => {}
+        Err(err) => {
+            println!("ERROR: rpc invokation failed  - {:?}", err);
+            return;
+        }
+    };
+}
+
 async fn generate_blocks(blocks_count: u64, address: String, config: &ConfigFile) {
     let rpc_addr = config.network.bitcoind_rpc_host.clone();
 
@@ -396,7 +427,16 @@ impl RPCRequest {
     pub fn is_chain_bootstrapped() -> RPCRequest {
         RPCRequest {
             method: "getblockhash".to_string(),
-            params: serde_json::Value::Array(vec![200.into()]),
+            params: serde_json::Value::Array(vec![150.into()]),
+            id: 0.into(),
+            jsonrpc: "2.0".to_string().into(),
+        }
+    }
+
+    pub fn create_wallet() -> RPCRequest {
+        RPCRequest {
+            method: "createwallet".to_string(),
+            params: serde_json::Value::String("".into()),
             id: 0.into(),
             jsonrpc: "2.0".to_string().into(),
         }
