@@ -8,7 +8,6 @@ use std::io::{BufReader, Read};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, sleep};
 use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_h1::client;
 use async_std::net::{TcpListener, TcpStream};
@@ -21,6 +20,9 @@ use serde_json::Deserializer;
 use toml;
 
 use rand::{thread_rng, Rng};
+
+const FAUCET_SECRET_KEY: &str = "cTYqAVPS7uJTAcxyzkXWjmRGoCjkPcb38wZVRjyXov1RiRDWPQj3";
+const FAUCET_ADDRESS: &str = "n3k15aVS4rEWhVYn4YfAFjD8Em5mmsducg";
 
 #[async_std::main]
 async fn main() -> http_types::Result<()> {
@@ -40,46 +42,22 @@ async fn main() -> http_types::Result<()> {
     if is_chain_bootstrap_required(&config).await? {
         println!("Bootstrapping chain");
 
-        let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(dur) => dur,
-            Err(err) => err.duration(),
-        }
-        .as_secs() as u64;
-
-        let genesis_timestamp = if env::var("DYNAMIC_GENESIS_TIMESTAMP") == Ok("1".into()) {
-            println!(
-                "INFO: detected DYNAMIC_GENESIS_TIMESTAMP, will set the genesis timestamp to {}",
-                now
-            );
-            now.clone()
-        } else {
-            match std::env::var("STATIC_GENESIS_TIMESTAMP") {
-                Ok(val) => match val.parse::<u64>() {
-                    Ok(val) => val,
-                    Err(err) => {
-                        println!("WARN: parsing STATIC_GENESIS_TIMESTAMP failed ({:?}), falling back on {}", err, config.network.genesis_timestamp);
-                        config.network.genesis_timestamp
-                    }
-                },
-                _ => config.network.genesis_timestamp,
-            }
-        };
-
-        let time_since_genesis = now - genesis_timestamp;
-
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
-        let num_blocks_required = time_since_genesis / block_time.as_secs();
-        let num_blocks_for_miner = 101 + num_blocks_required;
-        let num_blocks_for_faucet = 0;
+        let num_blocks_for_faucet = 101;
+        let num_blocks_for_miner = 9;
 
         // Generate blocks for the network faucet
-        let faucet_address = config.network.faucet_address.clone();
-        generate_blocks(num_blocks_for_faucet, faucet_address, &config).await;
+        import_faucet_secret_key(&config).await;
+        generate_blocks(num_blocks_for_faucet, FAUCET_ADDRESS.into(), &config).await;
+
+        // Send 50 BTC from the faucet to the miner
+        let miner_address = config.network.miner_address.clone();
+        transfer_from_faucet_to(miner_address.clone(), "50.0".into(), &config).await;
 
         // Generate blocks for the network miner
-        let miner_address = config.network.miner_address.clone();
-        generate_blocks(num_blocks_for_miner, miner_address, &config).await;
+        generate_blocks(num_blocks_for_miner, miner_address.clone(), &config).await;
+        transfer_from_faucet_to(miner_address.clone(), "200.0".into(), &config).await;
 
         num_blocks = num_blocks_for_miner + num_blocks_for_faucet;
 
@@ -352,6 +330,65 @@ async fn create_wallet(config: &ConfigFile) {
     };
 }
 
+async fn import_faucet_secret_key(config: &ConfigFile) {
+    let rpc_addr = config.network.bitcoind_rpc_host.clone();
+
+    let rpc_req = RPCRequest::importprivkey(FAUCET_SECRET_KEY.into());
+
+    let stream = match TcpStream::connect(rpc_addr).await {
+        Ok(stream) => stream,
+        Err(err) => {
+            println!("ERROR: connection failed  - {:?}", err);
+            return;
+        }
+    };
+    let body = match serde_json::to_vec(&rpc_req) {
+        Ok(body) => body,
+        Err(err) => {
+            println!("ERROR: serialization failed  - {:?}", err);
+            return;
+        }
+    };
+    let req = build_request(&config, body);
+    match client::connect(stream.clone(), req).await {
+        Ok(_) => {}
+        Err(err) => {
+            println!("ERROR: rpc invokation failed  - {:?}", err);
+            return;
+        }
+    };
+}
+
+
+async fn transfer_from_faucet_to(recipient: String, amount: String, config: &ConfigFile) {
+    let rpc_addr = config.network.bitcoind_rpc_host.clone();
+
+    let rpc_req = RPCRequest::transfer(recipient, amount);
+
+    let stream = match TcpStream::connect(rpc_addr).await {
+        Ok(stream) => stream,
+        Err(err) => {
+            println!("ERROR: connection failed  - {:?}", err);
+            return;
+        }
+    };
+    let body = match serde_json::to_vec(&rpc_req) {
+        Ok(body) => body,
+        Err(err) => {
+            println!("ERROR: serialization failed  - {:?}", err);
+            return;
+        }
+    };
+    let req = build_request(&config, body);
+    match client::connect(stream.clone(), req).await {
+        Ok(_) => {}
+        Err(err) => {
+            println!("ERROR: rpc invokation failed  - {:?}", err);
+            return;
+        }
+    };
+}
+
 async fn generate_blocks(blocks_count: u64, address: String, config: &ConfigFile) {
     let rpc_addr = config.network.bitcoind_rpc_host.clone();
 
@@ -425,10 +462,28 @@ impl RPCRequest {
         }
     }
 
+    pub fn importprivkey(secret_key: String) -> RPCRequest {
+        RPCRequest {
+            method: "importprivkey".to_string(),
+            params: serde_json::Value::Array(vec![secret_key.into()]),
+            id: 0.into(),
+            jsonrpc: "2.0".to_string().into(),
+        }
+    }
+
+    pub fn transfer(recipient: String, amount: String) -> RPCRequest {
+        RPCRequest {
+            method: "sendtoaddress".to_string(),
+            params: serde_json::Value::Array(vec![recipient.into(), amount.into()]),
+            id: 0.into(),
+            jsonrpc: "2.0".to_string().into(),
+        }
+    }
+
     pub fn is_chain_bootstrapped() -> RPCRequest {
         RPCRequest {
             method: "getblockhash".to_string(),
-            params: serde_json::Value::Array(vec![101.into()]),
+            params: serde_json::Value::Array(vec![110.into()]),
             id: 0.into(),
             jsonrpc: "2.0".to_string().into(),
         }
@@ -499,16 +554,12 @@ pub struct NetworkConfig {
     block_time: u64,
     /// Address receiving coinbases and mining fee
     miner_address: String,
-    /// Address receiving coinbases and mining fee
-    faucet_address: String,
     /// RPC address used by bitcoind
     bitcoind_rpc_host: String,
     /// Credential - username
     bitcoind_rpc_user: String,
     /// Credential - password
     bitcoind_rpc_pass: String,
-    /// Used for deducting the right amount of blocks
-    genesis_timestamp: u64,
     /// List of whitelisted RPC calls
     whitelisted_rpc_calls: Vec<String>,
 }
