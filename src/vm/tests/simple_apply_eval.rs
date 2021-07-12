@@ -27,11 +27,10 @@ use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::tests::execute;
-use vm::execute_against_version_and_network;
 use vm::types::signatures::BufferLength;
 use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
-use vm::{eval, execute as vm_execute};
+use vm::{eval, execute as vm_execute, execute_against_version_and_network};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
 use crate::types::chainstate::StacksAddress;

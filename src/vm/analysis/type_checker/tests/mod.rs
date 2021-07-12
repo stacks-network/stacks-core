@@ -1329,6 +1329,114 @@ fn test_buffer_to_ints() {
 }
 
 #[test]
+fn test_string_to_ints() {
+    let good = [
+        r#"(int-to-ascii 1)"#,
+        r#"(int-to-ascii u1)"#,
+        r#"(int-to-utf8 1)"#,
+        r#"(int-to-utf8 u1)"#,
+        r#"(string-to-int "1")"#,
+        r#"(string-to-int u"1")"#,
+        r#"(string-to-uint "1")"#,
+        r#"(string-to-uint u"1")"#,
+    ];
+
+    let expected = [
+        "(string-ascii 40)",
+        "(string-ascii 40)",
+        "(string-utf8 40)",
+        "(string-utf8 40)",
+        "(optional int)",
+        "(optional int)",
+        "(optional uint)",
+        "(optional uint)",
+    ];
+
+    let bad = [
+        r#"(int-to-ascii 0x0001 0x0001)"#,
+        r#"(int-to-ascii)"#,
+        r#"(int-to-ascii 0x000102030405060708090a0b0c0d0e0f00)"#,
+        r#"(int-to-ascii "a")"#,
+        r#"(int-to-utf8 0x0001 0x0001)"#,
+        r#"(int-to-utf8)"#,
+        r#"(int-to-utf8 0x000102030405060708090a0b0c0d0e0f00)"#,
+        r#"(int-to-utf8 "a")"#,
+        r#"(string-to-int 0x0001 0x0001)"#,
+        r#"(string-to-int)"#,
+        r#"(string-to-int 0x000102030405060708090a0b0c0d0e0f00)"#,
+        r#"(string-to-int 1)"#,
+        r#"(string-to-uint 0x0001 0x0001)"#,
+        r#"(string-to-uint)"#,
+        r#"(string-to-uint 0x000102030405060708090a0b0c0d0e0f00)"#,
+        r#"(string-to-uint 1)"#,
+    ];
+
+    let bad_expected = [
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 0),
+        CheckErrors::UnionTypeError(
+            vec![IntType, UIntType],
+            SequenceType(BufferType(BufferLength(17))),
+        ),
+        CheckErrors::UnionTypeError(
+            vec![IntType, UIntType],
+            SequenceType(StringType(ASCII(BufferLength(1)))),
+        ),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 0),
+        CheckErrors::UnionTypeError(
+            vec![IntType, UIntType],
+            SequenceType(BufferType(BufferLength(17))),
+        ),
+        CheckErrors::UnionTypeError(
+            vec![IntType, UIntType],
+            SequenceType(StringType(ASCII(BufferLength(1)))),
+        ),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 0),
+        CheckErrors::UnionTypeError(
+            vec![
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+            ],
+            SequenceType(BufferType(BufferLength(17))),
+        ),
+        CheckErrors::UnionTypeError(
+            vec![
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+            ],
+            IntType,
+        ),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 0),
+        CheckErrors::UnionTypeError(
+            vec![
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+            ],
+            SequenceType(BufferType(BufferLength(17))),
+        ),
+        CheckErrors::UnionTypeError(
+            vec![
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+            ],
+            IntType,
+        ),
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
+    }
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(&mem_type_check(bad_test).unwrap_err().err, expected);
+    }
+}
+
+#[test]
 fn test_response_inference() {
     let good = [
         "(define-private (foo (x int)) (err x))

@@ -67,6 +67,7 @@ fn test_bad_defines() {
         ("(define-trait foo-trait ((foo (uint)) (response uint uint)))", DefineTypeForbidden(DefineFunctions::Trait)),
     ];
 
+    // Check Clarity1.
     for (contract, error) in tests.iter() {
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity1),
@@ -75,49 +76,54 @@ fn test_bad_defines() {
             contract
         );
     }
-}
 
-#[test]
-fn test_variables_fail_arithmetic_check() {
-    let tests = [
-        (
-            "(define-private (foo) burn-block-height)",
-            VariableForbidden(NativeVariables::BurnBlockHeight),
-        ),
-        (
-            "(define-private (foo) block-height)",
-            VariableForbidden(NativeVariables::BlockHeight),
-        ),
-        (
-            "(define-private (foo) tx-sender)",
-            VariableForbidden(NativeVariables::TxSender),
-        ),
-        (
-            "(define-private (foo) contract-caller)",
-            VariableForbidden(NativeVariables::ContractCaller),
-        ),
-        (
-            "(define-private (foo) is-in-regtest)",
-            VariableForbidden(NativeVariables::Regtest),
-        ),
-        (
-            "(define-private (foo) is-in-mainnet)",
-            VariableForbidden(NativeVariables::Mainnet),
-        ),
-        (
-            "(define-private (foo) stx-liquid-supply)",
-            VariableForbidden(NativeVariables::TotalLiquidMicroSTX),
-        ),
-        (
-            "(define-private (foo) tx-sponsor?)",
-            VariableForbidden(NativeVariables::TxSponsor),
-        ),
-    ];
-
+    // Check Clarity2.
     for (contract, error) in tests.iter() {
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity2),
             Err(error.clone()),
+            "Check contract:\n {}",
+            contract
+        );
+    }
+}
+
+#[test]
+fn test_variables_fail_arithmetic_check_clarity1() {
+    // Tests the behavior using Clarity1.
+    let tests = [
+        (
+            "(define-private (foo) burn-block-height)",
+            Err(VariableForbidden(NativeVariables::BurnBlockHeight)),
+        ),
+        (
+            "(define-private (foo) block-height)",
+            Err(VariableForbidden(NativeVariables::BlockHeight)),
+        ),
+        (
+            "(define-private (foo) tx-sender)",
+            Err(VariableForbidden(NativeVariables::TxSender)),
+        ),
+        (
+            "(define-private (foo) contract-caller)",
+            Err(VariableForbidden(NativeVariables::ContractCaller)),
+        ),
+        (
+            "(define-private (foo) is-in-regtest)",
+            Err(VariableForbidden(NativeVariables::Regtest)),
+        ),
+        (
+            "(define-private (foo) stx-liquid-supply)",
+            Err(VariableForbidden(NativeVariables::TotalLiquidMicroSTX)),
+        ),
+        ("(define-private (foo) tx-sponsor?)", Ok(())),
+        ("(define-private (foo) is-in-mainnet)", Ok(())),
+    ];
+
+    for (contract, result) in tests.iter() {
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity1),
+            result.clone(),
             "Check contract:\n {}",
             contract
         );
@@ -134,19 +140,48 @@ fn test_variables_fail_arithmetic_check() {
 }
 
 #[test]
-fn test_version_controlled_variables() {
-    // Certain variables are controlled by the ClarityVersion. E.g., in Clarity1, 'tx-sponsor?'
-    // is not a variable, so can be defined over.
-    let ok_tests = [
-        "(define-private (foo) tx-sponsor?)",
-        "(define-private (foo) is-in-mainnet)",
+fn test_variables_fail_arithmetic_check_clarity2() {
+    // Tests the behavior using Clarity2.
+    let tests = [
+        (
+            "(define-private (foo) burn-block-height)",
+            Err(VariableForbidden(NativeVariables::BurnBlockHeight)),
+        ),
+        (
+            "(define-private (foo) block-height)",
+            Err(VariableForbidden(NativeVariables::BlockHeight)),
+        ),
+        (
+            "(define-private (foo) tx-sender)",
+            Err(VariableForbidden(NativeVariables::TxSender)),
+        ),
+        (
+            "(define-private (foo) contract-caller)",
+            Err(VariableForbidden(NativeVariables::ContractCaller)),
+        ),
+        (
+            "(define-private (foo) is-in-regtest)",
+            Err(VariableForbidden(NativeVariables::Regtest)),
+        ),
+        (
+            "(define-private (foo) stx-liquid-supply)",
+            Err(VariableForbidden(NativeVariables::TotalLiquidMicroSTX)),
+        ),
+        (
+            "(define-private (foo) tx-sponsor?)",
+            Err(VariableForbidden(NativeVariables::TxSponsor)),
+        ),
+        (
+            "(define-private (foo) is-in-mainnet)",
+            Err(VariableForbidden(NativeVariables::Mainnet)),
+        ),
     ];
 
-    for contract in ok_tests.iter() {
+    for (contract, result) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract, ClarityVersion::Clarity1),
-            Ok(()),
-            "Check contract is ok:\n {}",
+            arithmetic_check(contract, ClarityVersion::Clarity2),
+            result.clone(),
+            "Check contract:\n {}",
             contract
         );
     }
