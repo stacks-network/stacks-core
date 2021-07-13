@@ -36,7 +36,6 @@ async fn main() -> http_types::Result<()> {
     // Generating block
     // Baseline: 150 for miner, 150 for faucet
     let config = ConfigFile::from_path(&argv[1]);
-    let block_time = Duration::from_millis(config.network.block_time);
     let mut num_blocks = 0;
 
     if is_chain_bootstrap_required(&config).await? {
@@ -298,7 +297,7 @@ async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<
         (_, _) => {}
     }
 
-    panic!("Chain height could not be determined")
+    Ok(true)
 }
 
 async fn create_wallet(config: &ConfigFile) {
