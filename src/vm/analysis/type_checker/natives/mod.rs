@@ -574,6 +574,14 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::IntType,
             }))),
+            IsStandard => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                args: vec![FunctionArg::new(
+                    TypeSignature::PrincipalType,
+                    ClarityName::try_from("value".to_owned())
+                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                )],
+                returns: TypeSignature::BoolType,
+            }))),
             BuffToIntLe | BuffToIntBe => {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![FunctionArg::new(
@@ -710,6 +718,9 @@ impl TypedNativeFunction {
                 .unwrap(),
             }))),
             StxTransfer => Special(SpecialNativeFunction(&assets::check_special_stx_transfer)),
+            StxTransferMemo => Special(SpecialNativeFunction(
+                &assets::check_special_stx_transfer_memo,
+            )),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
             TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),

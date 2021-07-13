@@ -83,6 +83,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         BuffToUIntLe => "(buff-to-uint-le 0x00000000000000000000000000000001)",
         BuffToIntBe => "(buff-to-int-be 0x00000000000000000000000000000001)",
         BuffToUIntBe => "(buff-to-uint-be 0x00000000000000000000000000000001)",
+        IsStandard => "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
         StringToInt => r#"(string-to-int "-1")"#,
         StringToUInt => r#"(string-to-uint "1")"#,
         IntToAscii => r#"(int-to-ascii 1)"#,
@@ -142,7 +143,8 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         GetTokenSupply => "(ft-get-supply ft-foo)",
         AtBlock => "(at-block 0x55c9861be5cff984a20ce6d99d4aa65941412889bdc665094136429b84f8c2ee 1)",   // first stacksblockid
         GetStxBalance => "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        StxTransfer => r#"(stx-transfer? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x89995432)"#,
+        StxTransfer => r#"(stx-transfer? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
+        StxTransferMemo => r#"(stx-transfer-memo? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x89995432)"#,
         StxBurn => "(stx-burn? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         StxGetAccount => "(stx-account 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
     }

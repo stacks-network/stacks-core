@@ -244,7 +244,7 @@ pub fn eval<'a>(
 pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
     if let Some(_result) = functions::lookup_reserved_functions(name, version) {
         true
-    } else if variables::is_reserved_name(name) {
+    } else if variables::is_reserved_name(name, version) {
         true
     } else {
         false
@@ -363,6 +363,22 @@ pub fn eval_all(
 
         contract_context.data_size = total_memory_use;
         Ok(last_executed)
+    })
+}
+
+pub fn execute_against_version_and_network(
+    program: &str,
+    version: ClarityVersion,
+    as_mainnet: bool,
+) -> Result<Option<Value>> {
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract_context = ContractContext::new(contract_id.clone(), version);
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let mut global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
+    global_context.execute(|g| {
+        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 

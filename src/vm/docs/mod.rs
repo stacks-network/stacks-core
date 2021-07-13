@@ -241,6 +241,29 @@ Note: This function is only available starting with Stacks 2.1.",
 "#,
 };
 
+const IS_STANDARD_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(is-standard standard-or-contract-principal)",
+    description: "Tests whether `standard-or-contract-principal` _matches_ the current network
+type, and therefore represents a principal that can spend tokens on the current
+network type. That is, the network is either of type `mainnet`, or `testnet`.
+Only `SPxxxx` and `SMxxxx` _c32check form_ addresses can spend tokens on
+a mainnet, whereas only `STxxxx` and `SNxxxx` _c32check forms_ addresses can spend
+tokens on a testnet. All addresses can _receive_ tokens, but only principal
+_c32check form_ addresses that match the network type can _spend_ tokens on the
+network.  This method will return `true` if and only if the principal matches
+the network type, and false otherwise.
+
+Note: This function is only available starting with Stacks 2.1.",
+    example: r#"
+(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; returns true on testnet and false on mainnet
+(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; returns true on testnet and false on mainnet
+(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; returns true on mainnet and false on testnet
+(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; returns true on mainnet and false on testnet
+(is-standard 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns false on both mainnet and testnet
+"#,
+};
+
 const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(string-to-int (string-ascii|string-utf8))",
@@ -1732,10 +1755,9 @@ principal isn't materialized, it returns 0.
 const STX_TRANSFER: SpecialAPI = SpecialAPI {
     input_type: "uint, principal, principal, buff",
     output_type: "(response bool uint)",
-    signature: "(stx-transfer? amount sender recipient memo)",
+    signature: "(stx-transfer? amount sender recipient)",
     description: "`stx-transfer?` is used to increase the STX balance for the `recipient` principal
 by debiting the `sender` principal. The `sender` principal _must_ be equal to the current context's `tx-sender`.
-The `memo` field is optional, and can be omitted. 
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
@@ -1749,9 +1771,23 @@ one of the following error codes:
 (as-contract
   (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (ok true)
 (as-contract
-  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x00)) ;; Returns (ok true)
+  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (ok true)
 (as-contract
-  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender 0x00)) ;; Returns (err u4)
+  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender)) ;; Returns (err u4)
+"#
+};
+
+const STX_TRANSFER_MEMO: SpecialAPI = SpecialAPI {
+    input_type: "uint, principal, principal, buff",
+    output_type: "(response bool uint)",
+    signature: "(stx-transfer-memo? amount sender recipient memo)",
+    description: "`stx-transfer-memo?` is similar to `stx-transfer?`, except that it adds a `memo` field. 
+
+This function returns (ok true) if the transfer is successful, or, on an error, returns the same codes as `stx-transfer?`.
+",
+    example: r#"
+(as-contract
+  (stx-transfer-memo? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x010203)) ;; Returns (ok true)
 "#
 };
 
@@ -1790,6 +1826,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &BuffToUIntLe, name),
         BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
         BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
+        IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
         StringToInt => make_for_simple_native(&STRING_TO_INT_API, &StringToInt, name),
         StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &StringToUInt, name),
         IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &IntToAscii, name),
@@ -1870,6 +1907,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
         StxGetAccount => make_for_simple_native(&STX_GET_BALANCE, &StxGetAccount, name),
         StxTransfer => make_for_special(&STX_TRANSFER, name),
+        StxTransferMemo => make_for_special(&STX_TRANSFER_MEMO, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
 }

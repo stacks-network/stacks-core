@@ -144,7 +144,9 @@ impl<'a> ArithmeticOnlyChecker<'a> {
 
     fn check_variables_allowed(&self, var_name: &ClarityName) -> Result<(), Error> {
         use vm::variables::NativeVariables::*;
-        if let Some(native_var) = NativeVariables::lookup_by_name(var_name) {
+        if let Some(native_var) =
+            NativeVariables::lookup_by_name_at_version(var_name, &self.clarity_version)
+        {
             match native_var {
                 ContractCaller | TxSender | TotalLiquidMicroSTX | BlockHeight | BurnBlockHeight
                 | Regtest | TxSponsor => Err(Error::VariableForbidden(native_var)),
@@ -173,15 +175,15 @@ impl<'a> ArithmeticOnlyChecker<'a> {
         match function {
             FetchVar | GetBlockInfo | GetTokenBalance | GetAssetOwner | FetchEntry | SetEntry
             | DeleteEntry | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset
-            | TransferToken | ContractCall | StxTransfer | StxBurn | AtBlock | GetStxBalance
-            | GetTokenSupply | BurnToken | BurnAsset | StxGetAccount => {
+            | TransferToken | ContractCall | StxTransfer | StxTransferMemo | StxBurn | AtBlock
+            | GetStxBalance | GetTokenSupply | BurnToken | BurnAsset | StxGetAccount => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
             | AsContract | ElementAt | IndexOf | Map | Filter | Fold => {
                 return Err(Error::FunctionNotPermitted(function));
             }
-            BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
+            BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe | IsStandard => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             IntToAscii | IntToUtf8 | StringToInt | StringToUInt => {

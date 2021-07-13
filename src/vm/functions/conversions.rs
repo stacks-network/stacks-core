@@ -56,7 +56,7 @@ pub fn buff_to_int_generic(
                 .into());
             } else {
                 let mut transfer_buffer = [0u8; 16];
-                let mut original_slice = sequence_data.as_slice();
+                let original_slice = sequence_data.as_slice();
                 // 'conversion_fn' expects to receive a 16-byte buffer. If the input is little-endian, it should
                 // be zero-padded on the right. If the input is big-endian, it should be zero-padded on the left.
                 let offset = if direction == EndianDirection::LittleEndian {
