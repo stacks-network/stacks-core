@@ -357,11 +357,12 @@ questions, the version number can be computed.
 1. The release manager must update the `CHANGELOG.md` file with summaries what
 was `Added`, `Changed`, and `Fixed`. The pull requests merged into `develop`
 can be found
-[here](https://github.com/blockstack/stacks-blockchain/pulls?q=is%3Apr+is%3Aclosed+base%3Anext+sort%3Aupdated-desc).
-(Note: GitHub does not seem to allow sorting by *merge* time, so some care must
-be taken to understand whether, when sorting by a proxy criterion, whether a
-given PR was merged before or after.) This `CHANGELOG.md` should also be used as the description
-of the `develop -> master` so that it acts as *release notes* when the branch is tagged.
+[here](https://github.com/blockstack/stacks-blockchain/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc). Note, however, that GitHub apparently does not allow sorting by
+*merge time*, so, when sorting by some proxy criterion, some care should
+be used to understand which PR's were *merged* after the last `develop ->
+master` release PR.  This `CHANGELOG.md` should also be used as the description
+of the `develop -> master` so that it acts as *release notes* when the branch
+is tagged.
 
 1. Once the blocker PRs have merged, the release manager will create a new tag
    by manually triggering the [`stacks-blockchain` Github Actions workflow](https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml)
