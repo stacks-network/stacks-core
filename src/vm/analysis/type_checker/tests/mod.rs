@@ -24,14 +24,15 @@ use vm::ast::{build_ast, parse};
 use vm::contexts::OwnedEnvironment;
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
-    TypeSignature, Value, BUFF_32, BUFF_64,
+    BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData,
+    QualifiedContractIdentifier, StringUTF8Length, TypeSignature, Value, BUFF_32, BUFF_64,
 };
 
 use crate::clarity_vm::database::MemoryBackingStore;
 use vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use vm::types::{SequenceSubtype::*, StringSubtype::*};
 
+use std::convert::TryFrom;
 use std::convert::TryInto;
 use vm::types::signatures::TypeSignature::OptionalType;
 use vm::types::Value::Sequence;
@@ -2436,4 +2437,95 @@ fn test_string_utf8_negative_len() {
         &CheckErrors::BadSyntaxBinding => true,
         _ => false,
     });
+}
+
+#[test]
+fn test_comparison_types() {
+    let good = [
+        r#"(<= "aaa" "aa")"#,
+        r#"(>= "aaa" "aa")"#,
+        r#"(< "aaa" "aa")"#,
+        r#"(> "aaa" "aa")"#,
+        r#"(<= u"aaa" u"aa")"#,
+        r#"(>= u"aaa" u"aa")"#,
+        r#"(< u"aaa" u"aa")"#,
+        r#"(> u"aaa" u"aa")"#,
+        r#"(<= 0x01 0x02)"#,
+        r#"(>= 0x01 0x02)"#,
+        r#"(< 0x01 0x02)"#,
+        r#"(> 0x01 0x02)"#,
+    ];
+
+    let expected = [
+        "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool",
+        "bool",
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    let bad = [
+        r#"(<= 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
+        r#"(<= (list 1 2 3) (list 1 2 3))"#,
+        r#"(<= u"aaa" "aa")"#,
+        r#"(>= "aaa" 0x0101)"#,
+        r#"(>= 0x0101 u"aaa")"#,
+        r#"(>= 0x0101 "aaa")"#,
+        r#"(>=)"#,
+        r#"(>= "aaa")"#,
+        r#"(>= "aaa" "aaa" "aaa")"#,
+    ];
+    let bad_expected = [
+        CheckErrors::UnionTypeError(
+            vec![
+                IntType,
+                UIntType,
+                SequenceType(StringType(ASCII(BufferLength(1048576)))),
+                SequenceType(StringType(UTF8(
+                    StringUTF8Length::try_from(262144_u32).unwrap(),
+                ))),
+                SequenceType(BufferType(BufferLength(1048576))),
+            ],
+            PrincipalType,
+        ),
+        CheckErrors::UnionTypeError(
+            vec![
+                IntType,
+                UIntType,
+                SequenceType(StringType(ASCII(BufferLength(1048576)))),
+                SequenceType(StringType(UTF8(
+                    StringUTF8Length::try_from(262144_u32).unwrap(),
+                ))),
+                SequenceType(BufferType(BufferLength(1048576))),
+            ],
+            SequenceType(ListType(ListTypeData::new_list(IntType, 3).unwrap())),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(StringType(UTF8(StringUTF8Length::try_from(3u32).unwrap()))),
+            SequenceType(StringType(ASCII(BufferLength(2)))),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(StringType(ASCII(BufferLength(3)))),
+            SequenceType(BufferType(BufferLength(2))),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(2))),
+            SequenceType(StringType(UTF8(StringUTF8Length::try_from(3u32).unwrap()))),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(BufferType(BufferLength(2))),
+            SequenceType(StringType(ASCII(BufferLength(3)))),
+        ),
+        CheckErrors::IncorrectArgumentCount(2, 0),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+        CheckErrors::IncorrectArgumentCount(2, 3),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
 }

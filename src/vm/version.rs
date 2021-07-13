@@ -1,7 +1,7 @@
 use core::StacksEpochId;
 use std::fmt;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum ClarityVersion {
     Clarity1,
     Clarity2,
