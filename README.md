@@ -329,6 +329,13 @@ cargo fmt --all
 
 For non-consensus breaking releases, this project uses the following release process:
 
+1. First, the release manager must decide on the *version number* for this
+  release.  The factors that determine the version number is discussed in
+  [versioning](#versioning).  Note that the release manager must determine,
+  first, whether there is a conensus-breaking change, but this is rare. The
+  release manager must also determine whether there is a "non-consensus-breaking
+  changes that require a fresh chainstate".  This means that the database schema
+  has changed.
 1. A release manager enumerates the PRs or issues that would _block_
    the release. A label should be applied to each such issue/PR as
    `2.0.x.y.z-blocker`. The release manager should ping these
