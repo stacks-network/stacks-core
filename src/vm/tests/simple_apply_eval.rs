@@ -30,12 +30,14 @@ use vm::tests::execute;
 use vm::types::signatures::{BufferLength, StringUTF8Length};
 use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
-use vm::{eval, execute as vm_execute, execute_v2 as vm_execute_v2};
+use vm::{eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_against_version_and_network};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
 use crate::types::chainstate::StacksAddress;
 use crate::{clarity_vm::database::MemoryBackingStore, vm::ClarityVersion};
-use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+use chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 
 #[test]
 fn test_doubly_defined_persisted_vars() {
@@ -261,6 +263,71 @@ fn test_secp256k1() {
         .iter()
         .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}
+
+#[test]
+fn test_principal_of_fix() {
+    // There is a bug with principal-of in Clarity1. The address returned is always testnet. In Clarity2, we fix this.
+    // So, we need to test that:
+    //   1) In Clarity1, the returned address is always a testnet address.
+    //   2) In Clarity2, the returned address is a function of the network type.
+    let principal_of_program =
+        "(unwrap! (principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) 4)";
+
+    let mainnet_principal = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_hex(
+            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+        )
+        .unwrap()],
+    )
+    .unwrap()
+    .to_account_principal();
+    let testnet_principal = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_hex(
+            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+        )
+        .unwrap()],
+    )
+    .unwrap()
+    .to_account_principal();
+
+    // Clarity2, mainnet, should have a mainnet principal.
+    assert_eq!(
+        Value::Principal(mainnet_principal.clone()),
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity2, true)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Clarity2, testnet, should have a testnet principal.
+    assert_eq!(
+        Value::Principal(testnet_principal.clone()),
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Clarity1, mainnet, should have a test principal (this is the bug that we need to preserve).
+    assert_eq!(
+        Value::Principal(testnet_principal.clone()),
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity1, true)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Clarity1, testnet, should have a testnet principal.
+    assert_eq!(
+        Value::Principal(testnet_principal.clone()),
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity1, false)
+            .unwrap()
+            .unwrap()
+    );
 }
 
 #[test]
@@ -930,7 +997,11 @@ fn test_stx_ops_errors() {
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute_v2(program).unwrap_err());
+        assert_eq!(
+            *expectation,
+            execute_against_version_and_network(program, ClarityVersion::Clarity2, false)
+                .unwrap_err()
+        );
     }
 }
 
