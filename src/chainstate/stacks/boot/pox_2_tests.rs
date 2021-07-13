@@ -3,6 +3,7 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use address::AddressHashMode;
+use chainstate::burn::BlockSnapshot;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
@@ -51,6 +52,12 @@ use clarity_vm::clarity::Error as ClarityError;
 use super::test::*;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
+
+/// Return the BlockSnapshot for the latest sortition in the provided
+///  SortitionDB option-reference. Panics on any errors.
+fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
+    SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
+}
 
 /// In this test case, two Stackers, Alice and Bob stack and interact with the
 ///  PoX v1 contract and PoX v2 contract across the epoch transition.
@@ -168,6 +175,10 @@ fn test_simple_pox_lockup_transition_pox_2() {
         }
     };
 
+    // our "tenure counter" is now at 0
+    let tip = get_tip(peer.sortdb.as_ref());
+    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+
     // first tenure is empty
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
@@ -183,8 +194,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
     // next tenure include Alice's lockup
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    let tip = get_tip(peer.sortdb.as_ref());
     let alice_lockup = make_pox_lockup(
         &alice,
         0,
@@ -194,6 +204,10 @@ fn test_simple_pox_lockup_transition_pox_2() {
         4,
         tip.block_height,
     );
+
+    // our "tenure counter" is now at 1
+    assert_eq!(tip.block_height, 1 + EMPTY_SORTITIONS as u64);
+
     let tip_index_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
 
     // check the stacking minimum
@@ -233,10 +247,15 @@ fn test_simple_pox_lockup_transition_pox_2() {
         assert_eq!(alice_balance, 0);
     }
 
-    // now, try to use PoX 2 contract. this should _fail_.
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    // Have Charlie try to use the PoX2 contract. This transaction
+    //  should be accepted (checked via the tx receipt). Also, importantly,
+    //  the cost tracker should assign costs to Charlie's transaction.
+    //  This is also checked by the transaction receipt.
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    // our "tenure counter" is now at 9
     assert_eq!(tip.block_height, 9 + EMPTY_SORTITIONS as u64);
+
     let test = make_pox_2_contract_call(
         &charlie,
         0,
@@ -258,8 +277,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10, and 11
     //  the first v2 cycle will be 8
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    let tip = get_tip(peer.sortdb.as_ref());
 
     let bob_lockup = make_pox_2_lockup(
         &bob,
@@ -271,6 +289,9 @@ fn test_simple_pox_lockup_transition_pox_2() {
         tip.block_height,
     );
 
+    // our "tenure counter" is now at 10
+    assert_eq!(tip.block_height, 10 + EMPTY_SORTITIONS as u64);
+
     peer.tenure_with_txs(&[bob_lockup], &mut coinbase_nonce);
 
     // alice is still locked, balance should be 0
@@ -278,8 +299,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     assert_eq!(alice_balance, 0);
 
     // Now, Bob tries to lock in PoX v1 too, but it shouldn't work!
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    let tip = get_tip(peer.sortdb.as_ref());
 
     let bob_lockup = make_pox_lockup(
         &bob,
@@ -291,8 +311,13 @@ fn test_simple_pox_lockup_transition_pox_2() {
         tip.block_height,
     );
 
+    // our "tenure counter" is now at 11
+    assert_eq!(tip.block_height, 11 + EMPTY_SORTITIONS as u64);
     peer.tenure_with_txs(&[bob_lockup], &mut coinbase_nonce);
 
+    // our "tenure counter" is now at 12
+    let tip = get_tip(peer.sortdb.as_ref());
+    assert_eq!(tip.block_height, 12 + EMPTY_SORTITIONS as u64);
     // One more empty tenure to reach the unlock height
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
@@ -302,9 +327,9 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     // At this point, the auto unlock height for v1 accounts should be reached.
     //  let Alice stack in PoX v2
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    let tip = get_tip(peer.sortdb.as_ref());
 
+    // our "tenure counter" is now at 13
     assert_eq!(tip.block_height, 13 + EMPTY_SORTITIONS as u64);
 
     let alice_lockup = make_pox_2_lockup(
@@ -331,9 +356,11 @@ fn test_simple_pox_lockup_transition_pox_2() {
         assert_eq!(alice_balance, 512 * POX_THRESHOLD_STEPS_USTX);
     }
 
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    // our "tenure counter" is now at 31
     assert_eq!(tip.block_height, 31 + EMPTY_SORTITIONS as u64);
+
     let alice_lockup = make_pox_lockup(
         &alice,
         2,
@@ -355,6 +382,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     let mut alice_txs = HashMap::new();
     let mut bob_txs = HashMap::new();
+    let mut charlie_txs = HashMap::new();
 
     eprintln!("Alice addr: {}", alice_address);
     eprintln!("Bob addr: {}", bob_address);
@@ -375,6 +403,8 @@ fn test_simple_pox_lockup_transition_pox_2() {
                         r.execution_cost != ExecutionCost::zero(),
                         "Execution cost is not zero!"
                     );
+                    charlie_txs.insert(t.auth.get_origin_nonce(), r);
+
                     tested_charlie = true;
                 }
             }
@@ -382,9 +412,24 @@ fn test_simple_pox_lockup_transition_pox_2() {
     }
 
     assert!(tested_charlie, "Charlie TX must be tested");
+    // Alice should have three accepted transactions:
+    //  TX0 -> Alice's initial lockup in PoX 1
+    //  TX1 -> Alice's PoX 2 lockup
+    //  TX2 -> Alice's attempt to lock again in PoX 1 -- this one should fail
+    //         because PoX 1 is now defunct. Checked via the tx receipt.
     assert_eq!(alice_txs.len(), 3, "Alice should have 3 confirmed txs");
+    // Bob should have two accepted transactions:
+    //  TX0 -> Bob's initial lockup in PoX 2
+    //  TX1 -> Bob's attempt to lock again in PoX 1 -- this one should fail
+    //         because PoX 1 is now defunct. Checked via the tx receipt.
     assert_eq!(bob_txs.len(), 2, "Bob should have 2 confirmed txs");
+    // Charlie should have one accepted transactions:
+    //  TX0 -> Charlie's delegation in PoX 2. This tx just checks that the
+    //         initialization code tracks costs in txs that occur after the
+    //         initialization code (which uses a free tracker).
+    assert_eq!(charlie_txs.len(), 1, "Charlie should have 1 confirmed txs");
 
+    //  TX0 -> Alice's initial lockup in PoX 1
     assert!(
         match alice_txs.get(&0).unwrap().result {
             Value::Response(ref r) => r.committed,
@@ -393,6 +438,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         "Alice tx0 should have committed okay"
     );
 
+    //  TX1 -> Alice's PoX 2 lockup
     assert!(
         match alice_txs.get(&1).unwrap().result {
             Value::Response(ref r) => r.committed,
@@ -401,12 +447,15 @@ fn test_simple_pox_lockup_transition_pox_2() {
         "Alice tx1 should have committed okay"
     );
 
+    //  TX2 -> Alice's attempt to lock again in PoX 1 -- this one should fail
+    //         because PoX 1 is now defunct. Checked via the tx receipt.
     assert_eq!(
         alice_txs.get(&2).unwrap().result,
         Value::err_none(),
         "Alice tx2 should have resulted in a runtime error"
     );
 
+    //  TX0 -> Bob's initial lockup in PoX 2
     assert!(
         match bob_txs.get(&0).unwrap().result {
             Value::Response(ref r) => r.committed,
@@ -415,9 +464,22 @@ fn test_simple_pox_lockup_transition_pox_2() {
         "Bob tx0 should have committed okay"
     );
 
+    //  TX1 -> Bob's attempt to lock again in PoX 1 -- this one should fail
+    //         because PoX 1 is now defunct. Checked via the tx receipt.
     assert_eq!(
         bob_txs.get(&1).unwrap().result,
         Value::err_none(),
         "Bob tx1 should have resulted in a runtime error"
+    );
+
+    //  TX0 -> Charlie's delegation in PoX 2. This tx just checks that the
+    //         initialization code tracks costs in txs that occur after the
+    //         initialization code (which uses a free tracker).
+    assert!(
+        match charlie_txs.get(&0).unwrap().result {
+            Value::Response(ref r) => r.committed,
+            _ => false,
+        },
+        "Charlie tx0 should have committed okay"
     );
 }
