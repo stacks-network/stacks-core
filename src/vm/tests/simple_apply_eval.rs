@@ -29,8 +29,10 @@ use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::tests::execute;
 use vm::types::signatures::{BufferLength, StringUTF8Length};
 use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
-use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
-use vm::{eval, execute as vm_execute, execute_against_version_and_network};
+use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
+use vm::{
+    eval, execute as vm_execute, execute_against_version_and_network, execute_v2 as vm_execute_v2,
+};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
 use crate::types::chainstate::StacksAddress;
@@ -606,6 +608,231 @@ fn test_simple_arithmetic_functions() {
         .iter()
         .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}
+
+#[test]
+fn test_sequence_comparisons_clarity1() {
+    // Tests the sequence comparisons against ClarityVersion1. The new kinds of
+    // sequence comparison *should not* work.
+
+    // Note: Equality between sequences already works in Clarity1.
+    let success_tests = [
+        ("(is-eq \"aaa\" \"aaa\")", Value::Bool(true)),
+        ("(is-eq u\"aaa\" u\"aaa\")", Value::Bool(true)),
+        ("(is-eq 0x010203 0x010203)", Value::Bool(true)),
+        ("(is-eq \"aa\" \"aaa\")", Value::Bool(false)),
+        ("(is-eq u\"aa\" u\"aaa\")", Value::Bool(false)),
+        ("(is-eq 0x0102 0x010203)", Value::Bool(false)),
+    ];
+
+    // Note: Execute against Clarity1.
+    success_tests
+        .iter()
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+
+    // Inequality comparisons between sequences do not work in Clarity1.
+    let error_tests = [
+        "(> \"baa\" \"aaa\")",
+        "(< \"baa\" \"aaa\")",
+        "(>= \"baa\" \"aaa\")",
+        "(<= \"baa\" \"aaa\")",
+    ];
+    let error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+    ];
+
+    // Note: Execute against Clarity1.
+    error_tests
+        .iter()
+        .zip(error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute(program).unwrap_err())
+        });
+}
+
+#[test]
+fn test_sequence_comparisons_clarity2() {
+    // Tests the sequence comparisons against ClarityVersion2. The new kinds of
+    // sequence comparison *should* work.
+    let success_tests = [
+        (r#"(is-eq "aaa" "aaa")"#, Value::Bool(true)),
+        (r#"(is-eq "aba" "aaa")"#, Value::Bool(false)),
+        (r#"(is-eq u"aaa" u"aaa")"#, Value::Bool(true)),
+        (r#"(is-eq u"aba" u"aaa")"#, Value::Bool(false)),
+        (r#"(is-eq 0x010203 0x010203)"#, Value::Bool(true)),
+        (r#"(is-eq 0x090203 0x010203)"#, Value::Bool(false)),
+        (r#"(< 0x0100 0x0100)"#, Value::Bool(false)),
+        (r#"(< 0x0101 0x010101)"#, Value::Bool(true)),
+        (r#"(< 0x010101 0x0101)"#, Value::Bool(false)),
+        (r#"(< "aaa" "aaa")"#, Value::Bool(false)),
+        (r#"(< "aa" "aaa")"#, Value::Bool(true)),
+        (r#"(< "aaa" "aa")"#, Value::Bool(false)),
+        (r#"(< u"aaa" u"aaa")"#, Value::Bool(false)),
+        (r#"(< u"aa" u"aaa")"#, Value::Bool(true)),
+        (r#"(< u"aaa" u"aa")"#, Value::Bool(false)),
+        (r#"(<= 0x0100 0x0100)"#, Value::Bool(true)),
+        (r#"(<= 0x0101 0x010101)"#, Value::Bool(true)),
+        (r#"(<= 0x010101 0x0101)"#, Value::Bool(false)),
+        (r#"(<= "aaa" "aaa")"#, Value::Bool(true)),
+        (r#"(<= "aa" "aaa")"#, Value::Bool(true)),
+        (r#"(<= "aaa" "aa")"#, Value::Bool(false)),
+        (r#"(<= u"aaa" u"aaa")"#, Value::Bool(true)),
+        (r#"(<= u"aa" u"aaa")"#, Value::Bool(true)),
+        (r#"(<= u"aaa" u"aa")"#, Value::Bool(false)),
+        (r#"(> 0x0100 0x0100)"#, Value::Bool(false)),
+        (r#"(> 0x0101 0x010101)"#, Value::Bool(false)),
+        (r#"(> 0x010101 0x0101)"#, Value::Bool(true)),
+        (r#"(> "aaa" "aaa")"#, Value::Bool(false)),
+        (r#"(> "aa" "aaa")"#, Value::Bool(false)),
+        (r#"(> "aaa" "aa")"#, Value::Bool(true)),
+        (r#"(> u"aaa" u"aaa")"#, Value::Bool(false)),
+        (r#"(> u"aa" u"aaa")"#, Value::Bool(false)),
+        (r#"(> u"aaa" u"aa")"#, Value::Bool(true)),
+        (r#"(>= 0x0100 0x0100)"#, Value::Bool(true)),
+        (r#"(>= 0x0101 0x010101)"#, Value::Bool(false)),
+        (r#"(>= 0x010101 0x0101)"#, Value::Bool(true)),
+        (r#"(>= "aaa" "aaa")"#, Value::Bool(true)),
+        (r#"(>= "aa" "aaa")"#, Value::Bool(false)),
+        (r#"(>= "aaa" "aa")"#, Value::Bool(true)),
+        (r#"(>= u"aaa" u"aaa")"#, Value::Bool(true)),
+        (r#"(>= u"aa" u"aaa")"#, Value::Bool(false)),
+        (r#"(>= u"aaa" u"aa")"#, Value::Bool(true)),
+    ];
+
+    // Note: Execute against Clarity2.
+    success_tests.iter().for_each(|(program, expectation)| {
+        assert_eq!(
+            expectation.clone(),
+            vm_execute_v2(program).unwrap().unwrap(),
+            "{:?}, {:?}",
+            program,
+            expectation.clone()
+        )
+    });
+}
+
+#[test]
+fn test_sequence_comparisons_mismatched_types() {
+    // Tests that comparing objects of different types results in an error in Clarity1.
+    let error_tests = ["(> 0 u1)", "(< 0 u1)"];
+    let v1_error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Int(0),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Int(0),
+        )
+        .into(),
+    ];
+
+    // Note: Execute against Clarity1.
+    error_tests
+        .iter()
+        .zip(v1_error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute(program).unwrap_err())
+        });
+
+    let v2_error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
+            Value::Int(0),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
+            Value::Int(0),
+        )
+        .into(),
+    ];
+    // Note: Execute against Clarity2.
+    error_tests
+        .iter()
+        .zip(v2_error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute_v2(program).unwrap_err())
+        });
+
+    // Tests that comparing objects of different types results in an error in Clarity2.
+    let error_tests = ["(> \"baa\" u\"aaa\")", "(> \"baa\" 0x0001)"];
+    let error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+    ];
+
+    // Note: Execute against Clarity2.
+    error_tests
+        .iter()
+        .zip(error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute_v2(program).unwrap_err())
+        });
 }
 
 #[test]
