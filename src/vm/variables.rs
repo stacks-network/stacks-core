@@ -35,6 +35,7 @@ define_versioned_named_enum!(NativeVariables(ClarityVersion) {
     TotalLiquidMicroSTX("stx-liquid-supply", ClarityVersion::Clarity1),
     Regtest("is-in-regtest", ClarityVersion::Clarity1),
     TxSponsor("tx-sponsor?", ClarityVersion::Clarity2),
+    Mainnet("is-in-mainnet", ClarityVersion::Clarity2),
 });
 
 impl NativeVariables {
@@ -109,6 +110,10 @@ pub fn lookup_reserved_variable(
             NativeVariables::Regtest => {
                 let reg = env.global_context.database.is_in_regtest();
                 Ok(Some(Value::Bool(reg)))
+            }
+            NativeVariables::Mainnet => {
+                let mainnet = env.global_context.mainnet;
+                Ok(Some(Value::Bool(mainnet)))
             }
         }
     } else {
