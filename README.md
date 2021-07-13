@@ -329,14 +329,22 @@ cargo fmt --all
 
 For non-consensus breaking releases, this project uses the following release process:
 
-1. First, the release manager must decide on the *version number* for this
-  release.  The factors that determine the version number is discussed in
-  [versioning](#versioning).  Note that the release manager must determine,
-  first, whether there is a conensus-breaking change, but this is rare. The
-  release manager must also determine whether there is a "non-consensus-breaking
-  changes that require a fresh chainstate".  This means that the database schema
-  has changed.
-1. A release manager enumerates the PRs or issues that would _block_
+1. The release must be timed so that it does not interfere with a *prepare
+phase*.  The timing of the next Stacking cycle can be found
+[here](https://stacking.club/cycles/next). A release to `mainnet` should happen
+at least 24 hours before the start of a new cycle.
+
+1. Before creating the release, the release manager must determine the *version
+number* for this release.  The factors that determine the version number are
+discussed in [Versioning](#versioning).  Following that section,  the release
+manager must determine, first, whether there is a conensus-breaking change (rare).
+The release manager must then determine whether there are any
+"non-consensus-breaking changes that require a fresh chainstate". This means,
+in other words, that the database schema has changed. Finally, the release
+manager should determine whether this is a feature release, as opposed to a hot
+fix or a patch. Given each of these answers, the version number can be computed.
+
+1. The release manager enumerates the PRs or issues that would _block_
    the release. A label should be applied to each such issue/PR as
    `2.0.x.y.z-blocker`. The release manager should ping these
    issue/PR owners for updates on whether or not those issues/PRs have
@@ -345,6 +353,15 @@ For non-consensus breaking releases, this project uses the following release pro
 1. The release manager should open a `develop -> master` PR. This can be done before
    all the blocker PRs have merged, as it is helpful for the manager and others
    to see the staged changes.
+
+1. The release manager must update the `CHANGELOG.md` file with summaries what
+was `Added`, `Changed`, and `Fixed`. The pull requests merged into `develop`
+can be found
+[here](https://github.com/blockstack/stacks-blockchain/pulls?q=is%3Apr+is%3Aclosed+base%3Anext+sort%3Aupdated-desc).
+(Note: GitHub does not seem to allow sorting by *merge* time, so some care must
+be taken to understand whether, when sorting by a proxy criterion, whether a
+given PR was merged before or after.) This `CHANGELOG.md` should also be used as the description
+of the `develop -> master` so that it acts as *release notes* when the branch is tagged.
 
 1. Once the blocker PRs have merged, the release manager will create a new tag
    by manually triggering the [`stacks-blockchain` Github Actions workflow](https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml)
