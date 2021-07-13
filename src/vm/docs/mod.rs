@@ -448,39 +448,64 @@ const NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some(">= (greater than or equal)"),
     signature: "(>= i1 i2)",
-    description: "Compares two integers, returning `true` if `i1` is greater than or equal to `i2` and `false` otherwise.",
-    example: "(>= 1 1) ;; Returns true
+    description: "Compares two integers, returning `true` if `i1` is greater than or equal to `i2` and `false` otherwise.
+i1 and i2 must be of the same type. Starting with Stacks 1.0, the `>=`-comparable types are `int` and `uint`. Starting with Stacks 2.1,
+the `>=`-comparable types are expanded to include `string-ascii`, `string-utf8` and `buff`.
+    ",
+    example: r#"(>= 1 1) ;; Returns true
 (>= 5 2) ;; Returns true
-"
+(>= "baa" "aaa") ;; Returns true
+(>= "aaa" "aa") ;; Returns true
+(>= 0x02 0x01) ;; Returns true
+(>= 5 u2) ;; Throws type error
+"#
 };
 
 const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("<= (less than or equal)"),
     signature: "(<= i1 i2)",
-    description: "Compares two integers, returning true if `i1` is less than or equal to `i2` and `false` otherwise.",
-    example: "(<= 1 1) ;; Returns true
+    description: "Compares two integers, returning true if `i1` is less than or equal to `i2` and `false` otherwise.
+i1 and i2 must be of the same type. Starting with Stacks 1.0, the `<=`-comparable types are `int` and `uint`. Starting with Stacks 2.1,
+the `<=`-comparable types are expanded to include `string-ascii`, `string-utf8` and `buff`.",
+    example: r#"(<= 1 1) ;; Returns true
 (<= 5 2) ;; Returns false
-"
+(<= "aaa" "baa") ;; Returns true
+(<= "aa" "aaa") ;; Returns true
+(<= 0x01 0x02) ;; Returns true
+(<= 5 u2) ;; Throws type error
+"#
 };
 
 const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("> (greater than)"),
     signature: "(> i1 i2)",
     description:
-        "Compares two integers, returning `true` if `i1` is greater than `i2` and false otherwise.",
-    example: "(> 1 2) ;; Returns false
+        "Compares two integers, returning `true` if `i1` is greater than `i2` and false otherwise.
+i1 and i2 must be of the same type. Starting with Stacks 1.0, the `>`-comparable types are `int` and `uint`. Starting with Stacks 2.1,
+the `>`-comparable types are expanded to include `string-ascii`, `string-utf8` and `buff`.",
+    example: r#"(> 1 2) ;; Returns false
 (> 5 2) ;; Returns true
-",
+(> "baa" "aaa") ;; Returns true
+(> "aaa" "aa") ;; Returns true
+(> 0x02 0x01) ;; Returns true
+(> 5 u2) ;; Throws type error
+"#,
 };
 
 const LESS_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("< (less than)"),
     signature: "(< i1 i2)",
     description:
-        "Compares two integers, returning `true` if `i1` is less than `i2` and `false` otherwise.",
-    example: "(< 1 2) ;; Returns true
+        "Compares two integers, returning `true` if `i1` is less than `i2` and `false` otherwise.
+i1 and i2 must be of the same type. Starting with Stacks 1.0, the `<`-comparable types are `int` and `uint`. Starting with Stacks 2.1,
+the `<`-comparable types are expanded to include `string-ascii`, `string-utf8` and `buff`.",
+    example: r#"(< 1 2) ;; Returns true
 (< 5 2) ;; Returns false
-",
+(< "aaa" "baa") ;; Returns true
+(< "aa" "aaa") ;; Returns true
+(< 0x01 0x02) ;; Returns true
+(< 5 u2) ;; Throws type error
+"#,
 };
 
 pub fn get_input_type_string(function_type: &FunctionType) -> String {
@@ -497,7 +522,7 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
         FunctionType::ArithmeticVariadic => "int, ... | uint, ...".to_string(),
         FunctionType::ArithmeticUnary => "int | uint".to_string(),
         FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
-            "int, int | uint, uint".to_string()
+            "int, int | uint, uint | string-ascii, string-ascii | string-utf8, string-utf8 | buff, buff".to_string()
         }
     }
 }
@@ -572,6 +597,8 @@ is-eq _must_ be the same type.",
     example: "(is-eq 1 1) ;; Returns true
 (is-eq true false) ;; Returns false
 (is-eq \"abc\" 234 234) ;; Throws type error
+(is-eq \"abc\" \"abc\") ;; Returns true
+(is-eq 0x0102 0x0102) ;; Returns true
 ",
 };
 
@@ -1036,6 +1063,12 @@ const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
     signature: "(principal-of? public-key)",
     description: "The `principal-of?` function returns the principal derived from the provided public key.
     If the `public-key` is invalid, it will return the error code `(err u1).`.
+
+Note: Before Stacks 2.1, this function has a bug, in that the principal returned would always
+be a testnet single-signature principal, even if the function were run on the mainnet. Starting
+with Stacks 2.1, this bug is fixed, so that this function will return a principal suited to
+the network it is called on. In particular, if this is called on the mainnet, it will
+return a single-signature mainnet principal.
     ",
     example: "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns (ok ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)"
 };
