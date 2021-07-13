@@ -332,7 +332,8 @@ For non-consensus breaking releases, this project uses the following release pro
 1. The release must be timed so that it does not interfere with a *prepare
 phase*.  The timing of the next Stacking cycle can be found
 [here](https://stacking.club/cycles/next). A release to `mainnet` should happen
-at least 24 hours before the start of a new cycle.
+at least 24 hours before the start of a new cycle. So, start by being
+aware of when the release can happen.
 
 1. Before creating the release, the release manager must determine the *version
 number* for this release.  The factors that determine the version number are
