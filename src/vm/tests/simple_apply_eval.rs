@@ -1330,3 +1330,39 @@ fn test_asserts_short_circuit() {
             assert_eq!((*expectation), vm_execute(program).unwrap_err())
         });
 }
+
+#[test]
+fn test_is_mainnet() {
+    let tests = [
+        "is-in-mainnet", // true only on "mainnet"
+        "is-in-regtest", // always true in a regtest
+    ];
+
+    let mainnet_expectations = [Value::Bool(true), Value::Bool(true)];
+
+    tests
+        .iter()
+        .zip(mainnet_expectations.iter())
+        .for_each(|(program, expectation)| {
+            assert_eq!(
+                expectation.clone(),
+                execute_against_version_and_network(program, ClarityVersion::Clarity2, true)
+                    .unwrap()
+                    .unwrap()
+            )
+        });
+
+    let testnet_expectations = [Value::Bool(false), Value::Bool(true)];
+
+    tests
+        .iter()
+        .zip(testnet_expectations.iter())
+        .for_each(|(program, expectation)| {
+            assert_eq!(
+                expectation.clone(),
+                execute_against_version_and_network(program, ClarityVersion::Clarity2, false)
+                    .unwrap()
+                    .unwrap()
+            )
+        });
+}

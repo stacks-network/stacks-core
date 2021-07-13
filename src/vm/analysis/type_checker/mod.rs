@@ -359,6 +359,7 @@ fn type_reserved_variable(variable_name: &str, version: &ClarityVersion) -> Opti
             NativeFalse => TypeSignature::BoolType,
             TotalLiquidMicroSTX => TypeSignature::UIntType,
             Regtest => TypeSignature::BoolType,
+            Mainnet => TypeSignature::BoolType,
         };
         Some(var_type)
     } else {
