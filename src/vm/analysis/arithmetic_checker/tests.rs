@@ -183,95 +183,123 @@ fn test_variables_fail_arithmetic_check_clarity2() {
 }
 
 #[test]
-fn test_functions() {
-    let bad_tests = [
+fn test_functions_clarity1() {
+    // Tests all functions against Clarity1 VM. Results should be different for Clarity1 vs Clarity2 functions.
+    let tests = [
+        // Clarity1 functions.
         ("(define-private (foo) (at-block 0x0202020202020202020202020202020202020202020202020202020202020202 (+ 1 2)))",
-         FunctionNotPermitted(NativeFunctions::AtBlock)),
+         Err(FunctionNotPermitted(NativeFunctions::AtBlock))),
         ("(define-private (foo) (map-get? foo-map {a: u1}))",
-         FunctionNotPermitted(NativeFunctions::FetchEntry)),
+         Err(FunctionNotPermitted(NativeFunctions::FetchEntry))),
         ("(define-private (foo) (map-delete foo-map {a: u1}))",
-         FunctionNotPermitted(NativeFunctions::DeleteEntry)),
+         Err(FunctionNotPermitted(NativeFunctions::DeleteEntry))),
         ("(define-private (foo) (map-set foo-map {a: u1} {b: u2}))",
-         FunctionNotPermitted(NativeFunctions::SetEntry)),
+         Err(FunctionNotPermitted(NativeFunctions::SetEntry))),
         ("(define-private (foo) (map-insert foo-map {a: u1} {b: u2}))",
-         FunctionNotPermitted(NativeFunctions::InsertEntry)),
+         Err(FunctionNotPermitted(NativeFunctions::InsertEntry))),
         ("(define-private (foo) (var-get foo-var))",
-         FunctionNotPermitted(NativeFunctions::FetchVar)),
+         Err(FunctionNotPermitted(NativeFunctions::FetchVar))),
         ("(define-private (foo) (var-set foo-var u2))",
-         FunctionNotPermitted(NativeFunctions::SetVar)),
+         Err(FunctionNotPermitted(NativeFunctions::SetVar))),
         ("(define-private (foo (a principal)) (ft-get-balance tokaroos a))",
-         FunctionNotPermitted(NativeFunctions::GetTokenBalance)),
+         Err(FunctionNotPermitted(NativeFunctions::GetTokenBalance))),
         ("(define-private (foo (a principal)) 
           (ft-transfer? stackaroo u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))",
-         FunctionNotPermitted(NativeFunctions::TransferToken)),
+         Err(FunctionNotPermitted(NativeFunctions::TransferToken))),
         ("(define-private (foo (a principal)) 
           (ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))",
-         FunctionNotPermitted(NativeFunctions::MintToken)),
+         Err(FunctionNotPermitted(NativeFunctions::MintToken))),
         ("(define-private (foo (a principal)) 
            (nft-mint? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))",
-         FunctionNotPermitted(NativeFunctions::MintAsset)),
+         Err(FunctionNotPermitted(NativeFunctions::MintAsset))),
         ("(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)",
-         FunctionNotPermitted(NativeFunctions::TransferAsset)),
+         Err(FunctionNotPermitted(NativeFunctions::TransferAsset))),
         ("(nft-get-owner? stackaroo \"Roo\")",
-         FunctionNotPermitted(NativeFunctions::GetAssetOwner)),
+         Err(FunctionNotPermitted(NativeFunctions::GetAssetOwner))),
         ("(get-block-info? id-header-hash 0)",
-         FunctionNotPermitted(NativeFunctions::GetBlockInfo)),
+         Err(FunctionNotPermitted(NativeFunctions::GetBlockInfo))),
         ("(define-private (foo) (contract-call? .bar outer-call))",
-         FunctionNotPermitted(NativeFunctions::ContractCall)),
+         Err(FunctionNotPermitted(NativeFunctions::ContractCall))),
         ("(stx-get-balance 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)",
-         FunctionNotPermitted(NativeFunctions::GetStxBalance)),
+         Err(FunctionNotPermitted(NativeFunctions::GetStxBalance))),
         ("(stx-burn? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)",
-         FunctionNotPermitted(NativeFunctions::StxBurn)),
-        (r#"(stx-transfer? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 0x00)"#,
-         FunctionNotPermitted(NativeFunctions::StxTransfer)),
+         Err(FunctionNotPermitted(NativeFunctions::StxBurn))),
+        (r#"(stx-transfer? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)"#,
+         Err(FunctionNotPermitted(NativeFunctions::StxTransfer))),
         ("(define-private (foo (a (list 3 uint)))
            (map log2 a))",
-         FunctionNotPermitted(NativeFunctions::Map)),
+         Err(FunctionNotPermitted(NativeFunctions::Map))),
         ("(define-private (foo (a (list 3 (optional uint))))
            (filter is-none a))",
-         FunctionNotPermitted(NativeFunctions::Filter)),
+         Err(FunctionNotPermitted(NativeFunctions::Filter))),
         ("(define-private (foo (a (list 3 uint)))
            (append a u4))",
-         FunctionNotPermitted(NativeFunctions::Append)),
+         Err(FunctionNotPermitted(NativeFunctions::Append))),
         ("(define-private (foo (a (list 3 uint)))
            (concat a a))",
-         FunctionNotPermitted(NativeFunctions::Concat)),
+         Err(FunctionNotPermitted(NativeFunctions::Concat))),
         ("(define-private (foo (a (list 3 uint)))
            (as-max-len? a u4))",
-         FunctionNotPermitted(NativeFunctions::AsMaxLen)),
+         Err(FunctionNotPermitted(NativeFunctions::AsMaxLen))),
         ("(define-private (foo) (print 10))",
-         FunctionNotPermitted(NativeFunctions::Print)),
+         Err(FunctionNotPermitted(NativeFunctions::Print))),
         ("(define-private (foo) (list 3 4 10))",
-         FunctionNotPermitted(NativeFunctions::ListCons)),
+         Err(FunctionNotPermitted(NativeFunctions::ListCons))),
         ("(define-private (foo) (keccak256 0))",
-         FunctionNotPermitted(NativeFunctions::Keccak256)),
+         Err(FunctionNotPermitted(NativeFunctions::Keccak256))),
         ("(define-private (foo) (hash160 0))",
-         FunctionNotPermitted(NativeFunctions::Hash160)),
+         Err(FunctionNotPermitted(NativeFunctions::Hash160))),
         ("(define-private (foo) (secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04  0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301))",
-         FunctionNotPermitted(NativeFunctions::Secp256k1Recover)),
+         Err(FunctionNotPermitted(NativeFunctions::Secp256k1Recover))),
         ("(define-private (foo) (secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
  0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a13
  0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110))",
-         FunctionNotPermitted(NativeFunctions::Secp256k1Verify)),
+         Err(FunctionNotPermitted(NativeFunctions::Secp256k1Verify))),
         ("(define-private (foo) (sha256 0))",
-         FunctionNotPermitted(NativeFunctions::Sha256)),
+         Err(FunctionNotPermitted(NativeFunctions::Sha256))),
         ("(define-private (foo) (sha512 0))",
-         FunctionNotPermitted(NativeFunctions::Sha512)),
+         Err(FunctionNotPermitted(NativeFunctions::Sha512))),
         ("(define-private (foo) (sha512/256 0))",
-         FunctionNotPermitted(NativeFunctions::Sha512Trunc256)),
+         Err(FunctionNotPermitted(NativeFunctions::Sha512Trunc256))),
 
+        // Clarity2 functions.
+        (r#"(stx-transfer-memo? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 0x010203)"#,
+         Ok(())),
     ];
 
-    for (contract, error) in bad_tests.iter() {
-        eprintln!("{}", contract);
+    for (contract, result) in tests.iter() {
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity1),
-            Err(error.clone()),
+            result.clone(),
             "Check contract:\n {}",
             contract
         );
     }
+}
 
+#[test]
+fn test_functions_clarity2() {
+    // Tests Clarity2 functions against Clarity2 VM.
+    let tests = [
+        // Clarity2 functions.
+        (
+            r#"(stx-transfer-memo? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 0x010203)"#,
+            Err(FunctionNotPermitted(NativeFunctions::StxTransferMemo)),
+        ),
+    ];
+
+    for (contract, result) in tests.iter() {
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity2),
+            result.clone(),
+            "Check contract:\n {}",
+            contract
+        );
+    }
+}
+
+#[test]
+fn test_functions_contract() {
     let good_tests = [
         "(match (if (is-eq 0 1) (ok 1) (err 2))
             ok-val (+ 1 ok-val)
@@ -306,7 +334,6 @@ fn test_functions() {
     ];
 
     for contract in good_tests.iter() {
-        eprintln!("{}", contract);
         check_good(contract);
     }
 }
