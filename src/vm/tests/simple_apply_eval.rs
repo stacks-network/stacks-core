@@ -704,7 +704,8 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::max_buffer(),
             ],
             Value::Int(0),
-        ).into(),
+        )
+        .into(),
         CheckErrors::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
@@ -714,7 +715,8 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::max_buffer(),
             ],
             Value::Int(0),
-        ).into(),
+        )
+        .into(),
     ];
     // Note: Execute against Clarity2.
     error_tests
