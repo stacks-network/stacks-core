@@ -8,14 +8,14 @@ Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and ena
 
 ## Repository
 
-| Blockstack Topic/Tech    | Where to learn more more                                                          |
-| ------------------------ | --------------------------------------------------------------------------------- |
-| Stacks 2.0               | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
-| Stacks 1.0               | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
-| Use the package          | [our core docs](https://docs.blockstack.org/core/naming/introduction.html)        |
-| Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html)   |
-| Use a Blockstack App     | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
-| Blockstack PBC the company   | [our website](https://blockstack.org)                                             |
+| Blockstack Topic/Tech      | Where to learn more more                                                          |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| Stacks 2.0                 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
+| Stacks 1.0                 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
+| Use the package            | [our core docs](https://docs.blockstack.org/core/naming/introduction.html)        |
+| Develop a Blockstack App   | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html)   |
+| Use a Blockstack App       | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
+| Blockstack PBC the company | [our website](https://blockstack.org)                                             |
 
 ## Release Schedule and Hotfixes
 
@@ -54,12 +54,12 @@ to upgrade to `2.0.10.1.0` or `2.0.10.0.1`. However, upgrading to `2.0.11.0.0` w
 
 - [x] [SIP 001: Burn Election](https://github.com/stacksgov/sips/blob/main/sips/sip-001/sip-001-burn-election.md)
 - [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/stacksgov/sips/blob/main/sips/sip-002/sip-002-smart-contract-language.md)
-- [X] [SIP 003: Peer Network](https://github.com/stacksgov/sips/blob/main/sips/sip-003/sip-003-peer-network.md)
+- [x] [SIP 003: Peer Network](https://github.com/stacksgov/sips/blob/main/sips/sip-003/sip-003-peer-network.md)
 - [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/stacksgov/sips/blob/main/sips/sip-004/sip-004-materialized-view.md)
 - [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md)
-- [X] [SIP 006: Clarity Execution Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-006/sip-006-runtime-cost-assessment.md)
+- [x] [SIP 006: Clarity Execution Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-006/sip-006-runtime-cost-assessment.md)
 - [x] [SIP 007: Stacking Consensus](https://github.com/stacksgov/sips/blob/main/sips/sip-007/sip-007-stacking-consensus.md)
-- [X] [SIP 008: Clarity Parsing and Analysis Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-008/sip-008-analysis-cost-assessment.md)
+- [x] [SIP 008: Clarity Parsing and Analysis Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-008/sip-008-analysis-cost-assessment.md)
 
 Stacks improvement proposals (SIPs) are aimed at describing the implementation of the Stacks blockchain, as well as proposing improvements. They should contain concise technical specifications of features or standards and the rationale behind it. SIPs are intended to be the primary medium for proposing new features, for collecting community input on a system-wide issue, and for documenting design decisions.
 
@@ -69,19 +69,11 @@ The SIPs are now located in the [stacksgov/sips](https://github.com/stacksgov/si
 
 ### Testnet versions
 
-- [x] **Helium** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can not only run Stacks 2.0 on their development machines, but also write, execute, and test smart contracts. See the instructions below for more details.
+- [x] **Krypton** is a testnet with a fixed, two-minute block time. Regtest is generally unstable for regular use, and is reset often. See the [regtest documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on using regtest.
 
-- [X] **Neon** is the first version of our public testnet, which shipped in Q2 2020. This testnet added SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
+- [x] **Xenon** is the Stacks 2.0 public testnet, which runs on the Bitcoin testnet. It is the full implementation of the Stacks 2.0 blockchain, and should be considered a stable testnet for developing Clarity smart contracts. See the [testnet documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on the public testnet.
 
-- [X] **Argon** is the second version of our public testnet, which shipped in Q2 2020. This testnet improved on the stability of the Neon testnet.
-
-- [X] **Krypton** is the third version of our public testnet, which incorporates a partial implementation of SIP 007.  It allows developers to test a simple version of Stacking and PoX consensus.
-
-- [X] **Xenon** is the upcoming version of our public testnet, which will run on the Bitcoin testnet.  It will include SIP 006 and SIP 008, and will contain bugfixes and improvements to the implementation of SIP 007.
-
-- [X] **Mainnet** is the fully functional version, that is estimated for Q4 2020.
-
-See the [testnet website](https://testnet.blockstack.org) and ["when mainnet?" FAQ](https://github.com/blockstack/stacks/blob/master/whenmainnet.md) for details.
+- [x] **Mainnet** is the fully functional Stacks 2.0 blockchain, see the [Stacks overview](https://docs.stacks.co/understand-stacks/overview) for information on running a Stacks node, mining, stacking, and writing Clarity smart contracts.
 
 ## Getting started
 
@@ -129,7 +121,8 @@ cargo run --bin blockstack-cli generate-sk --testnet
 #  stacksAddress: "ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH"
 # }
 ```
-This keypair is already registered in the `testnet-follower-conf.toml` file, so it can be used as presented here. 
+
+This keypair is already registered in the `testnet-follower-conf.toml` file, so it can be used as presented here.
 
 We will interact with the following simple contract `kv-store`. In our examples, we will assume this contract is saved to `./kv-store.clar`:
 
@@ -162,7 +155,7 @@ With the following arguments:
 cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 515 0 kv-store ./kv-store.clar --testnet
 ```
 
-The `515` is the transaction fee, denominated in microSTX.  Right now, the
+The `515` is the transaction fee, denominated in microSTX. Right now, the
 testnet requires one microSTX per byte minimum, and this transaction should be
 less than 515 bytes.
 The third argument `0` is a nonce, that must be increased monotonically with each new transaction.
@@ -181,7 +174,7 @@ You can observe the state machine in action locally by running:
 cargo testnet start --config=./testnet/stacks-node/conf/testnet-follower-conf.toml
 ```
 
-`testnet-follower-conf.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.  You can grant an address an initial account balance by adding the following entries:
+`testnet-follower-conf.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers. You can grant an address an initial account balance by adding the following entries:
 
 ```
 [[ustx_balance]]
@@ -190,7 +183,7 @@ amount = 100000000
 ```
 
 The `address` field is the Stacks testnet address, and the `amount` field is the
-number of microSTX to grant to it in the genesis block.  The addresses of the
+number of microSTX to grant to it in the genesis block. The addresses of the
 private keys used in the tutorial below are already added.
 
 ### Publish your contract
