@@ -705,10 +705,11 @@ fn test_stx_ops_errors() {
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, execute_against_version_and_network(program,
-                    ClarityVersion::Clarity2,
-                    true
-				).unwrap_err());
+        assert_eq!(
+            *expectation,
+            execute_against_version_and_network(program, ClarityVersion::Clarity2, true)
+                .unwrap_err()
+        );
     }
 }
 
@@ -1051,11 +1052,9 @@ fn test_is_mainnet() {
         .for_each(|(program, expectation)| {
             assert_eq!(
                 expectation.clone(),
-                execute_against_version_and_network(
-                    program,
-                    ClarityVersion::Clarity2,
-                    true
-                ).unwrap().unwrap()
+                execute_against_version_and_network(program, ClarityVersion::Clarity2, true)
+                    .unwrap()
+                    .unwrap()
             )
         });
 
@@ -1067,11 +1066,9 @@ fn test_is_mainnet() {
         .for_each(|(program, expectation)| {
             assert_eq!(
                 expectation.clone(),
-                execute_against_version_and_network(
-                    program,
-                    ClarityVersion::Clarity2,
-                    false
-                ).unwrap().unwrap()
+                execute_against_version_and_network(program, ClarityVersion::Clarity2, false)
+                    .unwrap()
+                    .unwrap()
             )
         });
 }
