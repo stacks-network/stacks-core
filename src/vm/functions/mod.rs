@@ -144,6 +144,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     BurnAsset("nft-burn?", ClarityVersion::Clarity1),
     GetStxBalance("stx-get-balance", ClarityVersion::Clarity1),
     StxTransfer("stx-transfer?", ClarityVersion::Clarity1),
+    StxTransferMemo("stx-transfer-memo?", ClarityVersion::Clarity2),
     StxBurn("stx-burn?", ClarityVersion::Clarity1),
     StxGetAccount("stx-account", ClarityVersion::Clarity2),
 });
@@ -470,6 +471,10 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             AtBlock => SpecialFunction("special_at_block", &database::special_at_block),
             GetStxBalance => SpecialFunction("special_stx_balance", &assets::special_stx_balance),
             StxTransfer => SpecialFunction("special_stx_transfer", &assets::special_stx_transfer),
+            StxTransferMemo => SpecialFunction(
+                "special_stx_transfer_memo",
+                &assets::special_stx_transfer_memo,
+            ),
             StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
             StxGetAccount => SpecialFunction("stx_get_account", &assets::special_stx_account),
         };

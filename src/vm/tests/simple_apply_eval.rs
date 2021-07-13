@@ -29,7 +29,7 @@ use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::tests::execute;
 use vm::types::signatures::{BufferLength, StringUTF8Length};
 use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
-use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
+use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
 use vm::{eval, execute as vm_execute, execute_against_version_and_network};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
@@ -747,9 +747,13 @@ fn test_options_errors() {
 fn test_stx_ops_errors() {
     let tests = [
         r#"(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
-        r#"(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x000000000000000000000000000000000000000000000000000000000000000000)"#,
-        r#"(stx-transfer? u4 u3 u2 0x00)"#,
-        r#"(stx-transfer? u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true)"#,
+        r#"(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
+        r#"(stx-transfer? u4 u3 u2)"#,
+        r#"(stx-transfer? true 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
+        r#"(stx-transfer-memo? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x0102)"#,
+        r#"(stx-transfer-memo? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x0102)"#,
+        r#"(stx-transfer-memo? u4 u3 u2 0x0102)"#,
+        r#"(stx-transfer-memo? true 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x0102)"#,
         "(stx-burn? u4)",
         "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
     ];
@@ -759,12 +763,16 @@ fn test_stx_ops_errors() {
         CheckErrors::BadTransferSTXArguments.into(),
         CheckErrors::BadTransferSTXArguments.into(),
         CheckErrors::BadTransferSTXArguments.into(),
+        CheckErrors::IncorrectArgumentCount(4, 3).into(),
+        CheckErrors::BadTransferSTXArguments.into(),
+        CheckErrors::BadTransferSTXArguments.into(),
+        CheckErrors::BadTransferSTXArguments.into(),
         CheckErrors::IncorrectArgumentCount(2, 1).into(),
         CheckErrors::BadTransferSTXArguments.into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+        assert_eq!(*expectation, execute_against_version_and_network(program, ClarityVersion::Clarity2, false).unwrap_err());
     }
 }
 
