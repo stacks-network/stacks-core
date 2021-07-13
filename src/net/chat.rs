@@ -2378,6 +2378,7 @@ mod test {
             &burnchain.first_block_hash,
             get_epoch_time_secs(),
             &StacksEpoch::unit_test(burnchain.first_block_height),
+            burnchain.pox_constants.clone(),
             true,
         )
         .unwrap();

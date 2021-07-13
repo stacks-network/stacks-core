@@ -120,6 +120,9 @@ pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u
 
 pub const POX_MAX_NUM_CYCLES: u8 = 12;
 
+pub const POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT: u32 = 1_000_000;
+pub const POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT: u32 = 2_000_000;
+
 pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
     write_length: 15_000_000, // roughly 15 mb
     write_count: 7_750,
@@ -152,23 +155,20 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
 }
 
 #[repr(u32)]
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy)]
 pub enum StacksEpochId {
-    Epoch10 = 0x1000,
+    Epoch10 = 0x0100,
     Epoch20 = 0x0200,
     Epoch21 = 0x0201,
 }
 
-impl PartialOrd for StacksEpochId {
-    // Note: this comparison makes Epoch10 > Epoch21 > Epoch20. Is that the intention?
-    fn partial_cmp(&self, other: &StacksEpochId) -> Option<Ordering> {
-        (*self as u32).partial_cmp(&(*other as u32))
-    }
-}
-
-impl Ord for StacksEpochId {
-    fn cmp(&self, other: &StacksEpochId) -> Ordering {
-        (*self as u32).cmp(&(*other as u32))
+impl std::fmt::Display for StacksEpochId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StacksEpochId::Epoch10 => write!(f, "1.0"),
+            StacksEpochId::Epoch20 => write!(f, "2.0"),
+            StacksEpochId::Epoch21 => write!(f, "2.1"),
+        }
     }
 }
 
@@ -195,6 +195,11 @@ pub struct StacksEpoch {
 impl StacksEpoch {
     #[cfg(test)]
     pub fn unit_test(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+        info!(
+            "StacksEpoch unit_test first_burn_height = {}",
+            first_burnchain_height
+        );
+
         vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,

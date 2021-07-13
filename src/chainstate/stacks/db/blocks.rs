@@ -3891,6 +3891,51 @@ impl StacksChainState {
         Ok((fees, burns, receipts))
     }
 
+    /// If an epoch transition occurs at this Stacks block,
+    ///   apply the transition and return any receipts from the transition.
+    pub fn process_epoch_transition(
+        clarity_tx: &mut ClarityTx,
+        chain_tip_burn_header_height: u32,
+    ) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        // is this stacks block the first of a new epoch?
+        let (stacks_parent_epoch, sortition_epoch) = clarity_tx.with_clarity_db_readonly(|db| {
+            (
+                db.get_clarity_epoch_version(),
+                db.get_stacks_epoch(chain_tip_burn_header_height),
+            )
+        });
+
+        let mut receipts = vec![];
+
+        if let Some(sortition_epoch) = sortition_epoch {
+            // the parent stacks block has a different epoch than what the Sortition DB
+            //  thinks should be in place.
+            if stacks_parent_epoch != sortition_epoch.epoch_id {
+                info!("Applying epoch transition"; "new_epoch_id" => %sortition_epoch.epoch_id, "old_epoch_id" => %stacks_parent_epoch);
+                // this assertion failing means that the _parent_ block was invalid: this is bad and should panic.
+                assert!(stacks_parent_epoch < sortition_epoch.epoch_id, "The SortitionDB believes the epoch is earlier than this Stacks block's parent: sortition db epoch = {}, parent epoch = {}", sortition_epoch.epoch_id, stacks_parent_epoch);
+                // time for special cases:
+                match stacks_parent_epoch {
+                    StacksEpochId::Epoch10 => {
+                        panic!("Clarity VM believes it was running in 1.0: pre-Clarity.")
+                    }
+                    StacksEpochId::Epoch20 => {
+                        assert_eq!(
+                            sortition_epoch.epoch_id,
+                            StacksEpochId::Epoch21,
+                            "Should only transition from Epoch20 to Epoch21"
+                        );
+                        receipts.push(clarity_tx.block.initialize_epoch_2_1()?);
+                    }
+                    StacksEpochId::Epoch21 => {
+                        panic!("No defined transition from Epoch21 forward")
+                    }
+                }
+            }
+        }
+        Ok(receipts)
+    }
+
     /// Process any Stacking-related bitcoin operations
     ///  that haven't been processed in this Stacks fork yet.
     pub fn process_stacking_ops(
@@ -4448,9 +4493,17 @@ impl StacksChainState {
                    "microblock_parent_seq" => %last_microblock_seq,
                    "microblock_parent_count" => %microblocks.len());
 
+            // is this stacks block the first of a new epoch?
+            let mut receipts = StacksChainState::process_epoch_transition(
+                &mut clarity_tx,
+                chain_tip_burn_header_height,
+            )?;
+
             // process stacking operations from bitcoin ops
-            let mut receipts =
-                StacksChainState::process_stacking_ops(&mut clarity_tx, stacking_burn_ops);
+            receipts.extend(StacksChainState::process_stacking_ops(
+                &mut clarity_tx,
+                stacking_burn_ops,
+            ));
 
             receipts.extend(StacksChainState::process_transfer_ops(
                 &mut clarity_tx,
@@ -5399,14 +5452,20 @@ impl StacksChainState {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let block_height = clarity_connection
-            .with_clarity_db_readonly(|ref mut db| db.get_current_burnchain_block_height() as u64);
+        let (block_height, v1_unlock_height) =
+            clarity_connection.with_clarity_db_readonly(|ref mut db| {
+                (
+                    db.get_current_burnchain_block_height() as u64,
+                    db.get_v1_unlock_height(),
+                )
+            });
 
         // 5: the paying account must have enough funds
-        if !payer
-            .stx_balance
-            .can_transfer_at_burn_block(fee as u128, block_height)
-        {
+        if !payer.stx_balance.can_transfer_at_burn_block(
+            fee as u128,
+            block_height,
+            v1_unlock_height,
+        ) {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
                     // pass: we'll return a total_spent failure below.
@@ -5414,7 +5473,9 @@ impl StacksChainState {
                 _ => {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         fee as u128,
-                        payer.stx_balance.amount_unlocked,
+                        payer
+                            .stx_balance
+                            .get_available_balance_at_burn_block(block_height, v1_unlock_height),
                     ));
                 }
             }
@@ -5433,27 +5494,32 @@ impl StacksChainState {
 
                 // does the owner have the funds for the token transfer?
                 let total_spent = (*amount as u128) + if origin == payer { fee as u128 } else { 0 };
-                if !origin
-                    .stx_balance
-                    .can_transfer_at_burn_block(total_spent, block_height)
-                {
+                if !origin.stx_balance.can_transfer_at_burn_block(
+                    total_spent,
+                    block_height,
+                    v1_unlock_height,
+                ) {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         total_spent,
                         origin
                             .stx_balance
-                            .get_available_balance_at_burn_block(block_height),
+                            .get_available_balance_at_burn_block(block_height, v1_unlock_height),
                     ));
                 }
 
                 // if the payer for the tx is different from owner, check if they can afford fee
                 if origin != payer {
-                    if !payer
-                        .stx_balance
-                        .can_transfer_at_burn_block(fee as u128, block_height)
-                    {
+                    if !payer.stx_balance.can_transfer_at_burn_block(
+                        fee as u128,
+                        block_height,
+                        v1_unlock_height,
+                    ) {
                         return Err(MemPoolRejection::NotEnoughFunds(
                             fee as u128,
-                            payer.stx_balance.amount_unlocked,
+                            payer.stx_balance.get_available_balance_at_burn_block(
+                                block_height,
+                                v1_unlock_height,
+                            ),
                         ));
                     }
                 }

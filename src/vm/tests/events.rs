@@ -27,24 +27,46 @@ use vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
 
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
+use core::StacksEpochId;
+
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
+    helper_execute_epoch(contract, method, None)
+}
+
+fn helper_execute_epoch(
+    contract: &str,
+    method: &str,
+    set_epoch: Option<StacksEpochId>,
+) -> (Value, Vec<StacksTransactionEvent>) {
     let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
     let address = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
     let sender = execute(address).expect_principal();
 
     let marf_kv = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            ),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
-        )
-        .commit_block();
+    let mut genesis = clarity_instance.begin_test_genesis_block(
+        &StacksBlockId::sentinel(),
+        &StacksBlockHeader::make_index_block_hash(
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+        ),
+        &NULL_HEADER_DB,
+        &NULL_BURN_STATE_DB,
+    );
+
+    if let Some(epoch) = set_epoch {
+        genesis.as_transaction(|tx_conn| {
+            // bump the epoch in the Clarity DB
+            tx_conn
+                .with_clarity_db(|db| {
+                    db.set_clarity_epoch_version(epoch);
+                    Ok(())
+                })
+                .unwrap();
+        });
+    }
+
+    genesis.commit_block();
 
     let mut marf_kv = clarity_instance.destroy();
 
@@ -146,7 +168,8 @@ fn test_emit_stx_transfer_memo_ok() {
                 (unwrap-panic (stx-transfer-memo? u10 sender recipient 0x010203))
                 (ok u1)))"#;
 
-    let (value, mut events) = helper_execute(contract, "emit-event-ok");
+    let (value, mut events) =
+        helper_execute_epoch(contract, "emit-event-ok", Some(StacksEpochId::Epoch21));
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 1);
     match events.pop() {

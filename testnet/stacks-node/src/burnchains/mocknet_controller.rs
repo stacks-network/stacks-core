@@ -99,6 +99,7 @@ impl BurnchainController for MocknetController {
                 start_height: 0,
                 end_height: STACKS_EPOCH_MAX,
             }],
+            self.burnchain.pox_constants.clone(),
             true,
         ) {
             Ok(db) => db,

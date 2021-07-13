@@ -352,10 +352,23 @@ impl RPCPoxInfoData {
                 net_error::ChainstateError("Burn block height overflowed i64".into())
             })?;
 
-        let cur_cycle_stacked_ustx =
-            chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128)?;
-        let next_cycle_stacked_ustx =
-            chainstate.get_total_ustx_stacked(&sortdb, tip, reward_cycle_id as u128 + 1)?;
+        let cur_cycle_pox_contract =
+            pox_consts.active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id));
+        let next_cycle_pox_contract = pox_consts
+            .active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id + 1));
+
+        let cur_cycle_stacked_ustx = chainstate.get_total_ustx_stacked(
+            &sortdb,
+            tip,
+            reward_cycle_id as u128,
+            cur_cycle_pox_contract,
+        )?;
+        let next_cycle_stacked_ustx = chainstate.get_total_ustx_stacked(
+            &sortdb,
+            tip,
+            reward_cycle_id as u128 + 1,
+            next_cycle_pox_contract,
+        )?;
 
         let reward_slots = pox_consts.reward_slots() as u64;
 
@@ -1077,6 +1090,7 @@ impl ConversationHttp {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     let key = ClarityDatabase::make_key_for_account_balance(&account);
                     let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
+                    let v1_unlock_height = clarity_db.get_v1_unlock_height();
                     let (balance, balance_proof) = clarity_db
                         .get_with_proof::<STXBalance>(&key)
                         .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
@@ -1093,9 +1107,10 @@ impl ConversationHttp {
                         .unwrap_or_else(|| (0, "".into()));
                     let nonce_proof = if with_proof { Some(nonce_proof) } else { None };
 
-                    let unlocked = balance.get_available_balance_at_burn_block(burn_block_height);
-                    let (locked, unlock_height) =
-                        balance.get_locked_balance_at_burn_block(burn_block_height);
+                    let unlocked = balance
+                        .get_available_balance_at_burn_block(burn_block_height, v1_unlock_height);
+                    let (locked, unlock_height) = balance
+                        .get_locked_balance_at_burn_block(burn_block_height, v1_unlock_height);
 
                     let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
                     let locked = format!("0x{}", to_hex(&locked.to_be_bytes()));

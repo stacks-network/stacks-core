@@ -2109,6 +2109,22 @@ mod test {
         fn get_burn_start_height(&self) -> u32 {
             0
         }
+
+        fn get_v1_unlock_height(&self) -> u32 {
+            u32::max_value()
+        }
+
+        fn get_pox_prepare_length(&self) -> u32 {
+            panic!("Docs db should not return PoX info")
+        }
+
+        fn get_pox_reward_cycle_length(&self) -> u32 {
+            panic!("Docs db should not return PoX info")
+        }
+
+        fn get_pox_rejection_fraction(&self) -> u64 {
+            panic!("Docs db should not return PoX info")
+        }
     }
 
     fn docs_execute(marf: &mut MarfedKV, program: &str) {

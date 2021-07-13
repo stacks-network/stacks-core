@@ -97,6 +97,7 @@ pub enum RuntimeErrorType {
     UnknownBlockHeaderHash(BlockHeaderHash),
     BadBlockHash(Vec<u8>),
     UnwrapFailure,
+    DefunctPoxContract,
 }
 
 #[derive(Debug, PartialEq)]

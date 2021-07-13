@@ -638,6 +638,7 @@ impl Burnchain {
             &first_block_header_hash,
             first_block_header_timestamp,
             &epochs,
+            self.pox_constants.clone(),
             readwrite,
         )?;
         let burnchaindb = BurnchainDB::connect(
@@ -666,7 +667,7 @@ impl Burnchain {
             return Err(burnchain_error::DBError(db_error::NoDBError));
         }
 
-        let sortition_db = SortitionDB::open(&db_path, readwrite)?;
+        let sortition_db = SortitionDB::open(&db_path, readwrite, self.pox_constants.clone())?;
         let burnchain_db = BurnchainDB::open(&burnchain_db_path, readwrite)?;
 
         Ok((sortition_db, burnchain_db))
