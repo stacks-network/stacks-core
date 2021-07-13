@@ -1735,10 +1735,9 @@ principal isn't materialized, it returns 0.
 const STX_TRANSFER: SpecialAPI = SpecialAPI {
     input_type: "uint, principal, principal, buff",
     output_type: "(response bool uint)",
-    signature: "(stx-transfer? amount sender recipient memo)",
+    signature: "(stx-transfer? amount sender recipient)",
     description: "`stx-transfer?` is used to increase the STX balance for the `recipient` principal
 by debiting the `sender` principal. The `sender` principal _must_ be equal to the current context's `tx-sender`.
-The `memo` field is optional, and can be omitted. 
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
@@ -1752,9 +1751,23 @@ one of the following error codes:
 (as-contract
   (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (ok true)
 (as-contract
-  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x00)) ;; Returns (ok true)
+  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (ok true)
 (as-contract
-  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender 0x00)) ;; Returns (err u4)
+  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender)) ;; Returns (err u4)
+"#
+};
+
+const STX_TRANSFER_MEMO: SpecialAPI = SpecialAPI {
+    input_type: "uint, principal, principal, buff",
+    output_type: "(response bool uint)",
+    signature: "(stx-transfer-memo? amount sender recipient memo)",
+    description: "`stx-transfer-memo?` is similar to `stx-transfer?`, except that it adds a `memo` field. 
+
+This function returns (ok true) if the transfer is successful, or, on an error, returns the same codes as `stx-transfer?`.
+",
+    example: r#"
+(as-contract
+  (stx-transfer-memo? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x010203)) ;; Returns (ok true)
 "#
 };
 
@@ -1874,6 +1887,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
         StxGetAccount => make_for_simple_native(&STX_GET_BALANCE, &StxGetAccount, name),
         StxTransfer => make_for_special(&STX_TRANSFER, name),
+        StxTransferMemo => make_for_special(&STX_TRANSFER_MEMO, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
 }
