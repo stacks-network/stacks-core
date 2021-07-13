@@ -1029,6 +1029,12 @@ const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
     signature: "(principal-of? public-key)",
     description: "The `principal-of?` function returns the principal derived from the provided public key.
     If the `public-key` is invalid, it will return the error code `(err u1).`.
+
+Note: Before Stacks 2.1, this function has a bug, in that the principal returned would always
+be a testnet single-signature principal, even if the function were run on the mainnet. Starting
+with Stacks 2.1, this bug is fixed, so that this function will return a principal suited to
+the network it is called on. In particular, if this is called on the mainnet, it will
+return a single-signature mainnet principal.
     ",
     example: "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns (ok ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)"
 };
