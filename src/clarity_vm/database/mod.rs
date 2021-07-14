@@ -34,8 +34,7 @@ impl HeadersDB for DBConn {
     }
     fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
         -> Option<ConsensusHash> {
-            None
-
+        get_stacks_header_info(self, id_bhh).map(|x| x.consensus_hash)
         }
 
     fn get_burn_header_hash_for_block(
