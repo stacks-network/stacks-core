@@ -69,11 +69,11 @@ The SIPs are now located in the [stacksgov/sips](https://github.com/stacksgov/si
 
 ### Testnet versions
 
-- [x] **Krypton** is a testnet with a fixed, two-minute block time. Regtest is generally unstable for regular use, and is reset often. See the [regtest documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on using regtest.
+- [x] **Krypton** is a Stacks 2 testnet with a fixed, two-minute block time, called `regtest`. Regtest is generally unstable for regular use, and is reset often. See the [regtest documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on using regtest.
 
-- [x] **Xenon** is the Stacks 2.0 public testnet, which runs on the Bitcoin testnet. It is the full implementation of the Stacks 2.0 blockchain, and should be considered a stable testnet for developing Clarity smart contracts. See the [testnet documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on the public testnet.
+- [x] **Xenon** is the Stacks 2 public testnet, which runs PoX against the Bitcoin testnet. It is the full implementation of the Stacks 2 blockchain, and should be considered a stable testnet for developing Clarity smart contracts. See the [testnet documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on the public testnet.
 
-- [x] **Mainnet** is the fully functional Stacks 2.0 blockchain, see the [Stacks overview](https://docs.stacks.co/understand-stacks/overview) for information on running a Stacks node, mining, stacking, and writing Clarity smart contracts.
+- [x] **Mainnet** is the fully functional Stacks 2 blockchain, see the [Stacks overview](https://docs.stacks.co/understand-stacks/overview) for information on running a Stacks node, mining, stacking, and writing Clarity smart contracts.
 
 ## Getting started
 
