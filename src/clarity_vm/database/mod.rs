@@ -1,9 +1,9 @@
 use rusqlite::{Connection, OptionalExtension};
 
-use chainstate::burn::ConsensusHash;
 use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
+use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
 use util::db::{DBConn, FromRow};
@@ -32,10 +32,9 @@ impl HeadersDB for DBConn {
         // I think it's this one.
         get_stacks_header_info(self, id_bhh).map(|x| x.anchored_header.block_hash())
     }
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
-        -> Option<ConsensusHash> {
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
         get_stacks_header_info(self, id_bhh).map(|x| x.consensus_hash)
-        }
+    }
 
     fn get_burn_header_hash_for_block(
         &self,

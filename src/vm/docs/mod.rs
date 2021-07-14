@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use chainstate::burn::ConsensusHash;
 use vm::analysis::type_checker::natives::SimpleNativeFunction;
 use vm::analysis::type_checker::TypedNativeFunction;
 use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::types::{FixedFunction, FunctionType, Value};
 use vm::variables::NativeVariables;
-use chainstate::burn::ConsensusHash;
 
 pub mod contracts;
 
@@ -2051,8 +2051,7 @@ mod test {
         ) -> Option<BurnchainHeaderHash> {
             None
         }
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
-        -> Option<ConsensusHash> {
+        fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
             None
         }
         fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
@@ -2104,13 +2103,13 @@ mod test {
                 .unwrap(),
             )
         }
-    fn get_burn_header_hash_using_consensus_hash(
-        &self,
-        height: u32,
-        consensus_hash: &ConsensusHash,
-    ) -> Option<BurnchainHeaderHash> {
-        None
-    }
+        fn get_burn_header_hash_using_consensus_hash(
+            &self,
+            height: u32,
+            consensus_hash: &ConsensusHash,
+        ) -> Option<BurnchainHeaderHash> {
+            None
+        }
         fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
             Some(StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,

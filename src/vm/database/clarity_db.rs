@@ -17,6 +17,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
+use chainstate::burn::ConsensusHash;
 use core::{
     StacksEpoch, BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -42,7 +43,6 @@ use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
     TupleTypeSignature, TypeSignature, Value, NONE,
 };
-use chainstate::burn::ConsensusHash;
 
 use crate::{
     core::StacksEpochId,
@@ -89,8 +89,7 @@ pub trait HeadersDB {
     ) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId)
         -> Option<BurnchainHeaderHash>;
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
-        -> Option<ConsensusHash>;
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash>;
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
@@ -124,11 +123,9 @@ impl HeadersDB for &dyn HeadersDB {
     ) -> Option<BlockHeaderHash> {
         (*self).get_stacks_block_header_hash_for_block(id_bhh)
     }
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
-        -> Option<ConsensusHash> {
-            None
-
-        }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        None
+    }
     fn get_burn_header_hash_for_block(&self, bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
         (*self).get_burn_header_hash_for_block(bhh)
     }
@@ -223,11 +220,9 @@ impl HeadersDB for NullHeadersDB {
             None
         }
     }
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
-        -> Option<ConsensusHash> {
-            None
-
-        }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        None
+    }
     fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
         None
     }
@@ -714,10 +709,14 @@ impl<'a> ClarityDatabase<'a> {
             .expect("Failed to get block data.")
     }
 
-    pub fn get_burnchain_block_header_hash_for_burnchain_height(&mut self, burnchain_block_height: u32) -> BurnchainHeaderHash {
+    pub fn get_burnchain_block_header_hash_for_burnchain_height(
+        &mut self,
+        burnchain_block_height: u32,
+    ) -> BurnchainHeaderHash {
         let block_height = self.get_current_block_height();
         let id_bhh = self.get_index_block_header_hash(block_height);
-        let consensus_hash = self.headers_db
+        let consensus_hash = self
+            .headers_db
             .get_consensus_hash_for_block(&id_bhh)
             .expect("Failed to get block data.");
 
