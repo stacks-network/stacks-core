@@ -379,3 +379,20 @@ paths:
         schema:
           type: string
         description: The Stacks chain tip to query from
+
+  /v2/health:
+    get:
+      summary: Get health of node
+      description: Get boolean determining whether a node is synced up with its boostrap nodes, and what percent the sync is at.
+      tags:
+        - Info
+      operationId: get_health
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-health.schema.json
+              example:
+                $ref: ./api/core-node/get-info.example.json
