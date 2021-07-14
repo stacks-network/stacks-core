@@ -89,21 +89,21 @@ use crate::codec::{
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 lazy_static! {
-    static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
-    static ref PATH_GETPOXINFO: Regex = Regex::new(r#"^/v2/pox$"#).unwrap();
-    static ref PATH_GETNEIGHBORS: Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
-    static ref PATH_GETBLOCK: Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_GETMICROBLOCKS_INDEXED: Regex =
+    static ref PATH_GET_INFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
+    static ref PATH_GET_POX_INFO: Regex = Regex::new(r#"^/v2/pox$"#).unwrap();
+    static ref PATH_GET_NEIGHBORS: Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
+    static ref PATH_GET_BLOCK: Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
+    static ref PATH_GET_MICROBLOCKS_INDEXED: Regex =
         Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_GETMICROBLOCKS_CONFIRMED: Regex =
+    static ref PATH_GET_MICROBLOCKS_CONFIRMED: Regex =
         Regex::new(r#"^/v2/microblocks/confirmed/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_GETMICROBLOCKS_UNCONFIRMED: Regex =
+    static ref PATH_GET_MICROBLOCKS_UNCONFIRMED: Regex =
         Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
-    static ref PATH_GETTRANSACTION_UNCONFIRMED: Regex =
+    static ref PATH_GET_TRANSACTION_UNCONFIRMED: Regex =
         Regex::new(r#"^/v2/transactions/unconfirmed/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_POSTTRANSACTION: Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
-    static ref PATH_POSTBLOCK: Regex = Regex::new(r#"^/v2/blocks/upload/([0-9a-f]{40})$"#).unwrap();
-    static ref PATH_POSTMICROBLOCK: Regex = Regex::new(r#"^/v2/microblocks$"#).unwrap();
+    static ref PATH_POST_TRANSACTION: Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
+    static ref PATH_POST_BLOCK: Regex = Regex::new(r#"^/v2/blocks/upload/([0-9a-f]{40})$"#).unwrap();
+    static ref PATH_POST_MICROBLOCK: Regex = Regex::new(r#"^/v2/microblocks$"#).unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
         "^/v2/accounts/(?P<principal>{})$",
         *PRINCIPAL_DATA_REGEX
@@ -139,6 +139,7 @@ lazy_static! {
     static ref PATH_GET_ATTACHMENT: Regex =
         Regex::new(r#"^/v2/attachments/([0-9a-f]{40})$"#).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
+    static ref PATH_GET_HEALTH: Regex = Regex::new(r#"^/v2/health$"#).unwrap();
 }
 
 /// HTTP headers that we really care about
@@ -1447,44 +1448,48 @@ impl HttpRequestType {
                 &mut R,
             ) -> Result<HttpRequestType, net_error>,
         )] = &[
-            ("GET", &PATH_GETINFO, &HttpRequestType::parse_getinfo),
-            ("GET", &PATH_GETPOXINFO, &HttpRequestType::parse_getpoxinfo),
+            ("GET", &PATH_GET_INFO, &HttpRequestType::parse_get_info),
             (
                 "GET",
-                &PATH_GETNEIGHBORS,
-                &HttpRequestType::parse_getneighbors,
-            ),
-            ("GET", &PATH_GETBLOCK, &HttpRequestType::parse_getblock),
-            (
-                "GET",
-                &PATH_GETMICROBLOCKS_INDEXED,
-                &HttpRequestType::parse_getmicroblocks_indexed,
+                &PATH_GET_POX_INFO,
+                &HttpRequestType::parse_get_pox_info,
             ),
             (
                 "GET",
-                &PATH_GETMICROBLOCKS_CONFIRMED,
-                &HttpRequestType::parse_getmicroblocks_confirmed,
+                &PATH_GET_NEIGHBORS,
+                &HttpRequestType::parse_get_neighbors,
+            ),
+            ("GET", &PATH_GET_BLOCK, &HttpRequestType::parse_get_block),
+            (
+                "GET",
+                &PATH_GET_MICROBLOCKS_INDEXED,
+                &HttpRequestType::parse_get_microblocks_indexed,
             ),
             (
                 "GET",
-                &PATH_GETMICROBLOCKS_UNCONFIRMED,
-                &HttpRequestType::parse_getmicroblocks_unconfirmed,
+                &PATH_GET_MICROBLOCKS_CONFIRMED,
+                &HttpRequestType::parse_get_microblocks_confirmed,
             ),
             (
                 "GET",
-                &PATH_GETTRANSACTION_UNCONFIRMED,
-                &HttpRequestType::parse_gettransaction_unconfirmed,
+                &PATH_GET_MICROBLOCKS_UNCONFIRMED,
+                &HttpRequestType::parse_get_microblocks_unconfirmed,
+            ),
+            (
+                "GET",
+                &PATH_GET_TRANSACTION_UNCONFIRMED,
+                &HttpRequestType::parse_get_transaction_unconfirmed,
             ),
             (
                 "POST",
-                &PATH_POSTTRANSACTION,
-                &HttpRequestType::parse_posttransaction,
+                &PATH_POST_TRANSACTION,
+                &HttpRequestType::parse_post_transaction,
             ),
-            ("POST", &PATH_POSTBLOCK, &HttpRequestType::parse_postblock),
+            ("POST", &PATH_POST_BLOCK, &HttpRequestType::parse_post_block),
             (
                 "POST",
-                &PATH_POSTMICROBLOCK,
-                &HttpRequestType::parse_postmicroblock,
+                &PATH_POST_MICROBLOCK,
+                &HttpRequestType::parse_post_microblock,
             ),
             (
                 "GET",
@@ -1536,6 +1541,7 @@ impl HttpRequestType {
                 &PATH_GET_ATTACHMENTS_INV,
                 &HttpRequestType::parse_get_attachments_inv,
             ),
+            ("GET", &PATH_GET_HEALTH, &HttpRequestType::parse_get_health),
         ];
 
         // use url::Url to parse path and query string
@@ -1584,7 +1590,7 @@ impl HttpRequestType {
         )))
     }
 
-    fn parse_getinfo<R: Read>(
+    fn parse_get_info<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
@@ -1601,7 +1607,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_getpoxinfo<R: Read>(
+    fn parse_get_pox_info<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
@@ -1622,7 +1628,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_getneighbors<R: Read>(
+    fn parse_get_neighbors<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
@@ -1921,7 +1927,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_getblock<R: Read>(
+    fn parse_get_block<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         captures: &Captures,
@@ -1950,7 +1956,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_getmicroblocks_indexed<R: Read>(
+    fn parse_get_microblocks_indexed<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         captures: &Captures,
@@ -1981,7 +1987,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_getmicroblocks_confirmed<R: Read>(
+    fn parse_get_microblocks_confirmed<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         captures: &Captures,
@@ -2011,7 +2017,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_getmicroblocks_unconfirmed<R: Read>(
+    fn parse_get_microblocks_unconfirmed<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         captures: &Captures,
@@ -2054,7 +2060,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_gettransaction_unconfirmed<R: Read>(
+    fn parse_get_transaction_unconfirmed<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         regex: &Captures,
@@ -2090,7 +2096,24 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_posttransaction<R: Read>(
+    fn parse_get_health<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        _regex: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body for GetInfo".to_string(),
+            ));
+        }
+        Ok(HttpRequestType::GetHealth(
+            HttpRequestMetadata::from_preamble(preamble),
+        ))
+    }
+
+    fn parse_post_transaction<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
@@ -2192,7 +2215,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_postblock<R: Read>(
+    fn parse_post_block<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         regex: &Captures,
@@ -2250,7 +2273,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_postmicroblock<R: Read>(
+    fn parse_post_microblock<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
@@ -2431,6 +2454,7 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref md, ..) => md,
             HttpRequestType::GetAttachment(ref md, ..) => md,
+            HttpRequestType::GetHealth(ref md) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
         }
     }
@@ -2458,6 +2482,7 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref mut md, ..) => md,
             HttpRequestType::GetAttachment(ref mut md, ..) => md,
+            HttpRequestType::GetHealth(ref mut md) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
         }
     }
@@ -2591,6 +2616,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachment(_, content_hash) => {
                 format!("/v2/attachments/{}", to_hex(&content_hash.0[..]))
             }
+            HttpRequestType::GetHealth(_md) => "/v2/health".to_string(),
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
@@ -2626,6 +2652,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachmentsInv(..) => "/v2/attachments/inv",
             HttpRequestType::GetAttachment(..) => "/v2/attachments/:hash",
             HttpRequestType::GetIsTraitImplemented(..) => "/v2/traits/:principal/:contract_name",
+            HttpRequestType::GetHealth(..) => "/v2/health",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
         }
     }
@@ -3023,34 +3050,34 @@ impl HttpResponseType {
                 Option<usize>,
             ) -> Result<HttpResponseType, net_error>,
         )] = &[
-            (&PATH_GETINFO, &HttpResponseType::parse_peerinfo),
-            (&PATH_GETPOXINFO, &HttpResponseType::parse_poxinfo),
-            (&PATH_GETNEIGHBORS, &HttpResponseType::parse_neighbors),
-            (&PATH_GETBLOCK, &HttpResponseType::parse_block),
+            (&PATH_GET_INFO, &HttpResponseType::parse_peerinfo),
+            (&PATH_GET_POX_INFO, &HttpResponseType::parse_poxinfo),
+            (&PATH_GET_NEIGHBORS, &HttpResponseType::parse_neighbors),
+            (&PATH_GET_BLOCK, &HttpResponseType::parse_block),
             (&PATH_GET_MAP_ENTRY, &HttpResponseType::parse_get_map_entry),
             (
-                &PATH_GETMICROBLOCKS_INDEXED,
+                &PATH_GET_MICROBLOCKS_INDEXED,
                 &HttpResponseType::parse_microblocks,
             ),
             (
-                &PATH_GETMICROBLOCKS_CONFIRMED,
+                &PATH_GET_MICROBLOCKS_CONFIRMED,
                 &HttpResponseType::parse_microblocks,
             ),
             (
-                &PATH_GETMICROBLOCKS_UNCONFIRMED,
+                &PATH_GET_MICROBLOCKS_UNCONFIRMED,
                 &HttpResponseType::parse_microblocks_unconfirmed,
             ),
             (
-                &PATH_GETTRANSACTION_UNCONFIRMED,
+                &PATH_GET_TRANSACTION_UNCONFIRMED,
                 &HttpResponseType::parse_transaction_unconfirmed,
             ),
-            (&PATH_POSTTRANSACTION, &HttpResponseType::parse_txid),
+            (&PATH_POST_TRANSACTION, &HttpResponseType::parse_txid),
             (
-                &PATH_POSTBLOCK,
+                &PATH_POST_BLOCK,
                 &HttpResponseType::parse_stacks_block_accepted,
             ),
             (
-                &PATH_POSTMICROBLOCK,
+                &PATH_POST_MICROBLOCK,
                 &HttpResponseType::parse_microblock_hash,
             ),
             (&PATH_GET_ACCOUNT, &HttpResponseType::parse_get_account),
@@ -3078,6 +3105,7 @@ impl HttpResponseType {
                 &PATH_GET_ATTACHMENTS_INV,
                 &HttpResponseType::parse_get_attachments_inv,
             ),
+            (&PATH_GET_HEALTH, &HttpResponseType::parse_get_health),
         ];
 
         // use url::Url to parse path and query string
@@ -3408,6 +3436,20 @@ impl HttpResponseType {
         ))
     }
 
+    fn parse_get_health<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let res = HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::GetHealth(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            res,
+        ))
+    }
+
     fn parse_stacks_block_accepted<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
@@ -3504,6 +3546,7 @@ impl HttpResponseType {
             HttpResponseType::GetAttachment(ref md, _) => md,
             HttpResponseType::GetAttachmentsInv(ref md, _) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
+            HttpResponseType::GetHealth(ref md, _) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -3735,6 +3778,10 @@ impl HttpResponseType {
                 )?;
                 HttpResponseType::send_text(protocol, md, fd, "".as_bytes())?;
             }
+            HttpResponseType::GetHealth(ref md, ref data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
+            }
             HttpResponseType::BadRequestJSON(ref md, ref data) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
@@ -3838,6 +3885,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetAttachment(..) => "HTTP(GetAttachment)",
                 HttpRequestType::GetAttachmentsInv(..) => "HTTP(GetAttachmentsInv)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
+                HttpRequestType::GetHealth(_) => "HTTP(GetHealth)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
             },
             StacksHttpMessage::Response(ref res) => match res {
@@ -3862,6 +3910,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::MicroblockHash(_, _) => "HTTP(MicroblockHash)",
                 HttpResponseType::UnconfirmedTransaction(_, _) => "HTTP(UnconfirmedTransaction)",
                 HttpResponseType::OptionsPreflight(_) => "HTTP(OptionsPreflight)",
+                HttpResponseType::GetHealth(..) => "HTTP(GetHealth)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => {
                     "HTTP(400)"
                 }

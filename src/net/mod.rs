@@ -1113,6 +1113,12 @@ pub struct GetAttachmentResponse {
     pub attachment: Attachment,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetHealthResponse {
+    pub is_healthy: bool,
+    pub percent_of_blocks_synced: u8,
+}
+
 impl Serialize for GetAttachmentResponse {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let hex_encoded = to_hex(&self.attachment.content[..]);
@@ -1275,6 +1281,7 @@ pub enum HttpRequestType {
         TraitIdentifier,
         Option<StacksBlockId>,
     ),
+    GetHealth(HttpRequestMetadata),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1370,6 +1377,7 @@ pub enum HttpResponseType {
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
     OptionsPreflight(HttpResponseMetadata),
+    GetHealth(HttpResponseMetadata, GetHealthResponse),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, serde_json::Value),

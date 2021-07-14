@@ -1296,13 +1296,36 @@ impl PeerDB {
     /// -- always include all allowed neighbors
     /// -- never include denied neighbors
     /// -- for neighbors that are neither allowed nor denied, sample them randomly as long as they're fresh.
-    pub fn get_initial_neighbors(
+    pub fn get_randomized_initial_neighbors(
         conn: &DBConn,
         network_id: u32,
         count: u32,
         block_height: u64,
     ) -> Result<Vec<Neighbor>, db_error> {
         PeerDB::get_random_neighbors(conn, network_id, count, block_height, true)
+    }
+
+    pub fn get_valid_initial_neighbors(
+        conn: &DBConn,
+        network_id: u32,
+        block_height: u64,
+    ) -> Result<Vec<Neighbor>, db_error> {
+        // UTC time
+        let now_secs = util::get_epoch_time_secs();
+
+        let query = "SELECT * FROM frontier WHERE initial = 1 AND (allowed < 0 OR ?1 < allowed) \
+        AND network_id = ?2 AND denied < ?3 AND ?4 < expire_block_height"
+            .to_string();
+
+        let args: &[&dyn ToSql] = &[
+            &u64_to_sql(now_secs)?,
+            &network_id,
+            &u64_to_sql(now_secs)?,
+            &u64_to_sql(block_height)?,
+        ];
+
+        let initial_peers = query_rows::<Neighbor, _>(conn, &query, args)?;
+        Ok(initial_peers)
     }
 
     /// Get a randomized set of peers for walking the peer graph.
@@ -1633,17 +1656,20 @@ mod test {
         )
         .unwrap();
 
-        let n5 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 5, 23455).unwrap();
+        let n5 = PeerDB::get_randomized_initial_neighbors(db.conn(), 0x9abcdef0, 5, 23455).unwrap();
         assert!(are_present(&n5, &initial_neighbors));
 
-        let n10 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 10, 23455).unwrap();
+        let n10 =
+            PeerDB::get_randomized_initial_neighbors(db.conn(), 0x9abcdef0, 10, 23455).unwrap();
         assert!(are_present(&n10, &initial_neighbors));
 
-        let n20 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 20, 23455).unwrap();
+        let n20 =
+            PeerDB::get_randomized_initial_neighbors(db.conn(), 0x9abcdef0, 20, 23455).unwrap();
         assert!(are_present(&initial_neighbors, &n20));
 
         let n15_fresh =
-            PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 15, 23456 + 14).unwrap();
+            PeerDB::get_randomized_initial_neighbors(db.conn(), 0x9abcdef0, 15, 23456 + 14)
+                .unwrap();
         assert!(are_present(
             &n15_fresh[10..15].to_vec(),
             &initial_neighbors[10..20].to_vec()

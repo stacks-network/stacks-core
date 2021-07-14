@@ -54,8 +54,6 @@ use net::http::*;
 use net::p2p::PeerMap;
 use net::p2p::PeerNetwork;
 use net::relay::Relayer;
-use net::ClientError;
-use net::Error as net_error;
 use net::HttpRequestMetadata;
 use net::HttpRequestType;
 use net::HttpResponseMetadata;
@@ -79,6 +77,8 @@ use net::{
     GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
 };
 use net::{BlocksData, GetIsTraitImplementedResponse};
+use net::{ClientError, NeighborKey};
+use net::{Error as net_error, GetHealthResponse};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
 use util::db::DBConn;
@@ -112,6 +112,7 @@ use crate::{
 };
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
+use net::inv::{NeighborBlockStats, NodeStatus};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
@@ -1509,6 +1510,81 @@ impl ConversationHttp {
         return response.send(http, fd).map(|_| ());
     }
 
+    /// Handle a GET health.
+    /// If the node's height is not up to the max height of all of its bootstrap nodes, we return
+    /// false for the health check.
+    /// Additionally return what percent of the max height the node height is at.
+    fn handle_get_health<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        network_id: u32,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        peerdb: &PeerDB,
+        block_stats: Option<&HashMap<NeighborKey, NeighborBlockStats>>,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+
+        let block_height = match chainstate.get_stacks_chain_tip(sortdb)? {
+            Some(tip) => tip.height,
+            None => 0,
+        };
+
+        let initial_neighbors =
+            PeerDB::get_valid_initial_neighbors(peerdb.conn(), network_id, block_height).unwrap();
+
+        if initial_neighbors.len() == 0 {
+            // no bootstrap nodes found, unable to determine health.
+            let response = HttpResponseType::NotFound(
+                response_metadata.clone(),
+                format!("No viable bootstrap peers found, unable to determine health"),
+            );
+            return response.send(http, fd).map(|_| ());
+        }
+
+        // get max block height amongst bootstrap nodes
+        let response = if let Some(block_stats) = block_stats {
+            let mut max_height: u64 = 1;
+            for neighbor in initial_neighbors.iter() {
+                let nk = &neighbor.addr;
+                match block_stats.get(nk) {
+                    Some(neighbor_block_stats) => {
+                        if neighbor_block_stats.status == NodeStatus::Online {
+                            let height = neighbor_block_stats.inv.get_block_height();
+                            max_height = max_height.max(height);
+                        }
+                    }
+                    None => {
+                        let response = HttpResponseType::NotFound(
+                            response_metadata.clone(),
+                            format!("Couldn't obtain stats on bootstrap peer {}, unable to determine health", nk.addrbytes),
+                        );
+                        return response.send(http, fd).map(|_| ());
+                    }
+                }
+            }
+
+            let data = if block_height >= max_height {
+                GetHealthResponse {
+                    is_healthy: true,
+                    percent_of_blocks_synced: 100,
+                }
+            } else {
+                GetHealthResponse {
+                    is_healthy: false,
+                    percent_of_blocks_synced: ((block_height as f32 / max_height as f32) * (100.0))
+                        as u8,
+                }
+            };
+            HttpResponseType::GetHealth(response_metadata, data)
+        } else {
+            HttpResponseType::NotFound(response_metadata, "Peer block stats not found.".into())
+        };
+
+        response.send(http, fd).map(|_| ())
+    }
+
     /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block
     /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
     /// will return different values here.
@@ -2213,6 +2289,19 @@ impl ConversationHttp {
                 }
                 None
             }
+            HttpRequestType::GetHealth(ref _md) => {
+                ConversationHttp::handle_get_health(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    network.local_peer.network_id,
+                    sortdb,
+                    chainstate,
+                    &network.peerdb,
+                    network.inv_state.as_ref().map(|state| &state.block_stats),
+                )?;
+                None
+            }
             HttpRequestType::ClientError(ref _md, ref err) => {
                 let response_metadata = HttpResponseMetadata::from(&req);
                 let response = match err {
@@ -2790,6 +2879,10 @@ impl ConversationHttp {
             pages_indexes,
         )
     }
+
+    pub fn new_get_health(&self) -> HttpRequestType {
+        HttpRequestType::GetHealth(HttpRequestMetadata::from_host(self.peer_host.clone()))
+    }
 }
 
 #[cfg(test)]
@@ -2897,6 +2990,9 @@ mod test {
     {
         let mut peer_1_config = TestPeerConfig::new(test_name, peer_1_p2p, peer_1_http);
         let mut peer_2_config = TestPeerConfig::new(test_name, peer_2_p2p, peer_2_http);
+
+        peer_1_config.allowed = -1;
+        peer_2_config.allowed = -1;
 
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
         let privk1 = StacksPrivateKey::from_hex(
@@ -3386,6 +3482,108 @@ mod test {
                     HttpResponseType::Neighbors(response_md, neighbor_info) => {
                         assert_eq!(neighbor_info.sample.len(), 1);
                         assert_eq!(neighbor_info.sample[0].port, peer_client.config.server_port); // we see ourselves as the neighbor
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_health_false() {
+        test_rpc(
+            "test_rpc_get_health",
+            40010,
+            40011,
+            50010,
+            50011,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // set up block stats for peer server
+                let peer_server_sortdb = peer_server.sortdb.take().unwrap();
+
+                if peer_server.network.inv_state.is_none() {
+                    peer_server.network.init_inv_sync(&peer_server_sortdb);
+                }
+                let peer_client_nk = peer_client.to_neighbor().addr;
+
+                if let Some(ref mut inv_state) = peer_server.network.inv_state {
+                    if inv_state.get_stats(&peer_client_nk).is_none() {
+                        inv_state.add_peer(peer_client_nk.clone(), true);
+                    }
+                    inv_state
+                        .get_stats_mut(&peer_client_nk)
+                        .unwrap()
+                        .inv
+                        .num_sortitions = 3;
+                }
+                peer_server.sortdb = Some(peer_server_sortdb);
+                convo_client.new_get_health()
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetHealth(response_md, data) => {
+                        assert_eq!(data.is_healthy, false);
+                        assert_eq!(data.percent_of_blocks_synced, 33);
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_health_true() {
+        test_rpc(
+            "test_rpc_get_health",
+            40010,
+            40011,
+            50010,
+            50011,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // set up block stats for peer server
+                let peer_server_sortdb = peer_server.sortdb.take().unwrap();
+
+                if peer_server.network.inv_state.is_none() {
+                    peer_server.network.init_inv_sync(&peer_server_sortdb);
+                }
+                let peer_client_nk = peer_client.to_neighbor().addr;
+
+                if let Some(ref mut inv_state) = peer_server.network.inv_state {
+                    if inv_state.get_stats(&peer_client_nk).is_none() {
+                        inv_state.add_peer(peer_client_nk.clone(), true);
+                    }
+                    inv_state
+                        .get_stats_mut(&peer_client_nk)
+                        .unwrap()
+                        .inv
+                        .num_sortitions = 1;
+                }
+                peer_server.sortdb = Some(peer_server_sortdb);
+                convo_client.new_get_health()
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetHealth(response_md, data) => {
+                        assert_eq!(data.is_healthy, true);
+                        assert_eq!(data.percent_of_blocks_synced, 100);
                         true
                     }
                     _ => {

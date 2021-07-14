@@ -52,6 +52,7 @@ use mio::net as mio_net;
 use util::get_epoch_time_secs;
 
 use core::mempool::*;
+use net::inv::NeighborBlockStats;
 
 #[derive(Debug)]
 pub struct HttpPeer {
