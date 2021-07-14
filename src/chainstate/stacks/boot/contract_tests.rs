@@ -379,6 +379,11 @@ impl HeadersDB for TestSimHeadersDB {
             Some(BurnchainHeaderHash(id_bhh.0.clone()))
         }
     }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
+        -> Option<ConsensusHash> {
+            None
+
+        }
 
     fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
         None

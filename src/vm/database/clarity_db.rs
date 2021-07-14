@@ -42,6 +42,7 @@ use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
     TupleTypeSignature, TypeSignature, Value, NONE,
 };
+use chainstate::burn::ConsensusHash;
 
 use crate::{
     core::StacksEpochId,
@@ -88,6 +89,8 @@ pub trait HeadersDB {
     ) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId)
         -> Option<BurnchainHeaderHash>;
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
+        -> Option<ConsensusHash>;
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
@@ -116,6 +119,11 @@ impl HeadersDB for &dyn HeadersDB {
     ) -> Option<BlockHeaderHash> {
         (*self).get_stacks_block_header_hash_for_block(id_bhh)
     }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
+        -> Option<ConsensusHash> {
+            None
+
+        }
     fn get_burn_header_hash_for_block(&self, bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
         (*self).get_burn_header_hash_for_block(bhh)
     }
@@ -202,6 +210,11 @@ impl HeadersDB for NullHeadersDB {
             None
         }
     }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
+        -> Option<ConsensusHash> {
+            None
+
+        }
     fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
         None
     }

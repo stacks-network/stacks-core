@@ -1,5 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 
+use chainstate::burn::ConsensusHash;
 use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
@@ -23,12 +24,19 @@ use core::StacksEpoch;
 pub mod marf;
 
 impl HeadersDB for DBConn {
+    // Is this it?
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
     ) -> Option<BlockHeaderHash> {
+        // I think it's this one.
         get_stacks_header_info(self, id_bhh).map(|x| x.anchored_header.block_hash())
     }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
+        -> Option<ConsensusHash> {
+            None
+
+        }
 
     fn get_burn_header_hash_for_block(
         &self,

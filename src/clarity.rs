@@ -67,6 +67,7 @@ use serde_json::json;
 use util::strings::StacksString;
 
 use codec::StacksMessageCodec;
+use chainstate::burn::ConsensusHash;
 
 use std::convert::TryFrom;
 
@@ -555,6 +556,11 @@ impl HeadersDB for CLIHeadersDB {
             None
         }
     }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
+        -> Option<ConsensusHash> {
+            None
+
+        }
 
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         let conn = self.conn();

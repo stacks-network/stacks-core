@@ -20,6 +20,7 @@ use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::types::{FixedFunction, FunctionType, Value};
 use vm::variables::NativeVariables;
+use chainstate::burn::ConsensusHash;
 
 pub mod contracts;
 
@@ -2025,6 +2026,7 @@ mod test {
         Value,
     };
 
+    use crate::chainstate::burn::ConsensusHash;
     use crate::types::chainstate::VRFSeed;
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
@@ -2047,6 +2049,10 @@ mod test {
             &self,
             _bhh: &StacksBlockId,
         ) -> Option<BurnchainHeaderHash> {
+            None
+        }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId)
+        -> Option<ConsensusHash> {
             None
         }
         fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
