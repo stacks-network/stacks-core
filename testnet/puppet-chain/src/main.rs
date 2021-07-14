@@ -44,7 +44,7 @@ async fn main() -> http_types::Result<()> {
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
         let num_blocks_for_faucet = 101;
-        let num_blocks_for_miner = 9;
+        let num_blocks_for_miner = 6;
 
         // Generate blocks for the network faucet
         import_faucet_secret_key(&config).await;
@@ -482,7 +482,7 @@ impl RPCRequest {
     pub fn is_chain_bootstrapped() -> RPCRequest {
         RPCRequest {
             method: "getblockhash".to_string(),
-            params: serde_json::Value::Array(vec![110.into()]),
+            params: serde_json::Value::Array(vec![107.into()]),
             id: 0.into(),
             jsonrpc: "2.0".to_string().into(),
         }

@@ -2,11 +2,9 @@
 rpc_bind = "0.0.0.0:28443"
 block_time = 30000
 miner_address = "mtFzK54XtpktHj7fKonFExEPEGkUMsiXdy"
-faucet_address = "mrzLDS7LT3otAnpiRWGYkWipdnAZJaXAZQ"
 bitcoind_rpc_host = "127.0.0.1:18443"
 bitcoind_rpc_user = "helium-node"
 bitcoind_rpc_pass = "secret"
-genesis_timestamp = 1590765126
 whitelisted_rpc_calls = [
     "listunspent",
     "importaddress",
