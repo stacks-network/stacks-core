@@ -107,6 +107,14 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         }
     }
 
+    fn get_burn_header_hash_using_consensus_hash(
+        &self,
+        height: u32,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<BurnchainHeaderHash> {
+        None
+    }
+
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         SortitionDB::get_stacks_epoch(self.tx(), height as u64)
             .expect("BUG: failed to get epoch for burn block height")
@@ -151,6 +159,14 @@ impl BurnStateDB for SortitionDBConn<'_> {
             Ok(Some(x)) => Some(x.burn_header_hash),
             _ => return None,
         }
+    }
+
+    fn get_burn_header_hash_using_consensus_hash(
+        &self,
+        height: u32,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<BurnchainHeaderHash> {
+        None
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {

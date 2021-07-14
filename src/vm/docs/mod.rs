@@ -2104,6 +2104,13 @@ mod test {
                 .unwrap(),
             )
         }
+    fn get_burn_header_hash_using_consensus_hash(
+        &self,
+        height: u32,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<BurnchainHeaderHash> {
+        None
+    }
         fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
             Some(StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,

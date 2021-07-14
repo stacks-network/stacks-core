@@ -167,6 +167,14 @@ impl BurnStateDB for &dyn BurnStateDB {
         (*self).get_burn_header_hash(height, sortition_id)
     }
 
+    fn get_burn_header_hash_using_consensus_hash(
+        &self,
+        height: u32,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<BurnchainHeaderHash> {
+        (*self).get_burn_header_hash_using_consensus_hash(height, consensus_hash)
+    }
+
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         (*self).get_stacks_epoch(height)
     }
@@ -280,6 +288,14 @@ impl BurnStateDB for NullBurnStateDB {
         &self,
         _height: u32,
         _sortition_id: &SortitionId,
+    ) -> Option<BurnchainHeaderHash> {
+        None
+    }
+
+    fn get_burn_header_hash_using_consensus_hash(
+        &self,
+        height: u32,
+        consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
         None
     }
@@ -706,7 +722,7 @@ impl<'a> ClarityDatabase<'a> {
             .expect("Failed to get block data.");
 
         self.burn_state_db
-            .get_burn_header_hash_for_block(&id_bhh)
+            .get_burn_header_hash_using_consensus_hash(burnchain_block_height, &consensus_hash)
             .expect("Failed to get block data.")
     }
 
