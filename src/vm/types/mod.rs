@@ -564,6 +564,7 @@ define_named_enum!(BlockInfoProperty {
     IdentityHeaderHash("id-header-hash"),
     BurnchainHeaderHash("burnchain-header-hash"),
     MinerAddress("miner-address"),
+    BurnchainHeaderHashByBurnchainHeight("burnchain-header-hash-by-burnchain-height"),
 });
 
 impl OptionalData {

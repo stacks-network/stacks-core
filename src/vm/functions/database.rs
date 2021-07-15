@@ -493,6 +493,15 @@ pub fn special_get_block_info(
             let miner_address = env.global_context.database.get_miner_address(height_value);
             Value::from(miner_address)
         }
+        BlockInfoProperty::BurnchainHeaderHashByBurnchainHeight => {
+            let burnchain_header_hash = env
+                .global_context
+                .database
+                .get_burnchain_block_header_hash_for_burnchain_height(height_value);
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: burnchain_header_hash.as_bytes().to_vec(),
+            }))
+        }
     };
 
     Ok(Value::some(result)?)
