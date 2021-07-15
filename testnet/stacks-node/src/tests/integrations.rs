@@ -69,6 +69,7 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-private (test-9) (get-block-info? miner-address block-height))
         (define-private (test-10) (get-block-info? miner-address u100000))
         (define-private (test-11) burn-block-height)
+        (define-private (test-12) (get-block-info? burnchain-header-hash-by-burnchain-height u1))
 
         (define-private (get-block-id-hash (height uint)) (unwrap-panic
           (get id-hash (map-get? block-data { height: height }))))
@@ -362,11 +363,18 @@ fn integration_test_get_info() {
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         burn_dbconn, bhh, &contract_identifier, "(test-6)"),
-                    Value::some(Value::buff_from(last_burn_header).unwrap()).unwrap());
+                    Value::some(Value::buff_from(last_burn_header.clone()).unwrap()).unwrap());
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         burn_dbconn, bhh, &contract_identifier, "(test-7)"),
                     Value::some(Value::buff_from(last_vrf_seed).unwrap()).unwrap());
+
+                warn!("look1");
+                let twelve_result = chain_state.clarity_eval_read_only(
+                        burn_dbconn, bhh, &contract_identifier, "(test-12)");
+                warn!("twelve_result {:?}", twelve_result);
+                assert_eq!(twelve_result,
+                    Value::some(Value::buff_from(last_burn_header).unwrap()).unwrap());
 
                 // verify that we can get the block miner
                 assert_eq!(

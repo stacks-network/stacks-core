@@ -494,6 +494,8 @@ pub fn special_get_block_info(
             Value::from(miner_address)
         }
         BlockInfoProperty::BurnchainHeaderHashByBurnchainHeight => {
+            let bt = backtrace::Backtrace::new();
+            warn!("look1 {:?}", bt);
             let burnchain_header_hash = env
                 .global_context
                 .database

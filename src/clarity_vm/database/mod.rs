@@ -111,6 +111,8 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
+        let bt = backtrace::Backtrace::new();
+        warn!("look2 {:?}", bt);
         None
     }
 
@@ -160,12 +162,19 @@ impl BurnStateDB for SortitionDBConn<'_> {
         }
     }
 
+    // This is the one the integration test is calling.
     fn get_burn_header_hash_using_consensus_hash(
         &self,
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        None
+        let bt = backtrace::Backtrace::new();
+        warn!("look2 {:?}", bt);
+        let db_handle = SortitionHandleConn::open_reader_consensus(self, consensus_hash).ok()?;
+        match db_handle.get_block_snapshot_by_height(height as u64) {
+            Ok(Some(x)) => Some(x.burn_header_hash),
+            _ => return None,
+        }
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {

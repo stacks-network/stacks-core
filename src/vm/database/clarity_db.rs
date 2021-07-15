@@ -169,6 +169,8 @@ impl BurnStateDB for &dyn BurnStateDB {
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
+        let bt = backtrace::Backtrace::new();
+        warn!("look2 {:?}", bt);
         (*self).get_burn_header_hash_using_consensus_hash(height, consensus_hash)
     }
 
@@ -292,6 +294,8 @@ impl BurnStateDB for NullBurnStateDB {
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
+        let bt = backtrace::Backtrace::new();
+        warn!("look2 {:?}", bt);
         None
     }
 
