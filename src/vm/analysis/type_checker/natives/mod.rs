@@ -21,6 +21,7 @@ use std::convert::TryFrom;
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::{handle_binding_list, NativeFunctions};
+use vm::types::signatures::{ASCII_40, UTF8_40};
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::TypeSignature::SequenceType;
 use vm::types::{
@@ -530,9 +531,12 @@ impl TypedNativeFunction {
         use self::TypedNativeFunction::{Simple, Special};
         match self {
             Special(SpecialNativeFunction(check)) => check(checker, args, context),
-            Simple(SimpleNativeFunction(function_type)) => {
-                checker.type_check_function_type(function_type, args, context)
-            }
+            Simple(SimpleNativeFunction(function_type)) => checker.type_check_function_type(
+                function_type,
+                args,
+                context,
+                checker.clarity_version,
+            ),
         }
     }
 
@@ -570,6 +574,14 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::IntType,
             }))),
+            IsStandard => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                args: vec![FunctionArg::new(
+                    TypeSignature::PrincipalType,
+                    ClarityName::try_from("value".to_owned())
+                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                )],
+                returns: TypeSignature::BoolType,
+            }))),
             BuffToIntLe | BuffToIntBe => {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![FunctionArg::new(
@@ -590,6 +602,30 @@ impl TypedNativeFunction {
                     returns: TypeSignature::UIntType,
                 })))
             }
+            StringToInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![
+                    TypeSignature::max_string_ascii(),
+                    TypeSignature::max_string_utf8(),
+                ],
+                TypeSignature::OptionalType(Box::new(TypeSignature::IntType)),
+            ))),
+            StringToUInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![
+                    TypeSignature::max_string_ascii(),
+                    TypeSignature::max_string_utf8(),
+                ],
+                TypeSignature::OptionalType(Box::new(TypeSignature::UIntType)),
+            ))),
+            IntToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                // 40 is the longest string one can get from int->string conversion.
+                ASCII_40,
+            ))),
+            IntToUtf8 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                // 40 is the longest string one can get from int->string conversion.
+                UTF8_40,
+            ))),
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,
@@ -682,6 +718,9 @@ impl TypedNativeFunction {
                 .unwrap(),
             }))),
             StxTransfer => Special(SpecialNativeFunction(&assets::check_special_stx_transfer)),
+            StxTransferMemo => Special(SpecialNativeFunction(
+                &assets::check_special_stx_transfer_memo,
+            )),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
             TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),

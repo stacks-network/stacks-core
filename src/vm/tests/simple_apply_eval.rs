@@ -27,15 +27,19 @@ use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::tests::execute;
-use vm::types::signatures::BufferLength;
-use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
-use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
-use vm::{eval, execute as vm_execute};
+use vm::types::signatures::{BufferLength, StringUTF8Length};
+use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
+use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
+use vm::{
+    eval, execute as vm_execute, execute_against_version_and_network, execute_v2 as vm_execute_v2,
+};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
 use crate::types::chainstate::StacksAddress;
 use crate::{clarity_vm::database::MemoryBackingStore, vm::ClarityVersion};
-use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+use chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 
 #[test]
 fn test_doubly_defined_persisted_vars() {
@@ -261,6 +265,71 @@ fn test_secp256k1() {
         .iter()
         .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}
+
+#[test]
+fn test_principal_of_fix() {
+    // There is a bug with principal-of in Clarity1. The address returned is always testnet. In Clarity2, we fix this.
+    // So, we need to test that:
+    //   1) In Clarity1, the returned address is always a testnet address.
+    //   2) In Clarity2, the returned address is a function of the network type.
+    let principal_of_program =
+        "(unwrap! (principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) 4)";
+
+    let mainnet_principal = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_hex(
+            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+        )
+        .unwrap()],
+    )
+    .unwrap()
+    .to_account_principal();
+    let testnet_principal = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_hex(
+            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+        )
+        .unwrap()],
+    )
+    .unwrap()
+    .to_account_principal();
+
+    // Clarity2, mainnet, should have a mainnet principal.
+    assert_eq!(
+        Value::Principal(mainnet_principal.clone()),
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity2, true)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Clarity2, testnet, should have a testnet principal.
+    assert_eq!(
+        Value::Principal(testnet_principal.clone()),
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Clarity1, mainnet, should have a test principal (this is the bug that we need to preserve).
+    assert_eq!(
+        Value::Principal(testnet_principal.clone()),
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity1, true)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Clarity1, testnet, should have a testnet principal.
+    assert_eq!(
+        Value::Principal(testnet_principal.clone()),
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity1, false)
+            .unwrap()
+            .unwrap()
+    );
 }
 
 #[test]
@@ -542,6 +611,231 @@ fn test_simple_arithmetic_functions() {
 }
 
 #[test]
+fn test_sequence_comparisons_clarity1() {
+    // Tests the sequence comparisons against ClarityVersion1. The new kinds of
+    // sequence comparison *should not* work.
+
+    // Note: Equality between sequences already works in Clarity1.
+    let success_tests = [
+        ("(is-eq \"aaa\" \"aaa\")", Value::Bool(true)),
+        ("(is-eq u\"aaa\" u\"aaa\")", Value::Bool(true)),
+        ("(is-eq 0x010203 0x010203)", Value::Bool(true)),
+        ("(is-eq \"aa\" \"aaa\")", Value::Bool(false)),
+        ("(is-eq u\"aa\" u\"aaa\")", Value::Bool(false)),
+        ("(is-eq 0x0102 0x010203)", Value::Bool(false)),
+    ];
+
+    // Note: Execute against Clarity1.
+    success_tests
+        .iter()
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+
+    // Inequality comparisons between sequences do not work in Clarity1.
+    let error_tests = [
+        "(> \"baa\" \"aaa\")",
+        "(< \"baa\" \"aaa\")",
+        "(>= \"baa\" \"aaa\")",
+        "(<= \"baa\" \"aaa\")",
+    ];
+    let error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+    ];
+
+    // Note: Execute against Clarity1.
+    error_tests
+        .iter()
+        .zip(error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute(program).unwrap_err())
+        });
+}
+
+#[test]
+fn test_sequence_comparisons_clarity2() {
+    // Tests the sequence comparisons against ClarityVersion2. The new kinds of
+    // sequence comparison *should* work.
+    let success_tests = [
+        (r#"(is-eq "aaa" "aaa")"#, Value::Bool(true)),
+        (r#"(is-eq "aba" "aaa")"#, Value::Bool(false)),
+        (r#"(is-eq u"aaa" u"aaa")"#, Value::Bool(true)),
+        (r#"(is-eq u"aba" u"aaa")"#, Value::Bool(false)),
+        (r#"(is-eq 0x010203 0x010203)"#, Value::Bool(true)),
+        (r#"(is-eq 0x090203 0x010203)"#, Value::Bool(false)),
+        (r#"(< 0x0100 0x0100)"#, Value::Bool(false)),
+        (r#"(< 0x0101 0x010101)"#, Value::Bool(true)),
+        (r#"(< 0x010101 0x0101)"#, Value::Bool(false)),
+        (r#"(< "aaa" "aaa")"#, Value::Bool(false)),
+        (r#"(< "aa" "aaa")"#, Value::Bool(true)),
+        (r#"(< "aaa" "aa")"#, Value::Bool(false)),
+        (r#"(< u"aaa" u"aaa")"#, Value::Bool(false)),
+        (r#"(< u"aa" u"aaa")"#, Value::Bool(true)),
+        (r#"(< u"aaa" u"aa")"#, Value::Bool(false)),
+        (r#"(<= 0x0100 0x0100)"#, Value::Bool(true)),
+        (r#"(<= 0x0101 0x010101)"#, Value::Bool(true)),
+        (r#"(<= 0x010101 0x0101)"#, Value::Bool(false)),
+        (r#"(<= "aaa" "aaa")"#, Value::Bool(true)),
+        (r#"(<= "aa" "aaa")"#, Value::Bool(true)),
+        (r#"(<= "aaa" "aa")"#, Value::Bool(false)),
+        (r#"(<= u"aaa" u"aaa")"#, Value::Bool(true)),
+        (r#"(<= u"aa" u"aaa")"#, Value::Bool(true)),
+        (r#"(<= u"aaa" u"aa")"#, Value::Bool(false)),
+        (r#"(> 0x0100 0x0100)"#, Value::Bool(false)),
+        (r#"(> 0x0101 0x010101)"#, Value::Bool(false)),
+        (r#"(> 0x010101 0x0101)"#, Value::Bool(true)),
+        (r#"(> "aaa" "aaa")"#, Value::Bool(false)),
+        (r#"(> "aa" "aaa")"#, Value::Bool(false)),
+        (r#"(> "aaa" "aa")"#, Value::Bool(true)),
+        (r#"(> u"aaa" u"aaa")"#, Value::Bool(false)),
+        (r#"(> u"aa" u"aaa")"#, Value::Bool(false)),
+        (r#"(> u"aaa" u"aa")"#, Value::Bool(true)),
+        (r#"(>= 0x0100 0x0100)"#, Value::Bool(true)),
+        (r#"(>= 0x0101 0x010101)"#, Value::Bool(false)),
+        (r#"(>= 0x010101 0x0101)"#, Value::Bool(true)),
+        (r#"(>= "aaa" "aaa")"#, Value::Bool(true)),
+        (r#"(>= "aa" "aaa")"#, Value::Bool(false)),
+        (r#"(>= "aaa" "aa")"#, Value::Bool(true)),
+        (r#"(>= u"aaa" u"aaa")"#, Value::Bool(true)),
+        (r#"(>= u"aa" u"aaa")"#, Value::Bool(false)),
+        (r#"(>= u"aaa" u"aa")"#, Value::Bool(true)),
+    ];
+
+    // Note: Execute against Clarity2.
+    success_tests.iter().for_each(|(program, expectation)| {
+        assert_eq!(
+            expectation.clone(),
+            vm_execute_v2(program).unwrap().unwrap(),
+            "{:?}, {:?}",
+            program,
+            expectation.clone()
+        )
+    });
+}
+
+#[test]
+fn test_sequence_comparisons_mismatched_types() {
+    // Tests that comparing objects of different types results in an error in Clarity1.
+    let error_tests = ["(> 0 u1)", "(< 0 u1)"];
+    let v1_error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Int(0),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            Value::Int(0),
+        )
+        .into(),
+    ];
+
+    // Note: Execute against Clarity1.
+    error_tests
+        .iter()
+        .zip(v1_error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute(program).unwrap_err())
+        });
+
+    let v2_error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
+            Value::Int(0),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
+            Value::Int(0),
+        )
+        .into(),
+    ];
+    // Note: Execute against Clarity2.
+    error_tests
+        .iter()
+        .zip(v2_error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute_v2(program).unwrap_err())
+        });
+
+    // Tests that comparing objects of different types results in an error in Clarity2.
+    let error_tests = ["(> \"baa\" u\"aaa\")", "(> \"baa\" 0x0001)"];
+    let error_expectations: &[Error] = &[
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+        CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+                TypeSignature::max_buffer(),
+            ],
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "baa".as_bytes().to_vec(),
+            }))),
+        )
+        .into(),
+    ];
+
+    // Note: Execute against Clarity2.
+    error_tests
+        .iter()
+        .zip(error_expectations)
+        .for_each(|(program, expectation)| {
+            assert_eq!(*expectation, vm_execute_v2(program).unwrap_err())
+        });
+}
+
+#[test]
 fn test_simple_arithmetic_errors() {
     let tests = [
         "(>= 1)",
@@ -680,9 +974,13 @@ fn test_options_errors() {
 fn test_stx_ops_errors() {
     let tests = [
         r#"(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
-        r#"(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x000000000000000000000000000000000000000000000000000000000000000000)"#,
-        r#"(stx-transfer? u4 u3 u2 0x00)"#,
-        r#"(stx-transfer? u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true)"#,
+        r#"(stx-transfer? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
+        r#"(stx-transfer? u4 u3 u2)"#,
+        r#"(stx-transfer? true 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
+        r#"(stx-transfer-memo? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x0102)"#,
+        r#"(stx-transfer-memo? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x0102)"#,
+        r#"(stx-transfer-memo? u4 u3 u2 0x0102)"#,
+        r#"(stx-transfer-memo? true 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x0102)"#,
         "(stx-burn? u4)",
         "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
     ];
@@ -692,12 +990,20 @@ fn test_stx_ops_errors() {
         CheckErrors::BadTransferSTXArguments.into(),
         CheckErrors::BadTransferSTXArguments.into(),
         CheckErrors::BadTransferSTXArguments.into(),
+        CheckErrors::IncorrectArgumentCount(4, 3).into(),
+        CheckErrors::BadTransferSTXArguments.into(),
+        CheckErrors::BadTransferSTXArguments.into(),
+        CheckErrors::BadTransferSTXArguments.into(),
         CheckErrors::IncorrectArgumentCount(2, 1).into(),
         CheckErrors::BadTransferSTXArguments.into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+        assert_eq!(
+            *expectation,
+            execute_against_version_and_network(program, ClarityVersion::Clarity2, false)
+                .unwrap_err()
+        );
     }
 }
 
@@ -1022,5 +1328,41 @@ fn test_asserts_short_circuit() {
         .zip(expectations.iter())
         .for_each(|(program, expectation)| {
             assert_eq!((*expectation), vm_execute(program).unwrap_err())
+        });
+}
+
+#[test]
+fn test_is_mainnet() {
+    let tests = [
+        "is-in-mainnet", // true only on "mainnet"
+        "is-in-regtest", // always true in a regtest
+    ];
+
+    let mainnet_expectations = [Value::Bool(true), Value::Bool(true)];
+
+    tests
+        .iter()
+        .zip(mainnet_expectations.iter())
+        .for_each(|(program, expectation)| {
+            assert_eq!(
+                expectation.clone(),
+                execute_against_version_and_network(program, ClarityVersion::Clarity2, true)
+                    .unwrap()
+                    .unwrap()
+            )
+        });
+
+    let testnet_expectations = [Value::Bool(false), Value::Bool(true)];
+
+    tests
+        .iter()
+        .zip(testnet_expectations.iter())
+        .for_each(|(program, expectation)| {
+            assert_eq!(
+                expectation.clone(),
+                execute_against_version_and_network(program, ClarityVersion::Clarity2, false)
+                    .unwrap()
+                    .unwrap()
+            )
         });
 }

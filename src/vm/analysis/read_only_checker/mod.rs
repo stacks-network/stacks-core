@@ -181,10 +181,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | Secp256k1Verify | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet
             | UnwrapErrRet | IsOkay | IsNone | Asserts | Unwrap | UnwrapErr | Match | IsErr
             | IsSome | TryRet | ToUInt | ToInt | BuffToIntLe | BuffToUIntLe | BuffToIntBe
-            | BuffToUIntBe | Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons
-            | GetBlockInfo | TupleGet | TupleMerge | Len | Print | AsContract | Begin
-            | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner
-            | GetTokenSupply | ElementAt | IndexOf => {
+            | BuffToUIntBe | IntToAscii | IntToUtf8 | StringToInt | StringToUInt | IsStandard
+            | Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo
+            | TupleGet | TupleMerge | Len | Print | AsContract | Begin | FetchVar
+            | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
+            | ElementAt | IndexOf => {
                 // Check all arguments.
                 self.check_all_read_only(args)
             }
@@ -202,8 +203,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 check_argument_count(2, args)?;
                 self.check_all_read_only(args)
             }
-            StxTransfer | StxBurn | SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset
-            | MintToken | TransferAsset | TransferToken | BurnAsset | BurnToken => {
+            StxTransfer | StxTransferMemo | StxBurn | SetEntry | DeleteEntry | InsertEntry
+            | SetVar | MintAsset | MintToken | TransferAsset | TransferToken | BurnAsset
+            | BurnToken => {
                 self.check_all_read_only(args)?;
                 Ok(false)
             }

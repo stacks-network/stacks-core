@@ -18,11 +18,12 @@ use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::runtime_cost;
 use vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
-use vm::types::BufferLength;
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::SequenceType;
-use vm::types::{SequenceData, TypeSignature, Value};
+use vm::types::{
+    ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
+};
 use vm::{apply, eval, lookup_function, Environment, LocalContext};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,7 +56,7 @@ pub fn buff_to_int_generic(
                 .into());
             } else {
                 let mut transfer_buffer = [0u8; 16];
-                let mut original_slice = sequence_data.as_slice();
+                let original_slice = sequence_data.as_slice();
                 // 'conversion_fn' expects to receive a 16-byte buffer. If the input is little-endian, it should
                 // be zero-padded on the right. If the input is big-endian, it should be zero-padded on the left.
                 let offset = if direction == EndianDirection::LittleEndian {
@@ -112,4 +113,98 @@ pub fn native_buff_to_uint_be(value: Value) -> Result<Value> {
         return Value::UInt(value);
     }
     return buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_uint_be);
+}
+
+// This method represents the unified logic between both "string to int" and "string to uint".
+// 'value' is the input value to be converted.
+// 'string_to_value_fn' is a function that takes in a Rust-langauge string, and should output
+//   either a Int or UInt, depending on the desired result.
+pub fn native_string_to_int_generic(
+    value: Value,
+    string_to_value_fn: fn(String) -> Result<Value>,
+) -> Result<Value> {
+    match value {
+        Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
+            match String::from_utf8(data) {
+                Ok(as_string) => string_to_value_fn(as_string),
+                Err(_error) => Ok(Value::none()),
+            }
+        }
+        Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
+            let flattened_bytes = data.into_iter().flatten().collect();
+            match String::from_utf8(flattened_bytes) {
+                Ok(as_string) => string_to_value_fn(as_string),
+                Err(_error) => Ok(Value::none()),
+            }
+        }
+        _ => Err(CheckErrors::UnionTypeValueError(
+            vec![
+                TypeSignature::max_string_ascii(),
+                TypeSignature::max_string_utf8(),
+            ],
+            value,
+        )
+        .into()),
+    }
+}
+
+fn safe_convert_string_to_int(raw_string: String) -> Result<Value> {
+    let possible_int = raw_string.parse::<i128>();
+    match possible_int {
+        Ok(val) => return Value::some(Value::Int(val)),
+        Err(_error) => return Ok(Value::none()),
+    }
+}
+
+pub fn native_string_to_int(value: Value) -> Result<Value> {
+    native_string_to_int_generic(value, safe_convert_string_to_int)
+}
+
+fn safe_convert_string_to_uint(raw_string: String) -> Result<Value> {
+    let possible_int = raw_string.parse::<u128>();
+    match possible_int {
+        Ok(val) => return Value::some(Value::UInt(val)),
+        Err(_error) => return Ok(Value::none()),
+    }
+}
+
+pub fn native_string_to_uint(value: Value) -> Result<Value> {
+    native_string_to_int_generic(value, safe_convert_string_to_uint)
+}
+
+// This method represents the unified logic between both "int to ascii" and "int to utf8".
+// 'value' is the input value to be converted.
+// 'bytes_to_value_fn' is a function that takes in a Rust-langauge byte sequence, and outputs
+//   either an ASCII or UTF8 string, depending on the desired result.
+pub fn native_int_to_string_generic(
+    value: Value,
+    bytes_to_value_fn: fn(bytes: Vec<u8>) -> Result<Value>,
+) -> Result<Value> {
+    match value {
+        Value::Int(ref int_value) => {
+            let as_string = int_value.to_string();
+            Ok(bytes_to_value_fn(as_string.into())
+                .expect("Unexpected error converting Int to string."))
+        }
+        Value::UInt(ref uint_value) => {
+            let as_string = uint_value.to_string();
+            Ok(bytes_to_value_fn(as_string.into())
+                .expect("Unexpected error converting UInt to string."))
+        }
+        _ => Err(CheckErrors::UnionTypeValueError(
+            vec![TypeSignature::IntType, TypeSignature::UIntType],
+            value,
+        )
+        .into()),
+    }
+}
+
+pub fn native_int_to_ascii(value: Value) -> Result<Value> {
+    // Given a string representing an integer, convert this to Clarity ASCII value.
+    native_int_to_string_generic(value, Value::string_ascii_from_bytes)
+}
+
+pub fn native_int_to_utf8(value: Value) -> Result<Value> {
+    // Given a string representing an integer, convert this to Clarity UTF8 value.
+    native_int_to_string_generic(value, Value::string_utf8_from_bytes)
 }
