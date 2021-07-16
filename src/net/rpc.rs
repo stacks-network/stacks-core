@@ -1546,6 +1546,7 @@ impl ConversationHttp {
         // get max block height amongst bootstrap nodes
         let response = if let Some(block_stats) = block_stats {
             let mut max_height: u64 = 1;
+            let mut stats_obtained = false;
             for neighbor in initial_neighbors.iter() {
                 let nk = &neighbor.addr;
                 match block_stats.get(nk) {
@@ -1553,16 +1554,20 @@ impl ConversationHttp {
                         if neighbor_block_stats.status == NodeStatus::Online {
                             let height = neighbor_block_stats.inv.get_block_height();
                             max_height = max_height.max(height);
+                            stats_obtained = true;
                         }
                     }
-                    None => {
-                        let response = HttpResponseType::NotFound(
-                            response_metadata.clone(),
-                            format!("Couldn't obtain stats on bootstrap peer {}, unable to determine health", nk.addrbytes),
-                        );
-                        return response.send(http, fd).map(|_| ());
-                    }
+                    None => {}
                 }
+            }
+
+            if !stats_obtained {
+                let response = HttpResponseType::NotFound(
+                    response_metadata.clone(),
+                    "Couldn't obtain stats on any bootstrap peers, unable to determine health"
+                        .to_string(),
+                );
+                return response.send(http, fd).map(|_| ());
             }
 
             let data = if block_height >= max_height {
@@ -3584,6 +3589,73 @@ mod test {
                     HttpResponseType::GetHealth(response_md, data) => {
                         assert_eq!(data.is_healthy, true);
                         assert_eq!(data.percent_of_blocks_synced, 100);
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_health_no_stats() {
+        test_rpc(
+            "test_rpc_get_health",
+            40010,
+            40011,
+            50010,
+            50011,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| { convo_client.new_get_health() },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::NotFound(response_md, msg) => {
+                        assert_eq!(msg, "Peer block stats not found.");
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_health_no_stats_for_initial_peers() {
+        test_rpc(
+            "test_rpc_get_health",
+            40010,
+            40011,
+            50010,
+            50011,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // // create block stats for peer server
+                let peer_server_sortdb = peer_server.sortdb.take().unwrap();
+
+                if peer_server.network.inv_state.is_none() {
+                    peer_server.network.init_inv_sync(&peer_server_sortdb);
+                }
+                peer_server.sortdb = Some(peer_server_sortdb);
+                convo_client.new_get_health()
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::NotFound(response_md, msg) => {
+                        assert_eq!(msg, "Couldn't obtain stats on any bootstrap peers, unable to determine health");
                         true
                     }
                     _ => {
