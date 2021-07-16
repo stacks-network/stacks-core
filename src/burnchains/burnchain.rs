@@ -1170,8 +1170,8 @@ impl Burnchain {
         let db_height = burn_chain_tip.block_height;
 
         // handle reorgs
-        let (mut sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
-        if did_reorg {
+        let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
+        let end_height = if did_reorg {
             // a reorg happened
             warn!(
                 "Dropping headers higher than {} due to burnchain reorg",
@@ -1179,16 +1179,17 @@ impl Burnchain {
             );
             indexer.drop_headers(sync_height)?;
             // Patch issue #2771
-            if let Some(target_block_height) = target_block_height_opt {
-                sync_height = target_block_height;
-            }
-        }
+            target_block_height_opt
+        } else {
+            None
+        };
+
+        let mut end_block = indexer.sync_headers(sync_height, end_height)?;
 
         // get latest headers.
         debug!("Sync headers from {}", sync_height);
 
         // fetch all headers, no matter what
-        let mut end_block = indexer.sync_headers(sync_height, None)?;
         let mut start_block = sync_height;
         if db_height < start_block {
             start_block = db_height;
