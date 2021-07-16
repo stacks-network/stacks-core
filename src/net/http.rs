@@ -95,7 +95,7 @@ lazy_static! {
     static ref PATH_GETBLOCK: Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GETMICROBLOCKS_INDEXED: Regex =
         Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_GET_MICROBLOCKS_CONFIRMED: Regex =
+    static ref PATH_GETMICROBLOCKS_CONFIRMED: Regex =
         Regex::new(r#"^/v2/microblocks/confirmed/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GETMICROBLOCKS_UNCONFIRMED: Regex =
         Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
@@ -1463,7 +1463,7 @@ impl HttpRequestType {
             ),
             (
                 "GET",
-                &PATH_GET_MICROBLOCKS_CONFIRMED,
+                &PATH_GETMICROBLOCKS_CONFIRMED,
                 &HttpRequestType::parse_getmicroblocks_confirmed,
             ),
             (
@@ -3056,7 +3056,7 @@ impl HttpResponseType {
                 &HttpResponseType::parse_microblocks,
             ),
             (
-                &PATH_GET_MICROBLOCKS_CONFIRMED,
+                &PATH_GETMICROBLOCKS_CONFIRMED,
                 &HttpResponseType::parse_microblocks,
             ),
             (
