@@ -1570,7 +1570,7 @@ impl ConversationHttp {
                 return response.send(http, fd).map(|_| ());
             }
 
-            let data = if block_height >= max_height {
+            let data = if block_height >= (max_height - 1) {
                 GetHealthResponse {
                     is_healthy: true,
                     percent_of_blocks_synced: 100,
