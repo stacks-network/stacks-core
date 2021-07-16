@@ -1187,9 +1187,9 @@ impl Burnchain {
         // get latest headers.
         debug!("Sync headers from {}", sync_height);
 
+        // fetch all headers, no matter what
         let mut end_block = indexer.sync_headers(sync_height, end_height)?;
 
-        // fetch all headers, no matter what
         let mut start_block = sync_height;
         if db_height < start_block {
             start_block = db_height;
