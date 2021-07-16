@@ -892,7 +892,7 @@ impl Burnchain {
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
     /// Return the new chain tip
-    fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<u64, burnchain_error> {
+    fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<(u64, bool), burnchain_error> {
         let headers_path = indexer.get_headers_path();
 
         // sanity check -- what is the height of our highest header
@@ -905,7 +905,7 @@ impl Burnchain {
         })?;
 
         if headers_height == 0 {
-            return Ok(0);
+            return Ok((0, false));
         }
 
         // did we encounter a reorg since last sync?  Find the highest common ancestor of the
@@ -921,10 +921,10 @@ impl Burnchain {
                 "Burnchain reorg detected: highest common ancestor at height {}",
                 reorg_height
             );
-            return Ok(reorg_height);
+            return Ok((reorg_height, true));
         } else {
             // no reorg
-            return Ok(headers_height);
+            return Ok((headers_height, false));
         }
     }
 
@@ -959,7 +959,7 @@ impl Burnchain {
 
         // handle reorgs
         let orig_header_height = indexer.get_headers_height()?; // 1-indexed
-        let sync_height = Burnchain::sync_reorg(indexer)?;
+        let (sync_height, _) = Burnchain::sync_reorg(indexer)?;
         if sync_height + 1 < orig_header_height {
             // a reorg happened
             warn!(
@@ -1170,15 +1170,18 @@ impl Burnchain {
         let db_height = burn_chain_tip.block_height;
 
         // handle reorgs
-        let orig_header_height = indexer.get_headers_height()?; // 1-indexed
-        let sync_height = Burnchain::sync_reorg(indexer)?;
-        if sync_height + 1 < orig_header_height {
+        let (mut sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
+        if did_reorg {
             // a reorg happened
             warn!(
                 "Dropping headers higher than {} due to burnchain reorg",
                 sync_height
             );
             indexer.drop_headers(sync_height)?;
+            // Patch issue #2771
+            if let Some(target_block_height) = target_block_height_opt {
+                sync_height = target_block_height;
+            }
         }
 
         // get latest headers.
