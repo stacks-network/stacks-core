@@ -4,9 +4,9 @@
   "title": "GetHealthResponse",
   "type": "object",
   "additionalProperties": false,
-  "required": ["is_healthy", "percent_of_blocks_synced"],
+  "required": ["matches_peers", "percent_of_blocks_synced"],
   "properties": {
-    "is_healthy": {
+    "matches_peers": {
       "type": "boolean"
     },
     "percent_of_blocks_synced": {

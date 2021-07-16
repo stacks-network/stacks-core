@@ -1572,12 +1572,12 @@ impl ConversationHttp {
 
             let data = if block_height >= (max_height - 1) {
                 GetHealthResponse {
-                    is_healthy: true,
+                    matches_peers: true,
                     percent_of_blocks_synced: 100,
                 }
             } else {
                 GetHealthResponse {
-                    is_healthy: false,
+                    matches_peers: false,
                     percent_of_blocks_synced: ((block_height as f32 / max_height as f32) * (100.0))
                         as u8,
                 }
@@ -3498,11 +3498,14 @@ mod test {
         );
     }
 
+    /// Expecting the peer server's block height to be 1 while its peer's block height is 3.
+    /// This leads to a response where the peer server returns false for `matches_peers` as well as
+    /// the percent of blocks it has.
     #[test]
     #[ignore]
     fn test_rpc_get_health_false() {
         test_rpc(
-            "test_rpc_get_health",
+            "test_rpc_get_health_false",
             40010,
             40011,
             50010,
@@ -3536,7 +3539,7 @@ mod test {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetHealth(response_md, data) => {
-                        assert_eq!(data.is_healthy, false);
+                        assert_eq!(data.matches_peers, false);
                         assert_eq!(data.percent_of_blocks_synced, 33);
                         true
                     }
@@ -3549,6 +3552,7 @@ mod test {
         );
     }
 
+    /// The block height of the peer server and its peer should match, so `matches_peers` is true.
     #[test]
     #[ignore]
     fn test_rpc_get_health_true() {
@@ -3587,7 +3591,7 @@ mod test {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetHealth(response_md, data) => {
-                        assert_eq!(data.is_healthy, true);
+                        assert_eq!(data.matches_peers, true);
                         assert_eq!(data.percent_of_blocks_synced, 100);
                         true
                     }
@@ -3600,6 +3604,7 @@ mod test {
         );
     }
 
+    /// The block stats field for the peer server is `None` in this test case.
     #[test]
     #[ignore]
     fn test_rpc_get_health_no_stats() {
@@ -3629,6 +3634,8 @@ mod test {
         );
     }
 
+    /// In this test case, none of the peer server's initial peers are tracked in the block stats
+    /// map.
     #[test]
     #[ignore]
     fn test_rpc_get_health_no_stats_for_initial_peers() {
@@ -3642,9 +3649,8 @@ mod test {
              ref mut convo_client,
              ref mut peer_server,
              ref mut convo_server| {
-                // // create block stats for peer server
+                // create block stats for peer server
                 let peer_server_sortdb = peer_server.sortdb.take().unwrap();
-
                 if peer_server.network.inv_state.is_none() {
                     peer_server.network.init_inv_sync(&peer_server_sortdb);
                 }

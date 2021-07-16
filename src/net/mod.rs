@@ -1115,7 +1115,7 @@ pub struct GetAttachmentResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetHealthResponse {
-    pub is_healthy: bool,
+    pub matches_peers: bool,
     pub percent_of_blocks_synced: u8,
 }
 
