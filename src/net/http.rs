@@ -89,21 +89,21 @@ use crate::codec::{
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 lazy_static! {
-    static ref PATH_GET_INFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
-    static ref PATH_GET_POX_INFO: Regex = Regex::new(r#"^/v2/pox$"#).unwrap();
-    static ref PATH_GET_NEIGHBORS: Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
-    static ref PATH_GET_BLOCK: Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_GET_MICROBLOCKS_INDEXED: Regex =
+    static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
+    static ref PATH_GETPOXINFO: Regex = Regex::new(r#"^/v2/pox$"#).unwrap();
+    static ref PATH_GETNEIGHBORS: Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
+    static ref PATH_GETBLOCK: Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
+    static ref PATH_GETMICROBLOCKS_INDEXED: Regex =
         Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GET_MICROBLOCKS_CONFIRMED: Regex =
         Regex::new(r#"^/v2/microblocks/confirmed/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_GET_MICROBLOCKS_UNCONFIRMED: Regex =
+    static ref PATH_GETMICROBLOCKS_UNCONFIRMED: Regex =
         Regex::new(r#"^/v2/microblocks/unconfirmed/([0-9a-f]{64})/([0-9]{1,5})$"#).unwrap();
-    static ref PATH_GET_TRANSACTION_UNCONFIRMED: Regex =
+    static ref PATH_GETTRANSACTION_UNCONFIRMED: Regex =
         Regex::new(r#"^/v2/transactions/unconfirmed/([0-9a-f]{64})$"#).unwrap();
-    static ref PATH_POST_TRANSACTION: Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
-    static ref PATH_POST_BLOCK: Regex = Regex::new(r#"^/v2/blocks/upload/([0-9a-f]{40})$"#).unwrap();
-    static ref PATH_POST_MICROBLOCK: Regex = Regex::new(r#"^/v2/microblocks$"#).unwrap();
+    static ref PATH_POSTTRANSACTION: Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
+    static ref PATH_POSTBLOCK: Regex = Regex::new(r#"^/v2/blocks/upload/([0-9a-f]{40})$"#).unwrap();
+    static ref PATH_POSTMICROBLOCK: Regex = Regex::new(r#"^/v2/microblocks$"#).unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
         "^/v2/accounts/(?P<principal>{})$",
         *PRINCIPAL_DATA_REGEX
@@ -1448,48 +1448,44 @@ impl HttpRequestType {
                 &mut R,
             ) -> Result<HttpRequestType, net_error>,
         )] = &[
-            ("GET", &PATH_GET_INFO, &HttpRequestType::parse_get_info),
+            ("GET", &PATH_GETINFO, &HttpRequestType::parse_getinfo),
+            ("GET", &PATH_GETPOXINFO, &HttpRequestType::parse_getpoxinfo),
             (
                 "GET",
-                &PATH_GET_POX_INFO,
-                &HttpRequestType::parse_get_pox_info,
+                &PATH_GETNEIGHBORS,
+                &HttpRequestType::parse_getneighbors,
             ),
+            ("GET", &PATH_GETBLOCK, &HttpRequestType::parse_getblock),
             (
                 "GET",
-                &PATH_GET_NEIGHBORS,
-                &HttpRequestType::parse_get_neighbors,
-            ),
-            ("GET", &PATH_GET_BLOCK, &HttpRequestType::parse_get_block),
-            (
-                "GET",
-                &PATH_GET_MICROBLOCKS_INDEXED,
-                &HttpRequestType::parse_get_microblocks_indexed,
+                &PATH_GETMICROBLOCKS_INDEXED,
+                &HttpRequestType::parse_getmicroblocks_indexed,
             ),
             (
                 "GET",
                 &PATH_GET_MICROBLOCKS_CONFIRMED,
-                &HttpRequestType::parse_get_microblocks_confirmed,
+                &HttpRequestType::parse_getmicroblocks_confirmed,
             ),
             (
                 "GET",
-                &PATH_GET_MICROBLOCKS_UNCONFIRMED,
-                &HttpRequestType::parse_get_microblocks_unconfirmed,
+                &PATH_GETMICROBLOCKS_UNCONFIRMED,
+                &HttpRequestType::parse_getmicroblocks_unconfirmed,
             ),
             (
                 "GET",
-                &PATH_GET_TRANSACTION_UNCONFIRMED,
-                &HttpRequestType::parse_get_transaction_unconfirmed,
+                &PATH_GETTRANSACTION_UNCONFIRMED,
+                &HttpRequestType::parse_gettransaction_unconfirmed,
             ),
             (
                 "POST",
-                &PATH_POST_TRANSACTION,
-                &HttpRequestType::parse_post_transaction,
+                &PATH_POSTTRANSACTION,
+                &HttpRequestType::parse_posttransaction,
             ),
-            ("POST", &PATH_POST_BLOCK, &HttpRequestType::parse_post_block),
+            ("POST", &PATH_POSTBLOCK, &HttpRequestType::parse_postblock),
             (
                 "POST",
-                &PATH_POST_MICROBLOCK,
-                &HttpRequestType::parse_post_microblock,
+                &PATH_POSTMICROBLOCK,
+                &HttpRequestType::parse_postmicroblock,
             ),
             (
                 "GET",
@@ -1590,7 +1586,7 @@ impl HttpRequestType {
         )))
     }
 
-    fn parse_get_info<R: Read>(
+    fn parse_getinfo<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
@@ -1607,7 +1603,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_get_pox_info<R: Read>(
+    fn parse_getpoxinfo<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
@@ -1628,7 +1624,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_get_neighbors<R: Read>(
+    fn parse_getneighbors<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
@@ -1927,7 +1923,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_get_block<R: Read>(
+    fn parse_getblock<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         captures: &Captures,
@@ -1956,7 +1952,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_get_microblocks_indexed<R: Read>(
+    fn parse_getmicroblocks_indexed<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         captures: &Captures,
@@ -1987,7 +1983,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_get_microblocks_confirmed<R: Read>(
+    fn parse_getmicroblocks_confirmed<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         captures: &Captures,
@@ -2017,7 +2013,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_get_microblocks_unconfirmed<R: Read>(
+    fn parse_getmicroblocks_unconfirmed<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         captures: &Captures,
@@ -2060,7 +2056,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_get_transaction_unconfirmed<R: Read>(
+    fn parse_gettransaction_unconfirmed<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         regex: &Captures,
@@ -2113,7 +2109,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_post_transaction<R: Read>(
+    fn parse_posttransaction<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
@@ -2215,7 +2211,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_post_block<R: Read>(
+    fn parse_postblock<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         regex: &Captures,
@@ -2273,7 +2269,7 @@ impl HttpRequestType {
         ))
     }
 
-    fn parse_post_microblock<R: Read>(
+    fn parse_postmicroblock<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
@@ -3050,13 +3046,13 @@ impl HttpResponseType {
                 Option<usize>,
             ) -> Result<HttpResponseType, net_error>,
         )] = &[
-            (&PATH_GET_INFO, &HttpResponseType::parse_peerinfo),
-            (&PATH_GET_POX_INFO, &HttpResponseType::parse_poxinfo),
-            (&PATH_GET_NEIGHBORS, &HttpResponseType::parse_neighbors),
-            (&PATH_GET_BLOCK, &HttpResponseType::parse_block),
+            (&PATH_GETINFO, &HttpResponseType::parse_peerinfo),
+            (&PATH_GETPOXINFO, &HttpResponseType::parse_poxinfo),
+            (&PATH_GETNEIGHBORS, &HttpResponseType::parse_neighbors),
+            (&PATH_GETBLOCK, &HttpResponseType::parse_block),
             (&PATH_GET_MAP_ENTRY, &HttpResponseType::parse_get_map_entry),
             (
-                &PATH_GET_MICROBLOCKS_INDEXED,
+                &PATH_GETMICROBLOCKS_INDEXED,
                 &HttpResponseType::parse_microblocks,
             ),
             (
@@ -3064,20 +3060,20 @@ impl HttpResponseType {
                 &HttpResponseType::parse_microblocks,
             ),
             (
-                &PATH_GET_MICROBLOCKS_UNCONFIRMED,
+                &PATH_GETMICROBLOCKS_UNCONFIRMED,
                 &HttpResponseType::parse_microblocks_unconfirmed,
             ),
             (
-                &PATH_GET_TRANSACTION_UNCONFIRMED,
+                &PATH_GETTRANSACTION_UNCONFIRMED,
                 &HttpResponseType::parse_transaction_unconfirmed,
             ),
-            (&PATH_POST_TRANSACTION, &HttpResponseType::parse_txid),
+            (&PATH_POSTTRANSACTION, &HttpResponseType::parse_txid),
             (
-                &PATH_POST_BLOCK,
+                &PATH_POSTBLOCK,
                 &HttpResponseType::parse_stacks_block_accepted,
             ),
             (
-                &PATH_POST_MICROBLOCK,
+                &PATH_POSTMICROBLOCK,
                 &HttpResponseType::parse_microblock_hash,
             ),
             (&PATH_GET_ACCOUNT, &HttpResponseType::parse_get_account),
