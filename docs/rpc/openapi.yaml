@@ -395,4 +395,14 @@ paths:
               schema:
                 $ref: ./api/core-node/get-health.schema.json
               example:
-                $ref: ./api/core-node/get-info.example.json
+                $ref: ./api/core-node/get-health.example.json
+        512:
+          description: Node is unhealthy, query to get health succeeded
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-health.schema.json
+              example:
+                $ref: ./api/core-node/get-health.example.json
+        513:
+          description: Failed to query for health

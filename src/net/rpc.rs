@@ -1534,11 +1534,11 @@ impl ConversationHttp {
         let initial_neighbors =
             PeerDB::get_valid_initial_neighbors(peerdb.conn(), network_id, block_height).unwrap();
 
+        // no bootstrap nodes found, unable to determine health.
         if initial_neighbors.len() == 0 {
-            // no bootstrap nodes found, unable to determine health.
-            let response = HttpResponseType::NotFound(
+            let response = HttpResponseType::GetHealthQueryError(
                 response_metadata.clone(),
-                format!("No viable bootstrap peers found, unable to determine health"),
+                "No viable bootstrap peers found, unable to determine health".to_string(),
             );
             return response.send(http, fd).map(|_| ());
         }
@@ -1562,7 +1562,8 @@ impl ConversationHttp {
             }
 
             if !stats_obtained {
-                let response = HttpResponseType::NotFound(
+                // no bootstrap nodes found, unable to determine health.
+                let response = HttpResponseType::GetHealthQueryError(
                     response_metadata.clone(),
                     "Couldn't obtain stats on any bootstrap peers, unable to determine health"
                         .to_string(),
@@ -1570,21 +1571,25 @@ impl ConversationHttp {
                 return response.send(http, fd).map(|_| ());
             }
 
-            let data = if block_height >= (max_height - 1) {
-                GetHealthResponse {
+            if block_height >= (max_height - 1) {
+                let data = GetHealthResponse {
                     matches_peers: true,
                     percent_of_blocks_synced: 100,
-                }
+                };
+                HttpResponseType::GetHealth(response_metadata, data)
             } else {
-                GetHealthResponse {
+                let data = GetHealthResponse {
                     matches_peers: false,
                     percent_of_blocks_synced: ((block_height as f32 / max_height as f32) * (100.0))
                         as u8,
-                }
-            };
-            HttpResponseType::GetHealth(response_metadata, data)
+                };
+                HttpResponseType::GetHealthError(response_metadata.clone(), json!(data))
+            }
         } else {
-            HttpResponseType::NotFound(response_metadata, "Peer block stats not found.".into())
+            HttpResponseType::GetHealthQueryError(
+                response_metadata.clone(),
+                "Peer block stats not found.".to_string(),
+            )
         };
 
         response.send(http, fd).map(|_| ())
@@ -3538,9 +3543,11 @@ mod test {
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
-                    HttpResponseType::GetHealth(response_md, data) => {
-                        assert_eq!(data.matches_peers, false);
-                        assert_eq!(data.percent_of_blocks_synced, 33);
+                    HttpResponseType::GetHealthError(response_md, data) => {
+                        let get_health_error_resp: GetHealthResponse =
+                            serde_json::from_value(data.clone()).unwrap();
+                        assert_eq!(get_health_error_resp.matches_peers, false);
+                        assert_eq!(get_health_error_resp.percent_of_blocks_synced, 33);
                         true
                     }
                     _ => {
@@ -3621,7 +3628,7 @@ mod test {
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
-                    HttpResponseType::NotFound(response_md, msg) => {
+                    HttpResponseType::GetHealthQueryError(response_md, msg) => {
                         assert_eq!(msg, "Peer block stats not found.");
                         true
                     }
@@ -3660,8 +3667,11 @@ mod test {
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
-                    HttpResponseType::NotFound(response_md, msg) => {
-                        assert_eq!(msg, "Couldn't obtain stats on any bootstrap peers, unable to determine health");
+                    HttpResponseType::GetHealthQueryError(response_md, msg) => {
+                        assert_eq!(
+                            msg,
+                            "Couldn't obtain stats on any bootstrap peers, unable to determine health"
+                        );
                         true
                     }
                     _ => {

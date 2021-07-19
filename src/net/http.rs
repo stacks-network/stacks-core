@@ -2860,19 +2860,33 @@ impl HttpResponseType {
     ) -> Result<HttpResponseType, net_error> {
         if preamble.status_code < 400 || preamble.status_code > 599 {
             return Err(net_error::DeserializeError(
-                "Inavlid response: not an error".to_string(),
+                "Invalid response: not an error".to_string(),
             ));
         }
 
-        if preamble.content_type != HttpContentType::Text {
+        if preamble.content_type != HttpContentType::Text
+            && preamble.content_type != HttpContentType::JSON
+        {
             return Err(net_error::DeserializeError(
-                "Invalid error response: expected text/plain".to_string(),
+                "Invalid error response: expected text/plain or json".to_string(),
             ));
         }
 
         let mut error_text = String::new();
+        let mut json_val: serde_json::Value = Default::default();
         fd.read_to_string(&mut error_text)
             .map_err(net_error::ReadError)?;
+        if preamble.content_type == HttpContentType::JSON {
+            let json_result = serde_json::from_str(&error_text.clone());
+            json_val = match json_result {
+                Ok(val) => val,
+                Err(serde_json::Error { .. }) => {
+                    return Err(net_error::DeserializeError(
+                        "Invalid response: unable to deserialize json response".to_string(),
+                    ))
+                }
+            }
+        }
 
         let md = HttpResponseMetadata::from_preamble(request_version, preamble);
         let resp = match preamble.status_code {
@@ -2883,6 +2897,8 @@ impl HttpResponseType {
             404 => HttpResponseType::NotFound(md, error_text),
             500 => HttpResponseType::ServerError(md, error_text),
             503 => HttpResponseType::ServiceUnavailable(md, error_text),
+            512 => HttpResponseType::GetHealthError(md, json_val),
+            513 => HttpResponseType::GetHealthQueryError(md, error_text),
             _ => HttpResponseType::Error(md, preamble.status_code, error_text),
         };
         Ok(resp)
@@ -3553,6 +3569,8 @@ impl HttpResponseType {
             HttpResponseType::ServerError(ref md, _) => md,
             HttpResponseType::ServiceUnavailable(ref md, _) => md,
             HttpResponseType::Error(ref md, _, _) => md,
+            HttpResponseType::GetHealthError(ref md, _) => md,
+            HttpResponseType::GetHealthQueryError(ref md, _) => md,
         }
     }
 
@@ -3799,6 +3817,21 @@ impl HttpResponseType {
             HttpResponseType::ServiceUnavailable(_, ref msg) => {
                 self.error_response(fd, 503, msg)?
             }
+            HttpResponseType::GetHealthError(ref md, ref data) => {
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    512,
+                    HttpResponseType::error_reason(512),
+                    md.content_length.clone(),
+                    &HttpContentType::JSON,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
+            }
+            HttpResponseType::GetHealthQueryError(_, ref msg) => {
+                self.error_response(fd, 513, msg)?
+            }
             HttpResponseType::Error(_, ref error_code, ref msg) => {
                 self.error_response(fd, *error_code, msg)?
             }
@@ -3916,6 +3949,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::NotFound(_, _) => "HTTP(404)",
                 HttpResponseType::ServerError(_, _) => "HTTP(500)",
                 HttpResponseType::ServiceUnavailable(_, _) => "HTTP(503)",
+                HttpResponseType::GetHealthError(..) => "HTTP(512)",
+                HttpResponseType::GetHealthQueryError(..) => "HTTP(513)",
                 HttpResponseType::Error(_, _, _) => "HTTP(other)",
             },
         }
@@ -5990,27 +6025,14 @@ mod test {
 
     #[test]
     fn test_http_response_type_codec_err() {
-        let request_paths = vec![
-            "/v2/blocks/1111111111111111111111111111111111111111111111111111111111111111",
-            "/v2/transactions",
-            "/v2/neighbors",
-            "/v2/neighbors",
-            "/v2/neighbors",
-        ];
+        let request_paths = vec!["/v2/transactions", "/v2/neighbors", "/v2/neighbors"];
         let bad_request_payloads = vec![
-            "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\nab",
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 4\r\n\r\n\"ab\"",
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\n{",
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\na",
-            "HTTP/1.1 400 Bad Request\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\n{}",
         ];
-        let expected_bad_request_payload_errors = vec![
-            "Invalid content-type",
-            "Invalid txid:",
-            "Not enough bytes",
-            "Failed to parse",
-            "expected text/plain",
-        ];
+        let expected_bad_request_payload_errors =
+            vec!["Invalid txid:", "Not enough bytes", "Failed to parse"];
         for (test, (expected_error, request_path)) in bad_request_payloads.iter().zip(
             expected_bad_request_payload_errors
                 .iter()

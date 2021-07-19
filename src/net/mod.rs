@@ -1381,6 +1381,8 @@ pub enum HttpResponseType {
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, serde_json::Value),
+    GetHealthError(HttpResponseMetadata, serde_json::Value),
+    GetHealthQueryError(HttpResponseMetadata, String),
     Unauthorized(HttpResponseMetadata, String),
     PaymentRequired(HttpResponseMetadata, String),
     Forbidden(HttpResponseMetadata, String),
