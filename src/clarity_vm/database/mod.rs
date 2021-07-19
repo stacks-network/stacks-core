@@ -1,5 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 
+use util::db::Error;
 use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
@@ -107,13 +108,17 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     }
 
     fn get_burn_header_hash_using_consensus_hash(
-        &self,
+        &mut self,
         height: u32,
-        consensus_hash: &ConsensusHash,
+        _consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        let bt = backtrace::Backtrace::new();
-        warn!("look2 {:?}", bt);
-        None
+        let snapshot_opt = self.get_block_snapshot_by_height(height as u64).expect("Failed to get block snapshot by height.");
+        match snapshot_opt {
+            Some(snapshot) => {
+                Some(snapshot.burn_header_hash)
+            }
+            _ => None
+        }
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -164,15 +169,19 @@ impl BurnStateDB for SortitionDBConn<'_> {
 
     // This is the one the integration test is calling.
     fn get_burn_header_hash_using_consensus_hash(
-        &self,
+        &mut self,
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
         let bt = backtrace::Backtrace::new();
-        warn!("look2 {:?}", bt);
+        warn!("look4 {:?}", bt);
         let db_handle = SortitionHandleConn::open_reader_consensus(self, consensus_hash).ok()?;
         match db_handle.get_block_snapshot_by_height(height as u64) {
-            Ok(Some(x)) => Some(x.burn_header_hash),
+            Ok(Some(x)) => {
+                let answer4 = x.burn_header_hash;
+                warn!("answer4: {:?}", answer4);
+                Some(x.burn_header_hash)
+            }
             _ => return None,
         }
     }

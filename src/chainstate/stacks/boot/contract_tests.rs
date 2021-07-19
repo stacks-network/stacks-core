@@ -318,9 +318,7 @@ impl BurnStateDB for TestSimBurnStateDB {
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        let bt = backtrace::Backtrace::new();
-        warn!("look2 {:?}", bt);
-        None
+        panic!("Not implemented in TestSim");
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {

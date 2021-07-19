@@ -109,7 +109,7 @@ pub trait BurnStateDB {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
     fn get_burn_header_hash_using_consensus_hash(
-        &self,
+        &mut self,
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash>;
@@ -124,7 +124,7 @@ impl HeadersDB for &dyn HeadersDB {
         (*self).get_stacks_block_header_hash_for_block(id_bhh)
     }
     fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        None
+        (*self).get_consensus_hash_for_block(id_bhh)
     }
     fn get_burn_header_hash_for_block(&self, bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
         (*self).get_burn_header_hash_for_block(bhh)
@@ -165,12 +165,10 @@ impl BurnStateDB for &dyn BurnStateDB {
     }
 
     fn get_burn_header_hash_using_consensus_hash(
-        &self,
+        &mut self,
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        let bt = backtrace::Backtrace::new();
-        warn!("look2 {:?}", bt);
         (*self).get_burn_header_hash_using_consensus_hash(height, consensus_hash)
     }
 
@@ -290,12 +288,10 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_burn_header_hash_using_consensus_hash(
-        &self,
+        &mut self,
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        let bt = backtrace::Backtrace::new();
-        warn!("look2 {:?}", bt);
         None
     }
 
@@ -717,16 +713,19 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         burnchain_block_height: u32,
     ) -> BurnchainHeaderHash {
+        let bt = backtrace::Backtrace::new();
+        warn!("look5 {:?}", bt);
         let block_height = self.get_current_block_height();
         let id_bhh = self.get_index_block_header_hash(block_height);
         let consensus_hash = self
             .headers_db
             .get_consensus_hash_for_block(&id_bhh)
             .expect("Failed to get block data.");
-
-        self.burn_state_db
+        let answer5 = self.burn_state_db
             .get_burn_header_hash_using_consensus_hash(burnchain_block_height, &consensus_hash)
-            .expect("Failed to get block data.")
+            .expect("Failed to get block data.");
+        warn!("answer5: {:?}", answer5);
+        answer5
     }
 
     pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {

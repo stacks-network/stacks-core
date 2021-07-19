@@ -2108,10 +2108,9 @@ mod test {
             height: u32,
             consensus_hash: &ConsensusHash,
         ) -> Option<BurnchainHeaderHash> {
-            let bt = backtrace::Backtrace::new();
-            warn!("look2 {:?}", bt);
             None
         }
+
         fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
             Some(StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
