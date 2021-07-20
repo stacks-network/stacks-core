@@ -25,7 +25,7 @@ use std::sync::{
     Arc,
 };
 use std::thread;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 
 use crate::types::chainstate::StacksAddress;
 use crate::types::proof::TrieHash;
@@ -1171,24 +1171,33 @@ impl Burnchain {
 
         // handle reorgs
         let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
-        let end_height = if did_reorg {
+        if did_reorg {
             // a reorg happened
             warn!(
                 "Dropping headers higher than {} due to burnchain reorg",
                 sync_height
             );
             indexer.drop_headers(sync_height)?;
-            // Patch issue #2771
-            target_block_height_opt
-        } else {
-            None
-        };
+        }
 
         // get latest headers.
         debug!("Sync headers from {}", sync_height);
 
         // fetch all headers, no matter what
-        let mut end_block = indexer.sync_headers(sync_height, end_height)?;
+        let mut end_block = indexer.sync_headers(sync_height, None)?;
+        if did_reorg {
+            // a reorg happened, and the last header fetched
+            // is on a smaller fork than the one we just
+            // invalidated. Wait for more blocks.
+            while end_block < db_height {
+                let end_height = target_block_height_opt
+                        .unwrap_or(0)
+                        .max(db_height);
+                info!("Burnchain reorg happened at height {} invalidating chain tip {} but only {} headers presents on canonical chain. Retry in 1s", sync_height, db_height, end_block);
+                thread::sleep(Duration::from_millis(1000));
+                end_block = indexer.sync_headers(sync_height, Some(end_height))?;
+            }
+        }
 
         let mut start_block = sync_height;
         if db_height < start_block {
@@ -1331,19 +1340,20 @@ impl Burnchain {
                     while let Ok(Some(burnchain_block)) = db_recv.recv() {
                         debug!("Try recv next parsed block");
 
-                        if burnchain_block.block_height() == 0 {
+                        let block_height = burnchain_block.block_height();
+                        if block_height == 0 {
                             continue;
                         }
 
                         if is_mainnet {
-                            if last_processed.block_height == STACKS_2_0_LAST_BLOCK_TO_PROCESS {
+                            if block_height == STACKS_2_0_LAST_BLOCK_TO_PROCESS {
                                 info!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
-                                      "block_height" => last_processed.block_height);
+                                      "block_height" => block_height);
                                 continue;
-                            } else if last_processed.block_height > STACKS_2_0_LAST_BLOCK_TO_PROCESS {
+                            } else if block_height > STACKS_2_0_LAST_BLOCK_TO_PROCESS {
                                 debug!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
                                        "last_block" => STACKS_2_0_LAST_BLOCK_TO_PROCESS,
-                                       "block_height" => last_processed.block_height);
+                                       "block_height" => block_height);
                                 continue;
                             }
                         }

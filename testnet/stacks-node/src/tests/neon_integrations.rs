@@ -270,7 +270,7 @@ mod test_observer {
     }
 }
 
-const PANIC_TIMEOUT_SECS: u64 = 600;
+const PANIC_TIMEOUT_SECS: u64 = 30;
 fn next_block_and_wait(
     btc_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
@@ -1306,6 +1306,74 @@ fn bitcoind_forking_test() {
     assert_eq!(account.balance, 0);
     // but we're able to keep on mining
     assert_eq!(account.nonce, 3);
+
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn should_fix_2771() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (conf, miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut sort_height = channel.get_sortitions_processed();
+    eprintln!("Sort height: {}", sort_height);
+
+    while sort_height < 210 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+    // let's query the miner's account nonce:
+
+    eprintln!("Miner account: {}", miner_account);
+
+    // okay, let's figure out the burn block we want to fork away.
+    warn!("Will trigger re-org at block {}", 208);
+    let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(208);
+    btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
+    btc_regtest_controller.build_next_block(1);
+    thread::sleep(Duration::from_secs(5));
+
+    // We invalidated a fork 210 long, and the new one is 207 blocks long.
+    // Let's dispatch the blocks one by one, instead of mining 210-207 blocks
+    while sort_height < 213 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
 
     channel.stop_chains_coordinator();
 }
