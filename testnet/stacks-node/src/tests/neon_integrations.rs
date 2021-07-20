@@ -1324,7 +1324,7 @@ fn bitcoind_forking_test() {
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
     // but we're able to keep on mining
-    assert_eq!(account.nonce, 4);
+    assert_eq!(account.nonce, 3);
 
     channel.stop_chains_coordinator();
 }
