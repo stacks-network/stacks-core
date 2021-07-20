@@ -1383,9 +1383,9 @@ fn should_fix_2771() {
     btc_regtest_controller.build_next_block(1);
     thread::sleep(Duration::from_secs(5));
 
-    // The test here consists in producing a canonical chain with 210 blocks. 
-    // Once done, we invalidate the block 208, and instead of rebuilding directly 
-    // a longer fork with N blocks (at done in the bitcoind_forking_test) 
+    // The test here consists in producing a canonical chain with 210 blocks.
+    // Once done, we invalidate the block 208, and instead of rebuilding directly
+    // a longer fork with N blocks (at done in the bitcoind_forking_test)
     // we slowly add some more blocks.
     // Without the patch, this behavior ends up crashing the node with errors like:
     // WARN [1626791307.078061] [src/chainstate/coordinator/mod.rs:535] [chains-coordinator] ChainsCoordinator: could not retrieve  block burnhash=40bdbf0dda349642bdf4dd30dd31af4f0c9979ce12a7c17485245d0a6ddd970b
