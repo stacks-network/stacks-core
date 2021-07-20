@@ -25,7 +25,7 @@ use std::sync::{
     Arc,
 };
 use std::thread;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
 use crate::types::chainstate::StacksAddress;
 use crate::types::proof::TrieHash;
@@ -1190,9 +1190,7 @@ impl Burnchain {
             // is on a smaller fork than the one we just
             // invalidated. Wait for more blocks.
             while end_block < db_height {
-                let end_height = target_block_height_opt
-                        .unwrap_or(0)
-                        .max(db_height);
+                let end_height = target_block_height_opt.unwrap_or(0).max(db_height);
                 info!("Burnchain reorg happened at height {} invalidating chain tip {} but only {} headers presents on canonical chain. Retry in 1s", sync_height, db_height, end_block);
                 thread::sleep(Duration::from_millis(1000));
                 end_block = indexer.sync_headers(sync_height, Some(end_height))?;
