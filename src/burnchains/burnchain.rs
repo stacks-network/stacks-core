@@ -1185,14 +1185,19 @@ impl Burnchain {
 
         // fetch all headers, no matter what
         let mut end_block = indexer.sync_headers(sync_height, None)?;
-        if did_reorg {
+        if did_reorg && sync_height > 0 {
             // a reorg happened, and the last header fetched
             // is on a smaller fork than the one we just
             // invalidated. Wait for more blocks.
             while end_block < db_height {
+                if let Some(ref should_keep_running) = should_keep_running {
+                    if !should_keep_running.load(Ordering::SeqCst) {
+                        return Err(burnchain_error::CoordinatorClosed);
+                    }
+                }
                 let end_height = target_block_height_opt.unwrap_or(0).max(db_height);
                 info!("Burnchain reorg happened at height {} invalidating chain tip {} but only {} headers presents on canonical chain. Retry in 1s", sync_height, db_height, end_block);
-                thread::sleep(Duration::from_millis(1000));
+                thread::sleep(Duration::from_millis(2000));
                 end_block = indexer.sync_headers(sync_height, Some(end_height))?;
             }
         }
