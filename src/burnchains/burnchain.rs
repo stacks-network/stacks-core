@@ -891,7 +891,7 @@ impl Burnchain {
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
-    /// Return the new chain tip
+    /// Return the new chain tip and a boolen signaling the presence of a reorg
     fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<(u64, bool), burnchain_error> {
         let headers_path = indexer.get_headers_path();
 
@@ -1196,7 +1196,7 @@ impl Burnchain {
                     }
                 }
                 let end_height = target_block_height_opt.unwrap_or(0).max(db_height);
-                info!("Burnchain reorg happened at height {} invalidating chain tip {} but only {} headers presents on canonical chain. Retry in 1s", sync_height, db_height, end_block);
+                info!("Burnchain reorg happened at height {} invalidating chain tip {} but only {} headers presents on canonical chain. Retry in 2s", sync_height, db_height, end_block);
                 thread::sleep(Duration::from_millis(2000));
                 end_block = indexer.sync_headers(sync_height, Some(end_height))?;
             }
