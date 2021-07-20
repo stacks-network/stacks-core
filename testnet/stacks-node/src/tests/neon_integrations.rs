@@ -270,7 +270,7 @@ mod test_observer {
     }
 }
 
-const PANIC_TIMEOUT_SECS: u64 = 30;
+const PANIC_TIMEOUT_SECS: u64 = 600;
 fn next_block_and_wait(
     btc_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
@@ -1326,7 +1326,6 @@ fn should_fix_2771() {
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
 
