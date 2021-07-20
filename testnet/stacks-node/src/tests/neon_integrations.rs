@@ -1390,7 +1390,7 @@ fn should_fix_2771() {
     // Without the patch, this behavior ends up crashing the node with errors like:
     // WARN [1626791307.078061] [src/chainstate/coordinator/mod.rs:535] [chains-coordinator] ChainsCoordinator: could not retrieve  block burnhash=40bdbf0dda349642bdf4dd30dd31af4f0c9979ce12a7c17485245d0a6ddd970b
     // WARN [1626791307.078098] [src/chainstate/coordinator/mod.rs:308] [chains-coordinator] Error processing new burn block: NonContiguousBurnchainBlock(UnknownBlock(40bdbf0dda349642bdf4dd30dd31af4f0c9979ce12a7c17485245d0a6ddd970b))
-    // And the burnchain db end up in the same state we ended up while investing 2771.
+    // And the burnchain db ends up in the same state we ended up while investigating 2771.
     // With this patch, the node is able to entirely register this new canonical fork, and then able to make some progress.
     while sort_height < 213 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
