@@ -1317,14 +1317,14 @@ fn bitcoind_forking_test() {
 
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
-    assert_eq!(account.nonce, 2);
+    assert_eq!(account.nonce, 3);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
     // but we're able to keep on mining
-    assert_eq!(account.nonce, 3);
+    assert_eq!(account.nonce, 4);
 
     channel.stop_chains_coordinator();
 }
