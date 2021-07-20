@@ -1385,13 +1385,13 @@ fn should_fix_2771() {
 
     // The test here consists in producing a canonical chain with 210 blocks.
     // Once done, we invalidate the block 208, and instead of rebuilding directly
-    // a longer fork with N blocks (at done in the bitcoind_forking_test)
+    // a longer fork with N blocks (as done in the bitcoind_forking_test)
     // we slowly add some more blocks.
     // Without the patch, this behavior ends up crashing the node with errors like:
     // WARN [1626791307.078061] [src/chainstate/coordinator/mod.rs:535] [chains-coordinator] ChainsCoordinator: could not retrieve  block burnhash=40bdbf0dda349642bdf4dd30dd31af4f0c9979ce12a7c17485245d0a6ddd970b
     // WARN [1626791307.078098] [src/chainstate/coordinator/mod.rs:308] [chains-coordinator] Error processing new burn block: NonContiguousBurnchainBlock(UnknownBlock(40bdbf0dda349642bdf4dd30dd31af4f0c9979ce12a7c17485245d0a6ddd970b))
-    // And the burnchain db end up in the same state we ended up while investing 2771.
-    // With this patch, the node is able to entirely register this new canonical fork, and then able to make some progress.
+    // And the burnchain db ends up in the same state we ended up while investigating 2771.
+    // With this patch, the node is able to entirely register this new canonical fork, and then able to make progress and finish successfully.
     while sort_height < 213 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
