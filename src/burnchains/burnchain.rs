@@ -891,7 +891,7 @@ impl Burnchain {
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
-    /// Return the new chain tip and a boolen signaling the presence of a reorg
+    /// Return the new chain tip and a boolean signaling the presence of a reorg
     fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<(u64, bool), burnchain_error> {
         let headers_path = indexer.get_headers_path();
 
