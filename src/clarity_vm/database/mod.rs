@@ -108,17 +108,32 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     }
 
     fn get_burn_header_hash_using_consensus_hash(
-        &mut self,
+        &self,
         height: u32,
-        _consensus_hash: &ConsensusHash,
+        consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        let snapshot_opt = self.get_block_snapshot_by_height(height as u64).expect("Failed to get block snapshot by height.");
-        match snapshot_opt {
-            Some(snapshot) => {
-                Some(snapshot.burn_header_hash)
+        // DO NOT SUBMIT: remove the unwrap
+        let sn = match SortitionDB::get_block_snapshot_consensus(self.tx(), consensus_hash).unwrap() {
+            Some(sn) => {
+                if !sn.pox_valid {
+                    warn!(
+                        "No such chain tip consensus hash {}: not on a valid PoX fork",
+                        consensus_hash
+                    );
+                    // return Err(db_error::InvalidPoxSortition);
+                    // DO NOT SUBMIT: handle this error
+                    return None;
+                }
+                sn
             }
-            _ => None
-        }
+            None => {
+                test_debug!("No such chain tip consensus hash {}", consensus_hash);
+                // return Err(db_error::NotFoundError);
+                // DO NOT SUBMIT: handle this error
+                return None;
+            }
+        };
+        self.get_burn_header_hash(height, &sn.sortition_id)
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -169,7 +184,7 @@ impl BurnStateDB for SortitionDBConn<'_> {
 
     // This is the one the integration test is calling.
     fn get_burn_header_hash_using_consensus_hash(
-        &mut self,
+        &self,
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {

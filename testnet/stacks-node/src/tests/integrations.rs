@@ -69,7 +69,7 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-private (test-9) (get-block-info? miner-address block-height))
         (define-private (test-10) (get-block-info? miner-address u100000))
         (define-private (test-11) burn-block-height)
-        (define-private (test-12) (get-block-info? burnchain-header-hash-by-burnchain-height u1))
+        (define-private (test-12) (get-block-info? burnchain-header-hash-by-burnchain-height u0))
 
         (define-private (get-block-id-hash (height uint)) (unwrap-panic
           (get id-hash (map-get? block-data { height: height }))))
@@ -375,7 +375,7 @@ fn integration_test_get_info() {
                 warn!("twelve_result {:?}", twelve_result);
 
                 let consensus_hash = chain_tip.metadata.consensus_hash;
-                let header_hash1 = burn_dbconn.get_burn_header_hash_using_consensus_hash(1, &consensus_hash);
+                let header_hash1 = burn_dbconn.get_burn_header_hash_using_consensus_hash(0, &consensus_hash);
                 warn!("header_hash1 {:?}", header_hash1);
 
                 // assert_eq!(twelve_result,

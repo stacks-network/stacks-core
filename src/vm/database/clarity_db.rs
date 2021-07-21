@@ -109,7 +109,7 @@ pub trait BurnStateDB {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
     fn get_burn_header_hash_using_consensus_hash(
-        &mut self,
+        &self,
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash>;
@@ -165,7 +165,7 @@ impl BurnStateDB for &dyn BurnStateDB {
     }
 
     fn get_burn_header_hash_using_consensus_hash(
-        &mut self,
+        &self,
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
@@ -288,7 +288,7 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_burn_header_hash_using_consensus_hash(
-        &mut self,
+        &self,
         height: u32,
         consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
