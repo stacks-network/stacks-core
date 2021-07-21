@@ -369,10 +369,10 @@ fn integration_test_get_info() {
                         burn_dbconn, bhh, &contract_identifier, "(test-7)"),
                     Value::some(Value::buff_from(last_vrf_seed).unwrap()).unwrap());
 
-                let twelve_result = chain_state.clarity_eval_read_only(
+                let burn_chain_height_result = chain_state.clarity_eval_read_only(
                         burn_dbconn, bhh, &contract_identifier, "(test-12)");
                 let header_hash1 = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-                assert_eq!(twelve_result,
+                assert_eq!(burn_chain_height_result,
                     Value::some(Value::buff_from(header_hash1).unwrap()).unwrap());
 
                 // verify that we can get the block miner
