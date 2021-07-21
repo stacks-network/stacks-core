@@ -2868,7 +2868,7 @@ impl HttpResponseType {
             && preamble.content_type != HttpContentType::JSON
         {
             return Err(net_error::DeserializeError(
-                "Invalid error response: expected text/plain or json".to_string(),
+                "Invalid error response: expected text/plain or application/json".to_string(),
             ));
         }
 

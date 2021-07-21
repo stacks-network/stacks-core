@@ -1580,8 +1580,7 @@ impl ConversationHttp {
             } else {
                 let data = GetHealthResponse {
                     matches_peers: false,
-                    percent_of_blocks_synced: ((block_height as f32 / max_height as f32) * (100.0))
-                        as u8,
+                    percent_of_blocks_synced: (block_height * 100 / max_height) as u8,
                 };
                 HttpResponseType::GetHealthError(response_metadata.clone(), json!(data))
             }
