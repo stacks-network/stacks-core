@@ -107,7 +107,7 @@ pub trait BurnStateDB {
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
-    fn get_burn_header_hash_using_consensus_hash(
+    fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
     ) -> Option<BurnchainHeaderHash>;
@@ -159,11 +159,11 @@ impl BurnStateDB for &dyn BurnStateDB {
         (*self).get_burn_header_hash(height, sortition_id)
     }
 
-    fn get_burn_header_hash_using_consensus_hash(
+    fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
     ) -> Option<BurnchainHeaderHash> {
-        (*self).get_burn_header_hash_using_consensus_hash(height)
+        (*self).get_burn_header_hash_using_canonical_sortition(height)
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -278,9 +278,9 @@ impl BurnStateDB for NullBurnStateDB {
         None
     }
 
-    fn get_burn_header_hash_using_consensus_hash(
+    fn get_burn_header_hash_using_canonical_sortition(
         &self,
-        height: u32,
+        _height: u32,
     ) -> Option<BurnchainHeaderHash> {
         None
     }
@@ -704,7 +704,7 @@ impl<'a> ClarityDatabase<'a> {
         burnchain_block_height: u32,
     ) -> BurnchainHeaderHash {
         self.burn_state_db
-            .get_burn_header_hash_using_consensus_hash(burnchain_block_height)
+            .get_burn_header_hash_using_canonical_sortition(burnchain_block_height)
             .expect("Failed to get block data.")
     }
 

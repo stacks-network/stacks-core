@@ -100,7 +100,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         }
     }
 
-    fn get_burn_header_hash_using_consensus_hash(
+    fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
     ) -> Option<BurnchainHeaderHash> {
@@ -155,7 +155,7 @@ impl BurnStateDB for SortitionDBConn<'_> {
     }
 
     // This is the one the integration test is calling.
-    fn get_burn_header_hash_using_consensus_hash(
+    fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
     ) -> Option<BurnchainHeaderHash> {

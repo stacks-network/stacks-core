@@ -2098,7 +2098,7 @@ mod test {
                 .unwrap(),
             )
         }
-        fn get_burn_header_hash_using_consensus_hash(
+        fn get_burn_header_hash_using_canonical_sortition(
             &self,
             height: u32,
         ) -> Option<BurnchainHeaderHash> {
