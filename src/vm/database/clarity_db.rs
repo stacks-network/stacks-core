@@ -17,7 +17,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
-use chainstate::burn::ConsensusHash;
 use core::{
     StacksEpoch, BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
