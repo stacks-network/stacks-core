@@ -375,7 +375,7 @@ fn integration_test_get_info() {
                 warn!("twelve_result {:?}", twelve_result);
 
                 let consensus_hash = chain_tip.metadata.consensus_hash;
-                let header_hash1 = burn_dbconn.get_burn_header_hash_using_consensus_hash(0, &consensus_hash);
+                let header_hash1 = burn_dbconn.get_burn_header_hash_using_consensus_hash(0);
                 warn!("header_hash1 {:?}", header_hash1);
 
                 // assert_eq!(twelve_result,

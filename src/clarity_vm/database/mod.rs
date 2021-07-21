@@ -110,30 +110,30 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     fn get_burn_header_hash_using_consensus_hash(
         &self,
         height: u32,
-        consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        // DO NOT SUBMIT: remove the unwrap
-        let sn = match SortitionDB::get_block_snapshot_consensus(self.tx(), consensus_hash).unwrap() {
-            Some(sn) => {
-                if !sn.pox_valid {
-                    warn!(
-                        "No such chain tip consensus hash {}: not on a valid PoX fork",
-                        consensus_hash
-                    );
-                    // return Err(db_error::InvalidPoxSortition);
-                    // DO NOT SUBMIT: handle this error
-                    return None;
-                }
-                sn
-            }
-            None => {
-                test_debug!("No such chain tip consensus hash {}", consensus_hash);
-                // return Err(db_error::NotFoundError);
-                // DO NOT SUBMIT: handle this error
-                return None;
-            }
-        };
-        self.get_burn_header_hash(height, &sn.sortition_id)
+        // // DO NOT SUBMIT: remove the unwrap
+        // let sn = match SortitionDB::get_block_snapshot_consensus(self.tx(), consensus_hash).unwrap() {
+        //     Some(sn) => {
+        //         if !sn.pox_valid {
+        //             warn!(
+        //                 "No such chain tip consensus hash {}: not on a valid PoX fork",
+        //                 consensus_hash
+        //             );
+        //             // return Err(db_error::InvalidPoxSortition);
+        //             // DO NOT SUBMIT: handle this error
+        //             return None;
+        //         }
+        //         sn
+        //     }
+        //     None => {
+        //         test_debug!("No such chain tip consensus hash {}", consensus_hash);
+        //         // return Err(db_error::NotFoundError);
+        //         // DO NOT SUBMIT: handle this error
+        //         return None;
+        //     }
+        // };
+        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.tx()).unwrap();
+        self.get_burn_header_hash(height, &sortition_id)
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -186,19 +186,10 @@ impl BurnStateDB for SortitionDBConn<'_> {
     fn get_burn_header_hash_using_consensus_hash(
         &self,
         height: u32,
-        consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        let bt = backtrace::Backtrace::new();
-        warn!("look4 {:?}", bt);
-        let db_handle = SortitionHandleConn::open_reader_consensus(self, consensus_hash).ok()?;
-        match db_handle.get_block_snapshot_by_height(height as u64) {
-            Ok(Some(x)) => {
-                let answer4 = x.burn_header_hash;
-                warn!("answer4: {:?}", answer4);
-                Some(x.burn_header_hash)
-            }
-            _ => return None,
-        }
+
+        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
+        self.get_burn_header_hash(height, &sortition_id)
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {

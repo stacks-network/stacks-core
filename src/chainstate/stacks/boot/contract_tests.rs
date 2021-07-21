@@ -316,7 +316,6 @@ impl BurnStateDB for TestSimBurnStateDB {
     fn get_burn_header_hash_using_consensus_hash(
         &self,
         height: u32,
-        consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
         panic!("Not implemented in TestSim");
     }
