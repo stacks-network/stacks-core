@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::burn::ConsensusHash;
 use vm::analysis::type_checker::natives::SimpleNativeFunction;
 use vm::analysis::type_checker::TypedNativeFunction;
 use vm::functions::define::DefineFunctions;
@@ -2026,7 +2025,6 @@ mod test {
         Value,
     };
 
-    use crate::chainstate::burn::ConsensusHash;
     use crate::types::chainstate::VRFSeed;
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
@@ -2049,9 +2047,6 @@ mod test {
             &self,
             _bhh: &StacksBlockId,
         ) -> Option<BurnchainHeaderHash> {
-            None
-        }
-        fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
             None
         }
         fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {

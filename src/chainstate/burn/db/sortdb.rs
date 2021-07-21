@@ -2778,9 +2778,6 @@ impl SortitionDB {
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
-    /// 
-    /// 
-    // Use this one!
     pub fn get_canonical_sortition_tip(conn: &Connection) -> Result<SortitionId, db_error> {
         let qry = "SELECT sortition_id FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {

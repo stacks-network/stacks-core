@@ -25,16 +25,11 @@ use core::StacksEpoch;
 pub mod marf;
 
 impl HeadersDB for DBConn {
-    // Is this it?
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
     ) -> Option<BlockHeaderHash> {
-        // I think it's this one.
         get_stacks_header_info(self, id_bhh).map(|x| x.anchored_header.block_hash())
-    }
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        get_stacks_header_info(self, id_bhh).map(|x| x.consensus_hash)
     }
 
     fn get_burn_header_hash_for_block(
@@ -111,27 +106,6 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         &self,
         height: u32,
     ) -> Option<BurnchainHeaderHash> {
-        // // DO NOT SUBMIT: remove the unwrap
-        // let sn = match SortitionDB::get_block_snapshot_consensus(self.tx(), consensus_hash).unwrap() {
-        //     Some(sn) => {
-        //         if !sn.pox_valid {
-        //             warn!(
-        //                 "No such chain tip consensus hash {}: not on a valid PoX fork",
-        //                 consensus_hash
-        //             );
-        //             // return Err(db_error::InvalidPoxSortition);
-        //             // DO NOT SUBMIT: handle this error
-        //             return None;
-        //         }
-        //         sn
-        //     }
-        //     None => {
-        //         test_debug!("No such chain tip consensus hash {}", consensus_hash);
-        //         // return Err(db_error::NotFoundError);
-        //         // DO NOT SUBMIT: handle this error
-        //         return None;
-        //     }
-        // };
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.tx()).unwrap();
         self.get_burn_header_hash(height, &sortition_id)
     }
@@ -187,7 +161,6 @@ impl BurnStateDB for SortitionDBConn<'_> {
         &self,
         height: u32,
     ) -> Option<BurnchainHeaderHash> {
-
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.get_burn_header_hash(height, &sortition_id)
     }

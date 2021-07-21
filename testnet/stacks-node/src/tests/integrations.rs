@@ -363,24 +363,15 @@ fn integration_test_get_info() {
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         burn_dbconn, bhh, &contract_identifier, "(test-6)"),
-                    Value::some(Value::buff_from(last_burn_header.clone()).unwrap()).unwrap());
+                    Value::some(Value::buff_from(last_burn_header).unwrap()).unwrap());
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
                         burn_dbconn, bhh, &contract_identifier, "(test-7)"),
                     Value::some(Value::buff_from(last_vrf_seed).unwrap()).unwrap());
 
-                warn!("look1");
                 let twelve_result = chain_state.clarity_eval_read_only(
                         burn_dbconn, bhh, &contract_identifier, "(test-12)");
-                warn!("twelve_result {:?}", twelve_result);
-
-                let consensus_hash = chain_tip.metadata.consensus_hash;
-                // let header_hash1 = burn_dbconn.get_burn_header_hash_using_consensus_hash(0);
                 let header_hash1 = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-                warn!("header_hash1 {:?}", header_hash1);
-
-                // assert_eq!(twelve_result,
-                //     Value::some(Value::buff_from(last_burn_header).unwrap()).unwrap());
                 assert_eq!(twelve_result,
                     Value::some(Value::buff_from(header_hash1).unwrap()).unwrap());
 
