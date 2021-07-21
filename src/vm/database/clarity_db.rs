@@ -717,6 +717,10 @@ impl<'a> ClarityDatabase<'a> {
         warn!("look5 {:?}", bt);
         let block_height = self.get_current_block_height();
         let id_bhh = self.get_index_block_header_hash(block_height);
+        // conn.query_row(
+        //     "SELECT * FROM block_headers WHERE index_block_hash = ?",
+        //     [id_bhh].iter(),
+        //     |x| Ok(StacksHeaderInfo::from_row(x).expect("Bad stacks header info in database")),
         let consensus_hash = self
             .headers_db
             .get_consensus_hash_for_block(&id_bhh)
