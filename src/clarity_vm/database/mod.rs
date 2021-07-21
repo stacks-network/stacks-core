@@ -1,10 +1,8 @@
 use rusqlite::{Connection, OptionalExtension};
 
-use util::db::Error;
 use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
-use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
 use util::db::{DBConn, FromRow};
