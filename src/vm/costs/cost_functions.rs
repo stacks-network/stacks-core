@@ -131,3 +131,10 @@ define_named_enum!(ClarityCostFunction {
     NftBurn("cost_nft_burn"),
     PoisonMicroblock("poison_microblock"),
 });
+
+define_named_enum!(AnalysisCostFunction {
+    ReadOnly("cost_read_only"),
+    TypeChecker("cost_type_checker"),
+    TraitChecker("cost_trait_checker"),
+    ArithmeticOnlyChecker("cost_arithmetic_only_checker"),
+});

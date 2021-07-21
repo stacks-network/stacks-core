@@ -168,7 +168,7 @@ impl ArithmeticOnlyChecker {
             FetchVar | GetBlockInfo | GetTokenBalance | GetAssetOwner | FetchEntry | SetEntry
             | DeleteEntry | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset
             | TransferToken | ContractCall | StxTransfer | StxBurn | AtBlock | GetStxBalance
-            | GetTokenSupply | BurnToken | BurnAsset | NoOp => {
+            | GetTokenSupply | BurnToken | BurnAsset => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
@@ -183,7 +183,7 @@ impl ArithmeticOnlyChecker {
             | Modulo | Power | Sqrti | Log2 | BitwiseXOR | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay
             | IsNone | Asserts | Unwrap | UnwrapErr | IsErr | IsSome | TryRet | ToUInt | ToInt
-            | Len | Begin | TupleMerge => self.check_all(args),
+            | Len | Begin | TupleMerge | NoOp => self.check_all(args),
             // we need to treat all the remaining functions specially, because these
             //   do not eval all of their arguments (rather, one or more of their arguments
             //   is a name)
