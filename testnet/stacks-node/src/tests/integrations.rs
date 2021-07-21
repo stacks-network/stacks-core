@@ -375,13 +375,14 @@ fn integration_test_get_info() {
                 warn!("twelve_result {:?}", twelve_result);
 
                 let consensus_hash = chain_tip.metadata.consensus_hash;
-                let header_hash1 = burn_dbconn.get_burn_header_hash_using_consensus_hash(0);
+                // let header_hash1 = burn_dbconn.get_burn_header_hash_using_consensus_hash(0);
+                let header_hash1 = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
                 warn!("header_hash1 {:?}", header_hash1);
 
                 // assert_eq!(twelve_result,
                 //     Value::some(Value::buff_from(last_burn_header).unwrap()).unwrap());
                 assert_eq!(twelve_result,
-                    Value::some(Value::buff_from(header_hash1.unwrap().0.to_vec()).unwrap()).unwrap());
+                    Value::some(Value::buff_from(header_hash1).unwrap()).unwrap());
 
                 // verify that we can get the block miner
                 assert_eq!(
