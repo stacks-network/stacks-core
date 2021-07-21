@@ -598,7 +598,11 @@ impl BlockInfoProperty {
         use self::BlockInfoProperty::*;
         match self {
             Time => TypeSignature::UIntType,
-            IdentityHeaderHash | VrfSeed | HeaderHash | BurnchainHeaderHash | BurnchainHeaderHashByBurnchainHeight => BUFF_32.clone(),
+            IdentityHeaderHash
+            | VrfSeed
+            | HeaderHash
+            | BurnchainHeaderHash
+            | BurnchainHeaderHashByBurnchainHeight => BUFF_32.clone(),
             MinerAddress => TypeSignature::PrincipalType,
         }
     }
