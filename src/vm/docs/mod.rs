@@ -1346,13 +1346,19 @@ const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     description: "The `get-block-info?` function fetches data for a block of the given block height. The
 value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `BlockHeightInt` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
-are `time`, `header-hash`, `burnchain-header-hash`, `id-header-hash`, `miner-address`, and `vrf-seed`.
+are `time`, `header-hash`, `burnchain-header-hash`, `burnchain-header-hash-by-burnchain-height`, `id-header-hash`, `miner-address`, and `vrf-seed`.
 
 The `time` property returns an integer value of the block header time field. This is a Unix epoch timestamp in seconds
 which roughly corresponds to when the block was mined. **Warning**: this does not increase monotonically with each block
 and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
 
 The `header-hash`, `burnchain-header-hash`, `id-header-hash`, and `vrf-seed` properties return a 32-byte buffer.
+
+`header-hash` returns the header hash of a Stacks node, given a Stacks chain height.
+
+`burnchain-header-hash` returns header hash of a Bitcoin (burn chain) node, given a Stacks chain height.
+
+`burnchain-header-hash-by-burnchain-height` returns header hash of a Bitcoin (burn chain) node, given a Bitcoin chain height.
 
 The `miner-address` property returns a `principal` corresponding to the miner of the given block.
 
