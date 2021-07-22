@@ -104,7 +104,8 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         &self,
         height: u32,
     ) -> Option<BurnchainHeaderHash> {
-        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.tx()).ok()?;
+        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.tx())
+            .expect("Failed to get sortition tip.");
         self.get_burn_header_hash(height, &sortition_id)
     }
 
@@ -159,7 +160,8 @@ impl BurnStateDB for SortitionDBConn<'_> {
         &self,
         height: u32,
     ) -> Option<BurnchainHeaderHash> {
-        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).ok()?;
+        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn())
+            .expect("Failed to get sortition tip.");
         self.get_burn_header_hash(height, &sortition_id)
     }
 
