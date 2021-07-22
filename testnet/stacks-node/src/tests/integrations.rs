@@ -403,18 +403,18 @@ fn integration_test_get_info() {
                 // simulates the Bitcoin chain, is always all 00's.
                 let burn_chain_height_result0 = chain_state.clarity_eval_read_only(
                     burn_dbconn, bhh, &contract_identifier, "(test-12-a)");
-            let header_hash0 = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-            assert_eq!(burn_chain_height_result0,
-                Value::some(Value::buff_from(header_hash0).unwrap()).unwrap());
+                let header_hash0 = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+                assert_eq!(burn_chain_height_result0,
+                    Value::some(Value::buff_from(header_hash0).unwrap()).unwrap());
 
-            // The header hash for block at height u1 of the MocknetController, which
-            // simulates the Bitcoin chain, is always this hard-coded value.
-            // (See MocknetController::build_next_block_header).
-            let burn_chain_height_result1 = chain_state.clarity_eval_read_only(
-                    burn_dbconn, bhh, &contract_identifier, "(test-12-b)");
-            let header_hash1 = hex_bytes("66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925").unwrap();
-            assert_eq!(burn_chain_height_result1,
-                Value::some(Value::buff_from(header_hash1).unwrap()).unwrap());
+                // The header hash for block at height u1 of the MocknetController, which
+                // simulates the Bitcoin chain, is always this hard-coded value.
+                // (See MocknetController::build_next_block_header).
+                let burn_chain_height_result1 = chain_state.clarity_eval_read_only(
+                        burn_dbconn, bhh, &contract_identifier, "(test-12-b)");
+                let header_hash1 = hex_bytes("66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925").unwrap();
+                assert_eq!(burn_chain_height_result1,
+                    Value::some(Value::buff_from(header_hash1).unwrap()).unwrap());
 
             },
             2 => {
