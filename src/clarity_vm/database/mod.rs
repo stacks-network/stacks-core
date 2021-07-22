@@ -104,8 +104,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         &self,
         height: u32,
     ) -> Option<BurnchainHeaderHash> {
-        // DO NOT SUBMIT: Unwrap!
-        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.tx()).unwrap();
+        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.tx()).ok()?;
         self.get_burn_header_hash(height, &sortition_id)
     }
 
@@ -160,8 +159,7 @@ impl BurnStateDB for SortitionDBConn<'_> {
         &self,
         height: u32,
     ) -> Option<BurnchainHeaderHash> {
-        // DO NOT SUBMIT: fix unwrap
-        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
+        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).ok()?;
         self.get_burn_header_hash(height, &sortition_id)
     }
 
