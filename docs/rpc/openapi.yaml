@@ -74,7 +74,12 @@ paths:
         schema:
           type: string
         description: The Stacks chain tip to query from
-
+      - name: use_latest_tip
+        in: query
+        schema:
+          type: string
+        description: If use_latest_tip == 1, query will be run from the latest tip (includes unconfirmed state).
+        If 0, the tip is selected as usual (first checking value of the tip parameter, otherwise taking the stacks chain tip)
   /v2/map_entry/{contract_address}/{contract_name}/{map_name}:
     post:
       summary: Get specific data-map inside a contract
@@ -127,7 +132,13 @@ paths:
           schema:
             type: string
           description: The Stacks chain tip to query from
-      x-codegen-request-body-name: key
+        - name: use_latest_tip
+          in: query
+          schema:
+            type: string
+          description: If use_latest_tip == 1, query will be run from the latest tip (includes unconfirmed state).
+          If 0, the tip is selected as usual (first checking value of the tip parameter, otherwise taking the stacks chain tip)
+    x-codegen-request-body-name: key
       requestBody:
         description: Hex string serialization of the lookup key (which should be a Clarity value)
         required: true
@@ -176,6 +187,12 @@ paths:
           type: string
         description: The Stacks chain tip to query from
         required: false
+      - name: use_latest_tip
+        in: query
+        schema:
+          type: string
+        description: If use_latest_tip == 1, query will be run from the latest tip (includes unconfirmed state).
+        If 0, the tip is selected as usual (first checking value of the tip parameter, otherwise taking the stacks chain tip)
 
   /v2/contracts/call-read/{contract_address}/{contract_name}/{function_name}:
     post:
@@ -224,6 +241,12 @@ paths:
             type: string
           description: The Stacks chain tip to query from
           required: false
+        - name: use_latest_tip
+          in: query
+          schema:
+            type: string
+          description: If use_latest_tip == 1, query will be run from the latest tip (includes unconfirmed state).
+          If 0, the tip is selected as usual (first checking value of the tip parameter, otherwise taking the stacks chain tip)
       requestBody:
         description: map of arguments and the simulated tx-sender where sender is either a Contract identifier or a normal Stacks address, and arguments is an array of hex serialized Clarity values.
         required: true
@@ -266,6 +289,12 @@ paths:
           schema:
             type: string
           description: The Stacks chain tip to query from
+        - name: use_latest_tip
+          in: query
+          schema:
+            type: string
+          description: If use_latest_tip == 1, query will be run from the latest tip (includes unconfirmed state).
+          If 0, the tip is selected as usual (first checking value of the tip parameter, otherwise taking the stacks chain tip)
       responses:
         200:
           description: Success
@@ -326,6 +355,18 @@ paths:
                 $ref: ./api/core-node/get-pox.schema.json
               example:
                 $ref: ./api/core-node/get-pox.example.json
+      parameters:
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description: The Stacks chain tip to query from
+        - name: use_latest_tip
+          in: query
+          schema:
+            type: string
+          description: If use_latest_tip == 1, query will be run from the latest tip (includes unconfirmed state).
+          If 0, the tip is selected as usual (first checking value of the tip parameter, otherwise taking the stacks chain tip)
 
   /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_ contract_name}/{trait_name}:
     get:
@@ -343,39 +384,45 @@ paths:
                 $ref: ./api/trait/get-is-trait-implemented.schema.json
               example:
                 $ref: ./api/trait/get-is-trait-implemented.example.json
-    parameters:
-      - name: contract_address
-        in: path
-        required: true
-        description: Stacks address
-        schema:
-          type: string
-      - name: contract_name
-        in: path
-        required: true
-        description: Contract name
-        schema:
-          type: string
-      - name: trait_contract_address
-        in: path
-        required: true
-        description: Trait Stacks address
-        schema:
-          type: string
-      - name: trait_contract_name
-        in: path
-        required: true
-        description: Trait contract name
-        schema:
-          type: string
-      - name: trait_name
-        in: path
-        required: true
-        description: Trait name
-        schema:
-          type: string
-      - name: tip
-        in: query
-        schema:
-          type: string
-        description: The Stacks chain tip to query from
+      parameters:
+        - name: contract_address
+          in: path
+          required: true
+          description: Stacks address
+          schema:
+            type: string
+        - name: contract_name
+          in: path
+          required: true
+          description: Contract name
+          schema:
+            type: string
+        - name: trait_contract_address
+          in: path
+          required: true
+          description: Trait Stacks address
+          schema:
+            type: string
+        - name: trait_contract_name
+          in: path
+          required: true
+          description: Trait contract name
+          schema:
+            type: string
+        - name: trait_name
+          in: path
+          required: true
+          description: Trait name
+          schema:
+            type: string
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description: The Stacks chain tip to query from
+        - name: use_latest_tip
+          in: query
+          schema:
+            type: string
+          description: If use_latest_tip == 1, query will be run from the latest tip (includes unconfirmed state).
+          If 0, the tip is selected as usual (first checking value of the tip parameter, otherwise taking the stacks chain tip)

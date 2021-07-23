@@ -975,8 +975,8 @@ pub struct RPCPeerInfoData {
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_consensus_hash: ConsensusHash,
     pub genesis_chainstate_hash: Sha256Sum,
-    pub unanchored_tip: StacksBlockId,
-    pub unanchored_seq: u16,
+    pub unanchored_tip: Option<StacksBlockId>,
+    pub unanchored_seq: Option<u16>,
     pub exit_at_block_height: Option<u64>,
 }
 
@@ -1217,7 +1217,7 @@ pub struct RPCNeighborsInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
-    GetPoxInfo(HttpRequestMetadata, Option<StacksBlockId>),
+    GetPoxInfo(HttpRequestMetadata, Option<StacksBlockId>, bool),
     GetNeighbors(HttpRequestMetadata),
     GetBlock(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
@@ -1232,6 +1232,7 @@ pub enum HttpRequestType {
         PrincipalData,
         Option<StacksBlockId>,
         bool,
+        bool,
     ),
     GetMapEntry(
         HttpRequestMetadata,
@@ -1240,6 +1241,7 @@ pub enum HttpRequestType {
         ClarityName,
         Value,
         Option<StacksBlockId>,
+        bool,
         bool,
     ),
     CallReadOnlyFunction(
@@ -1250,6 +1252,7 @@ pub enum HttpRequestType {
         ClarityName,
         Vec<Value>,
         Option<StacksBlockId>,
+        bool,
     ),
     GetTransferCost(HttpRequestMetadata),
     GetContractSrc(
@@ -1258,12 +1261,14 @@ pub enum HttpRequestType {
         ContractName,
         Option<StacksBlockId>,
         bool,
+        bool,
     ),
     GetContractABI(
         HttpRequestMetadata,
         StacksAddress,
         ContractName,
         Option<StacksBlockId>,
+        bool,
     ),
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
@@ -1274,6 +1279,7 @@ pub enum HttpRequestType {
         ContractName,
         TraitIdentifier,
         Option<StacksBlockId>,
+        bool,
     ),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),

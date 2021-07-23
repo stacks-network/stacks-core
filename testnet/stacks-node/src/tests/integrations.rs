@@ -806,6 +806,19 @@ fn integration_test_get_info() {
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert!(!res.is_implemented);
+
+                // test query parameters for v2/trait endpoint
+                // evaluate check for explicit compliance against the chain tip of the first block (contract DNE at that block) 
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip=e96d9f02217af8025f39164c841dc33d6670687b2e3f948c75752145fb6a1275", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1");
+                let res = client.get(&path).send().unwrap();
+                eprintln!("Test: GET {}", path);
+                assert_eq!(res.text().unwrap(), "No contract analysis found or trait definition not found");
+
+                // evaluate check for explicit compliance where tip is the chain tip of the first block (contract DNE at that block), but use_latest_tip is true
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip=e96d9f02217af8025f39164c841dc33d6670687b2e3f948c75752145fb6a1275&use_latest_tip={}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1", "1");
+                let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
+                eprintln!("Test: GET {}", path);
+                assert!(res.is_implemented);
             },
             _ => {},
         }

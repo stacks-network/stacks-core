@@ -1645,16 +1645,17 @@ fn microblock_integration_test() {
             .json::<RPCPeerInfoData>()
             .unwrap();
         eprintln!("{:#?}", tip_info);
-        if tip_info.unanchored_tip == StacksBlockId([0; 32]) {
-            iter_count += 1;
-            assert!(
-                iter_count < 10,
-                "Hit retry count while waiting for net module to process pushed microblock"
-            );
-            sleep_ms(5_000);
-            continue;
-        } else {
-            break tip_info;
+        match tip_info.unanchored_tip {
+            None => {
+                iter_count += 1;
+                assert!(
+                    iter_count < 10,
+                    "Hit retry count while waiting for net module to process pushed microblock"
+                );
+                sleep_ms(5_000);
+                continue;
+            }
+            Some(tip) => break tip_info,
         }
     };
 
@@ -1810,7 +1811,9 @@ fn microblock_integration_test() {
     // we can query unconfirmed state from the microblock we announced
     let path = format!(
         "{}/v2/accounts/{}?proof=0&tip={}",
-        &http_origin, &spender_addr, &tip_info.unanchored_tip
+        &http_origin,
+        &spender_addr,
+        &tip_info.unanchored_tip.unwrap()
     );
 
     eprintln!("{:?}", &path);
@@ -1887,7 +1890,9 @@ fn microblock_integration_test() {
         // we can query _new_ unconfirmed state from the microblock we announced
         let path = format!(
             "{}/v2/accounts/{}?proof=0&tip={}",
-            &http_origin, &spender_addr, &tip_info.unanchored_tip
+            &http_origin,
+            &spender_addr,
+            &tip_info.unanchored_tip.unwrap()
         );
 
         let res_text = client.get(&path).send().unwrap().text().unwrap();

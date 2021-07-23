@@ -188,14 +188,14 @@ impl RPCPeerInfoData {
             Some(ref unconfirmed) => {
                 if unconfirmed.num_mined_txs() > 0 {
                     (
-                        unconfirmed.unconfirmed_chain_tip.clone(),
-                        unconfirmed.last_mblock_seq,
+                        Some(unconfirmed.unconfirmed_chain_tip.clone()),
+                        Some(unconfirmed.last_mblock_seq),
                     )
                 } else {
-                    (StacksBlockId([0x00; 32]), 0)
+                    (None, None)
                 }
             }
-            None => (StacksBlockId([0x00; 32]), 0),
+            None => (None, None),
         };
 
         RPCPeerInfoData {
@@ -597,7 +597,6 @@ impl ConversationHttp {
             &handler_args.genesis_chainstate_hash,
         );
         let response = HttpResponseType::PeerInfo(response_metadata, pi);
-        // timer.observe_duration();
         response.send(http, fd)
     }
 
@@ -1525,24 +1524,48 @@ impl ConversationHttp {
         tip_opt: Option<&StacksBlockId>,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
+        use_latest_tip: bool,
     ) -> Result<Option<StacksBlockId>, net_error> {
-        match tip_opt {
-            Some(tip) => Ok(Some(*tip).clone()),
-            None => match chainstate.get_stacks_chain_tip(sortdb)? {
-                Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
+        if use_latest_tip {
+            let (use_unconfirmed, unconfirmed_chain_tip) = match &chainstate.unconfirmed_state {
+                Some(unconfirmed_state) => {
+                    if unconfirmed_state.is_readable() {
+                        (true, unconfirmed_state.unconfirmed_chain_tip.clone())
+                    } else {
+                        (false, StacksBlockId([0; 32]))
+                    }
+                }
+                None => (false, StacksBlockId([0; 32])),
+            };
+
+            if use_unconfirmed {
+                Ok(Some(unconfirmed_chain_tip))
+            } else {
+                let tip = chainstate.get_stacks_chain_tip(sortdb).unwrap().unwrap();
+                Ok(Some(StacksBlockHeader::make_index_block_hash(
                     &tip.consensus_hash,
                     &tip.anchored_block_hash,
-                ))),
-                None => {
-                    let response_metadata = HttpResponseMetadata::from(req);
-                    warn!("Failed to load Stacks chain tip");
-                    let response = HttpResponseType::ServerError(
-                        response_metadata,
-                        format!("Failed to load Stacks chain tip"),
-                    );
-                    response.send(http, fd).and_then(|_| Ok(None))
-                }
-            },
+                )))
+            }
+        } else {
+            match tip_opt {
+                Some(tip) => Ok(Some(*tip).clone()),
+                None => match chainstate.get_stacks_chain_tip(sortdb)? {
+                    Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
+                        &tip.consensus_hash,
+                        &tip.anchored_block_hash,
+                    ))),
+                    None => {
+                        let response_metadata = HttpResponseMetadata::from(req);
+                        warn!("Failed to load Stacks chain tip");
+                        let response = HttpResponseType::ServerError(
+                            response_metadata,
+                            format!("Failed to load Stacks chain tip"),
+                        );
+                        response.send(http, fd).and_then(|_| Ok(None))
+                    }
+                },
+            }
         }
     }
 
@@ -1834,7 +1857,7 @@ impl ConversationHttp {
                 )?;
                 None
             }
-            HttpRequestType::GetPoxInfo(ref _md, ref tip_opt) => {
+            HttpRequestType::GetPoxInfo(ref _md, ref tip_opt, ref use_latest_tip) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
@@ -1842,6 +1865,7 @@ impl ConversationHttp {
                     tip_opt.as_ref(),
                     sortdb,
                     chainstate,
+                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_getpoxinfo(
                         &mut self.connection.protocol,
@@ -1914,7 +1938,13 @@ impl ConversationHttp {
                 )?;
                 None
             }
-            HttpRequestType::GetAccount(ref _md, ref principal, ref tip_opt, ref with_proof) => {
+            HttpRequestType::GetAccount(
+                ref _md,
+                ref principal,
+                ref tip_opt,
+                ref with_proof,
+                ref use_latest_tip,
+            ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
@@ -1922,6 +1952,7 @@ impl ConversationHttp {
                     tip_opt.as_ref(),
                     sortdb,
                     chainstate,
+                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_get_account_entry(
                         &mut self.connection.protocol,
@@ -1944,6 +1975,7 @@ impl ConversationHttp {
                 ref key,
                 ref tip_opt,
                 ref with_proof,
+                ref use_latest_tip,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
@@ -1952,6 +1984,7 @@ impl ConversationHttp {
                     tip_opt.as_ref(),
                     sortdb,
                     chainstate,
+                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_get_map_entry(
                         &mut self.connection.protocol,
@@ -1982,6 +2015,7 @@ impl ConversationHttp {
                 ref contract_addr,
                 ref contract_name,
                 ref tip_opt,
+                ref use_latest_tip,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
@@ -1990,6 +2024,7 @@ impl ConversationHttp {
                     tip_opt.as_ref(),
                     sortdb,
                     chainstate,
+                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_get_contract_abi(
                         &mut self.connection.protocol,
@@ -2012,6 +2047,7 @@ impl ConversationHttp {
                 ref func_name,
                 ref args,
                 ref tip_opt,
+                ref use_latest_tip,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
@@ -2020,6 +2056,7 @@ impl ConversationHttp {
                     tip_opt.as_ref(),
                     sortdb,
                     chainstate,
+                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_readonly_function_call(
                         &mut self.connection.protocol,
@@ -2044,6 +2081,7 @@ impl ConversationHttp {
                 ref contract_name,
                 ref tip_opt,
                 ref with_proof,
+                ref use_latest_tip,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
@@ -2052,6 +2090,7 @@ impl ConversationHttp {
                     tip_opt.as_ref(),
                     sortdb,
                     chainstate,
+                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_get_contract_src(
                         &mut self.connection.protocol,
@@ -2190,6 +2229,7 @@ impl ConversationHttp {
                 ref contract_name,
                 ref trait_id,
                 ref tip_opt,
+                ref use_latest_tip,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
@@ -2198,6 +2238,7 @@ impl ConversationHttp {
                     tip_opt.as_ref(),
                     sortdb,
                     chainstate,
+                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_get_is_trait_implemented(
                         &mut self.connection.protocol,
@@ -2595,10 +2636,15 @@ impl ConversationHttp {
     }
 
     /// Make a new getinfo request to this endpoint
-    pub fn new_getpoxinfo(&self, tip_opt: Option<StacksBlockId>) -> HttpRequestType {
+    pub fn new_getpoxinfo(
+        &self,
+        tip_opt: Option<StacksBlockId>,
+        use_latest_tip: bool,
+    ) -> HttpRequestType {
         HttpRequestType::GetPoxInfo(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             tip_opt,
+            use_latest_tip,
         )
     }
 
@@ -2695,12 +2741,14 @@ impl ConversationHttp {
         principal: PrincipalData,
         tip_opt: Option<StacksBlockId>,
         with_proof: bool,
+        use_latest_tip: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetAccount(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             principal,
             tip_opt,
             with_proof,
+            use_latest_tip,
         )
     }
 
@@ -2713,6 +2761,7 @@ impl ConversationHttp {
         key: Value,
         tip_opt: Option<StacksBlockId>,
         with_proof: bool,
+        use_latest_tip: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetMapEntry(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
@@ -2722,6 +2771,7 @@ impl ConversationHttp {
             key,
             tip_opt,
             with_proof,
+            use_latest_tip,
         )
     }
 
@@ -2732,6 +2782,7 @@ impl ConversationHttp {
         contract_name: ContractName,
         tip_opt: Option<StacksBlockId>,
         with_proof: bool,
+        use_latest_tip: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetContractSrc(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
@@ -2739,6 +2790,7 @@ impl ConversationHttp {
             contract_name,
             tip_opt,
             with_proof,
+            use_latest_tip,
         )
     }
 
@@ -2748,12 +2800,14 @@ impl ConversationHttp {
         contract_addr: StacksAddress,
         contract_name: ContractName,
         tip_opt: Option<StacksBlockId>,
+        use_latest_tip: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetContractABI(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             contract_addr,
             contract_name,
             tip_opt,
+            use_latest_tip,
         )
     }
 
@@ -2766,6 +2820,7 @@ impl ConversationHttp {
         function_name: ClarityName,
         function_args: Vec<Value>,
         tip_opt: Option<StacksBlockId>,
+        use_latest_tip: bool,
     ) -> HttpRequestType {
         HttpRequestType::CallReadOnlyFunction(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
@@ -2775,6 +2830,7 @@ impl ConversationHttp {
             function_name,
             function_args,
             tip_opt,
+            use_latest_tip,
         )
     }
 
@@ -2883,6 +2939,7 @@ mod test {
         peer_1_http: u16,
         peer_2_p2p: u16,
         peer_2_http: u16,
+        include_microblocks: bool,
         make_request: F,
         check_result: C,
     ) -> ()
@@ -3086,67 +3143,73 @@ mod test {
         peer_1.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
 
-        // build 1-block microblock stream with the contract-call and the unconfirmed contract
-        let microblock = {
-            let sortdb = peer_1.sortdb.take().unwrap();
-            Relayer::setup_unconfirmed_state(peer_1.chainstate(), &sortdb).unwrap();
-            let mblock = {
-                let sort_iconn = sortdb.index_conn();
-                let mut microblock_builder = StacksMicroblockBuilder::new(
-                    stacks_block.block_hash(),
-                    consensus_hash.clone(),
-                    peer_1.chainstate(),
-                    &sort_iconn,
-                )
-                .unwrap();
-                let microblock = microblock_builder
-                    .mine_next_microblock_from_txs(
-                        vec![
-                            (tx_cc_signed, tx_cc_len),
-                            (tx_unconfirmed_contract_signed, tx_unconfirmed_contract_len),
-                        ],
-                        &microblock_privkey,
+        // begin microblock section
+        if include_microblocks {
+            // build 1-block microblock stream with the contract-call and the unconfirmed contract
+            let microblock = {
+                let sortdb = peer_1.sortdb.take().unwrap();
+                Relayer::setup_unconfirmed_state(peer_1.chainstate(), &sortdb).unwrap();
+                let mblock = {
+                    let sort_iconn = sortdb.index_conn();
+                    let mut microblock_builder = StacksMicroblockBuilder::new(
+                        stacks_block.block_hash(),
+                        consensus_hash.clone(),
+                        peer_1.chainstate(),
+                        &sort_iconn,
                     )
                     .unwrap();
-                microblock
+                    let microblock = microblock_builder
+                        .mine_next_microblock_from_txs(
+                            vec![
+                                (tx_cc_signed, tx_cc_len),
+                                (tx_unconfirmed_contract_signed, tx_unconfirmed_contract_len),
+                            ],
+                            &microblock_privkey,
+                        )
+                        .unwrap();
+                    microblock
+                };
+                peer_1.sortdb = Some(sortdb);
+                mblock
             };
-            peer_1.sortdb = Some(sortdb);
-            mblock
-        };
 
-        // store microblock stream
-        peer_1
-            .chainstate()
-            .preprocess_streamed_microblock(
+            // store microblock stream
+            peer_1
+                .chainstate()
+                .preprocess_streamed_microblock(
+                    &consensus_hash,
+                    &stacks_block.block_hash(),
+                    &microblock,
+                )
+                .unwrap();
+            peer_2
+                .chainstate()
+                .preprocess_streamed_microblock(
+                    &consensus_hash,
+                    &stacks_block.block_hash(),
+                    &microblock,
+                )
+                .unwrap();
+
+            // process microblock stream to generate unconfirmed state
+            let canonical_tip = StacksBlockHeader::make_index_block_hash(
                 &consensus_hash,
                 &stacks_block.block_hash(),
-                &microblock,
-            )
-            .unwrap();
-        peer_2
-            .chainstate()
-            .preprocess_streamed_microblock(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-                &microblock,
-            )
-            .unwrap();
-
-        // process microblock stream to generate unconfirmed state
-        let canonical_tip =
-            StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-        let sortdb1 = peer_1.sortdb.take().unwrap();
-        let sortdb2 = peer_2.sortdb.take().unwrap();
-        peer_1
-            .chainstate()
-            .reload_unconfirmed_state(&sortdb1.index_conn(), canonical_tip.clone())
-            .unwrap();
-        peer_2
-            .chainstate()
-            .reload_unconfirmed_state(&sortdb2.index_conn(), canonical_tip.clone())
-            .unwrap();
-        peer_1.sortdb = Some(sortdb1);
-        peer_2.sortdb = Some(sortdb2);
+            );
+            let sortdb1 = peer_1.sortdb.take().unwrap();
+            let sortdb2 = peer_2.sortdb.take().unwrap();
+            peer_1
+                .chainstate()
+                .reload_unconfirmed_state(&sortdb1.index_conn(), canonical_tip.clone())
+                .unwrap();
+            peer_2
+                .chainstate()
+                .reload_unconfirmed_state(&sortdb2.index_conn(), canonical_tip.clone())
+                .unwrap();
+            peer_1.sortdb = Some(sortdb1);
+            peer_2.sortdb = Some(sortdb2);
+        }
+        // end microblock section
 
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
@@ -3287,6 +3350,7 @@ mod test {
             40001,
             50000,
             50001,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3328,10 +3392,12 @@ mod test {
             40001,
             50000,
             50001,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
              ref mut convo_server| {
+                let use_latest_tip = false;
                 let mut sortdb = peer_server.sortdb.as_mut().unwrap();
                 let chainstate = &mut peer_server.stacks_node.as_mut().unwrap().chainstate;
                 let stacks_block_id = {
@@ -3349,7 +3415,57 @@ mod test {
                 )
                 .unwrap();
                 *pox_server_info.borrow_mut() = Some(pox_info);
-                convo_client.new_getpoxinfo(None)
+                convo_client.new_getpoxinfo(None, use_latest_tip)
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::PoxInfo(response_md, pox_data) => {
+                        assert_eq!(Some((*pox_data).clone()), *pox_server_info.borrow());
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_getpoxinfo_use_latest_tip() {
+        let pox_server_info = RefCell::new(None);
+        test_rpc(
+            "test_rpc_getpoxinfo",
+            40000,
+            40001,
+            50000,
+            50001,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let use_latest_tip = true;
+                let mut sortdb = peer_server.sortdb.as_mut().unwrap();
+                let chainstate = &mut peer_server.stacks_node.as_mut().unwrap().chainstate;
+                let stacks_block_id = chainstate
+                    .unconfirmed_state
+                    .as_ref()
+                    .unwrap()
+                    .unconfirmed_chain_tip
+                    .clone();
+                let pox_info = RPCPoxInfoData::from_db(
+                    &mut sortdb,
+                    chainstate,
+                    &stacks_block_id,
+                    &peer_client.config.burnchain,
+                )
+                .unwrap();
+                *pox_server_info.borrow_mut() = Some(pox_info);
+                convo_client.new_getpoxinfo(None, use_latest_tip)
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
@@ -3376,6 +3492,7 @@ mod test {
             40011,
             50010,
             50011,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3408,6 +3525,7 @@ mod test {
             40021,
             50020,
             50021,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3465,6 +3583,7 @@ mod test {
             40031,
             50030,
             50031,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3528,6 +3647,7 @@ mod test {
             40041,
             50040,
             50041,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3640,6 +3760,7 @@ mod test {
             40043,
             50042,
             50043,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3748,6 +3869,7 @@ mod test {
             40051,
             50050,
             50051,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3811,6 +3933,7 @@ mod test {
             40053,
             50052,
             50053,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3883,6 +4006,7 @@ mod test {
             40061,
             50060,
             50061,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3919,6 +4043,7 @@ mod test {
             40071,
             50070,
             50071,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3955,6 +4080,7 @@ mod test {
             40071,
             50070,
             50071,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3993,6 +4119,7 @@ mod test {
             40081,
             50080,
             50081,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4046,6 +4173,7 @@ mod test {
             40091,
             50090,
             50091,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4055,6 +4183,7 @@ mod test {
                         .unwrap(),
                     "hello-world".try_into().unwrap(),
                     None,
+                    false,
                     false,
                 )
             },
@@ -4083,6 +4212,7 @@ mod test {
             40101,
             50100,
             50101,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4100,6 +4230,46 @@ mod test {
                     "hello-world".try_into().unwrap(),
                     Some(unconfirmed_tip),
                     false,
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetContractSrc(response_md, data) => {
+                        assert_eq!(data.source, TEST_CONTRACT);
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_contract_src_use_latest_tip() {
+        test_rpc(
+            "test_rpc_get_contract_src_unconfirmed",
+            40100,
+            40101,
+            50100,
+            50101,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getcontractsrc(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    None,
+                    false,
+                    true,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4127,6 +4297,7 @@ mod test {
             40111,
             50110,
             50111,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4137,6 +4308,89 @@ mod test {
                         .to_account_principal(),
                     None,
                     false,
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetAccount(response_md, data) => {
+                        assert_eq!(data.nonce, 2);
+                        let balance = u128::from_str_radix(&data.balance[2..], 16).unwrap();
+                        assert_eq!(balance, 1000000000);
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_account_use_latest_tip() {
+        test_rpc(
+            "test_rpc_get_account",
+            40110,
+            40111,
+            50110,
+            50111,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getaccount(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap()
+                        .to_account_principal(),
+                    None,
+                    false,
+                    true,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetAccount(response_md, data) => {
+                        assert_eq!(data.nonce, 4);
+                        let balance = u128::from_str_radix(&data.balance[2..], 16).unwrap();
+                        assert_eq!(balance, 999999877);
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_account_use_latest_tip_no_microblocks() {
+        test_rpc(
+            "test_rpc_get_account",
+            40110,
+            40111,
+            50110,
+            50111,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getaccount(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap()
+                        .to_account_principal(),
+                    None,
+                    false,
+                    true,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4166,6 +4420,7 @@ mod test {
             40121,
             50120,
             50121,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4182,6 +4437,7 @@ mod test {
                         .unwrap()
                         .to_account_principal(),
                     Some(unconfirmed_tip),
+                    false,
                     false,
                 )
             },
@@ -4212,6 +4468,7 @@ mod test {
             40131,
             50130,
             50131,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4230,6 +4487,7 @@ mod test {
                             .unwrap(),
                     ),
                     None,
+                    false,
                     false,
                 )
             },
@@ -4265,6 +4523,7 @@ mod test {
             40141,
             50140,
             50141,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4291,6 +4550,62 @@ mod test {
                     ),
                     Some(unconfirmed_tip),
                     false,
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetMapEntry(response_md, data) => {
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                            Value::some(Value::Tuple(
+                                TupleData::from_data(vec![("units".into(), Value::Int(1))])
+                                    .unwrap()
+                            ))
+                            .unwrap()
+                        );
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_map_entry_use_latest_tip() {
+        test_rpc(
+            "test_rpc_get_map_entry_unconfirmed",
+            40140,
+            40141,
+            50140,
+            50141,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let principal =
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap()
+                        .to_account_principal();
+                convo_client.new_getmapentry(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "unit-map".try_into().unwrap(),
+                    Value::Tuple(
+                        TupleData::from_data(vec![("account".into(), Value::Principal(principal))])
+                            .unwrap(),
+                    ),
+                    None,
+                    false,
+                    true,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4325,6 +4640,7 @@ mod test {
             40151,
             50150,
             50151,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4334,6 +4650,7 @@ mod test {
                         .unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
                     None,
+                    false,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4361,6 +4678,7 @@ mod test {
             40161,
             50160,
             50161,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4377,6 +4695,42 @@ mod test {
                         .unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
                     Some(unconfirmed_tip),
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetContractABI(response_md, data) => true,
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_contract_abi_use_latest_tip() {
+        test_rpc(
+            "test_rpc_get_contract_abi_unconfirmed",
+            40160,
+            40161,
+            50160,
+            50161,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getcontractabi(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world-unconfirmed".try_into().unwrap(),
+                    None,
+                    true,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4401,6 +4755,7 @@ mod test {
             40171,
             50170,
             50171,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4415,6 +4770,7 @@ mod test {
                     "ro-test".try_into().unwrap(),
                     vec![],
                     None,
+                    false,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4438,6 +4794,55 @@ mod test {
 
     #[test]
     #[ignore]
+    fn test_rpc_call_read_only_use_latest_tip() {
+        test_rpc(
+            "test_rpc_call_read_only_unconfirmed",
+            40180,
+            40181,
+            50180,
+            50181,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_callreadonlyfunction(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world-unconfirmed".try_into().unwrap(),
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap()
+                        .to_account_principal(),
+                    "ro-test".try_into().unwrap(),
+                    vec![],
+                    None,
+                    true,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::CallReadOnlyFunction(response_md, data) => {
+                        assert!(data.okay);
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.result.clone().unwrap())
+                                .unwrap(),
+                            Value::okay(Value::Int(1)).unwrap()
+                        );
+                        assert!(data.cause.is_none());
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
     fn test_rpc_call_read_only_unconfirmed() {
         test_rpc(
             "test_rpc_call_read_only_unconfirmed",
@@ -4445,6 +4850,7 @@ mod test {
             40181,
             50180,
             50181,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4466,6 +4872,7 @@ mod test {
                     "ro-test".try_into().unwrap(),
                     vec![],
                     Some(unconfirmed_tip),
+                    false,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4499,6 +4906,7 @@ mod test {
             40001,
             50000,
             50001,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
