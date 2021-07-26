@@ -26,28 +26,29 @@ use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memo
 #[test]
 fn test_all() {
     let to_test = [
-        test_dynamic_dispatch_pass_trait_nested_in_let,
-        test_dynamic_dispatch_pass_trait,
-        test_dynamic_dispatch_intra_contract_call,
-        test_dynamic_dispatch_by_defining_trait,
-        test_dynamic_dispatch_by_implementing_imported_trait,
-        test_dynamic_dispatch_by_importing_trait,
-        test_dynamic_dispatch_including_nested_trait,
-        test_dynamic_dispatch_mismatched_args,
-        test_dynamic_dispatch_mismatched_returned,
-        test_reentrant_dynamic_dispatch,
-        test_readwrite_dynamic_dispatch,
-        test_readwrite_violation_dynamic_dispatch,
-        test_bad_call_with_trait,
-        test_good_call_with_trait,
-        test_good_call_2_with_trait,
-        test_contract_of_value,
-        test_contract_of_no_impl,
-        test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs,
-        test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions,
-        test_return_trait_with_contract_of,
-        test_return_trait_with_contract_of_wrapped_in_begin,
-        test_return_trait_with_contract_of_wrapped_in_let,
+        // test_dynamic_dispatch_pass_trait_nested_in_let,
+        // test_dynamic_dispatch_pass_trait,
+        // test_dynamic_dispatch_intra_contract_call,
+        // test_dynamic_dispatch_by_defining_trait,
+        // test_dynamic_dispatch_by_implementing_imported_trait,
+        // test_dynamic_dispatch_by_importing_trait,
+        // test_dynamic_dispatch_including_nested_trait,
+        // test_dynamic_dispatch_mismatched_args,
+        // test_dynamic_dispatch_mismatched_returned,
+        // test_reentrant_dynamic_dispatch,
+        // test_readwrite_dynamic_dispatch,
+        // test_readwrite_violation_dynamic_dispatch,
+        // test_bad_call_with_trait,
+        // test_good_call_with_trait,
+        // test_good_call_2_with_trait,
+        // test_contract_of_value,
+        // test_contract_of_no_impl,
+        // test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs,
+        // test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions,
+        // test_return_trait_with_contract_of,
+        // test_return_trait_with_contract_of_wrapped_in_begin,
+        // test_return_trait_with_contract_of_wrapped_in_let,
+        test_read_only_trait
     ];
     for test in to_test.iter() {
         with_memory_environment(test, false);
@@ -1098,6 +1099,61 @@ fn test_return_trait_with_contract_of(owned_env: &mut OwnedEnvironment) {
                 false
             )
             .unwrap(),
+            Value::okay(target_contract).unwrap()
+        );
+    }
+}
+
+fn test_read_only_trait(owned_env: &mut OwnedEnvironment) {
+    let contract_defining_trait = "(define-trait ro-trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    let impl_contract = "(impl-trait .defun.ro-trait-1)
+        (define-public (get-1 (x uint)) (ok u99))";
+    let dispatching_contract = "(use-trait ro-trait-1 .defun.ro-trait-1)
+        (define-read-only (wrapped-get-1 (contract <ro-trait-1>))
+            (ok (contract-of contract)))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    {
+        let mut env = owned_env.get_exec_environment(None, None);
+        env.initialize_contract(
+            QualifiedContractIdentifier::local("defun").unwrap(),
+            contract_defining_trait,
+        )
+        .unwrap();
+        env.initialize_contract(
+            QualifiedContractIdentifier::local("implem").unwrap(),
+            impl_contract,
+        )
+        .unwrap();
+        env.initialize_contract(
+            QualifiedContractIdentifier::local("dispatch").unwrap(),
+            dispatching_contract,
+        )
+        .unwrap();
+    }
+
+    {
+        let target_contract = Value::from(PrincipalData::Contract(
+            QualifiedContractIdentifier::local("implem").unwrap(),
+        ));
+        let result_contract = target_contract.clone();
+        let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
+
+        let return_value = 
+            env.execute_contract(
+                &QualifiedContractIdentifier::local("dispatch").unwrap(),
+                "wrapped-get-1",
+                &symbols_from_values(vec![target_contract.clone()]),
+                false
+            )
+            .unwrap();
+        warn!("return_value {:?}", return_value);
+        warn!("result_contract {:?}", result_contract);
+        assert_eq!(
+            return_value,
+            // Value::okay(result_contract).unwrap()
             Value::okay(target_contract).unwrap()
         );
     }

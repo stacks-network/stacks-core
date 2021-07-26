@@ -1003,6 +1003,7 @@ impl TypeSignature {
         }
     }
 
+    // Note: This is where the types are parsed.
     pub fn parse_trait_type_repr<A: CostTracker>(
         type_args: &[SymbolicExpression],
         accounting: &mut A,

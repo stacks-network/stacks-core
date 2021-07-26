@@ -244,6 +244,7 @@ fn handle_define_trait(
 ) -> Result<DefineResult> {
     check_legal_define(&name, &env.contract_context)?;
 
+    // Note: Returns a map from names to function signatures.
     let trait_signature = TypeSignature::parse_trait_type_repr(&functions, env)?;
 
     Ok(DefineResult::Trait(name.clone(), trait_signature))
@@ -278,6 +279,8 @@ impl DefineFunctions {
 impl<'a> DefineFunctionsParsed<'a> {
     /// Try to parse a Top-Level Expression (e.g., (define-private (foo) 1)) as
     /// a define-statement, returns None if the supplied expression is not a define.
+    /// 
+    // Note: Key function.
     pub fn try_parse(
         expression: &'a SymbolicExpression,
     ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {
@@ -363,6 +366,8 @@ impl<'a> DefineFunctionsParsed<'a> {
                     initial: &args[2],
                 }
             }
+
+            // Note: Define the trait.
             DefineFunctions::Trait => {
                 check_argument_count(2, args)?;
                 let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
@@ -433,6 +438,7 @@ pub fn evaluate_define(
                 data_type,
                 initial,
             } => handle_define_persisted_variable(name, data_type, initial, env),
+            // Note: Handle define trait.
             DefineFunctionsParsed::Trait { name, functions } => {
                 handle_define_trait(name, functions, env)
             }

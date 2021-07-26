@@ -178,6 +178,7 @@ impl<'a> DefinitionSorter {
                                     return Ok(());
                                 }
                                 DefineFunctions::Trait => {
+                                    // Note: probe for dependencies.
                                     if function_args.len() != 2 {
                                         return Ok(());
                                     }
