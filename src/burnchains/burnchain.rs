@@ -1213,7 +1213,7 @@ impl Burnchain {
         );
 
         if let Some(target_block_height) = target_block_height_opt {
-            // target_block_height is used as a hint, but could also be completely off
+            // `target_block_height` is used as a hint, but could also be completely off
             // in certain situations. The current function is directly reading the
             // headers and syncing with the bitcoin-node, and the interval of blocks
             // to download computed here should be considered as our source of truth.
