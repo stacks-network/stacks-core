@@ -977,15 +977,18 @@ impl<'a, 'b> Environment<'a, 'b> {
             .global_context
             .database
             .get_contract_size(contract_identifier)?;
+            warn!("contract_size: {:?}", contract_size);
         runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
 
         self.global_context.add_memory(contract_size)?;
 
         finally_drop_memory!(self.global_context, contract_size; {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
+            // warn!("contract {:?}: ", contract);
 
             let func = contract.contract_context.lookup_function(tx_name)
                 .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
+            warn!("func: {:?}", func);
             if !func.is_public() {
                 return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             } else if read_only && !func.is_read_only() {
@@ -997,6 +1000,8 @@ impl<'a, 'b> Environment<'a, 'b> {
                     let value = arg.match_atom_value()
                         .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
                                                                                   tx_name)))?;
+
+                                                                                  warn!("value: {:?}", value);
                     Ok(value.clone())
                 })
                 .collect();
@@ -1007,6 +1012,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             if self.call_stack.contains(&func_identifier) {
                 return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
             }
+            warn!("func_identifier: {:?}", func_identifier);
             self.call_stack.insert(&func_identifier, true);
             let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
             self.call_stack.remove(&func_identifier, true)?;
@@ -1028,6 +1034,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         next_contract_context: Option<&ContractContext>,
     ) -> Result<Value> {
         let make_read_only = function.is_read_only();
+        warn!("make_read_only: {:?}", make_read_only);
 
         if make_read_only {
             self.global_context.begin_read_only();
@@ -1601,6 +1608,7 @@ impl ContractContext {
     }
 
     pub fn lookup_function(&self, name: &str) -> Option<DefinedFunction> {
+        warn!("name: {:?}", name);
         self.functions.get(name).cloned()
     }
 

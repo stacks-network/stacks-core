@@ -1108,10 +1108,10 @@ fn test_read_only_trait(owned_env: &mut OwnedEnvironment) {
     let contract_defining_trait = "(define-trait ro-trait-1 (
             (get-1 (uint) (response uint uint))))";
     let impl_contract = "(impl-trait .defun.ro-trait-1)
-        (define-public (get-1 (x uint)) (ok u99))";
+        (define-public (get-1 (x uint)) (ok x))";
     let dispatching_contract = "(use-trait ro-trait-1 .defun.ro-trait-1)
         (define-read-only (wrapped-get-1 (contract <ro-trait-1>))
-            (ok (contract-of contract)))";
+            (contract-call? contract get-1 u1))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -1138,6 +1138,9 @@ fn test_read_only_trait(owned_env: &mut OwnedEnvironment) {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("implem").unwrap(),
         ));
+        // let target_contract = Value::from(PrincipalData::Contract(
+        //     QualifiedContractIdentifier::local("dispatch").unwrap(),
+        // ));
         let result_contract = target_contract.clone();
         let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
 
@@ -1146,7 +1149,8 @@ fn test_read_only_trait(owned_env: &mut OwnedEnvironment) {
                 &QualifiedContractIdentifier::local("dispatch").unwrap(),
                 "wrapped-get-1",
                 &symbols_from_values(vec![target_contract.clone()]),
-                false
+                // &symbols_from_values(vec![]),
+                true
             )
             .unwrap();
         warn!("return_value {:?}", return_value);
