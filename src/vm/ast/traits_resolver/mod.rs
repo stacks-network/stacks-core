@@ -113,6 +113,7 @@ impl TraitsResolver {
                             FieldIdentifier(trait_identifier) => trait_identifier.clone(),
                             _ => return Err(ParseErrors::ImportTraitBadSignature.into()),
                         };
+                        // Note: add to referenced traits
                         contract_ast
                             .referenced_traits
                             .insert(trait_name.clone(), TraitDefinition::Imported(trait_id));

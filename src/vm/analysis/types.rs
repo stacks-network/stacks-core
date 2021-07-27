@@ -189,9 +189,11 @@ impl ContractAnalysis {
         trait_identifier: &TraitIdentifier,
         trait_definition: &BTreeMap<ClarityName, FunctionSignature>,
     ) -> CheckResult<()> {
+        warn!("check_trait_compliance");
         let trait_name = trait_identifier.name.to_string();
 
         for (func_name, expected_sig) in trait_definition.iter() {
+            warn!("trait_name {:?} func_name {:?} expected_sig {:?}", trait_name, func_name, expected_sig);
             match (
                 self.get_public_function_type(func_name),
                 self.get_read_only_function_type(func_name),

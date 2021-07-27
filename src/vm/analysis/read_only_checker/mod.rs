@@ -41,6 +41,7 @@ pub struct ReadOnlyChecker<'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<ClarityName, bool>,
     clarity_version: ClarityVersion,
+    contract_analysis: &'a ContractAnalysis,
 }
 
 impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
@@ -48,22 +49,23 @@ impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
-        let mut command = ReadOnlyChecker::new(analysis_db, &contract_analysis.clarity_version);
+        let mut command = ReadOnlyChecker::new(analysis_db, &contract_analysis);
         command.run(contract_analysis)?;
         Ok(())
     }
 }
 
 impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
-    fn new(db: &'a mut AnalysisDatabase<'b>, version: &ClarityVersion) -> ReadOnlyChecker<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>, contract_analysis: &'a ContractAnalysis) -> ReadOnlyChecker<'a, 'b> {
         Self {
             db,
             defined_functions: HashMap::new(),
-            clarity_version: version.clone(),
+            clarity_version: contract_analysis.clarity_version.clone(),
+            contract_analysis: contract_analysis,
         }
     }
 
-    pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
         for exp in contract_analysis.expressions.iter() {
             warn!("exp: {:?}", exp);
             let mut result = self.check_reads_only_valid(&exp);

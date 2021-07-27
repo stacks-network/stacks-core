@@ -32,6 +32,7 @@ pub struct ContractAST {
     pub pre_expressions: Vec<PreSymbolicExpression>,
     pub expressions: Vec<SymbolicExpression>,
     pub top_level_expression_sorting: Option<Vec<usize>>,
+    // Note: referenced traits
     pub referenced_traits: HashMap<ClarityName, TraitDefinition>,
     pub implemented_traits: HashSet<TraitIdentifier>,
 }

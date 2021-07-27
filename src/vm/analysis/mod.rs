@@ -79,6 +79,7 @@ pub fn run_analysis(
     cost_tracker: LimitedCostTracker,
     version: ClarityVersion,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
+    warn!("run_analysis");
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
         expressions.to_vec(),
@@ -86,6 +87,8 @@ pub fn run_analysis(
         version,
     );
     let result = analysis_db.execute(|db| {
+        warn!("do all passes");
+        // Note: We do all the passes here.
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         TypeChecker::run_pass(&mut contract_analysis, db)?;
         TraitChecker::run_pass(&mut contract_analysis, db)?;
