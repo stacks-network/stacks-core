@@ -31,6 +31,7 @@ use vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
 
 pub struct TraitsResolver {}
 
+// Note: Traits resolver!
 impl BuildASTPass for TraitsResolver {
     fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()> {
         let mut command = TraitsResolver::new();

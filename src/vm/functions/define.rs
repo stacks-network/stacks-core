@@ -102,6 +102,8 @@ pub enum DefineResult {
     PersistedVariable(ClarityName, TypeSignature, Value),
     FungibleToken(ClarityName, Option<u128>),
     NonFungibleAsset(ClarityName, TypeSignature),
+
+    // Note: Traits.
     Trait(ClarityName, BTreeMap<ClarityName, FunctionSignature>),
     UseTrait(ClarityName, TraitIdentifier),
     ImplTrait(TraitIdentifier),
@@ -260,6 +262,7 @@ fn handle_use_trait(
     ))
 }
 
+// Handle impl trait.
 fn handle_impl_trait(trait_identifier: &TraitIdentifier) -> Result<DefineResult> {
     Ok(DefineResult::ImplTrait(trait_identifier.clone()))
 }

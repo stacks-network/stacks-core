@@ -343,6 +343,7 @@ pub fn eval_all(
                     contract_context.defined_traits.insert(name, trait_type);
                 },
                 DefineResult::UseTrait(_name, _trait_identifier) => {},
+                // Note: implement the trait.
                 DefineResult::ImplTrait(trait_identifier) => {
                     contract_context.implemented_traits.insert(trait_identifier);
                 },

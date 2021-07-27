@@ -211,6 +211,7 @@ pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
     pub variables: HashMap<ClarityName, Value>,
     pub functions: HashMap<ClarityName, DefinedFunction>,
+    // Note: defined traits.
     pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
     pub implemented_traits: HashSet<TraitIdentifier>,
     // tracks the names of NFTs, FTs, Maps, and Data Vars.
