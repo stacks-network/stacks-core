@@ -65,6 +65,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
     pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
         for exp in contract_analysis.expressions.iter() {
+            warn!("exp: {:?}", exp);
             let mut result = self.check_reads_only_valid(&exp);
             if let Err(ref mut error) = result {
                 if !error.has_expression() {
@@ -177,6 +178,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         function: &str,
         args: &[SymbolicExpression],
     ) -> Option<CheckResult<bool>> {
+        let bt = backtrace::Backtrace::new();
+        warn!("bt1: {:?}", bt);
         warn!("function {:?}", function);
         NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
             .map(|function| {
