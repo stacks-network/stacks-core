@@ -1287,3 +1287,25 @@ fn test_return_trait_with_contract_of_wrapped_in_let() {
     })
     .unwrap();
 }
+
+#[test]
+fn test_contract_read_only() {
+    let contract_defining_trait = "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    warn!("contract_defining_trait: {:?}", contract_defining_trait);
+    let dispatching_contract = "(use-trait trait-2 .defun.trait-1)
+        (define-read-only (wrapped-get-1 (contract <trait-2>))
+        (contract-call? contract get-1 u1))";
+    let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
+    let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
+    let mut c2 = parse(&disp_contract_id, dispatching_contract).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    db.execute(|db| {
+        type_check(&def_contract_id, &mut c1, db, true).unwrap();
+        type_check(&disp_contract_id, &mut c2, db, true)
+    })
+    .unwrap();
+}
