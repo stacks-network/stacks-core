@@ -333,7 +333,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         // Key Note:
                         // This is where we reaach and conclude the function is not read-only.
                         // This should somehow use the "trait reference" to look up a trait, and check function_name and see what it's type is.
+                        let bt = backtrace::Backtrace::new();
+                        warn!("bt20: {:?}", bt);
                         warn!("location {:?}", _trait_reference);
+                        warn!("defined_traits {:?}", self.contract_analysis.defined_traits);
+                        warn!("implemented_traits {:?}", self.contract_analysis.implemented_traits);
+                        warn!("referenced_traits {:?}", self.contract_analysis.referenced_traits);
 
                         // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
                         // which would defeat granting a static readonly stamp.

@@ -933,6 +933,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     self.contract_context.add_nft(token_name, token_type)?;
                 }
                 DefineFunctionsParsed::Trait { name, functions } => {
+                    let bt = backtrace::Backtrace::new();
+                    warn!("bt9: {:?}", bt);
+                    warn!("define trait");
                     let (trait_name, trait_signature) =
                         self.type_check_define_trait(name, functions, context)?;
                     runtime_cost(
@@ -947,6 +950,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     name,
                     trait_identifier,
                 } => {
+                    warn!("define use trait");
                     let result = self.db.get_defined_trait(
                         &trait_identifier.contract_identifier,
                         &trait_identifier.name,
@@ -960,17 +964,23 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                                 type_size,
                             )?;
                             runtime_cost(ClarityCostFunction::AnalysisBindName, self, type_size)?;
+                            warn!("add_trait {:?} {:?}", trait_identifier.name, trait_sig);
                             self.contract_context
                                 .add_trait(trait_identifier.name.clone(), trait_sig)?
                         }
                         None => {
+                            warn!("not here?");
                             // still had to do a db read, even if it didn't exist!
                             runtime_cost(ClarityCostFunction::AnalysisUseTraitEntry, self, 1)?;
                             return Err(CheckErrors::TraitReferenceUnknown(name.to_string()).into());
                         }
                     }
+                    warn!("should add trait");
+                    self.contract_context
+                        .add_referenced_trait(trait_identifier.clone())?;
                 }
                 DefineFunctionsParsed::ImplTrait { trait_identifier } => {
+                    warn!("define impl trait");
                     self.contract_context
                         .add_implemented_trait(trait_identifier.clone())?;
                 }

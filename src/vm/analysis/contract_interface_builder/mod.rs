@@ -36,6 +36,7 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         clarity_version: _,
         defined_traits: _,
         implemented_traits: _,
+        referenced_traits: _,
         expressions: _,
         contract_identifier: _,
         type_map: _,

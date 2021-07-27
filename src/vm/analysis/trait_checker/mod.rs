@@ -49,6 +49,8 @@ impl TraitChecker {
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
+        let bt = backtrace::Backtrace::new();
+        warn!("bt10: {:?}", bt);
         warn!("check_analysis2 {:?} {:?}", contract_analysis.implemented_traits, contract_analysis.defined_traits);
         for trait_identifier in &contract_analysis.implemented_traits {
             let trait_name = trait_identifier.name.to_string();
