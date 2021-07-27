@@ -1209,7 +1209,7 @@ impl Burnchain {
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
-            start_block, end_block, db_height
+            sync_height, end_block, db_height
         );
 
         if let Some(target_block_height) = target_block_height_opt {
