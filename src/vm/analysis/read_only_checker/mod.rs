@@ -114,8 +114,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     self.defined_functions.insert(f_name, is_read_only);
                 }
                 ReadOnlyFunction { signature, body } => {
+                    warn!("signature {:?} body {:?}", signature, body);
                     let (f_name, is_read_only) = self.check_define_function(signature, body)?;
+                    warn!("f_name {:?} is_read_only {:?}", f_name, is_read_only);
                     if !is_read_only {
+        warn!("reason");
                         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
                     } else {
                         self.defined_functions.insert(f_name, is_read_only);
@@ -139,9 +142,18 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///   (2) if valid, returns whether or not they are read only.
     /// Note that because of (1), this function _cannot_ short-circuit on read-only.
     fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
+        warn!("expr {:?}", expr);
         match expr.expr {
-            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),
-            List(ref expression) => self.check_function_application_read_only(expression),
+            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => {
+                warn!("method:omni");
+                Ok(true)
+            },
+            List(ref expression) =>{
+                warn!("method:list");
+                let ret = self.check_function_application_read_only(expression);
+                warn!("method:list {:?}", ret);
+                ret
+            },
         }
     }
 
@@ -150,8 +162,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///   (2) if valid, returns whether or not they are read only.
     /// Note that because of (1), this function _cannot_ short-circuit on read-only.
     fn check_all_read_only(&mut self, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
+        warn!("here");
         let mut result = true;
         for expr in expressions.iter() {
+        warn!("expr {:?}", expr);
             let expr_read_only = self.check_read_only(expr)?;
             result = result && expr_read_only;
         }
@@ -163,8 +177,13 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         function: &str,
         args: &[SymbolicExpression],
     ) -> Option<CheckResult<bool>> {
+        warn!("function {:?}", function);
         NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
-            .map(|function| self.check_native_function(&function, args))
+            .map(|function| {
+                warn!("inner function {:?}", function);
+                self.check_native_function(&function, args)
+            }
+            )
     }
 
     fn check_native_function(
@@ -274,14 +293,23 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     .match_atom()
                     .ok_or(CheckErrors::ContractCallExpectName)?;
 
+                warn!("function_name: {:?}", function_name);
+
+                warn!("args0: {:?}", args[0].expr);
                 let is_function_read_only = match &args[0].expr {
                     SymbolicExpressionType::LiteralValue(Value::Principal(
                         PrincipalData::Contract(ref contract_identifier),
-                    )) => self
+                    )) => {
+                        warn!("location");
+                        self
                         .db
                         .get_read_only_function_type(&contract_identifier, function_name)?
-                        .is_some(),
+                        .is_some()
+                    },
                     SymbolicExpressionType::Atom(_trait_reference) => {
+                        // we come through here
+                        warn!("location {:?}", _trait_reference);
+
                         // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
                         // which would defeat granting a static readonly stamp.
                         // As such dynamic dispatch is currently forbidden.
@@ -290,8 +318,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName)),
                 };
 
+                warn!("location is_function_read_only {:?}", is_function_read_only); // this is false
                 self.check_all_read_only(&args[2..])
-                    .map(|args_read_only| args_read_only && is_function_read_only)
+                    .map(|args_read_only| {
+                        warn!("args_read_only {:?}", args_read_only);
+                        args_read_only && is_function_read_only}
+                    )
             }
         }
     }
@@ -309,11 +341,14 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .ok_or(CheckErrors::NonFunctionApplication)?;
 
         if let Some(mut result) = self.try_native_function_check(function_name, args) {
+            warn!("here");
             if let Err(ref mut check_err) = result {
+            warn!("here");
                 check_err.set_expressions(expression);
             }
             result
         } else {
+            warn!("here");
             let is_function_read_only = self
                 .defined_functions
                 .get(function_name)

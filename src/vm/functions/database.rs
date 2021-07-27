@@ -215,6 +215,7 @@ pub fn special_set_variable(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
+        warn!("reason");
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
@@ -308,6 +309,7 @@ pub fn special_set_entry(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
+        warn!("reason");
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
@@ -347,6 +349,7 @@ pub fn special_insert_entry(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
+        warn!("reason");
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
@@ -386,6 +389,7 @@ pub fn special_delete_entry(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
+        warn!("reason");
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
 
