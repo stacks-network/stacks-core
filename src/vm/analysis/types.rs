@@ -149,7 +149,7 @@ impl ContractAnalysis {
         function_types: BTreeMap<ClarityName, FunctionSignature>,
     ) {
         let bt = backtrace::Backtrace::new();
-        warn!("bt7: {:?}", bt);
+        // warn!("bt7: {:?}", bt);
         self.defined_traits.insert(name, function_types);
     }
 

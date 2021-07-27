@@ -288,7 +288,7 @@ impl ContractContext {
             contract_analysis.add_implemented_trait(trait_identifier);
         }
 
-        warn!("self.referenceed_traits {:?}", self.referenced_traits);
+        warn!("self.referenced_traits {:?}", self.referenced_traits);
         for trait_identifier in self.referenced_traits.drain() {
             contract_analysis.add_referenced_trait(trait_identifier);
         }

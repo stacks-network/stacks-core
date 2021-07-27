@@ -89,8 +89,8 @@ pub fn run_analysis(
     let result = analysis_db.execute(|db| {
         warn!("do all passes");
         // Note: We do all the passes here.
-        ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         TypeChecker::run_pass(&mut contract_analysis, db)?;
+        ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         TraitChecker::run_pass(&mut contract_analysis, db)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 
