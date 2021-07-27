@@ -89,12 +89,15 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
 
+        warn!("function_name {:?} body {:?}", function_name, body);
+        // ClarityName("wrapped-get-1") body Atom(ClarityName("contract-call?")) Atom(ClarityName("contract")) Atom(ClarityName("get-1")) LiteralValue(UInt(1))
         let is_read_only = self.check_read_only(body)?;
 
         Ok((function_name.clone(), is_read_only))
     }
 
     fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
+        warn!("expr: {:?}", expr);
         use vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)? {
             match define_type {
@@ -115,7 +118,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     self.defined_functions.insert(f_name, is_read_only);
                 }
                 ReadOnlyFunction { signature, body } => {
+                    let bt = backtrace::Backtrace::new();
+                    warn!("bt3: {:?}", bt);
                     warn!("signature {:?} body {:?}", signature, body);
+                    // f_name ClarityName("wrapped-get-1") is_read_only false
                     let (f_name, is_read_only) = self.check_define_function(signature, body)?;
                     warn!("f_name {:?} is_read_only {:?}", f_name, is_read_only);
                     if !is_read_only {
@@ -143,6 +149,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///   (2) if valid, returns whether or not they are read only.
     /// Note that because of (1), this function _cannot_ short-circuit on read-only.
     fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
+        // contract-call? contract get-1
         warn!("expr {:?}", expr);
         match expr.expr {
             AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => {
@@ -151,8 +158,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             },
             List(ref expression) =>{
                 warn!("method:list");
+                // expression starts with "contract-call?"
                 let ret = self.check_function_application_read_only(expression);
-                warn!("method:list {:?}", ret);
+                warn!("method:list {:?} {:?}", expression, ret);
                 ret
             },
         }
@@ -180,9 +188,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ) -> Option<CheckResult<bool>> {
         let bt = backtrace::Backtrace::new();
         warn!("bt1: {:?}", bt);
+
+        // contract-call?
         warn!("function {:?}", function);
         NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
             .map(|function| {
+                // ContractCall
                 warn!("inner function {:?}", function);
                 self.check_native_function(&function, args)
             }
@@ -194,6 +205,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         function: &NativeFunctions,
         args: &[SymbolicExpression],
     ) -> CheckResult<bool> {
+        // function: ContractCall
         use vm::functions::NativeFunctions::*;
 
         match function {
@@ -296,8 +308,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     .match_atom()
                     .ok_or(CheckErrors::ContractCallExpectName)?;
 
+                    // function_name: ClarityName("get-1")
                 warn!("function_name: {:?}", function_name);
 
+                // args0: Atom(ClarityName("contract"))
                 warn!("args0: {:?}", args[0].expr);
                 let is_function_read_only = match &args[0].expr {
                     SymbolicExpressionType::LiteralValue(Value::Principal(
@@ -311,6 +325,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     },
                     SymbolicExpressionType::Atom(_trait_reference) => {
                         // we come through here
+                        // ClarityName("contract")
+                        // ClarityName("target-contract")
+
+                        // Key Note:
+                        // This is where we reaach and conclude the function is not read-only.
+                        // This should somehow use the "trait reference" to look up a trait, and check function_name and see what it's type is.
                         warn!("location {:?}", _trait_reference);
 
                         // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
@@ -321,6 +341,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName)),
                 };
 
+                // false
                 warn!("location is_function_read_only {:?}", is_function_read_only); // this is false
                 self.check_all_read_only(&args[2..])
                     .map(|args_read_only| {
@@ -339,12 +360,16 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .split_first()
             .ok_or(CheckErrors::NonFunctionApplication)?;
 
+            warn!("function_name {:?} args {:?}", function_name, args);
         let function_name = function_name
             .match_atom()
             .ok_or(CheckErrors::NonFunctionApplication)?;
 
+            warn!("function_name {:?}", function_name);
+            // function name is "contract call"
         if let Some(mut result) = self.try_native_function_check(function_name, args) {
-            warn!("here");
+            // this is false with "contract call"
+            warn!("result {:?}", result);
             if let Err(ref mut check_err) = result {
             warn!("here");
                 check_err.set_expressions(expression);

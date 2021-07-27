@@ -1294,8 +1294,8 @@ fn test_contract_read_only() {
             (get-1 (uint) (response uint uint))))";
     warn!("contract_defining_trait: {:?}", contract_defining_trait);
     let dispatching_contract = "(use-trait trait-2 .defun.trait-1)
-        (define-read-only (wrapped-get-1 (contract <trait-2>))
-        (contract-call? contract get-1 u1))";
+        (define-read-only (wrapped-get-1 (target-contract <trait-2>))
+        (contract-call? target-contract get-1 u1))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
     let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
