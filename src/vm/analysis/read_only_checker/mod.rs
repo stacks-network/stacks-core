@@ -93,6 +93,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
         warn!("function_name {:?} body {:?}", function_name, body);
         // ClarityName("wrapped-get-1") body Atom(ClarityName("contract-call?")) Atom(ClarityName("contract")) Atom(ClarityName("get-1")) LiteralValue(UInt(1))
+        warn!("signature {:#?}", signature);
+        // WARN [1627434611.344313] [src/vm/analysis/read_only_checker/mod.rs:95] [vm::analysis::trait_checker::tests::test_contract_read_only] signature [SymbolicExpression { expr: Atom(ClarityName("wrapped-get-1")), id: 8, span: Span { start_line: 2, start_column: 28, end_line: 2, end_column: 40 } }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName("target-contract")), id: 10, span: Span { start_line: 2, start_column: 43, end_line: 2, end_column: 57 } }, SymbolicExpression { expr: TraitReference(ClarityName("trait-2"), Imported(TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } })), id: 11, span: Span { start_line: 2, start_column: 59, end_line: 2, end_column: 65 } }]), id: 9, span: Span { start_line: 2, start_column: 42, end_line: 2, end_column: 68 } }]
         let is_read_only = self.check_read_only(body)?;
 
         Ok((function_name.clone(), is_read_only))
@@ -345,6 +347,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         warn!("defined_traits {:?}", self.contract_analysis.defined_traits);
                         warn!("implemented_traits {:?}", self.contract_analysis.implemented_traits);
                         warn!("referenced_traits {:?}", self.contract_analysis.referenced_traits);
+                        //  referenced_traits {ClarityName("trait-2"): TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } }}
 
                         // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
                         // which would defeat granting a static readonly stamp.
