@@ -190,7 +190,7 @@ impl From<FixedFunction> for FunctionSignature {
     fn from(data: FixedFunction) -> FunctionSignature {
         let FixedFunction { args, returns, read_only } = data;
         let args = args.into_iter().map(|x| x.signature).collect();
-        FunctionSignature { args, returns, read_only: false }
+        FunctionSignature { args, returns, read_only }
     }
 }
 
