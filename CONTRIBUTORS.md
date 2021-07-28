@@ -231,6 +231,7 @@ Some times this can be obvious without much comments, perhaps from the context,
 or because the test is very simple. Usually it isn't.
 
 Example:
+
 ```
 fn test_simple_buff_to_uint_be() {
     // For big-endian encoding, 0100 at the end should be interpreted as least
