@@ -172,7 +172,7 @@ it *does not do* in a modular architecture.
 
 Example:
 
-```
+```rust
 /// The `BurnStateDB` allows the user to query the state of the underlying
 /// "burn chain", which in practice is the Bitcoin chain.
 trait BurnChainDB {
@@ -214,7 +214,7 @@ name and type.
 
 Example:
 
-```
+```rust
 pub struct ContractAnalysis {
     /// The identifier associated with the contract represented in
     /// this `ContractAnalysis`.
@@ -232,7 +232,7 @@ or because the test is very simple. Usually it isn't.
 
 Example:
 
-```
+```rust
 fn test_simple_buff_to_uint_be() {
     // For big-endian encoding, 0100 at the end should be interpreted as least
     // significant bits. Hexadecimal 0x0100 converts to integer 256.
