@@ -1511,11 +1511,16 @@ impl ConversationHttp {
     /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block
     /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
     /// will return different values here.
-    /// tip_opt is given by the HTTP request as the optional query parameter for the chain tip
-    /// hash.  It will be None if there was no paramter given.
+    ///
+    /// # Inputs
+    /// - `tip_opt` is given by the HTTP request as the optional query parameter for the chain tip
+    /// hash.  It will be None if there was no parameter given.
+    /// - `use_latest_tip` is also an optional query parameter, and defaults to false.
+    ///
     /// The order of chain tips this method prefers is as follows:
-    /// * tip_opt, if it's Some(..),
-    /// * the unconfirmed canonical stacks chain tip, if initialized
+    /// * If `use_latest_tip` is true, the method attempts to return the unconfirmed chain tip,
+    ///     and returns the confirmed stacks chain tip if that doesn't work.
+    /// * `tip_opt`, if it's Some(..),
     /// * the confirmed canonical stacks chain tip
     fn handle_load_stacks_chain_tip<W: Write>(
         http: &mut StacksHttp,
@@ -1527,18 +1532,18 @@ impl ConversationHttp {
         use_latest_tip: bool,
     ) -> Result<Option<StacksBlockId>, net_error> {
         if use_latest_tip {
-            let (use_unconfirmed, unconfirmed_chain_tip) = match &chainstate.unconfirmed_state {
+            let unconfirmed_chain_tip_opt = match &chainstate.unconfirmed_state {
                 Some(unconfirmed_state) => {
                     if unconfirmed_state.is_readable() {
-                        (true, unconfirmed_state.unconfirmed_chain_tip.clone())
+                        Some(unconfirmed_state.unconfirmed_chain_tip.clone())
                     } else {
-                        (false, StacksBlockId([0; 32]))
+                        None
                     }
                 }
-                None => (false, StacksBlockId([0; 32])),
+                None => None,
             };
 
-            if use_unconfirmed {
+            if let Some(unconfirmed_chain_tip) = unconfirmed_chain_tip_opt {
                 Ok(Some(unconfirmed_chain_tip))
             } else {
                 let tip = chainstate.get_stacks_chain_tip(sortdb).unwrap().unwrap();
@@ -4329,6 +4334,9 @@ mod test {
         );
     }
 
+    /// In this test, the query parameter `use_latest_tip` is set to true, and so we expect the
+    /// tip used for the query to be the latest microblock.
+    /// We check that the account state matches the state in the most recent microblock.
     #[test]
     #[ignore]
     fn test_rpc_get_account_use_latest_tip() {
@@ -4370,6 +4378,10 @@ mod test {
         );
     }
 
+    /// In this test, the query parameter `use_latest_tip` is set to true, but we did not generate
+    /// microblocks in the rpc test. Thus, we expect the tip used for the query to be the previous
+    /// anchor block (which is the latest tip).
+    /// We check that the account state matches the state in the previous anchor block.
     #[test]
     #[ignore]
     fn test_rpc_get_account_use_latest_tip_no_microblocks() {

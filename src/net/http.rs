@@ -1660,9 +1660,8 @@ impl HttpRequestType {
         ))
     }
 
-    /// check whether the given option query string
-    ///   sets proof=0 (setting proof to false).
-    /// Defaults to _true_
+    /// Check whether the given option query string sets proof=0 (setting proof to false).
+    /// Defaults to true.
     fn get_proof_query(query: Option<&str>) -> bool {
         let no_proof = if let Some(query_string) = query {
             form_urlencoded::parse(query_string.as_bytes())
@@ -1677,18 +1676,16 @@ impl HttpRequestType {
     }
 
     /// Check whether the given option query string sets use_latest_tip=1 (setting use_latest_tip to true).
-    /// Defaults to _false_
+    /// Defaults to false.
     fn get_use_latest_chain_tip(query: Option<&str>) -> bool {
-        let use_latest_tip = if let Some(query_string) = query {
+        if let Some(query_string) = query {
             form_urlencoded::parse(query_string.as_bytes())
                 .find(|(key, _v)| key == "use_latest_tip")
                 .map(|(_k, value)| value == "1")
                 .unwrap_or(false)
         } else {
             false
-        };
-
-        use_latest_tip
+        }
     }
 
     /// get the chain tip optional query argument (`tip`)
