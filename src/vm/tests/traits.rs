@@ -1106,7 +1106,7 @@ fn test_return_trait_with_contract_of(owned_env: &mut OwnedEnvironment) {
 
 fn test_read_only_trait(owned_env: &mut OwnedEnvironment) {
     let contract_defining_trait = "(define-trait ro-trait-1 (
-            (get-1 (uint) (response uint uint))))";
+            (get-1 (uint) (response uint uint) read-only)))";
     let impl_contract = "(impl-trait .definition1.ro-trait-1)
         (define-public (get-1 (x uint)) (ok x))";
     let dispatch1ing_contract = "(use-trait ro-trait-1 .definition1.ro-trait-1)

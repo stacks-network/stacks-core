@@ -1006,6 +1006,7 @@ impl TypeSignature {
     }
 
     // Note: This is where the types are parsed.
+    // Note: This is where we can parse the "read-only".
     pub fn parse_trait_type_repr<A: CostTracker>(
         type_args: &[SymbolicExpression],
         accounting: &mut A,
@@ -1047,7 +1048,7 @@ impl TypeSignature {
                 _ => Err(CheckErrors::DefineTraitBadSignature),
             }?;
 
-            let read_only = args.len() != 4;
+            let read_only = args.len() > 3;
             trait_signature.insert(
                 fn_name.clone(),
                 FunctionSignature {
