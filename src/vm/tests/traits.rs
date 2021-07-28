@@ -1107,9 +1107,9 @@ fn test_return_trait_with_contract_of(owned_env: &mut OwnedEnvironment) {
 fn test_read_only_trait(owned_env: &mut OwnedEnvironment) {
     let contract_defining_trait = "(define-trait ro-trait-1 (
             (get-1 (uint) (response uint uint))))";
-    let impl_contract = "(impl-trait .defun.ro-trait-1)
+    let impl_contract = "(impl-trait .definition1.ro-trait-1)
         (define-public (get-1 (x uint)) (ok x))";
-    let dispatching_contract = "(use-trait ro-trait-1 .defun.ro-trait-1)
+    let dispatch1ing_contract = "(use-trait ro-trait-1 .definition1.ro-trait-1)
         (define-read-only (wrapped-get-1 (contract <ro-trait-1>))
             (contract-call? contract get-1 u1))";
 
@@ -1118,35 +1118,35 @@ fn test_read_only_trait(owned_env: &mut OwnedEnvironment) {
     {
         let mut env = owned_env.get_exec_environment(None, None);
         env.initialize_contract(
-            QualifiedContractIdentifier::local("defun").unwrap(),
+            QualifiedContractIdentifier::local("definition1").unwrap(),
             contract_defining_trait,
         )
         .unwrap();
         env.initialize_contract(
-            QualifiedContractIdentifier::local("implem").unwrap(),
+            QualifiedContractIdentifier::local("implementation1").unwrap(),
             impl_contract,
         )
         .unwrap();
         env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatch").unwrap(),
-            dispatching_contract,
+            QualifiedContractIdentifier::local("dispatch1").unwrap(),
+            dispatch1ing_contract,
         )
         .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
-            QualifiedContractIdentifier::local("implem").unwrap(),
+            QualifiedContractIdentifier::local("implementation1").unwrap(),
         ));
         // let target_contract = Value::from(PrincipalData::Contract(
-        //     QualifiedContractIdentifier::local("dispatch").unwrap(),
+        //     QualifiedContractIdentifier::local("dispatch1").unwrap(),
         // ));
         let result_contract = target_contract.clone();
         let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
 
         let return_value = 
             env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatch").unwrap(),
+                &QualifiedContractIdentifier::local("dispatch1").unwrap(),
                 "wrapped-get-1",
                 &symbols_from_values(vec![target_contract.clone()]),
                 // &symbols_from_values(vec![]),

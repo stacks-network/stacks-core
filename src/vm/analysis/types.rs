@@ -49,7 +49,7 @@ pub struct ContractAnalysis {
     pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
     pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
     pub implemented_traits: BTreeSet<TraitIdentifier>,
-    pub referenced_traits: BTreeSet<TraitIdentifier>,
+    pub referenced_traits: BTreeMap<ClarityName, TraitIdentifier>,
     pub contract_interface: Option<ContractInterface>,
     pub is_cost_contract_eligible: bool,
     pub clarity_version: ClarityVersion,
@@ -81,7 +81,7 @@ impl ContractAnalysis {
             persisted_variable_types: BTreeMap::new(),
             defined_traits: BTreeMap::new(),
             implemented_traits: BTreeSet::new(),
-            referenced_traits: BTreeSet::new(),
+            referenced_traits: BTreeMap::new(),
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
             cost_track: Some(cost_track),
@@ -159,8 +159,8 @@ impl ContractAnalysis {
         self.implemented_traits.insert(trait_identifier);
     }
 
-    pub fn add_referenced_trait(&mut self, trait_identifier: TraitIdentifier) {
-        self.referenced_traits.insert(trait_identifier);
+    pub fn add_referenced_trait(&mut self, name:ClarityName, trait_identifier: TraitIdentifier) {
+        self.referenced_traits.insert(name, trait_identifier);
     }
 
     pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {

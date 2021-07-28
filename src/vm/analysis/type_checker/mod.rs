@@ -950,11 +950,17 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     name,
                     trait_identifier,
                 } => {
-                    warn!("define use trait");
+                    // Note: we are coming here now.
+                    warn!("define use trait {:?} {:?}", name, trait_identifier);
+                    // define use trait ClarityName("trait-2") TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } }
                     let result = self.db.get_defined_trait(
                         &trait_identifier.contract_identifier,
                         &trait_identifier.name,
                     )?;
+                    warn!("result {:?}", result);
+                    self.contract_context
+                        .add_referenced_trait(name.clone(), trait_identifier.clone())?;
+                    // Some({ClarityName("get-1"): FunctionSignature { args: [UIntType], returns: ResponseType((UIntType, UIntType)), read_only: false }})
                     match result {
                         Some(trait_sig) => {
                             let type_size = trait_type_size(&trait_sig)?;
@@ -975,9 +981,6 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                             return Err(CheckErrors::TraitReferenceUnknown(name.to_string()).into());
                         }
                     }
-                    warn!("should add trait");
-                    self.contract_context
-                        .add_referenced_trait(trait_identifier.clone())?;
                 }
                 DefineFunctionsParsed::ImplTrait { trait_identifier } => {
                     warn!("define impl trait");

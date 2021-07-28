@@ -327,15 +327,20 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     },
                     SymbolicExpressionType::Atom(_trait_reference) => {
                         // we come through here
-                        // ClarityName("contract")
                         // ClarityName("target-contract")
+
+                        // Need to go:
+                        // target_contract -> trait-2
+                        // trait-2 -> definition1, trait-1
+                        // trait-1, get-1 -> function def, includes read only
 
                         // Key Note: xx1
                         // This is where we reaach and conclude the function is not read-only.
                         // This should somehow use the "trait reference" to look up a trait, and check function_name and see what it's type is.
-                        let bt = backtrace::Backtrace::new();
-                        warn!("bt20: {:?}", bt);
+                        // let bt = backtrace::Backtrace::new();
+                        // warn!("bt20: {:?}", bt);
                         warn!("location {:?}", _trait_reference);
+                        warn!("contract_analysis {:?}", self.contract_analysis);
                         warn!("variable_types {:?}", self.contract_analysis.variable_types);
                         warn!("defined_traits {:?}", self.contract_analysis.defined_traits);
                         warn!("implemented_traits {:?}", self.contract_analysis.implemented_traits);

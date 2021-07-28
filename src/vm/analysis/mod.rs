@@ -80,6 +80,7 @@ pub fn run_analysis(
     version: ClarityVersion,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
     warn!("run_analysis");
+    warn!("contract_identifier {:?}", contract_identifier);
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
         expressions.to_vec(),

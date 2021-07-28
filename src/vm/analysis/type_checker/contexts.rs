@@ -47,7 +47,7 @@ pub struct ContractContext {
     non_fungible_tokens: HashMap<ClarityName, TypeSignature>,
     traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
     pub implemented_traits: HashSet<TraitIdentifier>,
-    pub referenced_traits: HashSet<TraitIdentifier>,
+    pub referenced_traits: HashMap<ClarityName, TraitIdentifier>,
 }
 
 impl TypeMap {
@@ -87,7 +87,7 @@ impl ContractContext {
             non_fungible_tokens: HashMap::new(),
             traits: HashMap::new(),
             implemented_traits: HashSet::new(),
-            referenced_traits: HashSet::new(),
+            referenced_traits: HashMap::new(),
         }
     }
 
@@ -212,8 +212,8 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn add_referenced_trait(&mut self, trait_identifier: TraitIdentifier) -> CheckResult<()> {
-        self.referenced_traits.insert(trait_identifier);
+    pub fn add_referenced_trait(&mut self, name:ClarityName, trait_identifier: TraitIdentifier) -> CheckResult<()> {
+        self.referenced_traits.insert(name, trait_identifier);
         Ok(())
     }
 
@@ -289,8 +289,8 @@ impl ContractContext {
         }
 
         warn!("self.referenced_traits {:?}", self.referenced_traits);
-        for trait_identifier in self.referenced_traits.drain() {
-            contract_analysis.add_referenced_trait(trait_identifier);
+        for (name, trait_identifier) in self.referenced_traits.drain() {
+            contract_analysis.add_referenced_trait(name, trait_identifier);
         }
     }
 }
