@@ -193,10 +193,10 @@ Example:
 ```
 pub trait BurnStateDB {
     /// Returns the *header hash* of the burnchain block at the
-		/// burnchain height `height` in sortition `sortition_id`.
-		///
-		/// Returns None if there is no block at this height.
-		fn get_burn_header_hash(
+    /// burnchain height `height` in sortition `sortition_id`.
+    ///
+    /// Returns None if there is no block at this height.
+    fn get_burn_header_hash(
         &self,
         height: u32,
         sortition_id: &SortitionId,
@@ -216,8 +216,8 @@ Example:
 
 ```
 pub struct ContractAnalysis {
-		/// The identifier associated with the contract represented in
-		/// this `ContractAnalysis`.
+    /// The identifier associated with the contract represented in
+    /// this `ContractAnalysis`.
     pub contract_identifier: QualifiedContractIdentifier,
 ```
 
@@ -235,7 +235,7 @@ Example:
 ```
 fn test_simple_buff_to_uint_be() {
     // For big-endian encoding, 0100 at the end should be interpreted as least
-		// significant bits.
+    // significant bits.
     let good_test = "(buff-to-uint-be 0x00000000000000000000000000000100)";
     assert_eq!(Value::UInt(256), execute_v2(good1_test).unwrap().unwrap());
 }
