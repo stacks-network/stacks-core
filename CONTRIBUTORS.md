@@ -154,6 +154,92 @@ All contributions should use the same whitespacing as the rest of the project.
 Moreover, Pull requests where a large number of changes only deal with whitespace will be
 rejected.
 
+# Comments
+Comments are very important. Not only are they are an aid to the reader, but in many
+cases the comments specify the contract against which the code is evaluated.
+Without a clear contract for a function, for example, it is *impossible* to determine
+whether the function is implemented correclty.
+
+The following kinds of things should have comments.
+
+## Components (`struct`'s and `trait`'s)
+Comments for a component (`struct` or `trait`) should explain what the overall
+purpose of that component is. This is usually a concept, and not a formal contract.
+
+Help the reader understand why this group of data or methods are grouped
+together. By explaining what a component *does* we also implicitly explain what
+it *does not do* in a modular architecture.
+
+Example:
+
+```
+/// The `BurnStateDB` allows the user to query the state of the underlying
+/// "burn chain", which in practice is the Bitcoin chain.
+trait BurnChainDB {
+```
+
+## Functions
+The comments on a function should explain the contract that the function
+implements. This is very important. Without a clear contract, we cannot
+evaluate the correctness of the implementation.
+
+Without being unnecessarily verbose, explain how the output is calculated
+from the inputs. Explain any restrictions on the inputs. Explain error
+conditions, including when the function will panic, return an error
+or return an empty value.
+
+Example:
+
+```
+pub trait BurnStateDB {
+    /// Returns the *header hash* of the burnchain block at the
+		/// burnchain height `height` in sortition `sortition_id`.
+		///
+		/// Returns None if there is no block at this height.
+		fn get_burn_header_hash(
+        &self,
+        height: u32,
+        sortition_id: &SortitionId,
+    ) -> Option<BurnchainHeaderHash>;
+```
+
+Note that, if a function implements an interface, the comments should not
+repeat what was specified on the interface declaration.
+
+## Data Members
+Each data member in a struct should have a comment describing what that member
+is, and what it is used for. Such comments are usually brief but should
+clear up any ambiguity that might result from having only the variable
+name and type.
+
+Example:
+
+```
+pub struct ContractAnalysis {
+		/// The identifier associated with the contract represented in
+		/// this `ContractAnalysis`.
+    pub contract_identifier: QualifiedContractIdentifier,
+```
+
+## Tests
+Each test should have enough comments to help an unfamiliar reader understand:
+
+1. what is conceptually being tested
+1. why the answer is expected
+
+Some times this can be obvious without much comments, perhaps from the context,
+or because the test is very simple. Usually it isn't.
+
+Example:
+```
+fn test_simple_buff_to_uint_be() {
+    // For big-endian encoding, 0100 at the end should be interpreted as least
+		// significant bits.
+    let good_test = "(buff-to-uint-be 0x00000000000000000000000000000100)";
+    assert_eq!(Value::UInt(256), execute_v2(good1_test).unwrap().unwrap());
+}
+```
+
 # Licensing and contributor license agreement
 
 Blockstack Core is released under the terms of the GPL version 3.  Contributions
