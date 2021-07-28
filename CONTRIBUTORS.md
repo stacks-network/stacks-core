@@ -235,7 +235,7 @@ Example:
 ```
 fn test_simple_buff_to_uint_be() {
     // For big-endian encoding, 0100 at the end should be interpreted as least
-    // significant bits.
+    // significant bits. Hexadecimal 0x0100 converts to integer 256.
     let good_test = "(buff-to-uint-be 0x00000000000000000000000000000100)";
     assert_eq!(Value::UInt(256), execute_v2(good1_test).unwrap().unwrap());
 }
