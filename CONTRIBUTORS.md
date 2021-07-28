@@ -35,6 +35,30 @@ This project and everyone participating in it is governed by this [Code of Condu
 - Any major changes should be added to the [CHANGELOG](CHANGELOG.md).
 - Mention any required documentation changes in the description of your pull request.
 - If adding an RPC endpoint, add an entry for the new endpoint to the OpenAPI spec `./docs/rpc/openapi.yaml`.
+- If your code adds or modifies any major features (struct, trait, test, module, etc.), each should be 
+  documented according to the [Rust style guide](https://doc.rust-lang.org/rustdoc/how-to-write-documentation.html) 
+
+### Documentation Style 
+We will try to follow the [Rust style guide](https://doc.rust-lang.org/rustdoc/how-to-write-documentation.html). 
+Here's a contrived example of code following the guide: 
+```rust
+/// Returns 0 if the input is less than or equal to 5, and panics otherwise.
+/// 
+/// # Panics 
+/// The function panics if the input is greater than 5.
+pub fn example(i: int) -> int {
+    if i > 5 {
+        panic!("Panicking")
+    } else {
+        0
+    }
+}
+```
+
+Overview of documentation rules
+- Use markdown to format comments. 
+- Start with a high-level description of the function, adding more sentences with details if necessary. 
+- For some functions, you might want to add a markdown section for panics or for examples.
 
 ### Each file should include relevant unit tests
 
