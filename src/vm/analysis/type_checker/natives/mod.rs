@@ -565,6 +565,7 @@ impl TypedNativeFunction {
                         .expect("FAIL: ClarityName failed to accept default arg name"),
                 )],
                 returns: TypeSignature::UIntType,
+                read_only: false,
             }))),
             ToInt => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
@@ -573,6 +574,7 @@ impl TypedNativeFunction {
                         .expect("FAIL: ClarityName failed to accept default arg name"),
                 )],
                 returns: TypeSignature::IntType,
+                read_only: false,
             }))),
             IsStandard => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
@@ -581,6 +583,7 @@ impl TypedNativeFunction {
                         .expect("FAIL: ClarityName failed to accept default arg name"),
                 )],
                 returns: TypeSignature::BoolType,
+                read_only: true,
             }))),
             BuffToIntLe | BuffToIntBe => {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
@@ -590,6 +593,7 @@ impl TypedNativeFunction {
                             .expect("FAIL: ClarityName failed to accept default arg name"),
                     )],
                     returns: TypeSignature::IntType,
+                read_only: false,
                 })))
             }
             BuffToUIntLe | BuffToUIntBe => {
@@ -600,6 +604,7 @@ impl TypedNativeFunction {
                             .expect("FAIL: ClarityName failed to accept default arg name"),
                     )],
                     returns: TypeSignature::UIntType,
+                read_only: false,
                 })))
             }
             StringToInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
@@ -633,6 +638,7 @@ impl TypedNativeFunction {
                         .expect("FAIL: ClarityName failed to accept default arg name"),
                 )],
                 returns: TypeSignature::BoolType,
+                read_only: false,
             }))),
             Hash160 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
@@ -683,6 +689,7 @@ impl TypedNativeFunction {
                         .expect("FAIL: ClarityName failed to accept default arg name"),
                 )],
                 returns: TypeSignature::UIntType,
+                read_only: false,
             }))),
             StxGetAccount => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
@@ -697,6 +704,7 @@ impl TypedNativeFunction {
                 ])
                 .expect("FAIL: StxGetAccount failed to initialize type signature")
                 .into(),
+                read_only: false,
             }))),
             StxBurn => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![
@@ -716,6 +724,7 @@ impl TypedNativeFunction {
                     TypeSignature::UIntType,
                 )
                 .unwrap(),
+                read_only: false,
             }))),
             StxTransfer => Special(SpecialNativeFunction(&assets::check_special_stx_transfer)),
             StxTransferMemo => Special(SpecialNativeFunction(

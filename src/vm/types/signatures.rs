@@ -156,6 +156,7 @@ pub struct FunctionSignature {
 pub struct FixedFunction {
     pub args: Vec<FunctionArg>,
     pub returns: TypeSignature,
+    pub read_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,7 +188,7 @@ impl From<&str> for TypeSignature {
 
 impl From<FixedFunction> for FunctionSignature {
     fn from(data: FixedFunction) -> FunctionSignature {
-        let FixedFunction { args, returns } = data;
+        let FixedFunction { args, returns, read_only } = data;
         let args = args.into_iter().map(|x| x.signature).collect();
         FunctionSignature { args, returns, read_only: false }
     }

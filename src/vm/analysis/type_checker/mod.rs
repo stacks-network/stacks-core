@@ -165,6 +165,7 @@ impl FunctionType {
             FunctionType::Fixed(FixedFunction {
                 args: arg_types,
                 returns,
+                read_only,
             }) => {
                 check_argument_count(arg_types.len(), args)?;
                 for (expected_type, found_type) in arg_types.iter().map(|x| &x.signature).zip(args)
@@ -300,8 +301,8 @@ impl FunctionType {
         db: &mut AnalysisDatabase,
         func_args: &[Value],
     ) -> CheckResult<TypeSignature> {
-        let (expected_args, returns) = match self {
-            FunctionType::Fixed(FixedFunction { args, returns }) => (args, returns),
+        let (expected_args, returns, read_only) = match self {
+            FunctionType::Fixed(FixedFunction { args, returns, read_only }) => (args, returns, read_only),
             _ => panic!("Unexpected function type"),
         };
         check_argument_count(expected_args.len(), func_args)?;
@@ -574,6 +575,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         signature: &[SymbolicExpression],
         body: &SymbolicExpression,
         context: &TypingContext,
+        read_only: bool,
     ) -> CheckResult<(ClarityName, FixedFunction)> {
         let (function_name, args) = signature
             .split_first()
@@ -638,6 +640,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     FixedFunction {
                         args: func_args,
                         returns: return_type,
+                        read_only: read_only,
                     },
                 ))
             }
@@ -837,7 +840,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 }
                 DefineFunctionsParsed::PrivateFunction { signature, body } => {
                     let (f_name, f_type) =
-                        self.type_check_define_function(signature, body, context)?;
+                        self.type_check_define_function(signature, body, context, false)?;
 
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
@@ -849,7 +852,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 }
                 DefineFunctionsParsed::PublicFunction { signature, body } => {
                     let (f_name, f_type) =
-                        self.type_check_define_function(signature, body, context)?;
+                        self.type_check_define_function(signature, body, context, false)?;
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
@@ -868,12 +871,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 }
                 DefineFunctionsParsed::ReadOnlyFunction { signature, body } => {
                     let (f_name, f_type) =
-                        self.type_check_define_function(signature, body, context)?;
+                        self.type_check_define_function(signature, body, context, true)?;
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
                         f_type.total_type_size()?,
                     )?;
+                    // Note: Add a read only function.
                     self.contract_context
                         .add_read_only_function_type(f_name, FunctionType::Fixed(f_type))?;
                 }
