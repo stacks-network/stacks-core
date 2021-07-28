@@ -158,12 +158,12 @@ rejected.
 Comments are very important. Not only are they are an aid to the reader, but in many
 cases the comments specify the contract against which the code is evaluated.
 Without a clear contract for a function, for example, it is *impossible* to determine
-whether the function is implemented correclty.
+whether the function is implemented correctly.
 
 The following kinds of things should have comments.
 
-## Components (`struct`'s and `trait`'s)
-Comments for a component (`struct` or `trait`) should explain what the overall
+## Components (`struct`'s, `trait`'s, and `enum`'s)
+Comments for a component (`struct`, `trait`, or `enum`) should explain what the overall
 purpose of that component is. This is usually a concept, and not a formal contract.
 
 Help the reader understand why this group of data or methods are grouped
@@ -190,7 +190,7 @@ or return an empty value.
 
 Example:
 
-```
+```rust
 pub trait BurnStateDB {
     /// Returns the *header hash* of the burnchain block at the
     /// burnchain height `height` in sortition `sortition_id`.
