@@ -30,7 +30,7 @@ use vm::errors::{
 };
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::types::{
-    BlockInfoProperty, BuffData, OptionalData, PrincipalData, SequenceData, TypeSignature, Value,
+    BurnBlockInfoProperty, BlockInfoProperty, BuffData, OptionalData, PrincipalData, SequenceData, TypeSignature, Value,
     BUFF_32,
 };
 use vm::{eval, Environment, LocalContext};
@@ -493,7 +493,43 @@ pub fn special_get_block_info(
             let miner_address = env.global_context.database.get_miner_address(height_value);
             Value::from(miner_address)
         }
-        BlockInfoProperty::BurnchainHeaderHashByBurnchainHeight => {
+    };
+
+    Ok(Value::some(result)?)
+}
+
+pub fn special_get_burn_block_info(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    // (get-block-info? property-name block-height-int)
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+
+    check_argument_count(2, args)?;
+
+    // Handle the block property name input arg.
+    let property_name = args[0]
+        .match_atom()
+        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+
+    let block_info_prop = BurnBlockInfoProperty::lookup_by_name(property_name)
+        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+
+    // Handle the block-height input arg clause.
+    let height_eval = eval(&args[1], env, context)?;
+    let height_value = match height_eval {
+        Value::UInt(result) => Ok(result),
+        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+    }?;
+
+    let height_value = match u32::try_from(height_value) {
+        Ok(result) => result,
+        _ => return Ok(Value::none()),
+    };
+
+    let result = match block_info_prop {
+        BurnBlockInfoProperty::HeaderHash => {
             let burnchain_header_hash = env
                 .global_context
                 .database

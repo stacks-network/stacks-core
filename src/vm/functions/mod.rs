@@ -117,6 +117,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     PrincipalOf("principal-of?", ClarityVersion::Clarity1),
     AtBlock("at-block", ClarityVersion::Clarity1),
     GetBlockInfo("get-block-info?", ClarityVersion::Clarity1),
+    GetBurnBlockInfo("get-burn-block-info?", ClarityVersion::Clarity2),
     ConsError("err", ClarityVersion::Clarity1),
     ConsOkay("ok", ClarityVersion::Clarity1),
     ConsSome("some", ClarityVersion::Clarity1),
@@ -368,6 +369,9 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             PrincipalOf => SpecialFunction("special_principal-of", &crypto::special_principal_of),
             GetBlockInfo => {
                 SpecialFunction("special_get_block_info", &database::special_get_block_info)
+            }
+            GetBurnBlockInfo => {
+                SpecialFunction("special_get_burn_block_info", &database::special_get_burn_block_info)
             }
             ConsSome => NativeFunction(
                 "native_some",
