@@ -227,7 +227,7 @@ impl ContractAnalysis {
                         .into());
                     }
 
-                    if !expected_sig.read_only == func.read_only {
+                    if expected_sig.read_only && !func.read_only {
                         return Err(CheckErrors::BadTraitImplementation(
                             trait_name,
                             func_name.to_string(),

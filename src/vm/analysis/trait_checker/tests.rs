@@ -192,6 +192,7 @@ fn test_complete_impl_trait() {
 
 #[test]
 fn test_complete_impl_trait_mixing_readonly() {
+    // Note: What should happen with this?
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
             (get-2 (uint) (response uint uint))
@@ -1311,7 +1312,7 @@ fn test_contract_read_only() {
 }
 
 #[test]
-fn test_contract_read_only_impl() {
+fn test_contract_read_only_conflict() {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint) read-only)))";
     warn!("contract_defining_trait: {:?}", contract_defining_trait);
@@ -1334,4 +1335,46 @@ fn test_contract_read_only_impl() {
         CheckErrors::BadTraitImplementation("trait-1".to_string(), "get-1".to_string())
 
     );
+}
+
+#[test]
+fn test_contract_read_only_consistent() {
+    let contract_defining_trait = "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint) read-only)))";
+    warn!("contract_defining_trait: {:?}", contract_defining_trait);
+    let impl_contract = "(impl-trait .definition1.trait-1)
+        (define-read-only (get-1 (x uint)) (ok x))";
+    let def_contract_id = QualifiedContractIdentifier::local("definition1").unwrap();
+    let impl_contract_id = QualifiedContractIdentifier::local("implementation1").unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let result = db.execute(|db| {
+        type_check(&def_contract_id, &mut c1, db, true).unwrap();
+        type_check(&impl_contract_id, &mut c3, db, true)
+    });
+    result.unwrap();
+}
+
+#[test]
+fn test_contract_mutable_consistent() {
+    let contract_defining_trait = "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))";
+    warn!("contract_defining_trait: {:?}", contract_defining_trait);
+    let impl_contract = "(impl-trait .definition1.trait-1)
+        (define-public (get-1 (x uint)) (ok x))";
+    let def_contract_id = QualifiedContractIdentifier::local("definition1").unwrap();
+    let impl_contract_id = QualifiedContractIdentifier::local("implementation1").unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let result = db.execute(|db| {
+        type_check(&def_contract_id, &mut c1, db, true).unwrap();
+        type_check(&impl_contract_id, &mut c3, db, true)
+    });
+    result.unwrap();
 }
