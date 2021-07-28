@@ -1291,7 +1291,7 @@ fn test_return_trait_with_contract_of_wrapped_in_let() {
 #[test]
 fn test_contract_read_only() {
     let contract_defining_trait = "(define-trait trait-1 (
-            (get-1 (uint) (response uint uint))))";
+            (get-1 (uint) (response uint uint) read-only)))";
     warn!("contract_defining_trait: {:?}", contract_defining_trait);
     let dispatching_contract = "(use-trait trait-2 .definition1.trait-1)
         (define-read-only (wrapped-get-1 (target-contract <trait-2>))

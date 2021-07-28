@@ -1019,7 +1019,7 @@ impl TypeSignature {
             let args = function_type
                 .match_list()
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
-            if args.len() != 3 {
+            if args.len() != 3 && args.len() != 4{
                 return Err(CheckErrors::InvalidTypeDescription);
             }
 
@@ -1047,12 +1047,13 @@ impl TypeSignature {
                 _ => Err(CheckErrors::DefineTraitBadSignature),
             }?;
 
+            let read_only = args.len() != 4;
             trait_signature.insert(
                 fn_name.clone(),
                 FunctionSignature {
                     args: fn_args,
                     returns: fn_return,
-                    read_only: false,
+                    read_only: read_only,
                 },
             );
         }
