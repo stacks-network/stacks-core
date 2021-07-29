@@ -298,8 +298,8 @@ impl PoxSyncWatchdog {
     /// low and high pass filter average -- take average without the smallest and largest values
     fn hilo_filter_avg(samples: &Vec<i64>) -> f64 {
         // take average with low and high pass
-        let mut min = i64::max_value();
-        let mut max = i64::min_value();
+        let mut min = i64::MAX;
+        let mut max = i64::MIN;
         for s in samples.iter() {
             if *s < 0 {
                 // nonsensical result (e.g. due to clock drift?)
