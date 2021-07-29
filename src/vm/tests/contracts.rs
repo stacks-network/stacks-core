@@ -38,6 +38,8 @@ use vm::types::{
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
 
+use vm::version::ClarityVersion;
+
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))
            (print (map-insert factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
@@ -142,6 +144,50 @@ fn test_get_block_info_eval() {
             .unwrap();
 
         let mut env = owned_env.get_exec_environment(None, None);
+
+        let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+        warn!("eval_result: {:?}", eval_result);
+        match expected[i] {
+            // any (some UINT) is okay for checking get-block-info? time
+            Ok(Value::UInt(0)) => {
+                assert!(
+                    if let Ok(Value::Optional(OptionalData { data: Some(x) })) = eval_result {
+                        if let Value::UInt(_) = *x {
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                );
+            }
+            _ => assert_eq!(expected[i], eval_result),
+        }
+    }
+}
+
+
+#[test]
+fn test_get_burn_block_info_eval() {
+    let contracts = [
+        "(define-private (test-func) (get-burn-block-info? header-hash u0))",
+    ];
+
+    let expected = [
+        Ok(Value::none()),
+    ];
+
+    for i in 0..contracts.len() {
+        let mut marf = MemoryBackingStore::new();
+        let mut owned_env = OwnedEnvironment::new_with_version(marf.as_clarity_db(), ClarityVersion::Clarity2);
+        let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
+        owned_env
+            .initialize_contract(contract_identifier.clone(), contracts[i], None)
+            .unwrap();
+
+        let mut env = owned_env.get_exec_environment(None, None);
+        warn!("env context {:?}", env.contract_context.get_clarity_version());
 
         let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
         match expected[i] {

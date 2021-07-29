@@ -155,6 +155,9 @@ impl NativeFunctions {
         name: &str,
         version: &ClarityVersion,
     ) -> Option<NativeFunctions> {
+        let bt = backtrace::Backtrace::new();
+        warn!("bt: {:?}", bt);
+        warn!("x version: {:?}", version);
         NativeFunctions::lookup_by_name(name).and_then(|native_function| {
             if &native_function.get_version() <= version {
                 Some(native_function)

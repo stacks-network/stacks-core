@@ -108,6 +108,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
 pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType> {
     runtime_cost(ClarityCostFunction::LookupFunction, env, 0)?;
 
+    warn!("y version {:?}", env.contract_context.get_clarity_version());
     if let Some(result) =
         functions::lookup_reserved_functions(name, env.contract_context.get_clarity_version())
     {
