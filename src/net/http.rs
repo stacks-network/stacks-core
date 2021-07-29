@@ -1681,7 +1681,7 @@ impl HttpRequestType {
         if let Some(query_string) = query {
             form_urlencoded::parse(query_string.as_bytes())
                 .find(|(key, _v)| key == "use_latest_tip")
-                .map(|(_k, value)| value == "1")
+                .map(|(_k, value)| value == "1" || value == "true")
                 .unwrap_or(false)
         } else {
             false
@@ -2502,7 +2502,7 @@ impl HttpRequestType {
     ) -> String {
         if use_latest_tip {
             format!(
-                "?use_latest_tip=1{}",
+                "?use_latest_tip=true{}",
                 if with_proof { "" } else { "&proof=0" }
             )
         } else if let Some(tip) = tip_opt {
