@@ -7,6 +7,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [2.0.11.2.0]
 
+NOTE: This change resets the `testnet`. Users running a testnet node will need
+to reset their chain states.
+
 ### Added
 
 - `clarity-cli` will now also print a serialized version of the resulting
