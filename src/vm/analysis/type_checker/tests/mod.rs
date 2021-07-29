@@ -67,13 +67,11 @@ fn test_get_block_info() {
         "(get-block-info? vrf-seed u1)",
         "(get-block-info? header-hash u1)",
         "(get-block-info? burnchain-header-hash u1)",
-        "(get-block-info? burnchain-header-hash-by-burnchain-height u1)",
         "(get-block-info? miner-address u1)",
     ];
     let expected = [
         "(optional uint)",
         "(optional uint)",
-        "(optional (buff 32))",
         "(optional (buff 32))",
         "(optional (buff 32))",
         "(optional (buff 32))",

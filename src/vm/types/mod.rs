@@ -601,12 +601,21 @@ impl BlockInfoProperty {
         use self::BlockInfoProperty::*;
         match self {
             Time => TypeSignature::UIntType,
-            IdentityHeaderHash
+           IdentityHeaderHash
             | VrfSeed
             | HeaderHash
             | BurnchainHeaderHash
-            | BurnchainHeaderHashByBurnchainHeight => BUFF_32.clone(),
+             => BUFF_32.clone(),
             MinerAddress => TypeSignature::PrincipalType,
+        }
+    }
+}
+
+impl BurnBlockInfoProperty {
+    pub fn type_result(&self) -> TypeSignature {
+        use self::BurnBlockInfoProperty::*;
+        match self {
+            HeaderHash => BUFF_32.clone(),
         }
     }
 }

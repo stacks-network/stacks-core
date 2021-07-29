@@ -25,7 +25,7 @@ use vm::types::signatures::{ASCII_40, UTF8_40};
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::TypeSignature::SequenceType;
 use vm::types::{
-    BlockInfoProperty, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
+    BurnBlockInfoProperty, BlockInfoProperty, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
     PrincipalData, SequenceSubtype, TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32,
     BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };

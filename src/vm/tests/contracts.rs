@@ -106,7 +106,6 @@ fn test_get_block_info_eval() {
         "(define-private (test-func) (get-block-info? time true))",
         "(define-private (test-func) (get-block-info? header-hash u1))",
         "(define-private (test-func) (get-block-info? burnchain-header-hash u1))",
-        "(define-private (test-func) (get-block-info? burnchain-header-hash-by-burnchain-height u1))",
         "(define-private (test-func) (get-block-info? vrf-seed u1))",
     ];
 
@@ -116,7 +115,6 @@ fn test_get_block_info_eval() {
         Ok(Value::none()),
         Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(-1)).into()),
         Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Bool(true)).into()),
-        Ok(Value::none()),
         Ok(Value::none()),
         Ok(Value::none()),
         Ok(Value::none()),
