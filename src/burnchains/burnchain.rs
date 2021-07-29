@@ -1209,16 +1209,25 @@ impl Burnchain {
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
-            start_block, end_block, db_height
+            sync_height, end_block, db_height
         );
 
         if let Some(target_block_height) = target_block_height_opt {
-            if target_block_height < end_block {
+            // `target_block_height` is used as a hint, but could also be completely off
+            // in certain situations. This function is directly reading the
+            // headers and syncing with the bitcoin-node, and the interval of blocks
+            // to download computed here should be considered as our source of truth.
+            if target_block_height > start_block && target_block_height < end_block {
                 debug!(
                     "Will download up to max burn block height {}",
                     target_block_height
                 );
                 end_block = target_block_height;
+            } else {
+                debug!(
+                    "Ignoring target block height {} considered as irrelevant",
+                    target_block_height
+                );
             }
         }
 
