@@ -13,7 +13,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   output from `eval` and `execute` commands. This serialization is in
   hexademical string format and supports integration with other tools. (#2684)
 - The creation of a Bitcoin wallet with BTC version `> 0.19` is now supported
-  on a private test net. (#2647)
+  on a private testnet. (#2647)
 - `lcov`-compatible coverage reporting has been added to `clarity-cli` for
   Clarity contract testing. (#2592)
 - The `README.md` file has new documentation about the release process. (#2726)
