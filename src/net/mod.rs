@@ -47,10 +47,10 @@ use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::blocks::MemPoolRejection;
 use chainstate::stacks::index::Error as marf_error;
-use chainstate::stacks::Error as chainstate_error;
 use chainstate::stacks::{
     Error as chain_error, StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
 };
+use chainstate::stacks::{Error as chainstate_error, TransactionAnchorMode};
 use clarity_vm::clarity::Error as clarity_error;
 use codec::Error as codec_error;
 use codec::StacksMessageCodec;
@@ -1224,7 +1224,12 @@ pub enum HttpRequestType {
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksUnconfirmed(HttpRequestMetadata, StacksBlockId, u16),
     GetTransactionUnconfirmed(HttpRequestMetadata, Txid),
-    PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
+    PostTransaction(
+        HttpRequestMetadata,
+        StacksTransaction,
+        Option<Attachment>,
+        TransactionAnchorMode,
+    ),
     PostBlock(HttpRequestMetadata, ConsensusHash, StacksBlock),
     PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
     GetAccount(

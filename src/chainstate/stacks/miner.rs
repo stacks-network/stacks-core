@@ -6424,6 +6424,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                TransactionAnchorMode::Any,
                             )
                             .unwrap();
                     }
@@ -6564,6 +6565,7 @@ pub mod test {
                                     &parent_header_hash,
                                     &stx_transfer,
                                     None,
+                                    TransactionAnchorMode::Any,
                                 )
                                 .unwrap();
                         }
@@ -6587,6 +6589,7 @@ pub mod test {
                                     &parent_header_hash,
                                     &stx_transfer,
                                     None,
+                                    TransactionAnchorMode::Any,
                                 )
                                 .unwrap();
                         }
@@ -6771,6 +6774,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                TransactionAnchorMode::Any,
                             )
                             .unwrap();
 
@@ -6790,6 +6794,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &contract_tx,
                                 None,
+                                TransactionAnchorMode::Any,
                             )
                             .unwrap();
 
@@ -6808,6 +6813,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                TransactionAnchorMode::Any,
                             )
                             .unwrap();
 
@@ -6969,6 +6975,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &contract_tx,
                                 None,
+                                TransactionAnchorMode::Any,
                             )
                             .unwrap();
                     }
@@ -7126,6 +7133,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &contract_tx,
                                 None,
+                                TransactionAnchorMode::Any,
                             )
                             .unwrap();
                     }
@@ -8783,6 +8791,7 @@ pub mod test {
                     &parent_header_info.anchored_header.block_hash(),
                     &tx,
                     None,
+                    TransactionAnchorMode::Any,
                 )
                 .unwrap()
         }
@@ -8806,6 +8815,7 @@ pub mod test {
                     &parent_header_info.anchored_header.block_hash(),
                     &tx,
                     None,
+                    TransactionAnchorMode::Any,
                 )
                 .unwrap()
         }

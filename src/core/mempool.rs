@@ -32,11 +32,11 @@ use rusqlite::NO_PARAMS;
 
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
-use chainstate::stacks::TransactionPayload;
 use chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, index::Error as MarfError,
     Error as ChainstateError, StacksTransaction,
 };
+use chainstate::stacks::{TransactionAnchorMode, TransactionPayload};
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use monitoring::increment_stx_mempool_gc;
@@ -87,8 +87,15 @@ impl MemPoolAdmitter {
         chainstate: &mut StacksChainState,
         tx: &StacksTransaction,
         tx_size: u64,
+        mempool_admission_check: TransactionAnchorMode,
     ) -> Result<(), MemPoolRejection> {
-        chainstate.will_admit_mempool_tx(&self.cur_consensus_hash, &self.cur_block, tx, tx_size)
+        chainstate.will_admit_mempool_tx(
+            &self.cur_consensus_hash,
+            &self.cur_block,
+            tx,
+            tx_size,
+            mempool_admission_check,
+        )
     }
 }
 
@@ -841,6 +848,7 @@ impl MemPoolDB {
         tx: &StacksTransaction,
         do_admission_checks: bool,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        mempool_admission_check: TransactionAnchorMode,
     ) -> Result<(), MemPoolRejection> {
         test_debug!(
             "Mempool submit {} at {}/{}",
@@ -889,7 +897,9 @@ impl MemPoolDB {
             mempool_tx
                 .admitter
                 .set_block(&block_hash, (*consensus_hash).clone());
-            mempool_tx.admitter.will_admit_tx(chainstate, tx, len)?;
+            mempool_tx
+                .admitter
+                .will_admit_tx(chainstate, tx, len, mempool_admission_check)?;
         }
 
         MemPoolDB::try_add_tx(
@@ -923,6 +933,7 @@ impl MemPoolDB {
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        mempool_admission_check: TransactionAnchorMode,
     ) -> Result<(), MemPoolRejection> {
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
         MemPoolDB::tx_submit(
@@ -933,6 +944,7 @@ impl MemPoolDB {
             tx,
             true,
             event_observer,
+            mempool_admission_check,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
@@ -958,6 +970,7 @@ impl MemPoolDB {
             &tx,
             false,
             None,
+            TransactionAnchorMode::Any,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())

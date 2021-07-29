@@ -4393,8 +4393,14 @@ impl PeerNetwork {
             return false;
         }
 
-        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx, event_observer)
-        {
+        if let Err(e) = mempool.submit(
+            chainstate,
+            consensus_hash,
+            block_hash,
+            &tx,
+            event_observer,
+            TransactionAnchorMode::Any,
+        ) {
             warn!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
         }

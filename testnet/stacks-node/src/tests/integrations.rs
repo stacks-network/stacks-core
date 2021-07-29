@@ -7,6 +7,7 @@ use reqwest;
 use stacks::burnchains::Address;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
+    TransactionAnchorMode,
 };
 use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
@@ -919,6 +920,7 @@ fn contract_stx_transfer() {
                             &header_hash,
                             &xfer_to_contract,
                             None,
+                            TransactionAnchorMode::Any,
                         )
                         .unwrap();
                 }
@@ -935,6 +937,7 @@ fn contract_stx_transfer() {
                         &header_hash,
                         &xfer_to_contract,
                         None,
+                        TransactionAnchorMode::Any,
                     )
                     .unwrap_err()
                 {

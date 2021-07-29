@@ -360,7 +360,9 @@ impl Txid {
     }
 }
 
-/// How a transaction may be appended to the Stacks blockchain
+/// Used to determine
+/// - how a transaction may be appended to the Stacks blockchain
+/// - how a transaction will be validated for the the post transaction endpoint
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum TransactionAnchorMode {

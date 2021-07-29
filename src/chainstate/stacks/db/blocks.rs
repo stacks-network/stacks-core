@@ -5234,6 +5234,7 @@ impl StacksChainState {
         current_block: &BlockHeaderHash,
         tx: &StacksTransaction,
         tx_size: u64,
+        mempool_admission_check: TransactionAnchorMode,
     ) -> Result<(), MemPoolRejection> {
         let is_mainnet = self.clarity_state.is_mainnet();
         StacksChainState::can_admit_mempool_semantic(tx, is_mainnet)?;
@@ -5272,13 +5273,31 @@ impl StacksChainState {
             _ => false, // unused
         };
 
-        let current_tip =
-            StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
-        let res = match self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
+        let current_tip = match mempool_admission_check {
+            TransactionAnchorMode::OnChainOnly | TransactionAnchorMode::Any => {
+                StacksChainState::get_parent_index_block(current_consensus_hash, current_block)
+            }
+            TransactionAnchorMode::OffChainOnly => {
+                if let Some(unconfirmed_state) = &self.unconfirmed_state {
+                    if unconfirmed_state.is_readable() {
+                        unconfirmed_state.unconfirmed_chain_tip
+                    } else {
+                        StacksChainState::get_parent_index_block(
+                            current_consensus_hash,
+                            current_block,
+                        )
+                    }
+                } else {
+                    StacksChainState::get_parent_index_block(current_consensus_hash, current_block)
+                }
+            }
+        };
+
+        let res = match self.maybe_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
             StacksChainState::can_include_tx(conn, &conf, has_microblock_pubk, tx, tx_size)
         }) {
-            Some(r) => r,
-            None => Err(MemPoolRejection::NoSuchChainTip(
+            Ok(Some(r)) => r,
+            Ok(None) | Err(_) => Err(MemPoolRejection::NoSuchChainTip(
                 current_consensus_hash.clone(),
                 current_block.clone(),
             )),
@@ -5286,14 +5305,13 @@ impl StacksChainState {
 
         match res {
             Ok(x) => Ok(x),
-            Err(MemPoolRejection::BadNonces(mismatch_error)) => {
-                // try again, but against the _unconfirmed_ chain tip, if we
-                // (a) have one, and (b) the expected nonce is less than the given one.
-                if self.unconfirmed_state.is_some()
-                    && mismatch_error.expected < mismatch_error.actual
+            Err(e) => {
+                // if mempool admission check is Any, try against unconfirmed state regardless of what the error is
+                if mempool_admission_check == TransactionAnchorMode::Any
+                    && self.unconfirmed_state.is_some()
                 {
-                    debug!("Transaction {} is unminable in the confirmed chain tip due to nonce {} != {}; trying the unconfirmed chain tip",
-                           &tx.txid(), mismatch_error.expected, mismatch_error.actual);
+                    info!("Transaction {} is unminable in the confirmed chain tip due to err {:?}; trying the unconfirmed chain tip",
+                           &tx.txid(), e);
                     self.with_read_only_unconfirmed_clarity_tx(&NULL_BURN_STATE_DB, |conn| {
                         StacksChainState::can_include_tx(
                             conn,
@@ -5311,10 +5329,9 @@ impl StacksChainState {
                     })?
                     .expect("BUG: do not have unconfirmed state, despite being Some(..)")
                 } else {
-                    Err(MemPoolRejection::BadNonces(mismatch_error))
+                    Err(e)
                 }
             }
-            Err(e) => Err(e),
         }
     }
 

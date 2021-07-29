@@ -1197,6 +1197,7 @@ mod test {
                     )),
                     signed_contract_tx,
                     None,
+                    TransactionAnchorMode::Any,
                 );
                 request.metadata_mut().keep_alive = false;
 

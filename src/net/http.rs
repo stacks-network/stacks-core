@@ -38,7 +38,9 @@ use url::{form_urlencoded, Url};
 
 use burnchains::{Address, Txid};
 use chainstate::burn::ConsensusHash;
-use chainstate::stacks::{StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction};
+use chainstate::stacks::{
+    StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction, TransactionAnchorMode,
+};
 use deps::httparse;
 use net::atlas::Attachment;
 use net::CallReadOnlyRequestBody;
@@ -1696,6 +1698,36 @@ impl HttpRequestType {
         }
     }
 
+    /// Get the optional query argument `mempool_admission_check`.
+    /// If `mempool_admission_check` == "unconfirmed", the transaction is only validated against
+    /// the unconfirmed state.
+    /// If `mempool_admission_check` == "confirmed", the transaction is only validated against the
+    /// confirmed state.
+    /// If `mempool_admission_check` is unspecified, the transaction is validated against both the
+    /// confirmed state and the unconfirmed state.
+    /// This function takes the first value we can parse.
+    fn get_mempool_admission_check_query(query: Option<&str>) -> TransactionAnchorMode {
+        match query {
+            Some(query_string) => {
+                for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
+                    if key != "mempool_admission_check" {
+                        continue;
+                    }
+
+                    if value == "unconfirmed" {
+                        return TransactionAnchorMode::OffChainOnly;
+                    } else if value == "confirmed" {
+                        return TransactionAnchorMode::OnChainOnly;
+                    }
+                }
+                return TransactionAnchorMode::Any;
+            }
+            None => {
+                return TransactionAnchorMode::Any;
+            }
+        }
+    }
+
     fn parse_get_account<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
@@ -2094,7 +2126,7 @@ impl HttpRequestType {
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
-        _query: Option<&str>,
+        query: Option<&str>,
         fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() == 0 {
@@ -2111,6 +2143,7 @@ impl HttpRequestType {
         }
 
         let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
+        let mempool_admission_check = HttpRequestType::get_mempool_admission_check_query(query);
 
         match preamble.content_type {
             None => {
@@ -2118,12 +2151,16 @@ impl HttpRequestType {
                     "Missing Content-Type for transaction".to_string(),
                 ));
             }
-            Some(HttpContentType::Bytes) => {
-                HttpRequestType::parse_posttransaction_octets(preamble, &mut bound_fd)
-            }
-            Some(HttpContentType::JSON) => {
-                HttpRequestType::parse_posttransaction_json(preamble, &mut bound_fd)
-            }
+            Some(HttpContentType::Bytes) => HttpRequestType::parse_posttransaction_octets(
+                preamble,
+                mempool_admission_check,
+                &mut bound_fd,
+            ),
+            Some(HttpContentType::JSON) => HttpRequestType::parse_posttransaction_json(
+                preamble,
+                mempool_admission_check,
+                &mut bound_fd,
+            ),
             _ => {
                 return Err(net_error::DeserializeError(
                     "Wrong Content-Type for transaction; expected application/json".to_string(),
@@ -2134,6 +2171,7 @@ impl HttpRequestType {
 
     fn parse_posttransaction_octets<R: Read>(
         preamble: &HttpRequestPreamble,
+        mempool_admission_check: TransactionAnchorMode,
         fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
         let tx = StacksTransaction::consensus_deserialize(fd).map_err(|e| {
@@ -2150,11 +2188,13 @@ impl HttpRequestType {
             HttpRequestMetadata::from_preamble(preamble),
             tx,
             None,
+            mempool_admission_check,
         ))
     }
 
     fn parse_posttransaction_json<R: Read>(
         preamble: &HttpRequestPreamble,
+        mempool_admission_check: TransactionAnchorMode,
         fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
         let body: PostTransactionRequestBody = serde_json::from_reader(fd)
@@ -2189,6 +2229,7 @@ impl HttpRequestType {
             HttpRequestMetadata::from_preamble(preamble),
             tx,
             attachment,
+            mempool_admission_check,
         ))
     }
 
@@ -2418,7 +2459,7 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksConfirmed(ref md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref md, _, _) => md,
             HttpRequestType::GetTransactionUnconfirmed(ref md, _) => md,
-            HttpRequestType::PostTransaction(ref md, _, _) => md,
+            HttpRequestType::PostTransaction(ref md, _, _, _) => md,
             HttpRequestType::PostBlock(ref md, ..) => md,
             HttpRequestType::PostMicroblock(ref md, ..) => md,
             HttpRequestType::GetAccount(ref md, ..) => md,
@@ -2445,7 +2486,7 @@ impl HttpRequestType {
             HttpRequestType::GetMicroblocksConfirmed(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksUnconfirmed(ref mut md, _, _) => md,
             HttpRequestType::GetTransactionUnconfirmed(ref mut md, _) => md,
-            HttpRequestType::PostTransaction(ref mut md, _, _) => md,
+            HttpRequestType::PostTransaction(ref mut md, _, _, _) => md,
             HttpRequestType::PostBlock(ref mut md, ..) => md,
             HttpRequestType::PostMicroblock(ref mut md, ..) => md,
             HttpRequestType::GetAccount(ref mut md, ..) => md,
@@ -2469,6 +2510,19 @@ impl HttpRequestType {
             format!("?proof=0")
         } else {
             "".to_string()
+        }
+    }
+
+    /// Formats the query string for a post transaction request.
+    pub fn make_query_string_for_post_tx_endpoint(
+        mempool_admission_check: TransactionAnchorMode,
+    ) -> String {
+        match mempool_admission_check {
+            TransactionAnchorMode::OnChainOnly => "?mempool_admission_check=confirmed".to_string(),
+            TransactionAnchorMode::OffChainOnly => {
+                "?mempool_admission_check=unconfirmed".to_string()
+            }
+            TransactionAnchorMode::Any => "".to_string(),
         }
     }
 
@@ -2497,7 +2551,10 @@ impl HttpRequestType {
             HttpRequestType::GetTransactionUnconfirmed(_md, txid) => {
                 format!("/v2/transactions/unconfirmed/{}", txid)
             }
-            HttpRequestType::PostTransaction(_md, ..) => "/v2/transactions".to_string(),
+            HttpRequestType::PostTransaction(_md, _, _, mempool_admission_check) => format!(
+                "/v2/transactions{}",
+                HttpRequestType::make_query_string_for_post_tx_endpoint(*mempool_admission_check)
+            ),
             HttpRequestType::PostBlock(_md, ch, ..) => format!("/v2/blocks/upload/{}", &ch),
             HttpRequestType::PostMicroblock(_md, _, tip_opt) => format!(
                 "/v2/microblocks{}",
@@ -2632,7 +2689,7 @@ impl HttpRequestType {
 
     pub fn send<W: Write>(&self, _protocol: &mut StacksHttp, fd: &mut W) -> Result<(), net_error> {
         match self {
-            HttpRequestType::PostTransaction(md, tx, attachment) => {
+            HttpRequestType::PostTransaction(md, tx, attachment, _) => {
                 let mut tx_bytes = vec![];
                 write_next(&mut tx_bytes, tx)?;
                 let tx_hex = to_hex(&tx_bytes[..]);
@@ -3825,7 +3882,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetTransactionUnconfirmed(_, _) => {
                     "HTTP(GetTransactionUnconfirmed)"
                 }
-                HttpRequestType::PostTransaction(_, _, _) => "HTTP(PostTransaction)",
+                HttpRequestType::PostTransaction(_, _, _, _) => "HTTP(PostTransaction)",
                 HttpRequestType::PostBlock(..) => "HTTP(PostBlock)",
                 HttpRequestType::PostMicroblock(..) => "HTTP(PostMicroblock)",
                 HttpRequestType::GetAccount(..) => "HTTP(GetAccount)",
@@ -5362,6 +5419,7 @@ mod test {
                 http_request_metadata_dns.clone(),
                 make_test_transaction(),
                 None,
+                TransactionAnchorMode::Any,
             ),
             HttpRequestType::OptionsPreflight(http_request_metadata_ip.clone(), "/".to_string()),
         ];

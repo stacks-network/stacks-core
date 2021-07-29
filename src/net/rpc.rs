@@ -1593,6 +1593,7 @@ impl ConversationHttp {
         atlasdb: &mut AtlasDB,
         attachment: Option<Attachment>,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        mempool_admission_check: TransactionAnchorMode,
     ) -> Result<bool, net_error> {
         let txid = tx.txid();
         let response_metadata = HttpResponseMetadata::from(req);
@@ -1608,6 +1609,7 @@ impl ConversationHttp {
                 &block_hash,
                 &tx,
                 event_observer,
+                mempool_admission_check,
             ) {
                 Ok(_) => (
                     HttpResponseType::TransactionID(response_metadata, txid),
@@ -2067,7 +2069,12 @@ impl ConversationHttp {
                 }
                 None
             }
-            HttpRequestType::PostTransaction(ref _md, ref tx, ref attachment) => {
+            HttpRequestType::PostTransaction(
+                ref _md,
+                ref tx,
+                ref attachment,
+                ref mempool_admission_check,
+            ) => {
                 match chainstate.get_stacks_chain_tip(sortdb)? {
                     Some(tip) => {
                         let accepted = ConversationHttp::handle_post_transaction(
@@ -2082,6 +2089,7 @@ impl ConversationHttp {
                             &mut network.atlasdb,
                             attachment.clone(),
                             handler_opts.event_observer.as_deref(),
+                            *mempool_admission_check,
                         )?;
                         if accepted {
                             // forward to peer network
@@ -2659,11 +2667,16 @@ impl ConversationHttp {
     }
 
     /// Make a new post-transaction request
-    pub fn new_post_transaction(&self, tx: StacksTransaction) -> HttpRequestType {
+    pub fn new_post_transaction(
+        &self,
+        tx: StacksTransaction,
+        mempool_admission_check: TransactionAnchorMode,
+    ) -> HttpRequestType {
         HttpRequestType::PostTransaction(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             tx,
             None,
+            mempool_admission_check,
         )
     }
 
