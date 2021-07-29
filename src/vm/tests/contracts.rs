@@ -180,7 +180,7 @@ fn test_get_burn_block_info_eval() {
 
     for i in 0..contracts.len() {
         let mut marf = MemoryBackingStore::new();
-        let mut clarity_db = marf.as_clarity_db();
+        let mut clarity_db = marf.as_clarity_db_with_databases(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
         clarity_db.begin();
         clarity_db.set_clarity_epoch_version(crate::core::StacksEpochId::Epoch21);
         let mut owned_env = OwnedEnvironment::new_with_version(clarity_db, ClarityVersion::Clarity2);

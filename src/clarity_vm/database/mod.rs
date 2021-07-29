@@ -210,6 +210,13 @@ impl MemoryBackingStore {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
+    /// Returns a new ClarityDatabase with underlying databases `headers_db` and
+    /// `burn_state_db`.
+    pub fn as_clarity_db_with_databases<'a>(&'a mut self, headers_db: &'a dyn HeadersDB,
+        burn_state_db: &'a dyn BurnStateDB) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self, headers_db, burn_state_db)
+    }
+
     pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
         AnalysisDatabase::new(self)
     }
