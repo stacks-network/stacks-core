@@ -223,8 +223,6 @@ fn test_functions_clarity1() {
          Err(FunctionNotPermitted(NativeFunctions::GetAssetOwner))),
         ("(get-block-info? id-header-hash 0)",
          Err(FunctionNotPermitted(NativeFunctions::GetBlockInfo))),
-        ("(get-burn-block-info? header-hash 0)",
-         Err(FunctionNotPermitted(NativeFunctions::GetBurnBlockInfo))),
         ("(define-private (foo) (contract-call? .bar outer-call))",
          Err(FunctionNotPermitted(NativeFunctions::ContractCall))),
         ("(stx-get-balance 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)",
@@ -293,6 +291,8 @@ fn test_functions_clarity2() {
             r#"(stx-transfer-memo? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 0x010203)"#,
             Err(FunctionNotPermitted(NativeFunctions::StxTransferMemo)),
         ),
+        ("(get-burn-block-info? header-hash 0)",
+         Err(FunctionNotPermitted(NativeFunctions::GetBurnBlockInfo))),
     ];
 
     for (contract, result) in tests.iter() {

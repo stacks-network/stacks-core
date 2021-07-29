@@ -67,11 +67,13 @@ fn test_get_block_info() {
         "(get-block-info? vrf-seed u1)",
         "(get-block-info? header-hash u1)",
         "(get-block-info? burnchain-header-hash u1)",
+        "(get-block-info? burnchain-header-hash-by-burnchain-height u1)",
         "(get-block-info? miner-address u1)",
     ];
     let expected = [
         "(optional uint)",
         "(optional uint)",
+        "(optional (buff 32))",
         "(optional (buff 32))",
         "(optional (buff 32))",
         "(optional (buff 32))",
@@ -99,6 +101,39 @@ fn test_get_block_info() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_get_burn_block_info() {
+    let good = [
+        "(get-burn-block-info? header-hash u0)",
+    ];
+    let expected = [
+        "(optional (buff 32))",
+    ];
+
+    let bad = [
+        "(get-burn-block-info? none u1)",
+        "(get-burn-block-info?)",
+        "(get-burn-block-info? header-hash)",
+    ];
+    let bad_expected = [
+        CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
+        CheckErrors::RequiresAtLeastArguments(2, 0),
+        CheckErrors::RequiresAtLeastArguments(2, 1),
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        warn!("bad_test {:?}", bad_test);
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }
