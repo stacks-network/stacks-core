@@ -39,6 +39,16 @@ paths:
                 $ref: ./api/transaction/post-core-node-transactions-error.schema.json
               example:
                 $ref: ./api/transaction/post-core-node-transactions-error.example.json
+      parameters:
+        - name: mempool_admission_check
+          in: path
+          required: true
+          description: |
+            If mempool_admission_check=="unconfirmed", the transaction will only be validated against unconfirmed state.
+            If mempool_admission_check=="confirmed", the transaction will only be validated against confirmed state.
+            If unspecified, the transaction will be accepted if it validates against either unconfirmed or confirmed state.
+          schema:
+            type: string
 
   /v2/contracts/interface/{contract_address}/{contract_name}:
     get:
