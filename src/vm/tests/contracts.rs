@@ -180,7 +180,10 @@ fn test_get_burn_block_info_eval() {
 
     for i in 0..contracts.len() {
         let mut marf = MemoryBackingStore::new();
-        let mut owned_env = OwnedEnvironment::new_with_version(marf.as_clarity_db(), ClarityVersion::Clarity2);
+        let mut clarity_db = marf.as_clarity_db();
+        clarity_db.begin();
+        clarity_db.set_clarity_epoch_version(crate::core::StacksEpochId::Epoch21);
+        let mut owned_env = OwnedEnvironment::new_with_version(clarity_db, ClarityVersion::Clarity2);
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
         owned_env
             .initialize_contract(contract_identifier.clone(), contracts[i], None)
