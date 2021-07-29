@@ -167,6 +167,27 @@ fn test_get_block_info_eval() {
     }
 }
 
+use vm::database::BurnStateDB;
+use types::chainstate::SortitionId;
+use core::StacksEpoch;
+use types::chainstate::BurnchainHeaderHash;
+
+struct TestBurnStateDB {}
+
+impl BurnStateDB for TestBurnStateDB {
+    fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> { None }
+    fn get_burn_start_height(&self) -> u32 { 0 }
+    fn get_burn_header_hash( &self, _height: u32, _sortition_id: &SortitionId,) -> Option<BurnchainHeaderHash> { None }
+    fn get_burn_header_hash_using_canonical_sortition(
+        &self,
+        height: u32,
+    ) -> Option<BurnchainHeaderHash> { None }
+    fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> { None }
+    fn get_v1_unlock_height(&self) -> u32 { panic!("Not implemented"); }
+    fn get_pox_prepare_length(&self) -> u32 { panic!("Not implemented"); }
+    fn get_pox_reward_cycle_length(&self) -> u32 { panic!("Not implemented"); }
+    fn get_pox_rejection_fraction(&self) -> u64 { panic!("Not implemented"); }
+}
 
 #[test]
 fn test_get_burn_block_info_eval() {
