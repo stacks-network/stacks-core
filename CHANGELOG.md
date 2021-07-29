@@ -29,6 +29,11 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - The UTXO staleness check is re-ordered so that it occurs before the RBF-limit
   check. This way, if stale UTXOs reached the "RBF limit" a miner will recover
   by resetting the UTXO cache. (#2694)
+- Microblock events were being sent to the event observer when microblock data
+  was received by a peer, but were not emitted if the node mined the
+  microblocks itself. This made something like the private-testnet setup
+  incapable of emitting microblock events. Microblock events are now sent
+  even when self-mined. (#2653)
 - A bug is fixed in the mocknet/helium miner that would lead to a panic if a
   burn block occurred without a sortition in it. (#2711)
 - Documentation is fixed in cases where string and buffer types are allowed
