@@ -223,7 +223,7 @@ fn test_functions_clarity1() {
          Err(FunctionNotPermitted(NativeFunctions::GetAssetOwner))),
         ("(get-block-info? id-header-hash 0)",
          Err(FunctionNotPermitted(NativeFunctions::GetBlockInfo))),
-        ("(get-burn-block-info? id-header-hash 0)",
+        ("(get-burn-block-info? header-hash 0)",
          Err(FunctionNotPermitted(NativeFunctions::GetBurnBlockInfo))),
         ("(define-private (foo) (contract-call? .bar outer-call))",
          Err(FunctionNotPermitted(NativeFunctions::ContractCall))),
