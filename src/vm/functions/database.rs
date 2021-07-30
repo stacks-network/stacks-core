@@ -528,7 +528,7 @@ pub fn special_get_burn_block_info(
         _ => return Ok(Value::none()),
     };
 
-    let result = match block_info_prop {
+    match block_info_prop {
         BurnBlockInfoProperty::HeaderHash => {
             let burnchain_header_hash_opt = env
                 .global_context
@@ -540,11 +540,11 @@ pub fn special_get_burn_block_info(
                     Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
                         data: burnchain_header_hash.as_bytes().to_vec(),
                     })))
-                }
-                None => Value::none(),
+                },
+                None => {
+                    Ok(Value::none())
+                },
             }
         }
-    };
-
-    Ok(Value::some(result)?)
+    }
 }

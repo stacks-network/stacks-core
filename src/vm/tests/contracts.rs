@@ -228,7 +228,7 @@ fn test_get_burn_block_info_eval() {
                 data: Some(Box::new(Sequence(Buffer(BuffData { data: vec![0; 32] })))),
             })),
         ),
-        // (get-burn-block-info? header-hash u0) should be None because this is
+        // (get-burn-block-info? header-hash u1) should be None because this is
         // the hard-coded answer in BurnBlockTestDB.
         (
             "(define-private (test-func) (get-burn-block-info? header-hash u1))",
@@ -251,6 +251,7 @@ fn test_get_burn_block_info_eval() {
             .unwrap();
         let mut env = owned_env.get_exec_environment(None, None);
         let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+        warn!("contract {:?}", contract);
         assert_eq!(*expected, eval_result);
     }
 }

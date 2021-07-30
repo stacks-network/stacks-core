@@ -727,7 +727,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_burnchain_block_header_hash_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,
-    ) -> BurnchainHeaderHash {
+    ) -> Option<BurnchainHeaderHash> {
         self.burn_state_db
             .get_burn_header_hash_using_canonical_sortition(burnchain_block_height)
     }
