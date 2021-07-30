@@ -1428,7 +1428,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Reopen this MARF with readonly storage.
-    /// 
+    ///
     /// Returns Err if:
     ///   1) This class is already in the process of writing.
     ///   2) A new underlying SQLite database connection cannot be established.

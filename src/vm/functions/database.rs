@@ -30,8 +30,8 @@ use vm::errors::{
 };
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::types::{
-    BurnBlockInfoProperty, BlockInfoProperty, BuffData, OptionalData, PrincipalData, SequenceData, TypeSignature, Value,
-    BUFF_32,
+    BlockInfoProperty, BuffData, BurnBlockInfoProperty, OptionalData, PrincipalData, SequenceData,
+    TypeSignature, Value, BUFF_32,
 };
 use vm::{eval, Environment, LocalContext};
 
@@ -536,12 +536,12 @@ pub fn special_get_burn_block_info(
                 .get_burnchain_block_header_hash_for_burnchain_height(height_value);
 
             match burnchain_header_hash_opt {
-                Some(burnchain_header_hash) => 
-            Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
-                data: burnchain_header_hash.as_bytes().to_vec(),
-            }))),
-            None => Value::none(),
-
+                Some(burnchain_header_hash) => {
+                    Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
+                        data: burnchain_header_hash.as_bytes().to_vec(),
+                    })))
+                }
+                None => Value::none(),
             }
         }
     };

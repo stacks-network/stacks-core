@@ -107,12 +107,8 @@ fn test_get_block_info() {
 
 #[test]
 fn test_get_burn_block_info() {
-    let good = [
-        "(get-burn-block-info? header-hash u0)",
-    ];
-    let expected = [
-        "(optional (buff 32))",
-    ];
+    let good = ["(get-burn-block-info? header-hash u0)"];
+    let expected = ["(optional (buff 32))"];
 
     let bad = [
         "(get-burn-block-info? none u1)",

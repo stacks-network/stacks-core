@@ -541,7 +541,10 @@ impl EventBatch {
 
 impl<'a> OwnedEnvironment<'a> {
     #[cfg(test)]
-    pub fn new_with_version(database: ClarityDatabase<'a>, clarity_version:ClarityVersion) -> OwnedEnvironment<'a> {
+    pub fn new_with_version(
+        database: ClarityDatabase<'a>,
+        clarity_version: ClarityVersion,
+    ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(false, database, LimitedCostTracker::new_free()),
             default_contract: ContractContext::new(
@@ -925,7 +928,10 @@ impl<'a, 'b> Environment<'a, 'b> {
 
         let result = {
             // Note: This is where the wrong version comes from.
-            warn!("current_context {:?}", contract.contract_context.get_clarity_version());
+            warn!(
+                "current_context {:?}",
+                contract.contract_context.get_clarity_version()
+            );
             let mut nested_env = Environment::new(
                 &mut self.global_context,
                 &contract.contract_context,

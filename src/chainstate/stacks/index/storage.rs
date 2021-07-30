@@ -866,7 +866,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     }
 
     /// Returns a new TrieFileStorage in read-only mode.
-    /// 
+    ///
     /// Returns Err if the underlying SQLite database connection cannot be created.
     pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         let db = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;

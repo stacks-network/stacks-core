@@ -1475,7 +1475,7 @@ impl<'a> SortitionHandleConn<'a> {
     }
 
     /// Returns a new reader handle.
-    /// 
+    ///
     /// Does not fail.
     pub fn open_reader(
         connection: &'a SortitionDBConn<'a>,
@@ -1542,7 +1542,7 @@ impl<'a> SortitionHandleConn<'a> {
     }
 
     /// Returns the snapshot of the burnchain block at burnchain height `block_height`.
-    /// 
+    ///
     /// Returns None if there is no such block.
     pub fn get_block_snapshot_by_height(
         &self,
@@ -2785,7 +2785,7 @@ impl SortitionDB {
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
-    /// 
+    ///
     /// Returns Err if the underlying SQLite call fails.
     pub fn get_canonical_sortition_tip(conn: &Connection) -> Result<SortitionId, db_error> {
         let qry = "SELECT sortition_id FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
@@ -3073,7 +3073,7 @@ impl SortitionDB {
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
     /// block in this fork, find the snapshot of the block at that height.
-    /// 
+    ///
     /// Returns None if there is no such ancestor.
     pub fn get_ancestor_snapshot<C: SortitionContext>(
         ic: &IndexDBConn<'_, C, SortitionId>,
