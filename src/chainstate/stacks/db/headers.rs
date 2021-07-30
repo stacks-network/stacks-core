@@ -123,7 +123,7 @@ impl StacksChainState {
             tip_info.block_height,
             tip_info.anchored_header.total_work.work
         );
-        assert!(tip_info.burn_header_timestamp < i64::max_value() as u64);
+        assert!(tip_info.burn_header_timestamp < i64::MAX as u64);
 
         let header = &tip_info.anchored_header;
         let index_root = &tip_info.index_root;
@@ -142,7 +142,7 @@ impl StacksChainState {
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
 
-        assert!(block_height < (i64::max_value() as u64));
+        assert!(block_height < (i64::MAX as u64));
 
         let args: &[&dyn ToSql] = &[
             &header.version,

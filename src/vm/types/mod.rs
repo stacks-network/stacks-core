@@ -1356,9 +1356,9 @@ mod test {
         }
 
         // on 32-bit archs, this error cannot even happen, so don't test (and cause an overflow panic)
-        if (u32::max_value() as usize) < usize::max_value() {
+        if (u32::MAX as usize) < usize::MAX {
             assert_eq!(
-                Value::buff_from(vec![0; (u32::max_value() as usize) + 10]),
+                Value::buff_from(vec![0; (u32::MAX as usize) + 10]),
                 Err(CheckErrors::ValueTooLarge.into())
             );
         }
