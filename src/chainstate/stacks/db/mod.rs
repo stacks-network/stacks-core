@@ -1505,8 +1505,8 @@ impl StacksChainState {
         contract: &QualifiedContractIdentifier,
         code: &str,
     ) -> Value {
-        let bt = backtrace::Backtrace::new();
-        warn!("bt {:?}", bt);
+        // let bt = backtrace::Backtrace::new();
+        // warn!("bt {:?}", bt);
         let result = self.clarity_state.eval_read_only(
             parent_id_bhh,
             self.state_index.sqlite_conn(),
