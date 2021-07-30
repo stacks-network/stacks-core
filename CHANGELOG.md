@@ -41,6 +41,9 @@ to reset their chain states.
   even when self-mined. (#2653)
 - A bug is fixed in the mocknet/helium miner that would lead to a panic if a
   burn block occurred without a sortition in it. (#2711)
+- A bug that caused problems syncing during a bitcoin reorg has been fixed
+  (#2771).
+- Syncing with the burnchain has been improved (#2780).
 - Documentation is fixed in cases where string and buffer types are allowed
   but not covered in the documentation.  (#2676)
 
