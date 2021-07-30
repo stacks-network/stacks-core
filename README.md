@@ -171,7 +171,7 @@ cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d
 You can observe the state machine in action locally by running:
 
 ```bash
-cargo testnet start --config=./testnet/stacks-node/conf/testnet-follower-conf.toml
+cargo stacks-node start --config=./testnet/stacks-node/conf/testnet-follower-conf.toml
 ```
 
 `testnet-follower-conf.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers. You can grant an address an initial account balance by adding the following entries:
@@ -316,6 +316,91 @@ You can automatically reformat your commit via:
 ```bash
 cargo fmt --all
 ```
+
+## Non-Consensus Breaking Release Process
+
+For non-consensus breaking releases, this project uses the following release process:
+
+1. The release must be timed so that it does not interfere with a *prepare
+phase*.  The timing of the next Stacking cycle can be found
+[here](https://stacking.club/cycles/next). A release to `mainnet` should happen
+at least 24 hours before the start of a new cycle, to avoid interfering
+with the prepare phase. So, start by being aware of when the release can
+happen.
+
+1. Before creating the release, the release manager must determine the *version
+number* for this release.  The factors that determine the version number are
+discussed in [Versioning](#versioning).  We assume, in this section,
+that the change is not consensus-breaking.  So, the release manager must first
+determine whether there are any "non-consensus-breaking changes that require a
+fresh chainstate". This means, in other words, that the database schema has
+changed. Then, the release manager should determine whether this is a feature
+release, as opposed to a hot fix or a patch. Given the answers to these
+questions, the version number can be computed.
+
+1. The release manager enumerates the PRs or issues that would _block_
+   the release. A label should be applied to each such issue/PR as
+   `2.0.x.y.z-blocker`. The release manager should ping these
+   issue/PR owners for updates on whether or not those issues/PRs have
+   any blockers or are waiting on feedback.
+
+1. The release manager should open a `develop -> master` PR. This can be done before
+   all the blocker PRs have merged, as it is helpful for the manager and others
+   to see the staged changes.
+
+1. The release manager must update the `CHANGELOG.md` file with summaries what
+was `Added`, `Changed`, and `Fixed`. The pull requests merged into `develop`
+can be found
+[here](https://github.com/blockstack/stacks-blockchain/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc). Note, however, that GitHub apparently does not allow sorting by
+*merge time*, so, when sorting by some proxy criterion, some care should
+be used to understand which PR's were *merged* after the last `develop ->
+master` release PR.  This `CHANGELOG.md` should also be used as the description
+of the `develop -> master` so that it acts as *release notes* when the branch
+is tagged.
+
+1. Once the blocker PRs have merged, the release manager will create a new tag
+   by manually triggering the [`stacks-blockchain` Github Actions workflow](https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml)
+   against the `develop` branch, inputting the release candidate tag, `2.0.x.y.z-rc0`,
+   in the Action's input textbox.
+
+1. Once the release candidate has been built, and docker images, etc. are available,
+   the release manager will notify various ecosystem participants to test the release
+   candidate on various staging infrastructure:
+
+   1. Stacks Foundation staging environments.
+   1. Hiro PBC regtest network.
+   1. Hiro PBC testnet network.
+   1. Hiro PBC mainnet mock miner.
+
+   The release candidate should be announced in the `#stacks-core-devs` channel in the
+   Stacks Discord. For coordinating rollouts on specific infrastructure, the release
+   manager should contact the above participants directly either through e-mail or
+   Discord DM. The release manager should also confirm that the built release on the
+   [Github releases](https://github.com/blockstack/stacks-blockchain/releases/)
+   page is marked as `Pre-Release`.
+
+1. The release manager will test that the release candidate successfully syncs with
+   the current chain from genesis both in testnet and mainnet. This requires starting
+   the release candidate with an empty chainstate and confirming that it synchronizes
+   with the current chain tip.
+
+1. If bugs or issues emerge from the rollout on staging infrastructure, the release
+   will be delayed until those regressions are resolved. As regressions are resolved,
+   additional release candidates should be tagged. The release manager is responsible
+   for updating the `develop -> master` PR with information about the discovered issues,
+   even if other community members and developers may be addressing the discovered
+   issues.
+
+1. Once the final release candidate has rolled out successfully without issue on the
+   above staging infrastructure, the release manager tags 2 additional `stacks-blockchain`
+   team members to review the `develop -> master` PR.
+
+1. Once reviewed and approved, the release manager merges the PR, and tags the release
+   via the [`stacks-blockchain` Github action]((https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml))
+   by clicking "Run workflow" and providing the release version as the tag (e.g.,
+   `2.0.11.1.0`) This creates a release and release images. Once the release has been
+   created, the release manager should update the Github release text with the
+   `CHANGELOG.md` "top-matter" for the release.
 
 ## Copyright and License
 

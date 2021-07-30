@@ -38,6 +38,8 @@ use vm::database::NULL_HEADER_DB;
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
+use chainstate::burn::db::sortdb::SortitionDB;
+use types::chainstate::BurnchainHeaderHash;
 
 pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>;
 
@@ -45,8 +47,12 @@ pub struct ProcessedUnconfirmedState {
     pub total_burns: u128,
     pub total_fees: u128,
     // each element of this vector is a tuple, where each tuple contains a microblock
-    // sequence number, and a vector of transaction receipts for that microblock
-    pub receipts: Vec<(u16, Vec<StacksTransactionReceipt>)>,
+    // sequence number, microblock header, and a vector of transaction receipts
+    // for that microblock
+    pub receipts: Vec<(u16, StacksMicroblockHeader, Vec<StacksTransactionReceipt>)>,
+    pub burn_block_hash: BurnchainHeaderHash,
+    pub burn_block_height: u32,
+    pub burn_block_timestamp: u64,
 }
 
 impl Default for ProcessedUnconfirmedState {
@@ -55,6 +61,9 @@ impl Default for ProcessedUnconfirmedState {
             total_burns: 0,
             total_fees: 0,
             receipts: vec![],
+            burn_block_hash: BurnchainHeaderHash([0; 32]),
+            burn_block_height: 0,
+            burn_block_timestamp: 0,
         }
     }
 }
@@ -155,7 +164,7 @@ impl UnconfirmedState {
         burn_dbconn: &dyn BurnStateDB,
         mblocks: Vec<StacksMicroblock>,
     ) -> Result<ProcessedUnconfirmedState, Error> {
-        if self.last_mblock_seq == u16::max_value() {
+        if self.last_mblock_seq == u16::MAX {
             // drop them -- nothing to do
             return Ok(Default::default());
         }
@@ -165,6 +174,17 @@ impl UnconfirmedState {
             &self.confirmed_chain_tip,
             mblocks.len()
         );
+
+        let headers_db = chainstate.db();
+        let burn_block_hash = headers_db
+            .get_burn_header_hash_for_block(&self.confirmed_chain_tip)
+            .expect("BUG: unable to get burn block hash based on chain tip");
+        let burn_block_height = headers_db
+            .get_burn_block_height_for_block(&self.confirmed_chain_tip)
+            .expect("BUG: unable to get burn block height based on chain tip");
+        let burn_block_timestamp = headers_db
+            .get_burn_block_time_for_block(&self.confirmed_chain_tip)
+            .expect("BUG: unable to get burn block timestamp based on chain tip");
 
         let mut last_mblock = self.last_mblock.take();
         let mut last_mblock_seq = self.last_mblock_seq;
@@ -229,7 +249,7 @@ impl UnconfirmedState {
                 total_fees += stx_fees;
                 total_burns += stx_burns;
                 num_new_mblocks += 1;
-                all_receipts.push((seq, receipts));
+                all_receipts.push((seq, mblock.header, receipts));
 
                 last_mblock = Some(mblock_header);
                 last_mblock_seq = seq;
@@ -245,10 +265,7 @@ impl UnconfirmedState {
                 };
 
                 for tx in &mblock.txs {
-                    mined_txs.insert(
-                        tx.txid(),
-                        (tx.clone(), mblock.block_hash(), mblock.header.sequence),
-                    );
+                    mined_txs.insert(tx.txid(), (tx.clone(), mblock_hash, seq));
                 }
             }
 
@@ -277,6 +294,9 @@ impl UnconfirmedState {
             total_fees,
             total_burns,
             receipts: all_receipts,
+            burn_block_hash,
+            burn_block_height,
+            burn_block_timestamp,
         })
     }
 
@@ -297,7 +317,7 @@ impl UnconfirmedState {
             &chainstate.db(),
             &StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash),
             0,
-            u16::max_value(),
+            u16::MAX,
         )
     }
 
@@ -313,7 +333,7 @@ impl UnconfirmedState {
             "BUG: code tried to write unconfirmed state to a read-only instance"
         );
 
-        if self.last_mblock_seq == u16::max_value() {
+        if self.last_mblock_seq == u16::MAX {
             // no-op
             return Ok(Default::default());
         }

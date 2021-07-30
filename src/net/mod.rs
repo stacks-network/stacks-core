@@ -207,6 +207,8 @@ pub enum Error {
     ConnectionCycle,
     /// Requested data not found
     NotFoundError,
+    /// Transient error (akin to EAGAIN)
+    Transient(String),
 }
 
 impl From<codec_error> for Error {
@@ -303,6 +305,7 @@ impl fmt::Display for Error {
             Error::StaleView => write!(f, "State view is stale"),
             Error::ConnectionCycle => write!(f, "Tried to connect to myself"),
             Error::NotFoundError => write!(f, "Requested data not found"),
+            Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
         }
     }
 }
@@ -361,6 +364,7 @@ impl error::Error for Error {
             Error::StaleView => None,
             Error::ConnectionCycle => None,
             Error::NotFoundError => None,
+            Error::Transient(ref _s) => None,
         }
     }
 }
@@ -969,7 +973,7 @@ pub struct RPCPeerInfoData {
     pub parent_network_id: u32,
     pub stacks_tip_height: u64,
     pub stacks_tip: BlockHeaderHash,
-    pub stacks_tip_consensus_hash: String,
+    pub stacks_tip_consensus_hash: ConsensusHash,
     pub genesis_chainstate_hash: Sha256Sum,
     pub unanchored_tip: StacksBlockId,
     pub unanchored_seq: u16,
@@ -1492,7 +1496,7 @@ pub trait ProtocolFamily {
 pub struct StacksP2P {}
 
 // an array in our protocol can't exceed this many items
-pub const ARRAY_MAX_LEN: u32 = u32::max_value();
+pub const ARRAY_MAX_LEN: u32 = u32::MAX;
 
 // maximum number of neighbors in a NeighborsData
 pub const MAX_NEIGHBORS_DATA_LEN: u32 = 128;
@@ -2109,8 +2113,7 @@ pub mod test {
                 )
                 .unwrap(),
             );
-            burnchain.pox_constants =
-                PoxConstants::new(5, 3, 3, 25, 5, u64::max_value(), u64::max_value());
+            burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX);
 
             let mut spending_account = TestMinerFactory::new().next_miner(
                 &burnchain,

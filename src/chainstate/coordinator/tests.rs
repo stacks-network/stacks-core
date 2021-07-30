@@ -304,6 +304,9 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _winner_txid: Txid,
         _rewards: Vec<MinerReward>,
         _rewards_info: Option<MinerRewardInfo>,
+        _parent_burn_block_hash: BurnchainHeaderHash,
+        _parent_burn_block_height: u32,
+        _parent_burn_block_timestamp: u64,
     ) {
         assert!(
             false,
@@ -365,8 +368,8 @@ fn make_reward_set_coordinator<'a>(
 
 pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain {
     let mut b = Burnchain::regtest(&format!("{}/burnchain/db/", path));
-    b.pox_constants = pox_consts
-        .unwrap_or_else(|| PoxConstants::new(5, 3, 3, 25, 5, u64::max_value(), u64::max_value()));
+    b.pox_constants =
+        pox_consts.unwrap_or_else(|| PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX));
     b
 }
 
