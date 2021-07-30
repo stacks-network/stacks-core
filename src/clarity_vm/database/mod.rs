@@ -155,7 +155,6 @@ impl BurnStateDB for SortitionDBConn<'_> {
         }
     }
 
-    // This is the one the integration test is calling.
     fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,

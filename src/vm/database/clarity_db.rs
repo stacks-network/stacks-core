@@ -101,15 +101,34 @@ pub trait BurnStateDB {
     fn get_pox_prepare_length(&self) -> u32;
     fn get_pox_reward_cycle_length(&self) -> u32;
     fn get_pox_rejection_fraction(&self) -> u64;
+
+    /// Returns the header hash of the burnchain block at burnchain height `height`
+    /// using the sortition `sortition_id`.
+    /// 
+    /// Returns None if `height` is negative or greater than the canonical burn
+    /// chain height.
+    /// 
+    /// Panics if there is an error with the underlying database connection or
+    /// query.
     fn get_burn_header_hash(
         &self,
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
+
+    /// Returns the header hash of the burnchain block at burnchain height `height`
+    /// using the "canonical sortition" (see SortitionDB::get_canonical_sortition_tip).
+    /// 
+    /// Returns None if `height` is negative or greater than the canonical burn
+    /// chain height.
+    /// 
+    /// Panics if there is an error with the underlying database connection or
+    /// query.
     fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
     ) -> Option<BurnchainHeaderHash>;
+
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
 }
 
@@ -698,6 +717,13 @@ impl<'a> ClarityDatabase<'a> {
             .expect("Failed to get block data.")
     }
 
+    /// Returns the header hash of the burnchain block at `burnchain_block_height`
+    /// using the "canonical sortition" (see SortitionDB::get_canonical_sortition_tip).
+    /// 
+    /// Returns None if `height` is negative or greater than the canonical burn
+    /// chain height.
+    /// 
+    /// Panics if the underlying database is not available.
     pub fn get_burnchain_block_header_hash_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,

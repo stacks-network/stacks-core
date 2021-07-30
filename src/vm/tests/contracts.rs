@@ -34,11 +34,18 @@ use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
+use vm::version::ClarityVersion;
+use vm::database::BurnStateDB;
+use types::chainstate::SortitionId;
+use core::StacksEpoch;
+use types::chainstate::BurnchainHeaderHash;
+use vm::types::Value::Sequence;
+use vm::types::SequenceData::Buffer;
+use vm::types::BuffData;
+
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
-
-use vm::version::ClarityVersion;
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))
@@ -167,21 +174,18 @@ fn test_get_block_info_eval() {
     }
 }
 
-use vm::database::BurnStateDB;
-use types::chainstate::SortitionId;
-use core::StacksEpoch;
-use types::chainstate::BurnchainHeaderHash;
+struct BurnBlockTestDB {}
 
-struct TestBurnStateDB {}
-
-impl BurnStateDB for TestBurnStateDB {
+impl BurnStateDB for BurnBlockTestDB {
     fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> { None }
     fn get_burn_start_height(&self) -> u32 { 0 }
     fn get_burn_header_hash( &self, _height: u32, _sortition_id: &SortitionId,) -> Option<BurnchainHeaderHash> { None }
     fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
-    ) -> Option<BurnchainHeaderHash> { None }
+    ) -> Option<BurnchainHeaderHash> { if height == 0 {
+        Some(BurnchainHeaderHash::zero())
+     } else { None } }
     fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> { None }
     fn get_v1_unlock_height(&self) -> u32 { panic!("Not implemented"); }
     fn get_pox_prepare_length(&self) -> u32 { panic!("Not implemented"); }
@@ -191,46 +195,35 @@ impl BurnStateDB for TestBurnStateDB {
 
 #[test]
 fn test_get_burn_block_info_eval() {
-    let contracts = [
-        "(define-private (test-func) (get-burn-block-info? header-hash u0))",
+    let test_pairs = [
+        // (get-burn-block-info? header-hash u0) should be Some(BurnchainHeaderHash::zero())
+        // because this is the hard-coded answer in BurnBlockTestDB.
+        (
+            "(define-private (test-func) (get-burn-block-info? header-hash u0))",
+            Ok(Value::Optional(OptionalData { data: Some(Box::new(Sequence(Buffer(BuffData{ data: vec![0; 32]})))) })),
+        ),
+        // (get-burn-block-info? header-hash u0) should be None because this is
+        // the hard-coded answer in BurnBlockTestDB.
+        (
+            "(define-private (test-func) (get-burn-block-info? header-hash u1))",
+            Ok(Value::none()),
+        ),
     ];
 
-    let expected = [
-        Ok(Value::none()),
-    ];
-
-    for i in 0..contracts.len() {
+    let test_burn_state_db = BurnBlockTestDB{};
+    for (contract, expected) in test_pairs.iter() {
         let mut marf = MemoryBackingStore::new();
-        let mut clarity_db = marf.as_clarity_db_with_databases(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        let mut clarity_db = marf.as_clarity_db_with_databases(&NULL_HEADER_DB, &test_burn_state_db);
         clarity_db.begin();
         clarity_db.set_clarity_epoch_version(crate::core::StacksEpochId::Epoch21);
         let mut owned_env = OwnedEnvironment::new_with_version(clarity_db, ClarityVersion::Clarity2);
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
         owned_env
-            .initialize_contract(contract_identifier.clone(), contracts[i], None)
+            .initialize_contract(contract_identifier.clone(), contract, None)
             .unwrap();
-
         let mut env = owned_env.get_exec_environment(None, None);
-        warn!("env context {:?}", env.contract_context.get_clarity_version());
-
         let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
-        match expected[i] {
-            // any (some UINT) is okay for checking get-block-info? time
-            Ok(Value::UInt(0)) => {
-                assert!(
-                    if let Ok(Value::Optional(OptionalData { data: Some(x) })) = eval_result {
-                        if let Value::UInt(_) = *x {
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                );
-            }
-            _ => assert_eq!(expected[i], eval_result),
-        }
+        assert_eq!(*expected, eval_result);
     }
 }
 
