@@ -530,13 +530,19 @@ pub fn special_get_burn_block_info(
 
     let result = match block_info_prop {
         BurnBlockInfoProperty::HeaderHash => {
-            let burnchain_header_hash = env
+            let burnchain_header_hash_opt = env
                 .global_context
                 .database
                 .get_burnchain_block_header_hash_for_burnchain_height(height_value);
-            Value::Sequence(SequenceData::Buffer(BuffData {
+
+            match burnchain_header_hash_opt {
+                Some(burnchain_header_hash) => 
+            Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
                 data: burnchain_header_hash.as_bytes().to_vec(),
-            }))
+            }))),
+            None => Value::none(),
+
+            }
         }
     };
 

@@ -730,7 +730,6 @@ impl<'a> ClarityDatabase<'a> {
     ) -> BurnchainHeaderHash {
         self.burn_state_db
             .get_burn_header_hash_using_canonical_sortition(burnchain_block_height)
-            .expect("Failed to get block data.")
     }
 
     pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {

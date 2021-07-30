@@ -180,6 +180,7 @@ impl BurnStateDB for BurnBlockTestDB {
     fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> { None }
     fn get_burn_start_height(&self) -> u32 { 0 }
     fn get_burn_header_hash( &self, _height: u32, _sortition_id: &SortitionId,) -> Option<BurnchainHeaderHash> { None }
+    // Returns BurnchainHeaderHash::zero() iff `height == 0`, otherwise None.
     fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
