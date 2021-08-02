@@ -341,8 +341,8 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 &principals::special_parse_principal,
             ),
             PrincipalConstruct => NativeFunction(
-                "native_assemble_principal",
-                NativeHandle::DoubleArg(&principals::native_assemble_principal),
+                "native_principal_construct",
+                NativeHandle::DoubleArg(&principals::native_principal_construct),
                 ClarityCostFunction::Unimplemented,
             ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),

@@ -2460,7 +2460,7 @@ fn test_parse_principal() {
 }
 
 #[test]
-fn test_assemble_principal() {
+fn test_principal_construct() {
     let good = [
         r#"(principal-construct u22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
         // Note: This following buffer is too short. It's not legal but is to be caught at compute stage.

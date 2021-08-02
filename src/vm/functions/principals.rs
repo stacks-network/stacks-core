@@ -88,7 +88,7 @@ pub fn special_parse_principal(
     Ok(result)
 }
 
-pub fn native_assemble_principal(version: Value, pub_key_hash: Value) -> Result<Value> {
+pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result<Value> {
     let verified_version = match version {
         Value::UInt(version) => version,
         _ => return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, version).into()),
