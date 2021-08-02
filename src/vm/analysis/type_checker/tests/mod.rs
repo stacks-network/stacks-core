@@ -2492,8 +2492,10 @@ fn test_principal_construct() {
         // The first buffer is too long, should be `(buff 1)`.
         (
             r#"(principal-construct 0xfa6bf38ed557fe417333710d6033e9419391a320 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::TypeError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
-            TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20)))),
+            CheckErrors::TypeError(
+                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
+                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
+            ),
         ),
         // The second buffer is too long, should be `(buff 20)`.
         (
@@ -2506,7 +2508,10 @@ fn test_principal_construct() {
         // `int` argument instead of `(buff 1)` for version.
         (
             r#"(principal-construct 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::TypeError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))), IntType),
+            CheckErrors::TypeError(
+                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
+                IntType,
+            ),
         ),
     ];
 
