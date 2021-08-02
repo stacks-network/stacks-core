@@ -1356,7 +1356,7 @@ The `header-hash`, `burnchain-header-hash`, `id-header-hash`, and `vrf-seed` pro
 
 `header-hash` returns the header hash of a Stacks node, given a Stacks chain height.
 
-`burnchain-header-hash` returns header hash of a burnchain (Bitcoin) node, given a Stacks chain height.
+`burnchain-header-hash` returns header hash of the burnchain (Bitcoin) node corresponding to the given Stacks chain height.
 
 The `miner-address` property returns a `principal` corresponding to the miner of the given block.
 

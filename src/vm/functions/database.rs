@@ -520,9 +520,12 @@ pub fn special_get_burn_block_info(
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+        x => {
+            return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x).into());
+        },
     }?;
 
+    // Note: We assume that we will not have a height bigger than u32::MAX.
     let height_value = match u32::try_from(height_value) {
         Ok(result) => result,
         _ => return Ok(Value::none()),
