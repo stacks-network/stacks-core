@@ -123,7 +123,7 @@ impl StacksChainState {
             tip_info.block_height,
             tip_info.anchored_header.total_work.work
         );
-        assert!(tip_info.burn_header_timestamp < i64::max_value() as u64);
+        assert!(tip_info.burn_header_timestamp < i64::MAX as u64);
 
         let header = &tip_info.anchored_header;
         let index_root = &tip_info.index_root;
@@ -142,7 +142,7 @@ impl StacksChainState {
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
 
-        assert!(block_height < (i64::max_value() as u64));
+        assert!(block_height < (i64::MAX as u64));
 
         let args: &[&dyn ToSql] = &[
             &header.version,
@@ -227,16 +227,12 @@ impl StacksChainState {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
-        let sql =
-            "SELECT * FROM block_headers WHERE consensus_hash = ?1 AND block_hash = ?2".to_string();
+        let sql = "SELECT * FROM block_headers WHERE consensus_hash = ?1 AND block_hash = ?2";
         let args: &[&dyn ToSql] = &[&consensus_hash, &block_hash];
-        let mut rows =
-            query_rows::<StacksHeaderInfo, _>(conn, &sql, args).map_err(Error::DBError)?;
-        if rows.len() > 1 {
-            unreachable!("FATAL: multiple rows for the same block hash") // should be unreachable, since block_hash/consensus_hash is the primary key
-        }
-
-        Ok(rows.pop())
+        query_row_panic(conn, sql, args, || {
+            "FATAL: multiple rows for the same block hash".to_string()
+        })
+        .map_err(Error::DBError)
     }
 
     /// Get a stacks header info by index block hash (i.e. by the hash of the burn block header
@@ -245,8 +241,8 @@ impl StacksChainState {
         conn: &Connection,
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
-        let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1".to_string();
-        query_row_panic(conn, &sql, &[&index_block_hash], || {
+        let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1";
+        query_row_panic(conn, sql, &[&index_block_hash], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })
         .map_err(Error::DBError)

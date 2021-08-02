@@ -27,7 +27,7 @@ use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::tests::execute;
-use vm::types::signatures::BufferLength;
+use vm::types::signatures::*;
 use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
 use vm::{eval, execute as vm_execute};
@@ -281,14 +281,14 @@ fn test_secp256k1_errors() {
     ];
 
     let expectations: &[Error] = &[
-        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(32))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() }))).into(),
-        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(65))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() }))).into(),
+        CheckErrors::TypeValueError(BUFF_32.clone(), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() }))).into(),
+        CheckErrors::TypeValueError(BUFF_65.clone(), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() }))).into(),
         CheckErrors::IncorrectArgumentCount(2, 1).into(),
         CheckErrors::IncorrectArgumentCount(2, 3).into(),
 
-        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(32))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() }))).into(),
-        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(65))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() }))).into(),
-        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(33))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() }))).into(),
+        CheckErrors::TypeValueError(BUFF_32.clone(), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() }))).into(),
+        CheckErrors::TypeValueError(BUFF_65.clone(), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() }))).into(),
+        CheckErrors::TypeValueError(BUFF_33.clone(), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() }))).into(),
         CheckErrors::IncorrectArgumentCount(3, 2).into(),
 
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
@@ -507,7 +507,7 @@ fn test_simple_arithmetic_functions() {
         Value::Bool(true),
         Value::Bool(true),
         Value::Int(65536),
-        Value::Int(u32::max_value() as i128 + 1),
+        Value::Int(u32::MAX as i128 + 1),
         Value::Int(1),
         Value::Int(170_141_183_460_469_231_731_687_303_715_884_105_727),
         Value::UInt(340_282_366_920_938_463_463_374_607_431_768_211_455),
@@ -525,10 +525,10 @@ fn test_simple_arithmetic_functions() {
         Value::Int(3),
         Value::Int(126),
         Value::UInt(127),
-        Value::UInt(u128::max_value()),
+        Value::UInt(u128::MAX),
         Value::UInt(137),
-        Value::Int(i128::max_value()),
-        Value::Int(-1 * (u32::max_value() as i128 + 1)),
+        Value::Int(i128::MAX),
+        Value::Int(-1 * (u32::MAX as i128 + 1)),
     ];
 
     tests
