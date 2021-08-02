@@ -557,7 +557,7 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
     }
 }
 
-/// Properties for "get-block-info".
+// Properties for "get-block-info".
 define_named_enum!(BlockInfoProperty {
     Time("time"),
     VrfSeed("vrf-seed"),
@@ -567,7 +567,7 @@ define_named_enum!(BlockInfoProperty {
     MinerAddress("miner-address"),
 });
 
-/// Properties for "get-burn-block-info".
+// Properties for "get-burn-block-info".
 define_named_enum!(BurnBlockInfoProperty {
     HeaderHash("header-hash"),
 });
