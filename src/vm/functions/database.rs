@@ -540,10 +540,8 @@ pub fn special_get_burn_block_info(
                     Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
                         data: burnchain_header_hash.as_bytes().to_vec(),
                     })))
-                },
-                None => {
-                    Ok(Value::none())
-                },
+                }
+                None => Ok(Value::none()),
             }
         }
     }

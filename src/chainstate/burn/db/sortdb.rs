@@ -1541,7 +1541,7 @@ impl<'a> SortitionHandleConn<'a> {
 
     /// Returns the snapshot of the burnchain block at burnchain height `block_height`.
     ///
-    /// Returns None if there is no such block.
+    /// Returns None if there is no block at this height.
     pub fn get_block_snapshot_by_height(
         &self,
         block_height: u64,
@@ -3072,7 +3072,7 @@ impl SortitionDB {
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
     /// block in this fork, find the snapshot of the block at that height.
     ///
-    /// Returns None if there is no such ancestor.
+    /// Returns None if there is no ancestor at this height.
     pub fn get_ancestor_snapshot<C: SortitionContext>(
         ic: &IndexDBConn<'_, C, SortitionId>,
         ancestor_block_height: u64,

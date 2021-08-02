@@ -391,13 +391,13 @@ fn integration_test_get_info() {
                         burn_dbconn, bhh, &contract_identifier, "(test-11)"),
                     Value::UInt(2));
 
-                // // The header hash for block at height u0 of the simulated
-                // // Bitcoin chain is all 00's.
-                // let burn_chain_height_result = chain_state.clarity_eval_read_only(
-                //         burn_dbconn, bhh, &contract_identifier, "(test-12)");
-                // let header_hash0 = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-                // assert_eq!(burn_chain_height_result,
-                //     Value::some(Value::buff_from(header_hash0).unwrap()).unwrap());
+                // The header hash for block at height u0 of the simulated
+                // Bitcoin chain is all 00's.
+                let burn_chain_height_result = chain_state.clarity_eval_read_only(
+                        burn_dbconn, bhh, &contract_identifier, "(test-12)");
+                let header_hash0 = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+                assert_eq!(burn_chain_height_result,
+                    Value::some(Value::buff_from(header_hash0).unwrap()).unwrap());
 
             },
             2 => {
