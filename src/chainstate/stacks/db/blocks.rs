@@ -5226,8 +5226,18 @@ impl StacksChainState {
     }
 
     /// Check to see if a transaction can be (potentially) appended on top of a given chain tip.
-    /// Note that this only checks the transaction against the _anchored chain tip_, not the
-    /// unconfirmed microblock stream trailing off of it.
+    /// The input `mempool_admission_check` determines what the transaction is validated against.
+    /// If `mempool_admission_check`==OffChainOnly, the transaction will only be validated against unconfirmed state.
+    /// If `mempool_admission_check`==OnChainOnly, the transaction will only be validated against confirmed state.
+    /// If `mempool_admission_check`=Any, the transaction will be accepted if it validates against either unconfirmed or confirmed tip
+    ///
+    /// This function returns an error if
+    ///     - The transaction fails a basic semantic check (for example, if the sender & recipient
+    ///       of a token transfer are the same).
+    ///     - If there was a failure in querying the stacks block height.
+    ///     - If the tx is a poison microblock tx, and there is a failure in recovering the
+    ///       public key.
+    ///     -
     pub fn will_admit_mempool_tx(
         &mut self,
         current_consensus_hash: &ConsensusHash,

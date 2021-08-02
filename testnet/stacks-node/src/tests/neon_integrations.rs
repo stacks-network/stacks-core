@@ -1342,7 +1342,7 @@ fn should_fix_2771() {
         return;
     }
 
-    let (conf, miner_account) = neon_integration_test_conf();
+    let (conf, _) = neon_integration_test_conf();
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1927,11 +1927,11 @@ fn transaction_validation_integration_test() {
     /// The purpose of this test is to check if the mempool admission checks for the post tx
     /// endpoint are working as expected wrt the optional `mempool_admission_check` query parameter.
     ///
-    /// In this test, I am manually creating a microblock as well as reloading the unconfirmed
+    /// In this test, we are manually creating a microblock as well as reloading the unconfirmed
     /// state of the chainstate, instead of relying on `next_block_and_wait` to generate
-    /// microblocks. I do this because the unconfirmed state is not automatically being initialized
+    /// microblocks. We do this because the unconfirmed state is not automatically being initialized
     /// on the node, so attempting to validate any transactions against the expected unconfirmed
-    /// state fails.
+    /// state fails
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -1976,19 +1976,19 @@ fn transaction_validation_integration_test() {
 
     thread::spawn(move || run_loop.start(None, 0));
 
-    // give the run loop some time to start up!
+    // Give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
-    // first block wakes up the run loop
+    // First block wakes up the run loop.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // first block will hold our VRF registration
+    // Second block will hold our VRF registration.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // second block will be the first mined Stacks block
+    // Third block will be the first mined Stacks block.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // let's query our first spender
+    // Let's query our first spender.
     let account = get_account(&http_origin, &spender_addr);
     assert_eq!(account.balance, 100300);
     assert_eq!(account.nonce, 0);
@@ -1996,7 +1996,7 @@ fn transaction_validation_integration_test() {
     // this call wakes up our node
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // open chainstate
+    // Open chainstate.
     // TODO (hack) instantiate the sortdb in the burnchain
     let _ = btc_regtest_controller.sortdb_mut();
     let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
@@ -2005,12 +2005,12 @@ fn transaction_validation_integration_test() {
     let (mut chainstate, _) =
         StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path_str()).unwrap();
 
-    // initialize unconfirmed state
+    // Initialize the unconfirmed state.
     chainstate
         .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
         .unwrap();
 
-    // make microblock with two tx's
+    // Make microblock with two transactions.
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
     let transfer_tx =
         make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
@@ -2036,7 +2036,7 @@ fn transaction_validation_integration_test() {
         vec_tx,
     );
 
-    // store the microblock we just created, and reload the unconfirmed state to apply that microblock to the unconfirmed state
+    // Store the microblock we just created, and reload the unconfirmed state to apply that microblock to the unconfirmed state.
     assert!(chainstate
         .preprocess_streamed_microblock(&consensus_hash, &stacks_block.block_hash(), &mblock)
         .unwrap());
@@ -2044,7 +2044,7 @@ fn transaction_validation_integration_test() {
         .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
         .unwrap();
 
-    // call the contract we just defined in a microblock, but make the mempool admission check occur against anchored state
+    // Call the contract we just defined in a microblock, but make the mempool admission check occur against anchored state.
     let call_tx = make_contract_call(
         &spender_sk,
         2,
@@ -2065,10 +2065,14 @@ fn transaction_validation_integration_test() {
         .send()
         .unwrap();
     let err_str = res.text().unwrap();
+    // Expect to get "NoSuchContract" because the function we are attempting to call is in a
+    // contract that only exists on unconfirmed state (and we set `mempool_admission_check` to
+    // OnChainOnly).
     assert!(err_str.contains("NoSuchContract"));
 
-    // call the contract defined in the microblock, but make mempool admission check against unconfirmed state
+    // Call the contract defined in the microblock, but make mempool admission check against unconfirmed state.
     submit_tx(&http_origin, &call_tx, TransactionAnchorMode::OffChainOnly);
+    // Call the contract defined in the microblock, but make mempool admission check against either anchored or unconfirmed state.
     submit_tx(&http_origin, &call_tx, TransactionAnchorMode::Any);
 }
 

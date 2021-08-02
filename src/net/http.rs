@@ -1698,7 +1698,7 @@ impl HttpRequestType {
         }
     }
 
-    /// Get the optional query argument `mempool_admission_check`.
+    /// Queries the optional query argument `mempool_admission_check`.
     /// If `mempool_admission_check` == "unconfirmed", the transaction is only validated against
     /// the unconfirmed state.
     /// If `mempool_admission_check` == "confirmed", the transaction is only validated against the

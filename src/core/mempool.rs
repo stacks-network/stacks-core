@@ -82,6 +82,11 @@ impl MemPoolAdmitter {
         self.cur_consensus_hash = cur_consensus_hash.clone();
         self.cur_block = cur_block.clone();
     }
+
+    /// Function calls and returns the result of `will_admit_mempool_tx`
+    /// The parameter `mempool_admission_check` determines what chain tip the given transaction will
+    /// be validated against (only the anchored tip, only the unconfirmed state, or both - where
+    /// the transaction is admitted if it is valid against either state).
     pub fn will_admit_tx(
         &mut self,
         chainstate: &mut StacksChainState,
@@ -840,6 +845,9 @@ impl MemPoolDB {
     }
 
     /// Submit a transaction to the mempool at a particular chain tip.
+    /// The parameter `mempool_admission_check` determines what chain tip the given transaction will
+    /// be validated against (only the anchored tip, only the unconfirmed state, or both - where
+    /// the transaction is admitted if it is valid against either state).
     fn tx_submit(
         mempool_tx: &mut MemPoolTx,
         chainstate: &mut StacksChainState,
