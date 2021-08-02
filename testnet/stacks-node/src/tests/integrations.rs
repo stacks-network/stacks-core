@@ -69,7 +69,6 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-private (test-9) (get-block-info? miner-address block-height))
         (define-private (test-10) (get-block-info? miner-address u100000))
         (define-private (test-11) burn-block-height)
-        (define-private (test-12) (get-burn-block-info? header-hash u0))
 
         (define-private (get-block-id-hash (height uint)) (unwrap-panic
           (get id-hash (map-get? block-data { height: height }))))
@@ -390,14 +389,6 @@ fn integration_test_get_info() {
                     chain_state.clarity_eval_read_only(
                         burn_dbconn, bhh, &contract_identifier, "(test-11)"),
                     Value::UInt(2));
-
-                // The header hash for block at height u0 of the simulated
-                // Bitcoin chain is all 00's.
-                let burn_chain_height_result = chain_state.clarity_eval_read_only(
-                        burn_dbconn, bhh, &contract_identifier, "(test-12)");
-                let header_hash0 = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-                assert_eq!(burn_chain_height_result,
-                    Value::some(Value::buff_from(header_hash0).unwrap()).unwrap());
 
             },
             2 => {
