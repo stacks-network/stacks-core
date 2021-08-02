@@ -1828,7 +1828,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
         IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
         ParsePrincipal => make_for_simple_native(&PARSE_PRINCIPAL_API, &IsStandard, name),
-        AssemblePrincipal => make_for_simple_native(&ASSEMBLE_PRINCIPAL_API, &IsStandard, name),
+        PrincipalConstruct => make_for_simple_native(&ASSEMBLE_PRINCIPAL_API, &IsStandard, name),
         StringToInt => make_for_simple_native(&STRING_TO_INT_API, &StringToInt, name),
         StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &StringToUInt, name),
         IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &IntToAscii, name),

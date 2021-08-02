@@ -702,7 +702,7 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::UIntType,
             }))),
-            AssemblePrincipal => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+            PrincipalConstruct => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![
                     FunctionArg::new(
                         TypeSignature::UIntType,

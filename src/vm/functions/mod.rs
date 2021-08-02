@@ -89,7 +89,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
     IsStandard("is-standard", ClarityVersion::Clarity2),
     ParsePrincipal("parse-principal", ClarityVersion::Clarity2),
-    AssemblePrincipal("principal-construct", ClarityVersion::Clarity2),
+    PrincipalConstruct("principal-construct", ClarityVersion::Clarity2),
     StringToInt("string-to-int", ClarityVersion::Clarity2),
     StringToUInt("string-to-uint", ClarityVersion::Clarity2),
     IntToAscii("int-to-ascii", ClarityVersion::Clarity2),
@@ -340,7 +340,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 "special_parse_principal",
                 &principals::special_parse_principal,
             ),
-            AssemblePrincipal => NativeFunction(
+            PrincipalConstruct => NativeFunction(
                 "native_assemble_principal",
                 NativeHandle::DoubleArg(&principals::native_assemble_principal),
                 ClarityCostFunction::Unimplemented,
