@@ -2462,43 +2462,13 @@ fn test_parse_principal() {
 #[test]
 fn test_principal_construct() {
     let good_pairs = [
+        // Standard good example.
         (
             r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
             "principal",
         ),
         // Note: This following buffer is too short. It's not legal but is to be caught at compute stage.
         (r#"(principal-construct 0x22 0x00)"#, "principal"),
-    ];
-
-    let bad_pairs = [
-        // Too few arguments, just short buffer.
-        (
-            r#"(principal-construct 0x22)"#,
-            CheckErrors::IncorrectArgumentCount(2, 1),
-        ),
-        // Too few arguments, just long buffer.
-        (
-            r#"(principal-construct 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::IncorrectArgumentCount(2, 1),
-        ),
-        // The first buffer is too long, should be `(buff 1)`.
-        (
-            r#"(principal-construct 0xfa6bf38ed557fe417333710d6033e9419391a320 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::TypeError(UIntType, IntType),
-        ),
-        // The second buffer is too long, should be `(buff 20)`.
-        (
-            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#, // buffer too long
-            CheckErrors::TypeError(
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(21))),
-            ),
-            // `int` argument instead of `(buff 1)` for version.
-            (
-                r#"(principal-construct 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-                CheckErrors::TypeError(UIntType, IntType),
-            ),
-        ),
     ];
 
     for (good_test, expected) in good_pairs.iter() {
@@ -2508,7 +2478,39 @@ fn test_principal_construct() {
         );
     }
 
-    for (bad_test, expected) in bad.iter() {
+    let bad_pairs = [
+        // Too few arguments, just has the `(buff 1)`.
+        (
+            r#"(principal-construct 0x22)"#,
+            CheckErrors::IncorrectArgumentCount(2, 1),
+        ),
+        // Too few arguments, just hs the `(buff 20)`.
+        (
+            r#"(principal-construct 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
+            CheckErrors::IncorrectArgumentCount(2, 1),
+        ),
+        // The first buffer is too long, should be `(buff 1)`.
+        (
+            r#"(principal-construct 0xfa6bf38ed557fe417333710d6033e9419391a320 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
+            CheckErrors::TypeError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
+            TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20)))),
+        ),
+        // The second buffer is too long, should be `(buff 20)`.
+        (
+            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#,
+            CheckErrors::TypeError(
+                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
+                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(21))),
+            ),
+        ),
+        // `int` argument instead of `(buff 1)` for version.
+        (
+            r#"(principal-construct 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
+            CheckErrors::TypeError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))), IntType),
+        ),
+    ];
+
+    for (bad_test, expected) in bad_pairs.iter() {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }
