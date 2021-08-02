@@ -267,7 +267,7 @@ Note: This function is only available starting with Stacks 2.1.",
 const PARSE_PRINCIPAL_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(parse-principal property-name principal-address)",
-    description: "A principal value is a concatenation of two things: a single *version byte*
+    description: "A principal value is a concatenation of two components: a single *version byte*
 (indicating the type of account and the type of network that this principal can spend tokens on),
 and a 20-byte *public key hash* (indicating the principal's unique identity).
 `parse-principal` is used to decompose a principal into its component parts.
@@ -287,20 +287,20 @@ Note: This function is only available starting with Stacks 2.1.",
 const ASSEMBLE_PRINCIPAL_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(assemble-principal version-byte public-key-hash)",
-    description: "A principal value is a concatenation of two things: a single *version byte*
-(indicating the type of account and the type of network that this principal can spend tokens on),
-and a 20-byte *public key hash* (characterizing the principal's unique identity).
-`assemble-principal` takes such a *version byte*, of type `uint`, 
+    description: "A principal value is a concatenation of two things: a 1-byte *version byte*,
+indicating the type of account and the type of network that this principal can spend tokens on,
+and a 20-byte *public key hash*, characterizing the principal's unique identity.
+`assemble-principal` takes such a *version byte*, of type `(buff 1)`, 
 and a *public key hash*, of type `(buff 20)`, and creates a corresponding object of type `principal`.
 
-The version byte should be `22` for a single-signature account on mainnet, `20`
-for a multi-signature account on mainnet, `26` for a single-signature account on
-a testnet, `21` for a multi-signature account on a testnet. The public key hash
+The version byte should be `0x22` for a single-signature account on mainnet, `0x20`
+for a multi-signature account on mainnet, `0x26` for a single-signature account on
+a testnet, `0x21` for a multi-signature account on a testnet. The public key hash
 should be a 20-byte buffer containing the hash of a public key.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(assemble-principal u22 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY
+(assemble-principal 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY
 "#,
 };
 

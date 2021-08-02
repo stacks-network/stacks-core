@@ -57,7 +57,6 @@ pub fn special_parse_principal(
     check_argument_count(2, args)?;
     runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
 
-    // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
         .ok_or(CheckErrors::ParsePrincipalExpectPropertyName)?;
