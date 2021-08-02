@@ -152,7 +152,6 @@ fn test_get_block_info_eval() {
         let mut env = owned_env.get_exec_environment(None, None);
 
         let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
-        warn!("eval_result: {:?}", eval_result);
         match expected[i] {
             // any (some UINT) is okay for checking get-block-info? time
             Ok(Value::UInt(0)) => {
@@ -173,8 +172,8 @@ fn test_get_block_info_eval() {
     }
 }
 
+/// `BurnBlockTestDB` is a mocked out implementation of `BurnStateDB` for test.
 struct BurnBlockTestDB {}
-
 impl BurnStateDB for BurnBlockTestDB {
     fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
         None

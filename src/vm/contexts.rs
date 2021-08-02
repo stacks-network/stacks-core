@@ -927,11 +927,6 @@ impl<'a, 'b> Environment<'a, 'b> {
             .get_contract(contract_identifier)?;
 
         let result = {
-            // Note: This is where the wrong version comes from.
-            warn!(
-                "current_context {:?}",
-                contract.contract_context.get_clarity_version()
-            );
             let mut nested_env = Environment::new(
                 &mut self.global_context,
                 &contract.contract_context,

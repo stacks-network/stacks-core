@@ -292,7 +292,7 @@ fn test_functions_clarity2() {
             Err(FunctionNotPermitted(NativeFunctions::StxTransferMemo)),
         ),
         (
-            "(get-burn-block-info? header-hash 0)",
+            r#"(get-burn-block-info? header-hash 0)",
             Err(FunctionNotPermitted(NativeFunctions::GetBurnBlockInfo)),
         ),
     ];

@@ -1474,9 +1474,7 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(pox_id)
     }
 
-    /// Returns a new reader handle.
-    ///
-    /// Does not fail.
+    /// open a reader handle
     pub fn open_reader(
         connection: &'a SortitionDBConn<'a>,
         chain_tip: &SortitionId,

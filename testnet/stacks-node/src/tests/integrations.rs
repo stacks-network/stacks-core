@@ -69,6 +69,7 @@ const GET_INFO_CONTRACT: &'static str = "
         (define-private (test-9) (get-block-info? miner-address block-height))
         (define-private (test-10) (get-block-info? miner-address u100000))
         (define-private (test-11) burn-block-height)
+        (define-private (test-12) (get-burn-block-info? header-hash u0))
 
         (define-private (get-block-id-hash (height uint)) (unwrap-panic
           (get id-hash (map-get? block-data { height: height }))))
@@ -368,14 +369,6 @@ fn integration_test_get_info() {
                         burn_dbconn, bhh, &contract_identifier, "(test-7)"),
                     Value::some(Value::buff_from(last_vrf_seed).unwrap()).unwrap());
 
-                // // The header hash for block at height u0 of the simulated
-                // // Bitcoin chain is all 00's.
-                // let burn_chain_height_result = chain_state.clarity_eval_read_only(
-                //         burn_dbconn, bhh, &contract_identifier, "(test-12)");
-                // let header_hash0 = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-                // assert_eq!(burn_chain_height_result,
-                //     Value::some(Value::buff_from(header_hash0).unwrap()).unwrap());
-
                 // verify that we can get the block miner
                 assert_eq!(
                     chain_state.clarity_eval_read_only(
@@ -398,22 +391,13 @@ fn integration_test_get_info() {
                         burn_dbconn, bhh, &contract_identifier, "(test-11)"),
                     Value::UInt(2));
 
-                // // The header hash for block at height u0 of the MocknetController, which
-                // // simulates the Bitcoin chain, is always all 00's.
-                // let burn_chain_height_result0 = chain_state.clarity_eval_read_only(
-                //     burn_dbconn, bhh, &contract_identifier, "(test-12-a)");
+                // // The header hash for block at height u0 of the simulated
+                // // Bitcoin chain is all 00's.
+                // let burn_chain_height_result = chain_state.clarity_eval_read_only(
+                //         burn_dbconn, bhh, &contract_identifier, "(test-12)");
                 // let header_hash0 = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-                // assert_eq!(burn_chain_height_result0,
+                // assert_eq!(burn_chain_height_result,
                 //     Value::some(Value::buff_from(header_hash0).unwrap()).unwrap());
-
-                // // The header hash for block at height u1 of the MocknetController, which
-                // // simulates the Bitcoin chain, is always this hard-coded value.
-                // // (See MocknetController::build_next_block_header).
-                // let burn_chain_height_result1 = chain_state.clarity_eval_read_only(
-                //         burn_dbconn, bhh, &contract_identifier, "(test-12-b)");
-                // let header_hash1 = hex_bytes("66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925").unwrap();
-                // assert_eq!(burn_chain_height_result1,
-                //     Value::some(Value::buff_from(header_hash1).unwrap()).unwrap());
 
             },
             2 => {
