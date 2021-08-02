@@ -69,19 +69,11 @@ The SIPs are now located in the [stacksgov/sips](https://github.com/stacksgov/si
 
 ### Testnet versions
 
-- [x] **Helium** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can not only run Stacks 2.0 on their development machines, but also write, execute, and test smart contracts. See the instructions below for more details.
+- [x] **Krypton** is a Stacks 2 testnet with a fixed, two-minute block time, called `regtest`. Regtest is generally unstable for regular use, and is reset often. See the [regtest documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on using regtest.
 
-- [x] **Neon** is the first version of our public testnet, which shipped in Q2 2020. This testnet added SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
+- [x] **Xenon** is the Stacks 2 public testnet, which runs PoX against the Bitcoin testnet. It is the full implementation of the Stacks 2 blockchain, and should be considered a stable testnet for developing Clarity smart contracts. See the [testnet documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on the public testnet.
 
-- [x] **Argon** is the second version of our public testnet, which shipped in Q2 2020. This testnet improved on the stability of the Neon testnet.
-
-- [x] **Krypton** is the third version of our public testnet, which incorporates a partial implementation of SIP 007. It allows developers to test a simple version of Stacking and PoX consensus.
-
-- [x] **Xenon** is the upcoming version of our public testnet, which will run on the Bitcoin testnet. It will include SIP 006 and SIP 008, and will contain bugfixes and improvements to the implementation of SIP 007.
-
-- [x] **Mainnet** is the fully functional version, that is estimated for Q4 2020.
-
-See the [testnet website](https://testnet.blockstack.org) and ["when mainnet?" FAQ](https://github.com/blockstack/stacks/blob/master/whenmainnet.md) for details.
+- [x] **Mainnet** is the fully functional Stacks 2 blockchain, see the [Stacks overview](https://docs.stacks.co/understand-stacks/overview) for information on running a Stacks node, mining, stacking, and writing Clarity smart contracts.
 
 ## Getting started
 
