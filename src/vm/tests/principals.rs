@@ -258,7 +258,7 @@ fn test_simple_parse_principal_pubkeyhash() {
 
 #[test]
 fn test_simple_assemble_principal() {
-    let normal_case_test = r#"(assemble-principal u22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    let normal_case_test = r#"(principal-construct u22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
     let mut transfer_buffer = [0u8; 20];
     for i in 0..bytes.len() {
@@ -279,7 +279,7 @@ fn test_simple_assemble_principal() {
     );
 
     // The input buffer is too small.
-    let too_small_test = r#"(assemble-principal u22 0x00)"#;
+    let too_small_test = r#"(principal-construct u22 0x00)"#;
     assert_eq!(
         execute_against_version_and_network(
             too_small_test,

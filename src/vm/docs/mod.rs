@@ -286,11 +286,11 @@ Note: This function is only available starting with Stacks 2.1.",
 
 const ASSEMBLE_PRINCIPAL_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    signature: "(assemble-principal version-byte public-key-hash)",
+    signature: "(principal-construct version-byte public-key-hash)",
     description: "A principal value is a concatenation of two things: a 1-byte *version byte*,
 indicating the type of account and the type of network that this principal can spend tokens on,
 and a 20-byte *public key hash*, characterizing the principal's unique identity.
-`assemble-principal` takes such a *version byte*, of type `(buff 1)`, 
+`principal-construct` takes such a *version byte*, of type `(buff 1)`, 
 and a *public key hash*, of type `(buff 20)`, and creates a corresponding object of type `principal`.
 
 The version byte should be `0x22` for a single-signature account on mainnet, `0x20`
@@ -300,7 +300,7 @@ should be a 20-byte buffer containing the hash of a public key.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(assemble-principal 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY
+(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY
 "#,
 };
 

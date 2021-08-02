@@ -89,7 +89,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
     IsStandard("is-standard", ClarityVersion::Clarity2),
     ParsePrincipal("parse-principal", ClarityVersion::Clarity2),
-    AssemblePrincipal("assemble-principal", ClarityVersion::Clarity2),
+    AssemblePrincipal("principal-construct", ClarityVersion::Clarity2),
     StringToInt("string-to-int", ClarityVersion::Clarity2),
     StringToUInt("string-to-uint", ClarityVersion::Clarity2),
     IntToAscii("int-to-ascii", ClarityVersion::Clarity2),

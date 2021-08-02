@@ -2462,18 +2462,18 @@ fn test_parse_principal() {
 #[test]
 fn test_assemble_principal() {
     let good = [
-        r#"(assemble-principal u22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
+        r#"(principal-construct u22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
         // Note: This following buffer is too short. It's not legal but is to be caught at compute stage.
-        r#"(assemble-principal u22 0x00)"#,
+        r#"(principal-construct u22 0x00)"#,
     ];
     let expected = ["principal", "principal"];
 
     let bad = [
-        r#"(assemble-principal 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-        r#"(assemble-principal u22 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
-        r#"(assemble-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
-        r#"(assemble-principal u22)"#,
-        r#"(assemble-principal u22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#, // buffer too long
+        r#"(principal-construct 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
+        r#"(principal-construct u22 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        r#"(principal-construct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        r#"(principal-construct u22)"#,
+        r#"(principal-construct u22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#, // buffer too long
     ];
 
     let bad_expected = [
