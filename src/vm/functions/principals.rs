@@ -90,9 +90,17 @@ pub fn special_parse_principal(
 
 pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result<Value> {
     let verified_version = match version {
-        Value::UInt(version) => version,
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
         _ => return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, version).into()),
     };
+
+    if verified_version.len() != 1 {
+        return Err(CheckErrors::TypeValueError(
+            TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
+            pub_key_hash,
+        )
+        .into());
+    }
 
     let verified_pub_key_hash = match pub_key_hash {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
@@ -117,6 +125,8 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
     for i in 0..verified_pub_key_hash.len() {
         transfer_buffer[i] = verified_pub_key_hash[i];
     }
-    let principal_data = StandardPrincipalData(verified_version as u8, transfer_buffer);
+
+    // Assume: verified_version.len() == 1
+    let principal_data = StandardPrincipalData((*verified_version)[0], transfer_buffer);
     Ok(Value::Principal(PrincipalData::Standard(principal_data)))
 }

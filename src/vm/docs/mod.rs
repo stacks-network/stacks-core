@@ -284,7 +284,7 @@ Note: This function is only available starting with Stacks 2.1.",
 "#,
 };
 
-const ASSEMBLE_PRINCIPAL_API: SimpleFunctionAPI = SimpleFunctionAPI {
+const PRINCIPAL_CONSTRUCT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(principal-construct version-byte public-key-hash)",
     description: "A principal value is a concatenation of two things: a 1-byte *version byte*,
@@ -1828,7 +1828,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
         IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
         ParsePrincipal => make_for_simple_native(&PARSE_PRINCIPAL_API, &IsStandard, name),
-        PrincipalConstruct => make_for_simple_native(&ASSEMBLE_PRINCIPAL_API, &IsStandard, name),
+        PrincipalConstruct => make_for_simple_native(&PRINCIPAL_CONSTRUCT_API, &IsStandard, name),
         StringToInt => make_for_simple_native(&STRING_TO_INT_API, &StringToInt, name),
         StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &StringToUInt, name),
         IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &IntToAscii, name),

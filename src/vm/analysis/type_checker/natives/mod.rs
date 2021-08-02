@@ -705,7 +705,7 @@ impl TypedNativeFunction {
             PrincipalConstruct => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![
                     FunctionArg::new(
-                        TypeSignature::UIntType,
+                        BUFF_1,
                         ClarityName::try_from("version".to_owned())
                             .expect("FAIL: ClarityName failed to accept default arg name"),
                     ),
