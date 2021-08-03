@@ -212,7 +212,7 @@ impl<'a> DefinitionSorter {
                                 }
                             }
                         } else if
-                        // NOTE: can use ClarityVersion::latest() here only as long as NO NEW FUNCTIONS are special cased
+                        // NOTE: We can use ClarityVersion::latest() here only as long as NO NEW FUNCTIONS are special cased
                         // in the definition sorter.
                         let Some(native_function) =
                             NativeFunctions::lookup_by_name_at_version(
