@@ -275,7 +275,6 @@ fn test_simple_principal_construct_bad_version_byte() {
     );
 }
 
-
 #[test]
 fn test_simple_principal_construct_buffer_too_small() {
     // Tests cases in which the input buffers are too small. This cannot be caught
@@ -284,8 +283,7 @@ fn test_simple_principal_construct_buffer_too_small() {
     // Version byte is too small.
     let input = r#"(principal-construct 0x 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
-        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-            .unwrap_err(),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
         CheckErrors::TypeValueError(
             SequenceType(BufferType(BufferLength(1))),
             Value::Sequence(SequenceData::Buffer(BuffData { data: vec![] }))
@@ -296,8 +294,7 @@ fn test_simple_principal_construct_buffer_too_small() {
     // Hash key part is too small.
     let input = r#"(principal-construct 0x22 0x00)"#;
     assert_eq!(
-        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-            .unwrap_err(),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
         CheckErrors::TypeValueError(
             SequenceType(BufferType(BufferLength(20))),
             Value::Sequence(SequenceData::Buffer(BuffData { data: vec![00] }))
