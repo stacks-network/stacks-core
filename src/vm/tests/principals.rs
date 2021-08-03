@@ -209,7 +209,6 @@ fn create_parse_principal_tuple(version: &str, hashbytes: &str) -> Value {
 #[test]
 // Test that we can parse well-formed principals.
 fn test_parse_principal_good() {
-
     // SP is mainnet single-sig.
     let input = r#"(parse-principal 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
     assert_eq!(
@@ -248,9 +247,8 @@ fn test_parse_principal_good() {
 }
 
 #[test]
+// Test that we fail on principals that do not correspond to valid version bytes.
 fn test_parse_principal_bad_version_byte() {
-    // Test that we fail on principals that do not correspond to valid version bytes.
-
     // SZ is not a valid prefix for any Stacks network.
     let testnet_addr_test = r#"(parse-principal 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
     assert_eq!(
@@ -260,11 +258,10 @@ fn test_parse_principal_bad_version_byte() {
 }
 
 #[test]
+// Standard case where construction should work.  We compare the output of the
+// Clarity function to hand-built principals.
 fn test_principal_construct_good() {
-    // Standard case where construction should work.  We compare the output of the
-    // Clarity function to hand-built principals.
-
-    // Assmble the bytes buffer.
+    // Assmble the common bytes buffer.
     let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
     let mut transfer_buffer = [0u8; 20];
     for i in 0..bytes.len() {
@@ -321,9 +318,8 @@ fn test_principal_construct_good() {
 }
 
 #[test]
+// Test case where the version byte is bad.
 fn test_principal_construct_bad_version_byte() {
-    // Test case where the version byte is bad.
-
     // Failure because the version byte 0xef is invalid.
     let input =
         r#"(principal-construct 0xef 0x0102030405060708091011121314151617181920)"#;
@@ -350,10 +346,9 @@ fn test_principal_construct_bad_version_byte() {
 }
 
 #[test]
+// Tests cases in which the input buffers are too small. This cannot be caught
+// by the type checker, because `(buff N)` is a sub-type of `(buff M)` if `N < M`.
 fn test_principal_construct_buffer_wrong_size() {
-    // Tests cases in which the input buffers are too small. This cannot be caught
-    // by the type checker, because `(buff N)` is a sub-type of `(buff M)` if `N < M`.
-
     // Version byte is too small.
     let input = r#"(principal-construct 0x 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
