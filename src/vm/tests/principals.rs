@@ -216,13 +216,37 @@ fn test_parse_principal_good() {
 }
 
 #[test]
+fn test_parse_principal_bad_version_bytes() {
+    // Test that we fail on principals that do not correspond to valid version bytes.
+    let testnet_addr_test = r#"(parse-principal 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
+    assert_eq!(
+        Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "version".into(),
+                    Value::Sequence(SequenceData::Buffer(BuffData {
+                        data: hex_bytes("1a").unwrap(),
+                    })),
+                ),
+                (
+                    "hashbytes".into(),
+                    Value::Sequence(SequenceData::Buffer(BuffData {
+                        data: hex_bytes("164247d6f2b425ac5771423ae6c80c754f7172b0").unwrap(),
+                    })),
+                ),
+            ])
+            .expect("FAIL: Failed to initialize tuple.")
+        ),
+        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+}
+
+#[test]
 fn test_principal_construct_good() {
-    // pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22; // P
-    // pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20; // M
-    // pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26; // T
-    // pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21; // N
-    // Standard case where construction should work.  We the output of the
-    // Clarity function to a hand-built principal.
+    // Standard case where construction should work.  We compare the output of the
+    // Clarity function to hand-built principals.
 
     // Assmble the bytes buffer.
     let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
@@ -288,10 +312,6 @@ fn test_principal_construct_bad_version_byte() {
     let input =
         r#"(principal-construct 0xef 0x0102030405060708091011121314151617181920)"#;
     let bytes = hex_bytes("0102030405060708091011121314151617181920").unwrap();
-    let mut transfer_buffer = [0u8; 20];
-    for i in 0..bytes.len() {
-        transfer_buffer[i] = bytes[i];
-    }
     assert_eq!(
         Err(CheckErrors::InvalidVersionByte.into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
@@ -347,7 +367,7 @@ fn test_principal_construct_buffer_wrong_size() {
         CheckErrors::TypeValueError(
             SequenceType(BufferType(BufferLength(20))),
             Value::Sequence(SequenceData::Buffer(BuffData {
-                data: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+                data: hex_bytes("01020304050607080910111213141516171819").unwrap()
             }))
         )
         .into()
@@ -360,16 +380,9 @@ fn test_principal_construct_buffer_wrong_size() {
         CheckErrors::TypeValueError(
             SequenceType(BufferType(BufferLength(20))),
             Value::Sequence(SequenceData::Buffer(BuffData {
-                data: vec![
-                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21
-                ]
+                data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
             }))
         )
         .into()
     );
-}
-
-#[test]
-fn test_principal_construct_bad_inputs() {
-    // Test a variety of misformed inputs.
 }
