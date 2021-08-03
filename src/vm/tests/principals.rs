@@ -6,8 +6,7 @@ use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::{PrincipalType, SequenceType};
 use vm::types::{
-    ASCIIData, BuffData, CharType, PrincipalData, SequenceData, StandardPrincipalData, TupleData,
-    Value,
+    BuffData, PrincipalData, SequenceData, StandardPrincipalData, TupleData, Value,
 };
 use vm::ClarityVersion;
 
@@ -20,13 +19,10 @@ use vm::errors::{
 };
 use vm::eval;
 use vm::execute;
-use vm::representations::ClarityName;
-use vm::types::{QualifiedContractIdentifier, TupleTypeSignature, TypeSignature};
+use vm::types::TypeSignature;
 use vm::{
     CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
 };
-
-pub use vm::types::signatures::{BUFF_1, BUFF_20};
 
 #[test]
 fn test_simple_is_standard_check_inputs() {

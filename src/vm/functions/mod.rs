@@ -272,6 +272,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
                 ClarityCostFunction::Unimplemented,
             ),
+            IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
             StringToInt => NativeFunction(
                 "native_string_to_int",
                 NativeHandle::SingleArg(&conversions::native_string_to_int),
@@ -292,7 +293,6 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::SingleArg(&conversions::native_int_to_utf8),
                 ClarityCostFunction::Unimplemented,
             ),
-            IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
             PrincipalParse => NativeFunction(
                 "special_principal_parse",
                 NativeHandle::SingleArg(&principals::native_principal_parse),

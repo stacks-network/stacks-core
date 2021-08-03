@@ -16,10 +16,6 @@ use vm::{eval, Environment, LocalContext};
 use vm::database::ClarityDatabase;
 use vm::database::STXBalance;
 
-use burnchains::bitcoin::address::to_c32_version_byte;
-
-use vm::types::PrincipalProperty;
-
 use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -122,7 +118,6 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
 
     // Assume: verified_version.len() == 1
     let version_byte = (*verified_version)[0];
-    let checked_byte = to_c32_version_byte(version_byte);
     if !version_matches_mainnet(version_byte) && !version_matches_testnet(version_byte) {
         return Err(CheckErrors::InvalidVersionByte.into());
     }
@@ -153,6 +148,5 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
         transfer_buffer[i] = verified_pub_key_hash[i];
     }
     let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
-    warn!("principal_data {:?}", principal_data);
     Ok(Value::Principal(PrincipalData::Standard(principal_data)))
 }
