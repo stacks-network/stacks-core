@@ -192,21 +192,23 @@ fn test_simple_parse_principal_good() {
     // Test that we can parse well-formed principals.
     let testnet_addr_test = r#"(parse-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
     assert_eq!(
-        Value::Tuple(TupleData::from_data(vec![
-        (
-            "version".into(),
-            Value::Sequence(SequenceData::Buffer(BuffData {
-                data: hex_bytes("1a").unwrap(),
-            })),
+        Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "version".into(),
+                    Value::Sequence(SequenceData::Buffer(BuffData {
+                        data: hex_bytes("1a").unwrap(),
+                    })),
+                ),
+                (
+                    "hashbytes".into(),
+                    Value::Sequence(SequenceData::Buffer(BuffData {
+                        data: hex_bytes("164247d6f2b425ac5771423ae6c80c754f7172b0").unwrap(),
+                    })),
+                ),
+            ])
+            .expect("FAIL: Failed to initialize tuple.")
         ),
-        (
-            "hashbytes".into(),
-            Value::Sequence(SequenceData::Buffer(BuffData {
-                data: hex_bytes("164247d6f2b425ac5771423ae6c80c754f7172b0").unwrap(),
-            })),
-        ),
-    ])
-    .expect("FAIL: Failed to initialize tuple.")),
         execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
