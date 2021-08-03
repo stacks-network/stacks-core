@@ -292,7 +292,7 @@ fn test_simple_principal_construct_buffer_too_small() {
     );
 
     // Hash key part is too small.
-    let input = r#"(principal-construct 0x22 0x00)"#;
+    let input = r#"(principal-construct 0x16 0x00)"#;
     assert_eq!(
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
         CheckErrors::TypeValueError(

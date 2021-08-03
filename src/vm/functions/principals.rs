@@ -23,6 +23,16 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
+fn version_matches_mainnet(version:u8) -> bool {
+version == C32_ADDRESS_VERSION_MAINNET_MULTISIG
+        || version == C32_ADDRESS_VERSION_MAINNET_SINGLESIG
+}
+
+fn version_matches_testnet(version:u8) -> bool {
+version == C32_ADDRESS_VERSION_TESTNET_MULTISIG
+        || version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG
+}
+
 pub fn special_is_standard(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -40,10 +50,8 @@ pub fn special_is_standard(
         _ => return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into()),
     };
 
-    let address_is_mainnet = version == C32_ADDRESS_VERSION_MAINNET_MULTISIG
-        || version == C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
-    let address_is_testnet = version == C32_ADDRESS_VERSION_TESTNET_MULTISIG
-        || version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+    let address_is_mainnet = version_matches_mainnet(version);
+    let address_is_testnet = version_matches_testnet(version);
     let context_is_mainnet = env.global_context.mainnet;
 
     Ok(Value::Bool(
@@ -97,6 +105,7 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
         _ => return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, version).into()),
     };
 
+    warn!("verified_version {:?}", verified_version);
     if verified_version.len() != 1 {
         return Err(CheckErrors::TypeValueError(
             TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
@@ -105,9 +114,13 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
         .into());
     }
 
-    let check_byte = to_c32_version_byte(version_byte);
-    if check_byte.is_none() {
-        Err(CheckErrors::InvalidVersionByte.into())
+    // Assume: verified_version.len() == 1
+    let version_byte = (*verified_version)[0];
+    warn!("version_byte {:?}", version_byte);
+    let checked_byte = to_c32_version_byte(version_byte);
+    warn!("checked_byte {:?}", checked_byte);
+    if !version_matches_mainnet(version_byte) && ! version_matches_testnet(version_byte) {
+        return Err(CheckErrors::InvalidVersionByte.into())
     }
 
     // Check the hask bytes.
@@ -135,9 +148,6 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
     for i in 0..verified_pub_key_hash.len() {
         transfer_buffer[i] = verified_pub_key_hash[i];
     }
-
-    // Assume: verified_version.len() == 1
-    let version_byte = (*verified_version)[0];
     let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
     Ok(Value::Principal(PrincipalData::Standard(principal_data)))
 }
