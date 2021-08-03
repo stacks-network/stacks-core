@@ -188,7 +188,7 @@ fn test_simple_is_standard_undefined_cases() {
 }
 
 #[test]
-fn test_simple_parse_principal_good() {
+fn test_parse_principal_good() {
     // Test that we can parse well-formed principals.
     let testnet_addr_test = r#"(parse-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
     assert_eq!(
@@ -216,59 +216,104 @@ fn test_simple_parse_principal_good() {
 }
 
 #[test]
-fn test_simple_parse_principal_pubkeyhash() {
-    let testnet_addr_test =
-        r#"(parse-principal pub-key-hash 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
-    assert_eq!(
-        Value::Sequence(SequenceData::Buffer(BuffData {
-            data: hex_bytes("164247d6f2b425ac5771423ae6c80c754f7172b0").unwrap()
-        })),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
-            .unwrap()
-            .unwrap()
-    );
-
-    let mainnet_addr_test =
-        "(parse-principal pub-key-hash 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
-    assert_eq!(
-        Value::Sequence(SequenceData::Buffer(BuffData {
-            data: hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap()
-        })),
-        execute_against_version_and_network(mainnet_addr_test, ClarityVersion::Clarity2, true)
-            .unwrap()
-            .unwrap()
-    );
-}
-
-#[test]
-fn test_simple_principal_construct_good() {
+fn test_principal_construct_good() {
+    // pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22; // P
+    // pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20; // M
+    // pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26; // T
+    // pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21; // N
     // Standard case where construction should work.  We the output of the
     // Clarity function to a hand-built principal.
-    let normal_case_test =
-        r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+
+    // Assmble the bytes buffer.
     let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
     let mut transfer_buffer = [0u8; 20];
     for i in 0..bytes.len() {
         transfer_buffer[i] = bytes[i];
     }
+
+    // Mainnet singlesig.
+    let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(
             22,
             transfer_buffer
         ))),
-        execute_against_version_and_network(normal_case_test, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Mainnet multisig.
+    let input = r#"(principal-construct 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    assert_eq!(
+        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
+            20,
+            transfer_buffer
+        ))),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Testnet singlesig.
+    let input = r#"(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    assert_eq!(
+        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
+            26,
+            transfer_buffer
+        ))),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Testnet multisig.
+    let input = r#"(principal-construct 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    assert_eq!(
+        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
+            21,
+            transfer_buffer
+        ))),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
     );
 }
 
 #[test]
-fn test_simple_principal_construct_bad_version_byte() {
+fn test_principal_construct_bad_version_byte() {
     // Test case where the version byte is bad.
-    // Failure because the version byte 0xff is invalid.
+
+    // Failure because the version byte 0xef is invalid.
     let normal_case_test =
-        r#"(principal-construct 0xef 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
-    let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
+        r#"(principal-construct 0xef 0x0102030405060708091011121314151617181920)"#;
+    let bytes = hex_bytes("0102030405060708091011121314151617181920").unwrap();
+    let mut transfer_buffer = [0u8; 20];
+    for i in 0..bytes.len() {
+        transfer_buffer[i] = bytes[i];
+    }
+    assert_eq!(
+        Err(CheckErrors::InvalidVersionByte.into()),
+        execute_against_version_and_network(normal_case_test, ClarityVersion::Clarity2, false)
+    );
+
+    // Failure because the version byte 0x5904934 is invalid.
+    let normal_case_test =
+        r#"(principal-construct 0x5904934 0x0102030405060708091011121314151617181920)"#;
+    let bytes = hex_bytes("0102030405060708091011121314151617181920").unwrap();
+    let mut transfer_buffer = [0u8; 20];
+    for i in 0..bytes.len() {
+        transfer_buffer[i] = bytes[i];
+    }
+    assert_eq!(
+        Err(CheckErrors::InvalidVersionByte.into()),
+        execute_against_version_and_network(normal_case_test, ClarityVersion::Clarity2, false)
+    );
+
+    // Failure because the version byte 0xef is invalid.
+    let normal_case_test =
+        r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
+    let bytes = hex_bytes("0102030405060708091011121314151617181920").unwrap();
     let mut transfer_buffer = [0u8; 20];
     for i in 0..bytes.len() {
         transfer_buffer[i] = bytes[i];
@@ -280,12 +325,12 @@ fn test_simple_principal_construct_bad_version_byte() {
 }
 
 #[test]
-fn test_simple_principal_construct_buffer_too_small() {
+fn test_principal_construct_buffer_wrong_size() {
     // Tests cases in which the input buffers are too small. This cannot be caught
     // by the type checker, because `(buff N)` is a sub-type of `(buff M)` if `N < M`.
 
     // Version byte is too small.
-    let input = r#"(principal-construct 0x 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    let input = r#"(principal-construct 0x 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
         CheckErrors::TypeValueError(
@@ -296,13 +341,35 @@ fn test_simple_principal_construct_buffer_too_small() {
     );
 
     // Hash key part is too small.
-    let input = r#"(principal-construct 0x16 0x00)"#;
+    let input = r#"(principal-construct 0x16 0x01020304050607080910111213141516171819)"#;
     assert_eq!(
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
         CheckErrors::TypeValueError(
             SequenceType(BufferType(BufferLength(20))),
-            Value::Sequence(SequenceData::Buffer(BuffData { data: vec![00] }))
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+            }))
         )
         .into()
     );
+
+    // Hash key part is too large.
+    let input = r#"(principal-construct 0x16 0x010203040506070809101112131415161718192021)"#;
+    assert_eq!(
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
+        CheckErrors::TypeValueError(
+            SequenceType(BufferType(BufferLength(20))),
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: vec![
+                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21
+                ]
+            }))
+        )
+        .into()
+    );
+}
+
+#[test]
+fn test_principal_construct_bad_inputs() {
+    // Test a variety of misformed inputs.
 }
