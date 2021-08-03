@@ -2476,35 +2476,6 @@ fn test_parse_principal() {
     }
 }
 
-fn test_comparison_types() {
-    let good = [
-        r#"(<= "aaa" "aa")"#,
-        r#"(>= "aaa" "aa")"#,
-        r#"(< "aaa" "aa")"#,
-        r#"(> "aaa" "aa")"#,
-        r#"(<= u"aaa" u"aa")"#,
-        r#"(>= u"aaa" u"aa")"#,
-        r#"(< u"aaa" u"aa")"#,
-        r#"(> u"aaa" u"aa")"#,
-        r#"(<= 0x01 0x02)"#,
-        r#"(>= 0x01 0x02)"#,
-        r#"(< 0x01 0x02)"#,
-        r#"(> 0x01 0x02)"#,
-    ];
-
-    let expected = [
-        "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool",
-        "bool",
-    ];
-
-    for (good_test, expected) in good.iter().zip(expected.iter()) {
-        assert_eq!(
-            expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
-        );
-    }
-}
-
 #[test]
 fn test_principal_construct() {
     let good_pairs = [
@@ -2562,6 +2533,36 @@ fn test_principal_construct() {
     ];
 
     for (bad_test, expected) in bad_pairs.iter() {
+
+#[test]
+fn test_comparison_types() {
+    let good = [
+        r#"(<= "aaa" "aa")"#,
+        r#"(>= "aaa" "aa")"#,
+        r#"(< "aaa" "aa")"#,
+        r#"(> "aaa" "aa")"#,
+        r#"(<= u"aaa" u"aa")"#,
+        r#"(>= u"aaa" u"aa")"#,
+        r#"(< u"aaa" u"aa")"#,
+        r#"(> u"aaa" u"aa")"#,
+        r#"(<= 0x01 0x02)"#,
+        r#"(>= 0x01 0x02)"#,
+        r#"(< 0x01 0x02)"#,
+        r#"(> 0x01 0x02)"#,
+    ];
+
+    let expected = [
+        "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool", "bool",
+        "bool",
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
     let bad = [
         r#"(<= 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
         r#"(<= (list 1 2 3) (list 1 2 3))"#,
