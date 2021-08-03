@@ -24,8 +24,9 @@ use vm::ast::{build_ast, parse};
 use vm::contexts::OwnedEnvironment;
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData, QualifiedContractIdentifier,
-    SequenceSubtype, StringUTF8Length, TypeSignature, Value, BUFF_32, BUFF_64,
+    BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData,
+    QualifiedContractIdentifier, SequenceSubtype, StringUTF8Length, TypeSignature, Value, BUFF_32,
+    BUFF_64,
 };
 
 use crate::clarity_vm::database::MemoryBackingStore;

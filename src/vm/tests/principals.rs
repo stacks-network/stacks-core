@@ -189,21 +189,23 @@ fn test_simple_is_standard_undefined_cases() {
 
 /// Creates a `principal-parse`-style tuple `version` and `pub_key_hash`.
 fn create_principal_parse_tuple(version: &str, pub_key_hash: &str) -> Value {
-        Value::Tuple(
-            TupleData::from_data(vec![
-                (
-                    "version".into(),
-                    Value::Sequence(SequenceData::Buffer(BuffData {
-                        data: hex_bytes(version).unwrap(),
-                    })),
-                ),
-                (
-                    "pub_key_hash".into(),
-                    Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(pub_key_hash).unwrap() })),
-                ),
-            ])
-            .expect("FAIL: Failed to initialize tuple.")
-        )
+    Value::Tuple(
+        TupleData::from_data(vec![
+            (
+                "version".into(),
+                Value::Sequence(SequenceData::Buffer(BuffData {
+                    data: hex_bytes(version).unwrap(),
+                })),
+            ),
+            (
+                "pub_key_hash".into(),
+                Value::Sequence(SequenceData::Buffer(BuffData {
+                    data: hex_bytes(pub_key_hash).unwrap(),
+                })),
+            ),
+        ])
+        .expect("FAIL: Failed to initialize tuple."),
+    )
 }
 
 #[test]
@@ -321,24 +323,27 @@ fn test_principal_construct_good() {
 // Test case where the version byte is bad.
 fn test_principal_construct_bad_version_byte() {
     // Failure because the version byte 0xef is invalid.
-    let input =
-        r#"(principal-construct 0xef 0x0102030405060708091011121314151617181920)"#;
+    let input = r#"(principal-construct 0xef 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::InvalidVersionByte.into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
     );
 
     // Failure because the version byte 0x5904934 is invalid.
-    let input =
-        r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
+    let input = r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
-        Err(CheckErrors::TypeValueError(SequenceType(BufferType(BufferLength(1))), Value::Sequence(SequenceData::Buffer(BuffData {data: hex_bytes("590493").unwrap()}))).into()),
+        Err(CheckErrors::TypeValueError(
+            SequenceType(BufferType(BufferLength(1))),
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: hex_bytes("590493").unwrap()
+            }))
+        )
+        .into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
     );
 
     // Failure because the version byte 0xef is invalid.
-    let input =
-        r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
+    let input = r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::UInt(22)).into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
