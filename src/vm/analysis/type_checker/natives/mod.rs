@@ -709,7 +709,7 @@ impl TypedNativeFunction {
                 )],
                 returns: TupleTypeSignature::try_from(vec![
                     ("version".into(), BUFF_1),
-                    ("hashbytes".into(), BUFF_20),
+                    ("hash-bytes".into(), BUFF_20),
                 ])
                 .expect("FAIL: PrincipalParse failed to initialize type signature")
                 .into(),

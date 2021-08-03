@@ -284,7 +284,7 @@ not begin with a prefix that corresponds to a valid version byte (see `principal
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (tuple (hashbytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (version 0x1a))
+(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (version 0x1a))
 "#,
 };
 

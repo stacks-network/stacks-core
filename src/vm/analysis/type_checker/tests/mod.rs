@@ -2537,7 +2537,7 @@ fn test_principal_parse() {
         // Standard good example.
         r#"(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
     ];
-    let expected = ["(tuple (hashbytes (buff 20)) (version (buff 1)))"];
+    let expected = ["(tuple (hash-bytes (buff 20)) (version (buff 1)))"];
 
     let bad = [
         // Too many arguments.

@@ -316,16 +316,16 @@ fn test_principal_construct_good() {
 }
 
 #[test]
-// Test case where the version byte is bad.
+// Test cases where the version byte is bad.
 fn test_principal_construct_bad_version_byte() {
-    // Failure because the version byte 0xef is invalid.
+    // The version byte 0xef is invalid.
     let input = r#"(principal-construct 0xef 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::InvalidVersionByte.into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
     );
 
-    // Failure because the version byte 0x5904934 is invalid.
+    // The version bytes 0x5904934 are invalid.
     let input = r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
@@ -338,7 +338,7 @@ fn test_principal_construct_bad_version_byte() {
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
     );
 
-    // Failure because the version byte 0xef is invalid.
+    // u22 is not a byte buffer, so is invalid.
     let input = r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::UInt(22)).into()),
@@ -350,7 +350,7 @@ fn test_principal_construct_bad_version_byte() {
 // Tests cases in which the input buffers are too small. This cannot be caught
 // by the type checker, because `(buff N)` is a sub-type of `(buff M)` if `N < M`.
 fn test_principal_construct_buffer_wrong_size() {
-    // Version byte is too small.
+    // Version byte is too small, should have length 1.
     let input = r#"(principal-construct 0x 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
@@ -361,7 +361,7 @@ fn test_principal_construct_buffer_wrong_size() {
         .into()
     );
 
-    // Hash key part is too small.
+    // Hash key part is too small, should have length 20.
     let input = r#"(principal-construct 0x16 0x01020304050607080910111213141516171819)"#;
     assert_eq!(
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
@@ -374,7 +374,7 @@ fn test_principal_construct_buffer_wrong_size() {
         .into()
     );
 
-    // Hash key part is too large.
+    // Hash key part is too large, should have length 20.
     let input = r#"(principal-construct 0x16 0x010203040506070809101112131415161718192021)"#;
     assert_eq!(
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
