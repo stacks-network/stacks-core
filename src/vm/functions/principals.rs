@@ -14,6 +14,8 @@ use vm::{eval, Environment, LocalContext};
 use vm::database::ClarityDatabase;
 use vm::database::STXBalance;
 
+use burnchains::bitcoin::address::to_c32_version_byte;
+
 use vm::types::PrincipalProperty;
 
 use chainstate::stacks::{
@@ -97,7 +99,7 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
     if verified_version.len() != 1 {
         return Err(CheckErrors::TypeValueError(
             TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
-            pub_key_hash,
+            version,
         )
         .into());
     }
@@ -127,6 +129,14 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
     }
 
     // Assume: verified_version.len() == 1
-    let principal_data = StandardPrincipalData((*verified_version)[0], transfer_buffer);
-    Ok(Value::Principal(PrincipalData::Standard(principal_data)))
+    let version_byte = (*verified_version)[0];
+    warn!("version_byte {:?}", version_byte);
+
+    let check_byte = to_c32_version_byte(version_byte);
+    if check_byte.is_some() {
+        let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
+        Ok(Value::Principal(PrincipalData::Standard(principal_data)))
+    } else {
+        Err(CheckErrors::InvalidVersionByte.into())
+    }
 }

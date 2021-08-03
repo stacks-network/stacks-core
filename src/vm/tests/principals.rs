@@ -237,9 +237,11 @@ fn test_simple_parse_principal_pubkeyhash() {
 }
 
 #[test]
-fn test_simple_principal_construct() {
+fn test_simple_principal_construct_good() {
+    // Standard case where construction should work.  We the output of the
+    // Clarity function to a hand-built principal.
     let normal_case_test =
-        r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+        r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
     let mut transfer_buffer = [0u8; 20];
     for i in 0..bytes.len() {
@@ -254,11 +256,47 @@ fn test_simple_principal_construct() {
             .unwrap()
             .unwrap()
     );
+}
 
-    // The input buffer is too small.
-    let too_small_test = r#"(principal-construct 0x22 0x00)"#;
+#[test]
+fn test_simple_principal_construct_bad_version_byte() {
+    // Test case where the version byte is bad.
+    // Failure because the version byte 0xff is invalid.
+    let normal_case_test =
+        r#"(principal-construct 0xef 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
+    let mut transfer_buffer = [0u8; 20];
+    for i in 0..bytes.len() {
+        transfer_buffer[i] = bytes[i];
+    }
     assert_eq!(
-        execute_against_version_and_network(too_small_test, ClarityVersion::Clarity2, false)
+        Err(CheckErrors::InvalidVersionByte.into()),
+        execute_against_version_and_network(normal_case_test, ClarityVersion::Clarity2, false)
+    );
+}
+
+
+#[test]
+fn test_simple_principal_construct_buffer_too_small() {
+    // Tests cases in which the input buffers are too small. This cannot be caught
+    // by the type checker, because `(buff N)` is a sub-type of `(buff M)` if `N < M`.
+
+    // Version byte is too small.
+    let input = r#"(principal-construct 0x 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    assert_eq!(
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap_err(),
+        CheckErrors::TypeValueError(
+            SequenceType(BufferType(BufferLength(1))),
+            Value::Sequence(SequenceData::Buffer(BuffData { data: vec![] }))
+        )
+        .into()
+    );
+
+    // Hash key part is too small.
+    let input = r#"(principal-construct 0x22 0x00)"#;
+    assert_eq!(
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap_err(),
         CheckErrors::TypeValueError(
             SequenceType(BufferType(BufferLength(20))),
