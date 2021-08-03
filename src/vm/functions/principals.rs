@@ -4,8 +4,8 @@ use vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use vm::representations::SymbolicExpression;
 use vm::representations::ClarityName;
+use vm::representations::SymbolicExpression;
 use vm::types::{
     BuffData, BufferLength, PrincipalData, QualifiedContractIdentifier, SequenceData,
     SequenceSubtype, StandardPrincipalData, TupleData, TypeSignature, Value,
@@ -25,14 +25,14 @@ use chainstate::stacks::{
 };
 
 /// Returns true if `version` indicates a mainnet address.
-fn version_matches_mainnet(version:u8) -> bool {
-version == C32_ADDRESS_VERSION_MAINNET_MULTISIG
+fn version_matches_mainnet(version: u8) -> bool {
+    version == C32_ADDRESS_VERSION_MAINNET_MULTISIG
         || version == C32_ADDRESS_VERSION_MAINNET_SINGLESIG
 }
 
 /// Returns true if `version` indicates a testnet address.
-fn version_matches_testnet(version:u8) -> bool {
-version == C32_ADDRESS_VERSION_TESTNET_MULTISIG
+fn version_matches_testnet(version: u8) -> bool {
+    version == C32_ADDRESS_VERSION_TESTNET_MULTISIG
         || version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG
 }
 
@@ -82,23 +82,21 @@ pub fn special_parse_principal(
         }
     };
 
-                    let buffer_data = match Value::buff_from(pub_key_hash.to_vec()) {
-                        Ok(data) => data,
-                        Err(err) => return Err(err),
-                    };
+    let buffer_data = match Value::buff_from(pub_key_hash.to_vec()) {
+        Ok(data) => data,
+        Err(err) => return Err(err),
+    };
 
-    let tuple_data = TupleData::from_data(
-        vec![
-            (
-                    ClarityName::try_from("version".to_owned()).unwrap(),
-                    Value::buff_from_byte(version_byte),
-            ),
-            (
-                    ClarityName::try_from("version".to_owned()).unwrap(),
-                    buffer_data,
-            ),
-        ]
-    );
+    let tuple_data = TupleData::from_data(vec![
+        (
+            ClarityName::try_from("version".to_owned()).unwrap(),
+            Value::buff_from_byte(version_byte),
+        ),
+        (
+            ClarityName::try_from("version".to_owned()).unwrap(),
+            buffer_data,
+        ),
+    ]);
 
     match tuple_data {
         Ok(data) => Ok(Value::Tuple(data)),
@@ -136,8 +134,8 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
     warn!("version_byte {:?}", version_byte);
     let checked_byte = to_c32_version_byte(version_byte);
     warn!("checked_byte {:?}", checked_byte);
-    if !version_matches_mainnet(version_byte) && ! version_matches_testnet(version_byte) {
-        return Err(CheckErrors::InvalidVersionByte.into())
+    if !version_matches_mainnet(version_byte) && !version_matches_testnet(version_byte) {
+        return Err(CheckErrors::InvalidVersionByte.into());
     }
 
     // Check the hask bytes.
