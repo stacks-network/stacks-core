@@ -745,6 +745,8 @@ impl Value {
         })))
     }
 
+    /// # Errors
+    /// - CheckErrors::ValueTooLarge if `buff_data` is too large.
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
         // check the buffer size
         BufferLength::try_from(buff_data.len())?;

@@ -5,9 +5,10 @@ use vm::errors::{
     RuntimeErrorType,
 };
 use vm::representations::SymbolicExpression;
+use vm::representations::ClarityName;
 use vm::types::{
     BuffData, BufferLength, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    SequenceSubtype, StandardPrincipalData, TypeSignature, Value,
+    SequenceSubtype, StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 use vm::{eval, Environment, LocalContext};
 
@@ -23,11 +24,13 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
+/// Returns true if `version` indicates a mainnet address.
 fn version_matches_mainnet(version:u8) -> bool {
 version == C32_ADDRESS_VERSION_MAINNET_MULTISIG
         || version == C32_ADDRESS_VERSION_MAINNET_SINGLESIG
 }
 
+/// Returns true if `version` indicates a testnet address.
 fn version_matches_testnet(version:u8) -> bool {
 version == C32_ADDRESS_VERSION_TESTNET_MULTISIG
         || version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG
@@ -67,17 +70,7 @@ pub fn special_parse_principal(
     check_argument_count(2, args)?;
     runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
 
-    let property_name = args[0]
-        .match_atom()
-        .ok_or(CheckErrors::ParsePrincipalExpectPropertyName)?;
-
-    let principal_property = PrincipalProperty::lookup_by_name(property_name).ok_or(
-        CheckErrors::NoSuchParsePrincipalProperty(property_name.to_string()),
-    )?;
-
-    let principal = eval(&args[1], env, context)?;
-
-    let (version, pub_key_hash) = match principal {
+    let (version_byte, pub_key_hash) = match principal {
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
             (version, bytes)
         }
@@ -89,13 +82,37 @@ pub fn special_parse_principal(
         }
     };
 
-    let result = match principal_property {
-        PrincipalProperty::Version => Value::UInt(version as u128),
-        PrincipalProperty::PubKeyHash => Value::Sequence(SequenceData::Buffer(BuffData {
-            data: pub_key_hash.into(),
-        })),
-    };
-    Ok(result)
+                    let buffer_data = match Value::buff_from(pub_key_hash.to_vec()) {
+                        Ok(data) => data,
+                        Err(err) => return Err(err),
+                    };
+
+    let tuple_data = TupleData::from_data(
+        vec![
+            (
+                    ClarityName::try_from("version".to_owned()).unwrap(),
+                    Value::buff_from_byte(version_byte),
+            ),
+            (
+                    ClarityName::try_from("version".to_owned()).unwrap(),
+                    buffer_data,
+            ),
+        ]
+    );
+
+    match tuple_data {
+        Ok(data) => Ok(Value::Tuple(data)),
+        Err(err) => Err(err),
+    }
+    // let result = Value::Tuple(tuple_data);
+    // Ok(result)
+    // let result = match principal_property {
+    //     PrincipalProperty::Version => Value::UInt(version as u128),
+    //     PrincipalProperty::PubKeyHash => Value::Sequence(SequenceData::Buffer(BuffData {
+    //         data: pub_key_hash.into(),
+    //     })),
+    // };
+    // Ok(result)
 }
 
 pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result<Value> {
