@@ -285,7 +285,7 @@ fn test_principal_construct_bad_version_byte() {
     // Test case where the version byte is bad.
 
     // Failure because the version byte 0xef is invalid.
-    let normal_case_test =
+    let input =
         r#"(principal-construct 0xef 0x0102030405060708091011121314151617181920)"#;
     let bytes = hex_bytes("0102030405060708091011121314151617181920").unwrap();
     let mut transfer_buffer = [0u8; 20];
@@ -294,24 +294,24 @@ fn test_principal_construct_bad_version_byte() {
     }
     assert_eq!(
         Err(CheckErrors::InvalidVersionByte.into()),
-        execute_against_version_and_network(normal_case_test, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
     );
 
     // Failure because the version byte 0x5904934 is invalid.
-    let normal_case_test =
-        r#"(principal-construct 0x5904934 0x0102030405060708091011121314151617181920)"#;
+    let input =
+        r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
     let bytes = hex_bytes("0102030405060708091011121314151617181920").unwrap();
     let mut transfer_buffer = [0u8; 20];
     for i in 0..bytes.len() {
         transfer_buffer[i] = bytes[i];
     }
     assert_eq!(
-        Err(CheckErrors::InvalidVersionByte.into()),
-        execute_against_version_and_network(normal_case_test, ClarityVersion::Clarity2, false)
+        Err(CheckErrors::TypeValueError(SequenceType(BufferType(BufferLength(1))), Value::Sequence(SequenceData::Buffer(BuffData {data: hex_bytes("590493").unwrap()}))).into()),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
     );
 
     // Failure because the version byte 0xef is invalid.
-    let normal_case_test =
+    let input =
         r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
     let bytes = hex_bytes("0102030405060708091011121314151617181920").unwrap();
     let mut transfer_buffer = [0u8; 20];
@@ -319,8 +319,8 @@ fn test_principal_construct_bad_version_byte() {
         transfer_buffer[i] = bytes[i];
     }
     assert_eq!(
-        Err(CheckErrors::InvalidVersionByte.into()),
-        execute_against_version_and_network(normal_case_test, ClarityVersion::Clarity2, false)
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::UInt(22)).into()),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
     );
 }
 
