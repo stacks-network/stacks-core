@@ -94,7 +94,7 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
             Value::buff_from_byte(version_byte),
         ),
         (
-            ClarityName::try_from("hashbytes".to_owned()).unwrap(),
+            ClarityName::try_from("pub-key-hash".to_owned()).unwrap(),
             buffer_data,
         ),
     ]);

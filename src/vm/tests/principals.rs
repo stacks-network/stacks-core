@@ -187,8 +187,8 @@ fn test_simple_is_standard_undefined_cases() {
     );
 }
 
-/// Creates a `principal-parse`-style tuple `version` and `hashbytes`.
-fn create_principal_parse_tuple(version: &str, hashbytes: &str) -> Value {
+/// Creates a `principal-parse`-style tuple `version` and `pub_key_hash`.
+fn create_principal_parse_tuple(version: &str, pub_key_hash: &str) -> Value {
         Value::Tuple(
             TupleData::from_data(vec![
                 (
@@ -198,8 +198,8 @@ fn create_principal_parse_tuple(version: &str, hashbytes: &str) -> Value {
                     })),
                 ),
                 (
-                    "hashbytes".into(),
-                    Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(hashbytes).unwrap() })),
+                    "pub_key_hash".into(),
+                    Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(pub_key_hash).unwrap() })),
                 ),
             ])
             .expect("FAIL: Failed to initialize tuple.")
