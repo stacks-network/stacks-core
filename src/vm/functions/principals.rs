@@ -87,7 +87,7 @@ pub fn native_parse_principal(principal: Value) -> Result<Value> {
             Value::buff_from_byte(version_byte),
         ),
         (
-            ClarityName::try_from("version".to_owned()).unwrap(),
+            ClarityName::try_from("hashbytes".to_owned()).unwrap(),
             buffer_data,
         ),
     ]);

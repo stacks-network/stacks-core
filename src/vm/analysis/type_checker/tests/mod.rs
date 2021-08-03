@@ -2429,17 +2429,27 @@ fn test_string_utf8_negative_len() {
 #[test]
 fn test_parse_principal() {
     let good = [
-        r#"(parse-principal version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
-        r#"(parse-principal version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
-        r#"(parse-principal pub-key-hash 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
-        r#"(parse-principal pub-key-hash 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        // Standard good example.
+        r#"(parse-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
     ];
-    let expected = ["uint", "uint", "(buff 20)", "(buff 20)"];
+    let expected = ["(tuple (hashbytes (buff 20)) (version (buff 1)))"];
 
-    // let bad = [
-    // ];
-    // let bad_expected = [
-    // ];
+    let bad = [
+        // Too many arguments.
+        r#"(parse-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        // Too few arguments.
+        r#"(parse-principal)"#,
+        // Wrong type of arguments.
+        r#"(parse-principal 0x22)"#,
+    ];
+    let bad_expected = [
+            CheckErrors::IncorrectArgumentCount(1, 2),
+            CheckErrors::IncorrectArgumentCount(1, 0),
+            CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
+            ),
+    ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
@@ -2448,9 +2458,9 @@ fn test_parse_principal() {
         );
     }
 
-    // for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-    //     assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
-    // }
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
 }
 
 #[test]

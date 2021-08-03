@@ -706,7 +706,12 @@ impl TypedNativeFunction {
                                 .expect("FAIL: ClarityName failed to accept default arg name"),
                         ),
                     ],
-                    returns: TypeSignature::PrincipalType,
+                returns: TupleTypeSignature::try_from(vec![
+                    ("version".into(), BUFF_1),
+                    ("hashbytes".into(), BUFF_20),
+                ])
+                .expect("FAIL: ParsePrincipal failed to initialize type signature")
+                .into(),
                 }))),
             StxGetAccount => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(

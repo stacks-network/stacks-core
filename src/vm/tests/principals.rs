@@ -5,10 +5,11 @@ use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::{PrincipalType, SequenceType};
 use vm::types::{
-    ASCIIData, BuffData, CharType, PrincipalData, SequenceData, StandardPrincipalData, Value,
+    ASCIIData, BuffData, CharType, PrincipalData, SequenceData, StandardPrincipalData, TupleData, Value,
 };
 use vm::ClarityVersion;
 
+use vm::representations::ClarityName;
 use crate::clarity_vm::database::MemoryBackingStore;
 use std::collections::HashMap;
 use vm::callables::{DefineType, DefinedFunction};
@@ -18,7 +19,7 @@ use vm::errors::{
 };
 use vm::eval;
 use vm::execute;
-use vm::types::{QualifiedContractIdentifier, TypeSignature};
+use vm::types::{TupleTypeSignature, QualifiedContractIdentifier, TypeSignature};
 use vm::{
     CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
 };
@@ -187,6 +188,7 @@ fn test_simple_parse_principal_version() {
     let testnet_addr_test =
         r#"(parse-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
     assert_eq!(
+        Value::Tuple(TupleData { type_signature: TupleTypeSignature { "hashbytes": (buff 20), "version": (buff 1),}, data_map: {ClarityName("hashbytes"): Value::Sequence(SequenceData::Buffer(hex_bytes("164247d6f2b425ac5771423ae6c80c754f7172b0").unwrap())), ClarityName("version"): Value::Sequence(SequenceData::Buffer(hex_bytes("1a").unwrap()))} })
         Value::UInt(26),
         execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
             .unwrap()
