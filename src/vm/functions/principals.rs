@@ -63,7 +63,7 @@ pub fn special_is_standard(
 }
 
 pub fn native_principal_parse(principal: Value) -> Result<Value> {
-    let (version_byte, pub_key_hash) = match principal {
+    let (version_byte, hash_bytes) = match principal {
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
             (version, bytes)
         }
@@ -79,7 +79,7 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
         return Err(CheckErrors::InvalidVersionByte.into());
     }
 
-    let buffer_data = match Value::buff_from(pub_key_hash.to_vec()) {
+    let buffer_data = match Value::buff_from(hash_bytes.to_vec()) {
         Ok(data) => data,
         Err(err) => return Err(err),
     };
@@ -90,7 +90,7 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
             Value::buff_from_byte(version_byte),
         ),
         (
-            ClarityName::try_from("pub-key-hash".to_owned()).unwrap(),
+            ClarityName::try_from("hash-bytes".to_owned()).unwrap(),
             buffer_data,
         ),
     ]);
@@ -101,7 +101,7 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
     }
 }
 
-pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result<Value> {
+pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<Value> {
     // Check the version byte.
     let verified_version = match version {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
@@ -123,29 +123,29 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
     }
 
     // Check the hask bytes.
-    let verified_pub_key_hash = match pub_key_hash {
+    let verified_hash_bytes = match hash_bytes {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
         _ => {
             return Err(CheckErrors::TypeValueError(
                 TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
-                pub_key_hash,
+                hash_bytes,
             )
             .into())
         }
     };
 
-    if verified_pub_key_hash.len() != 20 {
+    if verified_hash_bytes.len() != 20 {
         return Err(CheckErrors::TypeValueError(
             TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
-            pub_key_hash,
+            hash_bytes,
         )
         .into());
     }
 
     // Construct the principal.
     let mut transfer_buffer = [0u8; 20];
-    for i in 0..verified_pub_key_hash.len() {
-        transfer_buffer[i] = verified_pub_key_hash[i];
+    for i in 0..verified_hash_bytes.len() {
+        transfer_buffer[i] = verified_hash_bytes[i];
     }
     let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
     Ok(Value::Principal(PrincipalData::Standard(principal_data)))

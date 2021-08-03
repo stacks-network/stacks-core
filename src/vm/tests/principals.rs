@@ -183,8 +183,8 @@ fn test_simple_is_standard_undefined_cases() {
     );
 }
 
-/// Creates a `principal-parse`-style tuple `version` and `pub_key_hash`.
-fn create_principal_parse_tuple(version: &str, pub_key_hash: &str) -> Value {
+/// Creates a `principal-parse`-style tuple `version` and `hash_bytes`.
+fn create_principal_parse_tuple(version: &str, hash_bytes: &str) -> Value {
     Value::Tuple(
         TupleData::from_data(vec![
             (
@@ -194,9 +194,9 @@ fn create_principal_parse_tuple(version: &str, pub_key_hash: &str) -> Value {
                 })),
             ),
             (
-                "pub_key_hash".into(),
+                "hash_bytes".into(),
                 Value::Sequence(SequenceData::Buffer(BuffData {
-                    data: hex_bytes(pub_key_hash).unwrap(),
+                    data: hex_bytes(hash_bytes).unwrap(),
                 })),
             ),
         ])
