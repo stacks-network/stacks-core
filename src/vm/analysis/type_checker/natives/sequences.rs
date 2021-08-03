@@ -398,6 +398,7 @@ pub fn check_special_index_of(
     TypeSignature::new_option(TypeSignature::UIntType).map_err(|e| e.into())
 }
 
+/// This function type checks the Clarity2 function `slice`.
 pub fn check_special_slice(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -405,31 +406,18 @@ pub fn check_special_slice(
 ) -> TypeResult {
     check_argument_count(3, args)?;
 
+    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
     // Check sequence
     let seq_type = checker.type_check(&args[0], context)?;
-    let seq = match &seq_type {
-        TypeSignature::SequenceType(seq) => TypeSignature::SequenceType(seq.clone()),
-        _ => return Err(CheckErrors::ExpectedSequence(seq_type.clone()).into()),
+    let seq = match seq_type {
+        TypeSignature::SequenceType(seq) => TypeSignature::SequenceType(seq),
+        _ => return Err(CheckErrors::ExpectedSequence(seq_type).into()),
     };
-    // TODO: runtime_cost
 
     // Check position argument
-    let position = checker.type_check(&args[1], context)?;
-    match position {
-        TypeSignature::UIntType => Ok(()),
-        _ => Err(CheckErrors::TypeError(TypeSignature::UIntType, position)),
-    }?;
-    // TODO: runtime_cost
-
+    let position = checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
     // Check length argument
-    let length = checker.type_check(&args[2], context)?;
-    match length {
-        TypeSignature::UIntType => Ok(()),
-        _ => Err(CheckErrors::TypeError(TypeSignature::UIntType, length)),
-    }?;
-    // TODO: runtime_cost
-
-    // TODO: analysis_typecheck_cost
+    let length = checker.type_check_expects(&args[2], context, &TypeSignature::UIntType)?;
 
     Ok(seq)
 }

@@ -21,7 +21,7 @@ use vm::types::{TypeSignature, Value};
 use std::convert::TryInto;
 use vm::analysis::errors::CheckError;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::execute;
+use vm::{execute, execute_v2};
 
 #[test]
 fn test_simple_list_admission() {
@@ -458,14 +458,14 @@ fn test_slice_list() {
     ];
 
     let expected = [
-        Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(4)]).unwrap(),
-        Value::list_from(vec![Value::UInt(3), Value::UInt(4)]).unwrap(),
-        Value::list_from(vec![]).unwrap(),
-        Value::list_from(vec![]).unwrap(),
+        Value::some(Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(4)]).unwrap()).unwrap(),
+        Value::some(Value::list_from(vec![Value::UInt(3), Value::UInt(4)]).unwrap()).unwrap(),
+        Value::none(),
+        Value::none(),
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
-        assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
     }
 }
 
@@ -480,15 +480,15 @@ fn test_slice_buff() {
     ];
 
     let expected = [
-        Value::buff_from(vec![0, 1, 2]).unwrap(),
-        Value::buff_from(vec![3, 4, 5]).unwrap(),
-        Value::buff_from(vec![]).unwrap(),
-        Value::buff_from(vec![]).unwrap(),
-        Value::buff_from(vec![]).unwrap(),
+        Value::some(Value::buff_from(vec![0, 1, 2]).unwrap()).unwrap(),
+        Value::some(Value::buff_from(vec![3, 4, 5]).unwrap()).unwrap(),
+        Value::none(),
+        Value::none(),
+        Value::none(),
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
-        assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
     }
 }
 
@@ -503,15 +503,15 @@ fn test_slice_ascii() {
     ];
 
     let expected = [
-        Value::string_ascii_from_bytes("block".into()).unwrap(),
-        Value::string_ascii_from_bytes("stack".into()).unwrap(),
-        Value::string_ascii_from_bytes(vec![]).unwrap(),
-        Value::string_ascii_from_bytes(vec![]).unwrap(),
-        Value::string_ascii_from_bytes(vec![]).unwrap(),
+        Value::some(Value::string_ascii_from_bytes("block".into()).unwrap()).unwrap(),
+        Value::some(Value::string_ascii_from_bytes("stack".into()).unwrap()).unwrap(),
+        Value::none(),
+        Value::none(),
+        Value::none(),
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
-        assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
     }
 }
 
@@ -526,15 +526,15 @@ fn test_slice_utf8() {
     ];
 
     let expected = [
-        Value::string_utf8_from_bytes("hello".into()).unwrap(),
-        Value::string_utf8_from_bytes("🦊".into()).unwrap(),
-        Value::string_utf8_from_bytes(vec![]).unwrap(),
-        Value::string_utf8_from_bytes(vec![]).unwrap(),
-        Value::string_utf8_from_bytes(vec![]).unwrap(),
+        Value::some(Value::string_utf8_from_bytes("hello".into()).unwrap()).unwrap(),
+        Value::some(Value::string_utf8_from_bytes("🦊".into()).unwrap()).unwrap(),
+        Value::none(),
+        Value::none(),
+        Value::none(),
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
-        assert_eq!(expected.clone(), execute(test).unwrap().unwrap());
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
     }
 }
 

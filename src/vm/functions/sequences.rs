@@ -312,6 +312,7 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
     }
 }
 
+/// Executes the Clarity2 function `slice`.
 pub fn special_slice(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -319,7 +320,9 @@ pub fn special_slice(
 ) -> Result<Value> {
     check_argument_count(3, args)?;
 
-    // TODO: runtime_cost
+    // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
+    // Set the input to runtime_cost to 0, since slicing is an O(1) operation.
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
 
     let seq = eval(&args[0], env, context)?;
     let position = eval(&args[1], env, context)?;
@@ -327,12 +330,18 @@ pub fn special_slice(
 
     let sliced_seq = match (seq, position, length) {
         (Value::Sequence(seq), Value::UInt(position), Value::UInt(length)) => {
-            let (position, length) = match (usize::try_from(position), usize::try_from(length)) {
+            let (position, length) = match (u32::try_from(position), u32::try_from(length)) {
                 (Ok(position), Ok(length)) => (position, length),
                 _ => return Ok(Value::none()),
             };
 
-            seq.slice(position, length)
+            // Perform length checks.
+            if length == 0 || (position + length) as usize > seq.len() {
+                return Ok(Value::none())
+            }
+
+            let seq_value = seq.slice(position as usize, length as usize)?;
+            Value::some(seq_value)
         }
         _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),
     }?;

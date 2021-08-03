@@ -816,16 +816,17 @@ supplied), this function returns `none`.
 };
 
 const SLICE_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|list A|string, uint, uint",
-    output_type: "(optional buff|list A|string)",
+    input_type: "sequence_A, uint, uint",
+    output_type: "(optional sequence_A)",
     signature: "(slice sequence position length)",
     description:
-        "The `slice` function returns a sub-sequence of size `length` in the provided sequence.
-If `length` is 0 or `position + length` is greater than or equal to `(len sequence)`, this function returns `none`.",
-    example: "(slice \"blockstack\" u5 u5) ;; Returns \"stack\"
-(slice (list 1 2 3 4 5) u5 u2) ;; Returns ()
-(slice (list 1 2 3 4 5) u3 u1) ;; Returns (4)
-(slice \"abcd\" u1 u2) ;; Returns \"bc\"
+        "The `slice` function attempts to return a sub-sequence of size `length` starting from
+index `position` in the provided sequence.
+If `length` is 0 or `position + length` is greater than `(len sequence)`, this function returns `none`.",
+    example: "(slice \"blockstack\" u5 u5) ;; Returns (some \"stack\")
+(slice (list 1 2 3 4 5) u5 u2) ;; Returns none
+(slice (list 1 2 3 4 5) u3 u1) ;; Returns (some (4))
+(slice \"abcd\" u1 u2) ;; Returns (some \"bc\")
 ",
 };
 
