@@ -108,6 +108,7 @@ pub trait BurnStateDB {
     /// Returns None if `height` is negative or greater than the canonical burn
     /// chain height.
     ///
+    /// # Panics
     /// Panics if there is an error with the underlying database connection or
     /// query.
     fn get_burn_header_hash(
@@ -122,6 +123,7 @@ pub trait BurnStateDB {
     /// Returns None if `height` is negative or greater than the canonical burn
     /// chain height.
     ///
+    /// # Panics
     /// Panics if there is an error with the underlying database connection or
     /// query.
     fn get_burn_header_hash_using_canonical_sortition(
@@ -723,6 +725,7 @@ impl<'a> ClarityDatabase<'a> {
     /// Returns None if `height` is negative or greater than the canonical burn
     /// chain height.
     ///
+    /// # Panics
     /// Panics if the underlying database is not available.
     pub fn get_burnchain_block_header_hash_for_burnchain_height(
         &mut self,
