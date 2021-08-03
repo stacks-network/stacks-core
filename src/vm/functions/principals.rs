@@ -76,6 +76,10 @@ pub fn native_parse_principal(principal: Value) -> Result<Value> {
         }
     };
 
+    if !version_matches_mainnet(version_byte) && !version_matches_testnet(version_byte) {
+        return Err(CheckErrors::InvalidVersionByte.into());
+    }
+
     let buffer_data = match Value::buff_from(pub_key_hash.to_vec()) {
         Ok(data) => data,
         Err(err) => return Err(err),
@@ -105,7 +109,6 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
         _ => return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, version).into()),
     };
 
-    warn!("verified_version {:?}", verified_version);
     if verified_version.len() != 1 {
         return Err(CheckErrors::TypeValueError(
             TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
@@ -116,9 +119,7 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
 
     // Assume: verified_version.len() == 1
     let version_byte = (*verified_version)[0];
-    warn!("version_byte {:?}", version_byte);
     let checked_byte = to_c32_version_byte(version_byte);
-    warn!("checked_byte {:?}", checked_byte);
     if !version_matches_mainnet(version_byte) && !version_matches_testnet(version_byte) {
         return Err(CheckErrors::InvalidVersionByte.into());
     }

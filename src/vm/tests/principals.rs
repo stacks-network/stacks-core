@@ -190,6 +190,8 @@ fn test_simple_is_standard_undefined_cases() {
 #[test]
 fn test_parse_principal_good() {
     // Test that we can parse well-formed principals.
+    
+    // ST is testnet singlesig.
     let testnet_addr_test = r#"(parse-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
     assert_eq!(
         Value::Tuple(
@@ -216,30 +218,14 @@ fn test_parse_principal_good() {
 }
 
 #[test]
-fn test_parse_principal_bad_version_bytes() {
+fn test_parse_principal_bad_version_byte() {
     // Test that we fail on principals that do not correspond to valid version bytes.
-    let testnet_addr_test = r#"(parse-principal 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
+
+    // SZ is not a valid prefix for any Stacks network.
+    let testnet_addr_test = r#"(parse-principal 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
     assert_eq!(
-        Value::Tuple(
-            TupleData::from_data(vec![
-                (
-                    "version".into(),
-                    Value::Sequence(SequenceData::Buffer(BuffData {
-                        data: hex_bytes("1a").unwrap(),
-                    })),
-                ),
-                (
-                    "hashbytes".into(),
-                    Value::Sequence(SequenceData::Buffer(BuffData {
-                        data: hex_bytes("164247d6f2b425ac5771423ae6c80c754f7172b0").unwrap(),
-                    })),
-                ),
-            ])
-            .expect("FAIL: Failed to initialize tuple.")
-        ),
+        Err(CheckErrors::InvalidVersionByte.into()),
         execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
-            .unwrap()
-            .unwrap()
     );
 }
 
