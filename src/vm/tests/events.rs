@@ -14,23 +14,73 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::clarity_vm::database::MemoryBackingStore;
 use chainstate::stacks::events::*;
-use std::convert::TryInto;
-use vm::analysis::errors::CheckError;
-use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use clarity_vm::clarity::ClarityInstance;
+use clarity_vm::database::marf::MarfedKV;
+use types::chainstate::{StacksBlockHeader, StacksBlockId};
+use types::proof::ClarityMarfTrieId;
+use vm::contexts::OwnedEnvironment;
+use vm::costs::ExecutionCost;
+use vm::database::{NULL_BURN_STATE_DB, NULL_BURN_STATE_DB_2_1, NULL_HEADER_DB};
 use vm::tests::execute;
-use vm::types::TypeSignature::UIntType;
-use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
+use vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
+
+use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+
+use core::StacksEpochId;
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
+    helper_execute_epoch(contract, method, None)
+}
+
+fn helper_execute_epoch(
+    contract: &str,
+    method: &str,
+    set_epoch: Option<StacksEpochId>,
+) -> (Value, Vec<StacksTransactionEvent>) {
     let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
     let address = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
     let sender = execute(address).expect_principal();
 
-    let mut marf_kv = MemoryBackingStore::new();
-    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+    let marf_kv = MarfedKV::temporary();
+    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut genesis = clarity_instance.begin_test_genesis_block(
+        &StacksBlockId::sentinel(),
+        &StacksBlockHeader::make_index_block_hash(
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+        ),
+        &NULL_HEADER_DB,
+        &NULL_BURN_STATE_DB,
+    );
+
+    if let Some(epoch) = set_epoch {
+        genesis.as_transaction(|tx_conn| {
+            // bump the epoch in the Clarity DB
+            tx_conn
+                .with_clarity_db(|db| {
+                    db.set_clarity_epoch_version(epoch);
+                    Ok(())
+                })
+                .unwrap();
+        });
+    }
+
+    genesis.commit_block();
+
+    let mut marf_kv = clarity_instance.destroy();
+
+    let mut store = marf_kv.begin(
+        &StacksBlockHeader::make_index_block_hash(
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+        ),
+        &StacksBlockId([1 as u8; 32]),
+    );
+
+    let mut owned_env = OwnedEnvironment::new_max_limit(
+        store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB_2_1),
+    );
 
     {
         let mut env = owned_env.get_exec_environment(None, None);
@@ -85,7 +135,7 @@ fn test_emit_stx_transfer_ok() {
         (define-fungible-token token)
         (define-public (emit-event-ok)
             (begin
-                (unwrap-panic (stx-transfer? u10 sender recipient 0x67))
+                (unwrap-panic (stx-transfer? u10 sender recipient))
                 (ok u1)))"#;
 
     let (value, mut events) = helper_execute(contract, "emit-event-ok");
@@ -102,6 +152,43 @@ fn test_emit_stx_transfer_ok() {
                 Value::Principal(data.recipient),
                 execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")
             );
+            assert_eq!(data.memo, BuffData { data: vec![] });
+        }
+        _ => panic!("assertion failed"),
+    };
+}
+
+#[test]
+fn test_emit_stx_transfer_memo_ok() {
+    let contract = r#"(define-constant sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+        (define-constant recipient 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
+        (define-fungible-token token)
+        (define-public (emit-event-ok)
+            (begin
+                (unwrap-panic (stx-transfer-memo? u10 sender recipient 0x010203))
+                (ok u1)))"#;
+
+    let (value, mut events) =
+        helper_execute_epoch(contract, "emit-event-ok", Some(StacksEpochId::Epoch21));
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 1);
+    match events.pop() {
+        Some(StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(data))) => {
+            assert_eq!(data.amount, 10u128);
+            assert_eq!(
+                Value::Principal(data.sender),
+                execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
+            );
+            assert_eq!(
+                Value::Principal(data.recipient),
+                execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")
+            );
+            assert_eq!(
+                data.memo,
+                BuffData {
+                    data: vec![1, 2, 3]
+                }
+            );
         }
         _ => panic!("assertion failed"),
     };
@@ -114,7 +201,7 @@ fn test_emit_stx_transfer_nok() {
         (define-fungible-token token)
         (define-public (emit-event-nok)
             (begin
-                (unwrap-panic (stx-transfer? u10 sender recipient 0x99))
+                (unwrap-panic (stx-transfer? u10 sender recipient))
                 (err u1)))"#;
 
     let (value, events) = helper_execute(contract, "emit-event-nok");

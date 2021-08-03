@@ -95,8 +95,12 @@ pub trait HeadersDB {
 }
 
 pub trait BurnStateDB {
+    fn get_v1_unlock_height(&self) -> u32;
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
     fn get_burn_start_height(&self) -> u32;
+    fn get_pox_prepare_length(&self) -> u32;
+    fn get_pox_reward_cycle_length(&self) -> u32;
+    fn get_pox_rejection_fraction(&self) -> u64;
     fn get_burn_header_hash(
         &self,
         height: u32,
@@ -130,6 +134,10 @@ impl HeadersDB for &dyn HeadersDB {
 }
 
 impl BurnStateDB for &dyn BurnStateDB {
+    fn get_v1_unlock_height(&self) -> u32 {
+        (*self).get_v1_unlock_height()
+    }
+
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         (*self).get_burn_block_height(sortition_id)
     }
@@ -148,6 +156,18 @@ impl BurnStateDB for &dyn BurnStateDB {
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         (*self).get_stacks_epoch(height)
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        (*self).get_pox_prepare_length()
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        (*self).get_pox_reward_cycle_length()
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        (*self).get_pox_rejection_fraction()
     }
 }
 
@@ -253,6 +273,22 @@ impl BurnStateDB for NullBurnStateDB {
             end_height: u64::max_value(),
         })
     }
+
+    fn get_v1_unlock_height(&self) -> u32 {
+        u32::max_value()
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        panic!("NullBurnStateDB should not return PoX info");
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        panic!("NullBurnStateDB should not return PoX info");
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        panic!("NullBurnStateDB should not return PoX info");
+    }
 }
 
 impl<'a> ClarityDatabase<'a> {
@@ -341,6 +377,10 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn make_metadata_key(data: StoreType, var_name: &str) -> String {
         format!("vm-metadata::{}::{}", data as u8, var_name)
+    }
+
+    fn clarity_state_epoch_key() -> &'static str {
+        "vm-epoch::epoch-version"
     }
 
     pub fn make_key_for_quad(
@@ -517,6 +557,19 @@ impl<'a> ClarityDatabase<'a> {
         "_stx-data::ustx_liquid_supply"
     }
 
+    /// Returns the epoch version currently applied in the stored Clarity state
+    pub fn get_clarity_epoch_version(&mut self) -> StacksEpochId {
+        match self.get(Self::clarity_state_epoch_key()) {
+            Some(x) => u32::try_into(x).expect("Bad Clarity epoch version in stored Clarity state"),
+            None => StacksEpochId::Epoch20,
+        }
+    }
+
+    /// Should be called _after_ all of the epoch's initialization has been invoked
+    pub fn set_clarity_epoch_version(&mut self, epoch: StacksEpochId) {
+        self.put(Self::clarity_state_epoch_key(), &(epoch as u32))
+    }
+
     /// Returns the _current_ total liquid ustx
     pub fn get_total_liquid_ustx(&mut self) -> u128 {
         self.get_value(
@@ -576,6 +629,12 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_current_block_height(&mut self) -> u32 {
         self.store.get_current_block_height()
+    }
+
+    /// Return the height for PoX v1 -> v2 auto unlocks
+    ///   from the burn state db
+    pub fn get_v1_unlock_height(&self) -> u32 {
+        self.burn_state_db.get_v1_unlock_height()
     }
 
     /// Get the last-known burnchain block height.
@@ -1356,12 +1415,12 @@ impl<'a> ClarityDatabase<'a> {
 
         test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
             principal,
-            stx_balance.amount_unlocked,
-            stx_balance.amount_locked,
-            stx_balance.unlock_height,
+            stx_balance.amount_unlocked(),
+            stx_balance.amount_locked(),
+            stx_balance.unlock_height(),
             cur_burn_height,
-            stx_balance.get_available_balance_at_burn_block(cur_burn_height),
-            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height));
+            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height()),
+            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height()));
 
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
     }
@@ -1375,12 +1434,12 @@ impl<'a> ClarityDatabase<'a> {
 
         test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
             principal,
-            stx_balance.amount_unlocked,
-            stx_balance.amount_locked,
-            stx_balance.unlock_height,
+            stx_balance.amount_unlocked(),
+            stx_balance.amount_locked(),
+            stx_balance.unlock_height(),
             cur_burn_height,
-            stx_balance.get_available_balance_at_burn_block(cur_burn_height),
-            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height));
+            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height()),
+            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height()));
 
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
     }
@@ -1427,10 +1486,5 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         self.burn_state_db.get_stacks_epoch(height)
-    }
-
-    pub fn get_current_stacks_epoch(&mut self) -> Option<StacksEpoch> {
-        let cur_burn_height = self.get_current_burnchain_block_height();
-        self.get_stacks_epoch(cur_burn_height)
     }
 }

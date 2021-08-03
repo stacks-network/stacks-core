@@ -188,6 +188,7 @@ pub fn setup_states(
             &burnchain.first_block_hash,
             burnchain.first_block_timestamp.into(),
             &StacksEpoch::unit_test(burnchain.first_block_height),
+            burnchain.pox_constants.clone(),
             true,
         )
         .unwrap();
@@ -370,19 +371,39 @@ fn make_reward_set_coordinator<'a>(
 
 pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain {
     let mut b = Burnchain::regtest(&format!("{}/burnchain/db/", path));
-    b.pox_constants = pox_consts
-        .unwrap_or_else(|| PoxConstants::new(5, 3, 3, 25, 5, u64::max_value(), u64::max_value()));
+    b.pox_constants = pox_consts.unwrap_or_else(|| {
+        PoxConstants::new(
+            5,
+            3,
+            3,
+            25,
+            5,
+            u64::max_value(),
+            u64::max_value(),
+            u32::max_value(),
+        )
+    });
     b
 }
 
 pub fn get_sortition_db(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
     let burnchain = get_burnchain(path, pox_consts);
-    SortitionDB::open(&burnchain.get_db_path(), false).unwrap()
+    SortitionDB::open(
+        &burnchain.get_db_path(),
+        false,
+        burnchain.pox_constants.clone(),
+    )
+    .unwrap()
 }
 
 pub fn get_rw_sortdb(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
     let burnchain = get_burnchain(path, pox_consts);
-    SortitionDB::open(&burnchain.get_db_path(), true).unwrap()
+    SortitionDB::open(
+        &burnchain.get_db_path(),
+        true,
+        burnchain.pox_constants.clone(),
+    )
+    .unwrap()
 }
 
 pub fn get_burnchain_db(path: &str, pox_consts: Option<PoxConstants>) -> BurnchainDB {
@@ -731,7 +752,16 @@ fn missed_block_commits() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 7010, sunset_ht));
+    let pox_consts = Some(PoxConstants::new(
+        5,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        u32::max_value(),
+    ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
@@ -1712,7 +1742,17 @@ fn test_pox_btc_ops() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 7010, sunset_ht));
+    let pox_v1_unlock_ht = u32::max_value();
+    let pox_consts = Some(PoxConstants::new(
+        5,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        pox_v1_unlock_ht,
+    ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
@@ -1881,14 +1921,15 @@ fn test_pox_btc_ops() {
 
             if ix > 2 && reward_cycle_count < 6 {
                 assert_eq!(
-                    stacker_balance.amount_unlocked,
+                    stacker_balance.amount_unlocked(),
                     (balance as u128) - stacked_amt,
                     "Lock should be active"
                 );
-                assert_eq!(stacker_balance.amount_locked, stacked_amt);
+                assert_eq!(stacker_balance.amount_locked(), stacked_amt);
             } else {
                 assert_eq!(
-                    stacker_balance.get_available_balance_at_burn_block(burn_height as u64),
+                    stacker_balance
+                        .get_available_balance_at_burn_block(burn_height as u64, pox_v1_unlock_ht),
                     balance as u128,
                     "No lock should be active"
                 );
@@ -1972,8 +2013,18 @@ fn test_stx_transfer_btc_ops() {
     let path = "/tmp/stacks-blockchain-stx_transfer-btc-ops";
     let _r = std::fs::remove_dir_all(path);
 
+    let pox_v1_unlock_ht = u32::max_value();
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 7010, sunset_ht));
+    let pox_consts = Some(PoxConstants::new(
+        5,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        pox_v1_unlock_ht,
+    ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
@@ -2171,22 +2222,26 @@ fn test_stx_transfer_btc_ops() {
 
             if ix > 2 {
                 assert_eq!(
-                    sender_balance.get_available_balance_at_burn_block(burn_height as u64),
+                    sender_balance
+                        .get_available_balance_at_burn_block(burn_height as u64, pox_v1_unlock_ht),
                     (balance as u128) - transfer_amt,
                     "Transfer should have decremented balance"
                 );
                 assert_eq!(
-                    recipient_balance.get_available_balance_at_burn_block(burn_height as u64),
+                    recipient_balance
+                        .get_available_balance_at_burn_block(burn_height as u64, pox_v1_unlock_ht),
                     transfer_amt,
                     "Recipient should have incremented balance"
                 );
             } else {
                 assert_eq!(
-                    sender_balance.get_available_balance_at_burn_block(burn_height as u64),
+                    sender_balance
+                        .get_available_balance_at_burn_block(burn_height as u64, pox_v1_unlock_ht),
                     balance as u128,
                 );
                 assert_eq!(
-                    recipient_balance.get_available_balance_at_burn_block(burn_height as u64),
+                    recipient_balance
+                        .get_available_balance_at_burn_block(burn_height as u64, pox_v1_unlock_ht),
                     0,
                 );
             }
@@ -2270,7 +2325,16 @@ fn test_initial_coinbase_reward_distributions() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 7010, sunset_ht));
+    let pox_consts = Some(PoxConstants::new(
+        5,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        u32::max_value(),
+    ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
@@ -2488,7 +2552,16 @@ fn test_sortition_with_sunset() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 80;
-    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht));
+    let pox_consts = Some(PoxConstants::new(
+        6,
+        3,
+        3,
+        25,
+        5,
+        10,
+        sunset_ht,
+        u32::max_value(),
+    ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let mut vrf_keys: Vec<_> = (0..200).map(|_| VRFPrivateKey::new()).collect();

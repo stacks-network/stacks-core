@@ -127,8 +127,8 @@ pub fn stx_transfer_consolidated(
     // loading from's locked amount and height
     // TODO: this does not count the inner stacks block header load, but arguably,
     // this could be optimized away, so it shouldn't penalize the caller.
-    env.add_memory(STXBalance::size_of as u64)?;
-    env.add_memory(STXBalance::size_of as u64)?;
+    env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
+    env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
     let sender_snapshot = env.global_context.database.get_stx_balance_snapshot(from);
     if !sender_snapshot.can_transfer(amount) {
@@ -147,24 +147,40 @@ pub fn special_stx_transfer(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    let memo_passed;
-    if let Ok(()) = check_argument_count(4, args) {
-        memo_passed = true;
-    } else {
-        check_argument_count(3, args)?;
-        memo_passed = false;
-    }
+    check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
 
     let amount_val = eval(&args[0], env, context)?;
     let from_val = eval(&args[1], env, context)?;
     let to_val = eval(&args[2], env, context)?;
-    let memo_val = if memo_passed {
-        eval(&args[3], env, context)?
+    let memo_val = Value::Sequence(SequenceData::Buffer(BuffData::empty()));
+
+    if let (
+        Value::Principal(ref from),
+        Value::Principal(ref to),
+        Value::UInt(amount),
+        Value::Sequence(SequenceData::Buffer(ref memo)),
+    ) = (from_val, to_val, amount_val, memo_val)
+    {
+        stx_transfer_consolidated(env, from, to, amount, memo)
     } else {
-        Value::Sequence(SequenceData::Buffer(BuffData::empty()))
-    };
+        Err(CheckErrors::BadTransferSTXArguments.into())
+    }
+}
+
+pub fn special_stx_transfer_memo(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(4, args)?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+
+    let amount_val = eval(&args[0], env, context)?;
+    let from_val = eval(&args[1], env, context)?;
+    let to_val = eval(&args[2], env, context)?;
+    let memo_val = eval(&args[3], env, context)?;
 
     if let (
         Value::Principal(ref from),
@@ -200,19 +216,20 @@ pub fn special_stx_account(
         .database
         .get_stx_balance_snapshot(&principal)
         .canonical_balance_repr();
+    let v1_unlock_ht = env.global_context.database.get_v1_unlock_height();
 
     TupleData::from_data(vec![
         (
             "unlocked".try_into().unwrap(),
-            Value::UInt(stx_balance.amount_unlocked),
+            Value::UInt(stx_balance.amount_unlocked()),
         ),
         (
             "locked".try_into().unwrap(),
-            Value::UInt(stx_balance.amount_locked),
+            Value::UInt(stx_balance.amount_locked()),
         ),
         (
             "unlock-height".try_into().unwrap(),
-            Value::UInt(stx_balance.unlock_height as u128),
+            Value::UInt(stx_balance.effective_unlock_height(v1_unlock_ht) as u128),
         ),
     ])
     .map(|t| Value::Tuple(t))
@@ -240,7 +257,7 @@ pub fn special_stx_burn(
         }
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(STXBalance::size_of as u64)?;
+        env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
         let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(&from);
         if !burner_snapshot.can_transfer(amount) {

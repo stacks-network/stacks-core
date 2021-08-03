@@ -19,20 +19,42 @@ use vm::contexts::{Environment, LocalContext};
 use vm::errors::{InterpreterResult as Result, RuntimeErrorType};
 use vm::types::Value;
 use vm::types::{BuffData, OptionalData, PrincipalData};
+use vm::ClarityVersion;
 
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::runtime_cost;
 
-define_named_enum!(NativeVariables {
-    ContractCaller("contract-caller"), TxSender("tx-sender"), BlockHeight("block-height"),
-    BurnBlockHeight("burn-block-height"), NativeNone("none"),
-    NativeTrue("true"), NativeFalse("false"),
-    TotalLiquidMicroSTX("stx-liquid-supply"),
-    Regtest("is-in-regtest"), TxSponsor("tx-sponsor?"),
+define_versioned_named_enum!(NativeVariables(ClarityVersion) {
+    ContractCaller("contract-caller", ClarityVersion::Clarity1),
+    TxSender("tx-sender", ClarityVersion::Clarity1),
+    BlockHeight("block-height", ClarityVersion::Clarity1),
+    BurnBlockHeight("burn-block-height", ClarityVersion::Clarity1),
+    NativeNone("none", ClarityVersion::Clarity1),
+    NativeTrue("true", ClarityVersion::Clarity1),
+    NativeFalse("false", ClarityVersion::Clarity1),
+    TotalLiquidMicroSTX("stx-liquid-supply", ClarityVersion::Clarity1),
+    Regtest("is-in-regtest", ClarityVersion::Clarity1),
+    TxSponsor("tx-sponsor?", ClarityVersion::Clarity2),
+    Mainnet("is-in-mainnet", ClarityVersion::Clarity2),
 });
 
-pub fn is_reserved_name(name: &str) -> bool {
-    NativeVariables::lookup_by_name(name).is_some()
+impl NativeVariables {
+    pub fn lookup_by_name_at_version(
+        name: &str,
+        version: &ClarityVersion,
+    ) -> Option<NativeVariables> {
+        NativeVariables::lookup_by_name(name).and_then(|native_function| {
+            if &native_function.get_version() <= version {
+                Some(native_function)
+            } else {
+                None
+            }
+        })
+    }
+}
+
+pub fn is_reserved_name(name: &str, version: &ClarityVersion) -> bool {
+    NativeVariables::lookup_by_name_at_version(name, version).is_some()
 }
 
 pub fn lookup_reserved_variable(
@@ -88,6 +110,10 @@ pub fn lookup_reserved_variable(
             NativeVariables::Regtest => {
                 let reg = env.global_context.database.is_in_regtest();
                 Ok(Some(Value::Bool(reg)))
+            }
+            NativeVariables::Mainnet => {
+                let mainnet = env.global_context.mainnet;
+                Ok(Some(Value::Bool(mainnet)))
             }
         }
     } else {

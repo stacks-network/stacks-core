@@ -531,9 +531,12 @@ impl TypedNativeFunction {
         use self::TypedNativeFunction::{Simple, Special};
         match self {
             Special(SpecialNativeFunction(check)) => check(checker, args, context),
-            Simple(SimpleNativeFunction(function_type)) => {
-                checker.type_check_function_type(function_type, args, context)
-            }
+            Simple(SimpleNativeFunction(function_type)) => checker.type_check_function_type(
+                function_type,
+                args,
+                context,
+                checker.clarity_version,
+            ),
         }
     }
 
@@ -745,6 +748,9 @@ impl TypedNativeFunction {
                 .unwrap(),
             }))),
             StxTransfer => Special(SpecialNativeFunction(&assets::check_special_stx_transfer)),
+            StxTransferMemo => Special(SpecialNativeFunction(
+                &assets::check_special_stx_transfer_memo,
+            )),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
             TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),
