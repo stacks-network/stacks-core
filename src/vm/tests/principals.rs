@@ -187,8 +187,8 @@ fn test_simple_is_standard_undefined_cases() {
     );
 }
 
-/// Creates a `parse-principal`-style tuple `version` and `hashbytes`.
-fn create_parse_principal_tuple(version: &str, hashbytes: &str) -> Value {
+/// Creates a `principal-parse`-style tuple `version` and `hashbytes`.
+fn create_principal_parse_tuple(version: &str, hashbytes: &str) -> Value {
         Value::Tuple(
             TupleData::from_data(vec![
                 (
@@ -208,38 +208,38 @@ fn create_parse_principal_tuple(version: &str, hashbytes: &str) -> Value {
 
 #[test]
 // Test that we can parse well-formed principals.
-fn test_parse_principal_good() {
+fn test_principal_parse_good() {
     // SP is mainnet single-sig.
-    let input = r#"(parse-principal 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
+    let input = r#"(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
     assert_eq!(
-        create_parse_principal_tuple("16", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        create_principal_parse_tuple("16", "fa6bf38ed557fe417333710d6033e9419391a320"),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
     );
 
     // SM is mainnet multi-sig.
-    let input = r#"(parse-principal 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
+    let input = r#"(principal-parse 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
     assert_eq!(
-        create_parse_principal_tuple("14", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        create_principal_parse_tuple("14", "fa6bf38ed557fe417333710d6033e9419391a320"),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
     );
 
     // ST is testnet single-sig.
-    let input = r#"(parse-principal 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
+    let input = r#"(principal-parse 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
     assert_eq!(
-        create_parse_principal_tuple("1a", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        create_principal_parse_tuple("1a", "fa6bf38ed557fe417333710d6033e9419391a320"),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
     );
 
     // SN is testnet multi-sig.
-    let input = r#"(parse-principal 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7)"#;
+    let input = r#"(principal-parse 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7)"#;
     assert_eq!(
-        create_parse_principal_tuple("15", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        create_principal_parse_tuple("15", "fa6bf38ed557fe417333710d6033e9419391a320"),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
@@ -248,9 +248,9 @@ fn test_parse_principal_good() {
 
 #[test]
 // Test that we fail on principals that do not correspond to valid version bytes.
-fn test_parse_principal_bad_version_byte() {
+fn test_principal_parse_bad_version_byte() {
     // SZ is not a valid prefix for any Stacks network.
-    let testnet_addr_test = r#"(parse-principal 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
+    let testnet_addr_test = r#"(principal-parse 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
     assert_eq!(
         Err(CheckErrors::InvalidVersionByte.into()),
         execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)

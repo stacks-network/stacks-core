@@ -273,11 +273,11 @@ Note: This function is only available starting with Stacks 2.1.",
 
 const PARSE_PRINCIPAL_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    signature: "(parse-principal property-name principal-address)",
+    signature: "(principal-parse property-name principal-address)",
     description: "A principal value is a concatenation of two components: a single *version byte*
 (indicating the type of account and the type of network that this principal can spend tokens on),
 and a 20-byte *public key hash* (indicating the principal's unique identity).
-`parse-principal` is used to decompose a principal into its component parts.
+`principal-parse` is used to decompose a principal into its component parts.
 
 By setting `property-name` to `version`, one recovers version byte.
 
@@ -286,8 +286,8 @@ public key hash of the user.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(parse-principal version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns u26
-(parse-principal pub-key-hash 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns 0x164247d6f2b425ac5771423ae6c80c754f7172b0
+(principal-parse version 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns u26
+(principal-parse pub-key-hash 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns 0x164247d6f2b425ac5771423ae6c80c754f7172b0
 "#,
 };
 
@@ -1880,7 +1880,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
         BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
         IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
-        ParsePrincipal => make_for_simple_native(&PARSE_PRINCIPAL_API, &IsStandard, name),
+        PrincipalParse => make_for_simple_native(&PARSE_PRINCIPAL_API, &IsStandard, name),
         PrincipalConstruct => make_for_simple_native(&PRINCIPAL_CONSTRUCT_API, &IsStandard, name),
         StringToInt => make_for_simple_native(&STRING_TO_INT_API, &StringToInt, name),
         StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &StringToUInt, name),

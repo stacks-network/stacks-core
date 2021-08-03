@@ -182,7 +182,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | UnwrapErrRet | IsOkay | IsNone | Asserts | Unwrap | UnwrapErr | Match | IsErr
             | IsSome | TryRet | ToUInt | ToInt | BuffToIntLe | BuffToUIntLe | BuffToIntBe
             | BuffToUIntBe | IntToAscii | IntToUtf8 | StringToInt | StringToUInt | IsStandard
-            | ParsePrincipal | PrincipalConstruct | Append | Concat | AsMaxLen | ContractOf
+            | PrincipalParse | PrincipalConstruct | Append | Concat | AsMaxLen | ContractOf
             | PrincipalOf | ListCons | GetBlockInfo | TupleGet | TupleMerge | Len | Print
             | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance
             | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf => {

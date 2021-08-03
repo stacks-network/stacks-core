@@ -701,7 +701,7 @@ impl TypedNativeFunction {
                     returns: TypeSignature::PrincipalType,
                 })))
             }
-            ParsePrincipal => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+            PrincipalParse => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
                     ClarityName::try_from("principal".to_owned())
@@ -711,7 +711,7 @@ impl TypedNativeFunction {
                     ("version".into(), BUFF_1),
                     ("hashbytes".into(), BUFF_20),
                 ])
-                .expect("FAIL: ParsePrincipal failed to initialize type signature")
+                .expect("FAIL: PrincipalParse failed to initialize type signature")
                 .into(),
             }))),
             StxGetAccount => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {

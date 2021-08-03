@@ -66,7 +66,7 @@ pub fn special_is_standard(
     ))
 }
 
-pub fn native_parse_principal(principal: Value) -> Result<Value> {
+pub fn native_principal_parse(principal: Value) -> Result<Value> {
     let (version_byte, pub_key_hash) = match principal {
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
             (version, bytes)

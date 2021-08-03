@@ -2531,20 +2531,20 @@ fn test_comparison_types() {
 }
 
 #[test]
-fn test_parse_principal() {
+fn test_principal_parse() {
     let good = [
         // Standard good example.
-        r#"(parse-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        r#"(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
     ];
     let expected = ["(tuple (hashbytes (buff 20)) (version (buff 1)))"];
 
     let bad = [
         // Too many arguments.
-        r#"(parse-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        r#"(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
         // Too few arguments.
-        r#"(parse-principal)"#,
+        r#"(principal-parse)"#,
         // Wrong type of arguments.
-        r#"(parse-principal 0x22)"#,
+        r#"(principal-parse 0x22)"#,
     ];
     let bad_expected = [
         CheckErrors::IncorrectArgumentCount(1, 2),
