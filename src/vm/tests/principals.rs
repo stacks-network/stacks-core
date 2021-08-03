@@ -194,7 +194,7 @@ fn create_principal_parse_tuple(version: &str, hash_bytes: &str) -> Value {
                 })),
             ),
             (
-                "hash_bytes".into(),
+                "hash-bytes".into(),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: hex_bytes(hash_bytes).unwrap(),
                 })),

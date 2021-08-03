@@ -173,7 +173,7 @@ pub enum CheckErrors {
     // secp256k1 signature
     InvalidSecp65k1Signature,
 
-    // The version byte provided is not meaningful.
+    // The version byte is not valid for any network/signature pair.
     InvalidVersionByte,
 
     WriteAttemptedInReadOnly,

@@ -290,12 +290,12 @@ Note: This function is only available starting with Stacks 2.1.",
 
 const PRINCIPAL_CONSTRUCT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    signature: "(principal-construct version-byte public-key-hash)",
+    signature: "(principal-construct version-byte hash-bytes)",
     description: "A principal value is a concatenation of two things: a 1-byte *version byte*,
 indicating the type of account and the type of network that this principal can spend tokens on,
 and a 20-byte *public key hash*, characterizing the principal's unique identity.
-`principal-construct` takes such a *version byte*, of type `(buff 1)`, 
-and a *public key hash*, of type `(buff 20)`, and creates a corresponding object of type `principal`.
+`principal-construct` takes such a `version-byte`, of type `(buff 1)`, 
+and `hash-bytes`, of type `(buff 20)`, and creates a corresponding object of type `principal`.
 
 The version byte should be `0x16` for a single-signature account on mainnet, `0x14`
 for a multi-signature account on mainnet, `0x1a` for a single-signature account on

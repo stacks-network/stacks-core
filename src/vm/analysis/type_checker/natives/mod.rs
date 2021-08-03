@@ -694,7 +694,7 @@ impl TypedNativeFunction {
                         ),
                         FunctionArg::new(
                             BUFF_20,
-                            ClarityName::try_from("pubkeyhash".to_owned())
+                            ClarityName::try_from("hash-bytes".to_owned())
                                 .expect("FAIL: ClarityName failed to accept default arg name"),
                         ),
                     ],
