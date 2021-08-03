@@ -681,7 +681,7 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::UIntType,
             }))),
-            PrincipalConstruct =>
+            PrincipalConstruct => {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![
                         FunctionArg::new(
@@ -696,23 +696,21 @@ impl TypedNativeFunction {
                         ),
                     ],
                     returns: TypeSignature::PrincipalType,
-                }))),
-            ParsePrincipal => 
-                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
-                    args: vec![
-                        FunctionArg::new(
+                })))
+            }
+            ParsePrincipal => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
-                            ClarityName::try_from("principal".to_owned())
-                                .expect("FAIL: ClarityName failed to accept default arg name"),
-                        ),
-                    ],
+                    ClarityName::try_from("principal".to_owned())
+                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                )],
                 returns: TupleTypeSignature::try_from(vec![
                     ("version".into(), BUFF_1),
                     ("hashbytes".into(), BUFF_20),
                 ])
                 .expect("FAIL: ParsePrincipal failed to initialize type signature")
                 .into(),
-                }))),
+            }))),
             StxGetAccount => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,

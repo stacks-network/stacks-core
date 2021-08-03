@@ -2443,12 +2443,12 @@ fn test_parse_principal() {
         r#"(parse-principal 0x22)"#,
     ];
     let bad_expected = [
-            CheckErrors::IncorrectArgumentCount(1, 2),
-            CheckErrors::IncorrectArgumentCount(1, 0),
-            CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
-            ),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 0),
+        CheckErrors::TypeError(
+            TypeSignature::PrincipalType,
+            TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
+        ),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {

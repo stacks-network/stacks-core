@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost, CostTracker};
 use vm::errors::{
@@ -5,7 +6,6 @@ use vm::errors::{
     RuntimeErrorType,
 };
 use vm::representations::ClarityName;
-use std::convert::TryFrom;
 use vm::representations::SymbolicExpression;
 use vm::types::{
     BuffData, BufferLength, PrincipalData, QualifiedContractIdentifier, SequenceData,
