@@ -104,15 +104,6 @@ pub fn special_parse_principal(
         Ok(data) => Ok(Value::Tuple(data)),
         Err(err) => Err(err),
     }
-    // let result = Value::Tuple(tuple_data);
-    // Ok(result)
-    // let result = match principal_property {
-    //     PrincipalProperty::Version => Value::UInt(version as u128),
-    //     PrincipalProperty::PubKeyHash => Value::Sequence(SequenceData::Buffer(BuffData {
-    //         data: pub_key_hash.into(),
-    //     })),
-    // };
-    // Ok(result)
 }
 
 pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result<Value> {
