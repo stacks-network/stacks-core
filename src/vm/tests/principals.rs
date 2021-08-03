@@ -5,9 +5,7 @@ use vm::types::BufferLength;
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::{PrincipalType, SequenceType};
-use vm::types::{
-    BuffData, PrincipalData, SequenceData, StandardPrincipalData, TupleData, Value,
-};
+use vm::types::{BuffData, PrincipalData, SequenceData, StandardPrincipalData, TupleData, Value};
 use vm::ClarityVersion;
 
 use crate::clarity_vm::database::MemoryBackingStore;
