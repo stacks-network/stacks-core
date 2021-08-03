@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use util::hash::hex_bytes;
 use vm::execute_against_version_and_network;
 use vm::types::BufferLength;
@@ -24,6 +25,8 @@ use vm::types::{QualifiedContractIdentifier, TupleTypeSignature, TypeSignature};
 use vm::{
     CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
 };
+
+pub use vm::types::signatures::{BUFF_1, BUFF_20};
 
 #[test]
 fn test_simple_is_standard_check_inputs() {
@@ -185,32 +188,29 @@ fn test_simple_is_standard_undefined_cases() {
 }
 
 #[test]
-fn test_simple_parse_principal_version() {
+fn test_simple_parse_principal_good() {
+    // Test that we can parse well-formed principals.
     let testnet_addr_test = r#"(parse-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
     assert_eq!(
-        Value::Tuple(TupleData { type_signature: TupleTypeSignature { "hashbytes": (buff 20), "version": (buff 1),}, data_map: {ClarityName("hashbytes"): Value::Sequence(SequenceData::Buffer(hex_bytes("164247d6f2b425ac5771423ae6c80c754f7172b0").unwrap())), ClarityName("version"): Value::Sequence(SequenceData::Buffer(hex_bytes("1a").unwrap()))} })
-        Value::UInt(26),
+        Value::Tuple(TupleData::from_data(vec![
+        (
+            "version".into(),
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: hex_bytes("1a").unwrap(),
+            })),
+        ),
+        (
+            "hashbytes".into(),
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: hex_bytes("164247d6f2b425ac5771423ae6c80c754f7172b0").unwrap(),
+            })),
+        ),
+    ])
+    .expect("FAIL: Failed to initialize tuple.")),
         execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
     );
-
-    // let mainnet_addr_test = "(parse-principal version 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
-    // assert_eq!(
-    //     Value::UInt(22),
-    //     execute_against_version_and_network(mainnet_addr_test, ClarityVersion::Clarity2, true)
-    //         .unwrap()
-    //         .unwrap()
-    // );
-
-    // // Note: Still works, even though the address is invalid.
-    // let invalid_addr_test = "(parse-principal version 'S1G2081040G2081040G2081040G208105NK8PE5)";
-    // assert_eq!(
-    //     Value::UInt(1),
-    //     execute_against_version_and_network(invalid_addr_test, ClarityVersion::Clarity2, true)
-    //         .unwrap()
-    //         .unwrap()
-    // );
 }
 
 #[test]
