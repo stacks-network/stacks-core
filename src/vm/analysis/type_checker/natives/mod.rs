@@ -521,27 +521,6 @@ fn check_get_block_info(
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
 
-fn check_parse_principal(
-    checker: &mut TypeChecker,
-    args: &[SymbolicExpression],
-    context: &TypingContext,
-) -> TypeResult {
-    check_argument_count(2, args)?;
-
-    let block_info_prop_str = args[0].match_atom().ok_or(CheckError::new(
-        CheckErrors::ParsePrincipalExpectPropertyName,
-    ))?;
-
-    let block_info_prop =
-        PrincipalProperty::lookup_by_name(block_info_prop_str).ok_or(CheckError::new(
-            CheckErrors::NoSuchParsePrincipalProperty(block_info_prop_str.to_string()),
-        ))?;
-
-    checker.type_check_expects(&args[1], &context, &TypeSignature::PrincipalType)?;
-
-    Ok(block_info_prop.type_result())
-}
-
 impl TypedNativeFunction {
     pub fn type_check_appliction(
         &self,
@@ -702,7 +681,7 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::UIntType,
             }))),
-            PrincipalConstruct => {
+            PrincipalConstruct =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![
                         FunctionArg::new(
@@ -717,8 +696,18 @@ impl TypedNativeFunction {
                         ),
                     ],
                     returns: TypeSignature::PrincipalType,
-                })))
-            }
+                }))),
+            ParsePrincipal => 
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![
+                        FunctionArg::new(
+                    TypeSignature::PrincipalType,
+                            ClarityName::try_from("principal".to_owned())
+                                .expect("FAIL: ClarityName failed to accept default arg name"),
+                        ),
+                    ],
+                    returns: TypeSignature::PrincipalType,
+                }))),
             StxGetAccount => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
@@ -793,7 +782,6 @@ impl TypedNativeFunction {
             ContractOf => Special(SpecialNativeFunction(&check_contract_of)),
             PrincipalOf => Special(SpecialNativeFunction(&check_principal_of)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
-            ParsePrincipal => Special(SpecialNativeFunction(&check_parse_principal)),
             ConsSome => Special(SpecialNativeFunction(&options::check_special_some)),
             ConsOkay => Special(SpecialNativeFunction(&options::check_special_okay)),
             ConsError => Special(SpecialNativeFunction(&options::check_special_error)),

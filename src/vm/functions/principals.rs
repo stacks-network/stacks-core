@@ -63,15 +63,7 @@ pub fn special_is_standard(
     ))
 }
 
-pub fn special_parse_principal(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(1, args)?;
-    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
-    let principal = eval(&args[0], env, context)?;
-
+pub fn native_parse_principal(principal: Value) -> Result<Value> {
     let (version_byte, pub_key_hash) = match principal {
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
             (version, bytes)

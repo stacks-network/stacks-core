@@ -336,9 +336,10 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 ClarityCostFunction::Mul,
             ),
             IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
-            ParsePrincipal => SpecialFunction(
+            ParsePrincipal => NativeFunction(
                 "special_parse_principal",
-                &principals::special_parse_principal,
+                NativeHandle::SingleArg(&principals::native_parse_principal),
+                ClarityCostFunction::Unimplemented,
             ),
             PrincipalConstruct => NativeFunction(
                 "native_principal_construct",
