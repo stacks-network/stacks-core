@@ -5,6 +5,7 @@ use vm::errors::{
     RuntimeErrorType,
 };
 use vm::representations::ClarityName;
+use std::convert::TryFrom;
 use vm::representations::SymbolicExpression;
 use vm::types::{
     BuffData, BufferLength, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -67,8 +68,9 @@ pub fn special_parse_principal(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    check_argument_count(1, args)?;
     runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+    let principal = eval(&args[0], env, context)?;
 
     let (version_byte, pub_key_hash) = match principal {
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
