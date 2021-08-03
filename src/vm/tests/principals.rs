@@ -187,31 +187,61 @@ fn test_simple_is_standard_undefined_cases() {
     );
 }
 
-#[test]
-fn test_parse_principal_good() {
-    // Test that we can parse well-formed principals.
-    
-    // ST is testnet singlesig.
-    let testnet_addr_test = r#"(parse-principal 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#;
-    assert_eq!(
+/// Creates a `parse-principal`-style tuple `version` and `hashbytes`.
+fn create_parse_principal_tuple(version: &str, hashbytes: &str) -> Value {
         Value::Tuple(
             TupleData::from_data(vec![
                 (
                     "version".into(),
                     Value::Sequence(SequenceData::Buffer(BuffData {
-                        data: hex_bytes("1a").unwrap(),
+                        data: hex_bytes(version).unwrap(),
                     })),
                 ),
                 (
                     "hashbytes".into(),
-                    Value::Sequence(SequenceData::Buffer(BuffData {
-                        data: hex_bytes("164247d6f2b425ac5771423ae6c80c754f7172b0").unwrap(),
-                    })),
+                    Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes(hashbytes).unwrap() })),
                 ),
             ])
             .expect("FAIL: Failed to initialize tuple.")
-        ),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
+        )
+}
+
+#[test]
+// Test that we can parse well-formed principals.
+fn test_parse_principal_good() {
+
+    // SP is mainnet single-sig.
+    let input = r#"(parse-principal 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
+    assert_eq!(
+        create_parse_principal_tuple("16", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // SM is mainnet multi-sig.
+    let input = r#"(parse-principal 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
+    assert_eq!(
+        create_parse_principal_tuple("14", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // ST is testnet single-sig.
+    let input = r#"(parse-principal 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
+    assert_eq!(
+        create_parse_principal_tuple("1a", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // SN is testnet multi-sig.
+    let input = r#"(parse-principal 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7)"#;
+    assert_eq!(
+        create_parse_principal_tuple("15", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
     );
@@ -241,7 +271,7 @@ fn test_principal_construct_good() {
         transfer_buffer[i] = bytes[i];
     }
 
-    // Mainnet singlesig.
+    // Mainnet single-sig.
     let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(
@@ -253,7 +283,7 @@ fn test_principal_construct_good() {
             .unwrap()
     );
 
-    // Mainnet multisig.
+    // Mainnet multi-sig.
     let input = r#"(principal-construct 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(
@@ -265,7 +295,7 @@ fn test_principal_construct_good() {
             .unwrap()
     );
 
-    // Testnet singlesig.
+    // Testnet single-sig.
     let input = r#"(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(
@@ -277,7 +307,7 @@ fn test_principal_construct_good() {
             .unwrap()
     );
 
-    // Testnet multisig.
+    // Testnet multi-sig.
     let input = r#"(principal-construct 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(
@@ -297,7 +327,6 @@ fn test_principal_construct_bad_version_byte() {
     // Failure because the version byte 0xef is invalid.
     let input =
         r#"(principal-construct 0xef 0x0102030405060708091011121314151617181920)"#;
-    let bytes = hex_bytes("0102030405060708091011121314151617181920").unwrap();
     assert_eq!(
         Err(CheckErrors::InvalidVersionByte.into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
@@ -306,11 +335,6 @@ fn test_principal_construct_bad_version_byte() {
     // Failure because the version byte 0x5904934 is invalid.
     let input =
         r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
-    let bytes = hex_bytes("0102030405060708091011121314151617181920").unwrap();
-    let mut transfer_buffer = [0u8; 20];
-    for i in 0..bytes.len() {
-        transfer_buffer[i] = bytes[i];
-    }
     assert_eq!(
         Err(CheckErrors::TypeValueError(SequenceType(BufferType(BufferLength(1))), Value::Sequence(SequenceData::Buffer(BuffData {data: hex_bytes("590493").unwrap()}))).into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
@@ -319,11 +343,6 @@ fn test_principal_construct_bad_version_byte() {
     // Failure because the version byte 0xef is invalid.
     let input =
         r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
-    let bytes = hex_bytes("0102030405060708091011121314151617181920").unwrap();
-    let mut transfer_buffer = [0u8; 20];
-    for i in 0..bytes.len() {
-        transfer_buffer[i] = bytes[i];
-    }
     assert_eq!(
         Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::UInt(22)).into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)

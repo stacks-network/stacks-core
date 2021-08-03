@@ -150,5 +150,6 @@ pub fn native_principal_construct(version: Value, pub_key_hash: Value) -> Result
         transfer_buffer[i] = verified_pub_key_hash[i];
     }
     let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
+    warn!("principal_data {:?}", principal_data);
     Ok(Value::Principal(PrincipalData::Standard(principal_data)))
 }
