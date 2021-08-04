@@ -260,6 +260,8 @@ pub fn eval_all(
     global_context: &mut GlobalContext,
     sponsor: Option<PrincipalData>,
 ) -> Result<Option<Value>> {
+    let bt = backtrace::Backtrace::new();
+    warn!("eval_all:bt {:?}", bt);
     let mut last_executed = None;
     let context = LocalContext::new();
     let mut total_memory_use = 0;
@@ -272,7 +274,9 @@ pub fn eval_all(
                 let mut call_stack = CallStack::new();
                 let mut env = Environment::new(
                     context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
-                functions::define::evaluate_define(exp, &mut env)
+                let r = functions::define::evaluate_define(exp, &mut env);
+                warn!("eval_all exp {:?}", exp);
+                r
             })?;
             match try_define {
                 DefineResult::Variable(name, value) => {
@@ -281,11 +285,13 @@ pub fn eval_all(
                     global_context.add_memory(value_memory_use)?;
                     total_memory_use += value_memory_use;
 
+                    warn!("eval_all variable name value {:?} {:?}", name, value);
                     contract_context.variables.insert(name, value);
                 },
                 DefineResult::Function(name, value) => {
                     runtime_cost(ClarityCostFunction::BindName, global_context, 0)?;
 
+                    warn!("eval_all function name value {:?} {:?}", name, value);
                     contract_context.functions.insert(name, value);
                 },
                 DefineResult::PersistedVariable(name, value_type, value) => {

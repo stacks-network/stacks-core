@@ -52,7 +52,7 @@ fn test_all() {
     ];
     for test in to_test.iter() {
         with_memory_environment(test, false);
-        with_marfed_environment(test, false);
+        // with_marfed_environment(test, false);
     }
 }
 
@@ -1109,9 +1109,11 @@ fn test_read_only_trait(owned_env: &mut OwnedEnvironment) {
             (get-1 (uint) (response uint uint) read-only)))";
     let impl_contract = "(impl-trait .definition1.ro-trait-1)
         (define-public (get-1 (x uint)) (ok x))";
+
+    // Big Question: Where does "my-contract" get linked to ro-trait-1?
     let dispatch1ing_contract = "(use-trait ro-trait-1 .definition1.ro-trait-1)
-        (define-read-only (wrapped-get-1 (contract <ro-trait-1>))
-            (contract-call? contract get-1 u1))";
+        (define-read-only (wrapped-get-1 (my-contract <ro-trait-1>))
+            (contract-call? my-contract get-1 u1))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 

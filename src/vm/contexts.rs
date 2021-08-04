@@ -1010,6 +1010,8 @@ impl<'a, 'b> Environment<'a, 'b> {
 
             let args = args?;
 
+            warn!("execute_contract args {:?}", args);
+
             let func_identifier = func.get_identifier();
             if self.call_stack.contains(&func_identifier) {
                 return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
@@ -1045,6 +1047,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
 
         let next_contract_context = next_contract_context.unwrap_or(self.contract_context);
+        warn!("execute_function_as_transaction next_contract_context {:#?}", next_contract_context.functions);
 
         let result = {
             let mut nested_env = Environment::new(
@@ -1101,6 +1104,8 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_content: &str,
     ) -> Result<()> {
         let contract_ast = ast::build_ast(&contract_identifier, contract_content, self)?;
+        warn!("initialize_contract contract_ast.referenced_traits {:#?}", contract_ast.referenced_traits);
+        warn!("initialize_contract contract_ast.implemented_traits {:#?}", contract_ast.implemented_traits);
         self.initialize_contract_from_ast(contract_identifier, &contract_ast, &contract_content)
     }
 
@@ -1151,6 +1156,8 @@ impl<'a, 'b> Environment<'a, 'b> {
                 &mut self.global_context,
                 version,
             );
+
+            // warn!("print contract {:#?}", result.unwrap().contract_context.variables);
             self.drop_memory(memory_use);
             result
         })();

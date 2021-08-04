@@ -91,9 +91,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
 
-        warn!("function_name {:?} body {:?}", function_name, body);
+        warn!("check_define_function function_name {:#?} body {:#?}", function_name, body);
         // ClarityName("wrapped-get-1") body Atom(ClarityName("contract-call?")) Atom(ClarityName("contract")) Atom(ClarityName("get-1")) LiteralValue(UInt(1))
-        warn!("signature {:#?}", signature);
+        warn!("check_define_function signature {:#?}", signature);
         // WARN [1627434611.344313] [src/vm/analysis/read_only_checker/mod.rs:95] [vm::analysis::trait_checker::tests::test_contract_read_only] signature [SymbolicExpression { expr: Atom(ClarityName("wrapped-get-1")), id: 8, span: Span { start_line: 2, start_column: 28, end_line: 2, end_column: 40 } }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName("target-contract")), id: 10, span: Span { start_line: 2, start_column: 43, end_line: 2, end_column: 57 } }, SymbolicExpression { expr: TraitReference(ClarityName("trait-2"), Imported(TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } })), id: 11, span: Span { start_line: 2, start_column: 59, end_line: 2, end_column: 65 } }]), id: 9, span: Span { start_line: 2, start_column: 42, end_line: 2, end_column: 68 } }]
         let is_read_only = self.check_read_only(body)?;
 
@@ -341,13 +341,18 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         // This should somehow use the "trait reference" to look up a trait, and check function_name and see what it's type is.
                         // let bt = backtrace::Backtrace::new();
                         // warn!("bt20: {:?}", bt);
-                        warn!("location {:?}", _trait_reference);
-                        warn!("contract_analysis {:?}", self.contract_analysis);
-                        warn!("variable_types {:?}", self.contract_analysis.variable_types);
-                        warn!("defined_traits {:?}", self.contract_analysis.defined_traits);
-                        warn!("implemented_traits {:?}", self.contract_analysis.implemented_traits);
-                        warn!("referenced_traits {:?}", self.contract_analysis.referenced_traits);
+                        warn!("trait_reference_ {:?}", _trait_reference);
+                        warn!("variable_types {:#?}", self.contract_analysis.variable_types);
+                        warn!("defined_traits {:#?}", self.contract_analysis.defined_traits);
+                        warn!("implemented_traits {:#?}", self.contract_analysis.implemented_traits);
+                        warn!("referenced_traits {:#?}", self.contract_analysis.referenced_traits);
                         //  referenced_traits {ClarityName("trait-2"): TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } }}
+
+                        // WARN [1628091489.564000] [src/vm/analysis/read_only_checker/mod.rs:344] [vm::analysis::trait_checker::tests::test_contract_read_only] location ClarityName("target-contract")
+                        // WARN [1628091489.565049] [src/vm/analysis/read_only_checker/mod.rs:346] [vm::analysis::trait_checker::tests::test_contract_read_only] variable_types {}
+                        // WARN [1628091489.565087] [src/vm/analysis/read_only_checker/mod.rs:347] [vm::analysis::trait_checker::tests::test_contract_read_only] defined_traits {ClarityName("trait-1"): {ClarityName("get-1"): FunctionSignature { args: [UIntType], returns: ResponseType((UIntType, UIntType)), read_only: true }}}
+                        // WARN [1628091489.565152] [src/vm/analysis/read_only_checker/mod.rs:348] [vm::analysis::trait_checker::tests::test_contract_read_only] implemented_traits {}
+                        // WARN [1628091489.565200] [src/vm/analysis/read_only_checker/mod.rs:349] [vm::analysis::trait_checker::tests::test_contract_read_only] referenced_traits {ClarityName("trait-2"): TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } }}
 
                         // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
                         // which would defeat granting a static readonly stamp.

@@ -79,6 +79,9 @@ pub fn run_analysis(
     cost_tracker: LimitedCostTracker,
     version: ClarityVersion,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
+    let bt = backtrace::Backtrace::new();
+    warn!("run_analysis:bt {:?}", bt);
+
     warn!("run_analysis");
     warn!("contract_identifier {:?}", contract_identifier);
     let mut contract_analysis = ContractAnalysis::new(
@@ -91,8 +94,8 @@ pub fn run_analysis(
         warn!("do all passes");
         // Note: We do all the passes here.
         TypeChecker::run_pass(&mut contract_analysis, db)?;
-        ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         TraitChecker::run_pass(&mut contract_analysis, db)?;
+        ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 
         if STORE_CONTRACT_SRC_INTERFACE {

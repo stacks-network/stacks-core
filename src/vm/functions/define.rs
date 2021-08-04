@@ -146,12 +146,37 @@ fn handle_define_function(
 
     check_legal_define(&function_name, &env.contract_context)?;
 
+    // mapping from "my-contract" to contract/function is already known here
+    warn!("handle_define_function arg_symbols {:#?}", arg_symbols);
     let arguments = parse_name_type_pairs(arg_symbols, env)?;
+    warn!("handle_define_function arguments {:#?}", arg_symbols);
 
     for (argument, _) in arguments.iter() {
         check_legal_define(argument, &env.contract_context)?;
     }
 
+    // function DefinedFunction {
+    //     identifier: FunctionIdentifier {
+    //         identifier: "S1G2081040G2081040G2081040G208105NK8PE5.dispatch1:wrapped-get-1",
+    //     },
+    //     name: ClarityName(
+    //         "wrapped-get-1",
+    //     ),
+    //     arg_types: [
+    //         TraitReferenceType(
+    //             TraitIdentifier {
+    //                 name: ClarityName(
+    //                     "ro-trait-1",
+    //                 ),
+    //                 contract_identifier: QualifiedContractIdentifier {
+    //                     issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5),
+    //                     name: ContractName(
+    //                         "definition1",
+    //                     ),
+    //                 },
+    //             },
+    //         ),
+    //     ],
     let function = DefinedFunction::new(
         arguments,
         expression.clone(),
@@ -159,6 +184,7 @@ fn handle_define_function(
         function_name,
         &env.contract_context.contract_identifier.to_string(),
     );
+    warn!("handle_define_function function {:#?}", function);
 
     Ok(DefineResult::Function(function_name.clone(), function))
 }
@@ -411,45 +437,66 @@ pub fn evaluate_define(
     if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
         match define_type {
             DefineFunctionsParsed::Constant { name, value } => {
+                warn!("evaluate_define");
                 handle_define_variable(name, value, env)
             }
             DefineFunctionsParsed::PrivateFunction { signature, body } => {
+                warn!("evaluate_define");
                 handle_define_function(signature, body, env, DefineType::Private)
             }
             DefineFunctionsParsed::ReadOnlyFunction { signature, body } => {
+                warn!("evaluate_define");
                 handle_define_function(signature, body, env, DefineType::ReadOnly)
             }
             DefineFunctionsParsed::PublicFunction { signature, body } => {
+                warn!("evaluate_define");
                 handle_define_function(signature, body, env, DefineType::Public)
             }
             DefineFunctionsParsed::NonFungibleToken { name, nft_type } => {
+                warn!("evaluate_define");
                 handle_define_nonfungible_asset(name, nft_type, env)
             }
             DefineFunctionsParsed::BoundedFungibleToken { name, max_supply } => {
+                warn!("evaluate_define");
                 handle_define_fungible_token(name, Some(max_supply), env)
             }
             DefineFunctionsParsed::UnboundedFungibleToken { name } => {
+                warn!("evaluate_define");
                 handle_define_fungible_token(name, None, env)
             }
             DefineFunctionsParsed::Map {
                 name,
                 key_type,
                 value_type,
-            } => handle_define_map(name, key_type, value_type, env),
+            } => {
+                warn!("evaluate_define");
+                handle_define_map(name, key_type, value_type, env)
+            } ,
             DefineFunctionsParsed::PersistedVariable {
                 name,
                 data_type,
                 initial,
-            } => handle_define_persisted_variable(name, data_type, initial, env),
+            } => {
+                warn!("evaluate_define");
+                handle_define_persisted_variable(name, data_type, initial, env)
+            }
+            ,
             // Note: Handle define trait.
             DefineFunctionsParsed::Trait { name, functions } => {
+                warn!("evaluate_define");
                 handle_define_trait(name, functions, env)
             }
             DefineFunctionsParsed::UseTrait {
                 name,
                 trait_identifier,
-            } => handle_use_trait(name, trait_identifier),
+            } => {
+                warn!("evaluate_define");
+                handle_use_trait(name, trait_identifier)
+            }
+                
+                ,
             DefineFunctionsParsed::ImplTrait { trait_identifier } => {
+                warn!("evaluate_define");
                 handle_impl_trait(trait_identifier)
             }
         }
