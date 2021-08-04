@@ -97,14 +97,14 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok(())
     }
 
-    /// Checks the top-level expression `expr` to determine whether it is
+    /// Checks the top-level expression `expression` to determine whether it is
     /// read-only compliant.
     /// 
     /// Returns successfully iff this function is read-only compatible.
-    fn check_top_level_expression(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
-        warn!("expr: {:?}", expr);
+    fn check_top_level_expression(&mut self, expression: &SymbolicExpression) -> CheckResult<()> {
+        warn!("expression: {:?}", expression);
         use vm::functions::define::DefineFunctionsParsed::*;
-        if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)? {
+        if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
             match define_type {
                 // The _arguments_ to Constant, PersistedVariable, FT defines must be checked to ensure that
                 //   any _evaluated arguments_ supplied to them are valid with respect to read-only requirements.
@@ -144,7 +144,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 }
             }
         } else {
-            self.check_read_only(expr)?;
+            self.check_read_only(expression)?;
         }
         Ok(())
     }
@@ -171,19 +171,19 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         warn!("check_define_function function_name {:#?} body {:#?}", function_name, body);
         // ClarityName("wrapped-get-1") body Atom(ClarityName("contract-call?")) Atom(ClarityName("contract")) Atom(ClarityName("get-1")) LiteralValue(UInt(1))
         warn!("check_define_function signature {:#?}", signature);
-        // WARN [1627434611.344313] [src/vm/analysis/read_only_checker/mod.rs:95] [vm::analysis::trait_checker::tests::test_contract_read_only] signature [SymbolicExpression { expr: Atom(ClarityName("wrapped-get-1")), id: 8, span: Span { start_line: 2, start_column: 28, end_line: 2, end_column: 40 } }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName("target-contract")), id: 10, span: Span { start_line: 2, start_column: 43, end_line: 2, end_column: 57 } }, SymbolicExpression { expr: TraitReference(ClarityName("trait-2"), Imported(TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } })), id: 11, span: Span { start_line: 2, start_column: 59, end_line: 2, end_column: 65 } }]), id: 9, span: Span { start_line: 2, start_column: 42, end_line: 2, end_column: 68 } }]
+        // WARN [1627434611.344313] [src/vm/analysis/read_only_checker/mod.rs:95] [vm::analysis::trait_checker::tests::test_contract_read_only] signature [SymbolicExpression { expression: Atom(ClarityName("wrapped-get-1")), id: 8, span: Span { start_line: 2, start_column: 28, end_line: 2, end_column: 40 } }, SymbolicExpression { expression: List([SymbolicExpression { expression: Atom(ClarityName("target-contract")), id: 10, span: Span { start_line: 2, start_column: 43, end_line: 2, end_column: 57 } }, SymbolicExpression { expression: TraitReference(ClarityName("trait-2"), Imported(TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } })), id: 11, span: Span { start_line: 2, start_column: 59, end_line: 2, end_column: 65 } }]), id: 9, span: Span { start_line: 2, start_column: 42, end_line: 2, end_column: 68 } }]
         let is_read_only = self.check_read_only(body)?;
 
         Ok((function_name.clone(), is_read_only))
     }
 
-    /// Checks the `expr` to determine whether it is it constitutes only read-only operations.
+    /// Checks `expression` to determine whether it is read-only compliant.
     /// 
     /// Returns `true` iff the expression is read-only.
-    fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
+    fn check_read_only(&mut self, expression: &SymbolicExpression) -> CheckResult<bool> {
         // contract-call? contract get-1
-        warn!("expr {:?}", expr);
-        match expr.expr {
+        warn!("expression {:?}", expression);
+        match expression.expr {
             AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => {
                 warn!("method:omni");
                 Ok(true)
@@ -205,9 +205,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     fn check_all_read_only(&mut self, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
         warn!("here");
         let mut result = true;
-        for expr in expressions.iter() {
-        warn!("expr {:?}", expr);
-            let expr_read_only = self.check_read_only(expr)?;
+        for expression in expressions.iter() {
+        warn!("expression {:?}", expression);
+            let expr_read_only = self.check_read_only(expression)?;
             result = result && expr_read_only;
         }
         Ok(result)
