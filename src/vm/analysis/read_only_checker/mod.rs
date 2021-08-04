@@ -202,7 +202,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// read-only operations.
     /// 
     /// Returns `true` iff all expressions are read-only.
-    fn check_all_read_only(&mut self, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn check_all_expressions(&mut self, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
         warn!("here");
         let mut result = true;
         for expression in expressions.iter() {
@@ -262,7 +262,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
             | ElementAt | IndexOf => {
                 // Check all arguments.
-                self.check_all_read_only(args)
+                self.check_all_expressions(args)
             }
             AtBlock => {
                 check_argument_count(2, args)?;
@@ -276,12 +276,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             FetchEntry => {
                 check_argument_count(2, args)?;
-                self.check_all_read_only(args)
+                self.check_all_expressions(args)
             }
             StxTransfer | StxTransferMemo | StxBurn | SetEntry | DeleteEntry | InsertEntry
             | SetVar | MintAsset | MintToken | TransferAsset | TransferToken | BurnAsset
             | BurnToken => {
-                self.check_all_read_only(args)?;
+                self.check_all_expressions(args)?;
                 Ok(false)
             }
             Let => {
@@ -300,7 +300,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     }
                 }
 
-                self.check_all_read_only(&args[1..args.len()])
+                self.check_all_expressions(&args[1..args.len()])
             }
             Map => {
                 check_arguments_at_least(2, args)?;
@@ -406,7 +406,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
                 // false
                 warn!("location is_function_read_only {:?}", is_function_read_only); // this is false
-                self.check_all_read_only(&args[2..])
+                self.check_all_expressions(&args[2..])
                     .map(|args_read_only| {
                         warn!("args_read_only {:?}", args_read_only);
                         args_read_only && is_function_read_only}
@@ -449,7 +449,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 .get(function_name)
                 .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?
                 .clone();
-            self.check_all_read_only(args)
+            self.check_all_expressions(args)
                 .map(|args_read_only| args_read_only && is_function_read_only)
         }
     }
