@@ -1340,11 +1340,11 @@ and `false` if it is a `none`.",
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
-    input_type: "BlockInfoPropertyName, BlockHeightInt",
+    input_type: "BlockInfoPropertyName, uint",
     output_type: "(optional buff) | (optional uint)",
-    signature: "(get-block-info? prop-name block-height-expr)",
+    signature: "(get-block-info? prop-name block-height)",
     description: "The `get-block-info?` function fetches data for a block of the given *Stacks* block height. The
-value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `BlockHeightInt` does
+value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `block-height` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
 are `time`, `header-hash`, `burnchain-header-hash`, `id-header-hash`, `miner-address`, and `vrf-seed`.
 
@@ -1369,16 +1369,16 @@ The `id-header-hash` is the block identifier value that must be used as input to
 };
 
 const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
-    input_type: "BlockInfoPropertyName, BlockHeightInt",
+    input_type: "BlockInfoPropertyName, uint",
     output_type: "(optional buff)",
-    signature: "(get-burn-block-info? prop-name block-height-expr)",
+    signature: "(get-burn-block-info? prop-name block-height)",
     description: "The `get-burn-block-info?` function fetches data for a block of the given *burnchain* block height. The
-value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `BlockHeightInt` does
+value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `block-height` does
 not correspond to an existing block prior to the current block, the function returns `none`. The only available property
 name so far is `header-hash`.
 
 The `header-hash` property returns a 32-byte integer representing the header hash of the burnchain block at
-burnchain height `BlockHeightInt`.
+burnchain height `block-height`.
 ",
     example: "
 (get-burn-block-info? header-hash u0) ;; Returns (some 0xe67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8)
