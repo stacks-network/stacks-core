@@ -85,7 +85,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         // Iterate over all the top-level statements in a contract.
         for exp in contract_analysis.expressions.iter() {
             warn!("exp: {:?}", exp);
-            let mut result = self.check_reads_only_valid(&exp);
+            let mut result = self.check_top_level_expression(&exp);
             if let Err(ref mut error) = result {
                 if !error.has_expression() {
                     error.set_expression(&exp);
@@ -97,31 +97,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok(())
     }
 
-    /// Used to check the function definitions `PrivateFunction`, `PublicFunction` and `ReadOnlyFunction`.
+    /// Checks the top-level expression `expr` to determine whether it is
+    /// read-only compliant.
     /// 
-    /// Returns a pair of 1) the function name defined, and 2) a `bool` indicating whether the function
-    /// is read-only correct.
-    fn check_define_function(
-        &mut self,
-        signature: &[SymbolicExpression],
-        body: &SymbolicExpression,
-    ) -> CheckResult<(ClarityName, bool)> {
-        let function_name = signature
-            .get(0)
-            .ok_or(CheckErrors::DefineFunctionBadSignature)?
-            .match_atom()
-            .ok_or(CheckErrors::BadFunctionName)?;
-
-        warn!("check_define_function function_name {:#?} body {:#?}", function_name, body);
-        // ClarityName("wrapped-get-1") body Atom(ClarityName("contract-call?")) Atom(ClarityName("contract")) Atom(ClarityName("get-1")) LiteralValue(UInt(1))
-        warn!("check_define_function signature {:#?}", signature);
-        // WARN [1627434611.344313] [src/vm/analysis/read_only_checker/mod.rs:95] [vm::analysis::trait_checker::tests::test_contract_read_only] signature [SymbolicExpression { expr: Atom(ClarityName("wrapped-get-1")), id: 8, span: Span { start_line: 2, start_column: 28, end_line: 2, end_column: 40 } }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName("target-contract")), id: 10, span: Span { start_line: 2, start_column: 43, end_line: 2, end_column: 57 } }, SymbolicExpression { expr: TraitReference(ClarityName("trait-2"), Imported(TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } })), id: 11, span: Span { start_line: 2, start_column: 59, end_line: 2, end_column: 65 } }]), id: 9, span: Span { start_line: 2, start_column: 42, end_line: 2, end_column: 68 } }]
-        let is_read_only = self.check_read_only(body)?;
-
-        Ok((function_name.clone(), is_read_only))
-    }
-
-    fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
+    /// Returns successfully iff this function is read-only compatible.
+    fn check_top_level_expression(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
         warn!("expr: {:?}", expr);
         use vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)? {
@@ -167,6 +147,34 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             self.check_read_only(expr)?;
         }
         Ok(())
+    }
+
+
+    /// Checks a function with signature `signature` and body `body` for read-only compliance.
+    /// 
+    /// Used to check the function definitions `PrivateFunction`, `PublicFunction` and `ReadOnlyFunction`
+    /// for read-only compliance.
+    /// 
+    /// Returns a pair of 1) the function name defined, and 2) a `bool` indicating whether the function
+    /// is read-only correct.
+    fn check_define_function(
+        &mut self,
+        signature: &[SymbolicExpression],
+        body: &SymbolicExpression,
+    ) -> CheckResult<(ClarityName, bool)> {
+        let function_name = signature
+            .get(0)
+            .ok_or(CheckErrors::DefineFunctionBadSignature)?
+            .match_atom()
+            .ok_or(CheckErrors::BadFunctionName)?;
+
+        warn!("check_define_function function_name {:#?} body {:#?}", function_name, body);
+        // ClarityName("wrapped-get-1") body Atom(ClarityName("contract-call?")) Atom(ClarityName("contract")) Atom(ClarityName("get-1")) LiteralValue(UInt(1))
+        warn!("check_define_function signature {:#?}", signature);
+        // WARN [1627434611.344313] [src/vm/analysis/read_only_checker/mod.rs:95] [vm::analysis::trait_checker::tests::test_contract_read_only] signature [SymbolicExpression { expr: Atom(ClarityName("wrapped-get-1")), id: 8, span: Span { start_line: 2, start_column: 28, end_line: 2, end_column: 40 } }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName("target-contract")), id: 10, span: Span { start_line: 2, start_column: 43, end_line: 2, end_column: 57 } }, SymbolicExpression { expr: TraitReference(ClarityName("trait-2"), Imported(TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } })), id: 11, span: Span { start_line: 2, start_column: 59, end_line: 2, end_column: 65 } }]), id: 9, span: Span { start_line: 2, start_column: 42, end_line: 2, end_column: 68 } }]
+        let is_read_only = self.check_read_only(body)?;
+
+        Ok((function_name.clone(), is_read_only))
     }
 
     /// Checks the `expr` to determine whether it is it constitutes only read-only operations.
