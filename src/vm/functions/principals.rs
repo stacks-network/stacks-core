@@ -119,7 +119,7 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         return Err(CheckErrors::InvalidVersionByte.into());
     }
 
-    // Check the hask bytes.
+    // Check the hash bytes.
     let verified_hash_bytes = match hash_bytes {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
         _ => {
