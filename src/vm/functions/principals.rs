@@ -93,12 +93,9 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
             ClarityName::try_from("hash-bytes".to_owned()).unwrap(),
             buffer_data,
         ),
-    ]);
+    ])?;
 
-    match tuple_data {
-        Ok(data) => Ok(Value::Tuple(data)),
-        Err(err) => Err(err),
-    }
+    Ok(Value::Tuple(tuple_data))
 }
 
 pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<Value> {
