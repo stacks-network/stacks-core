@@ -14,9 +14,10 @@ on:
       - released
   workflow_dispatch:
 
-jobs:      
+jobs:
   run:
     runs-on: ubuntu-latest
+    if: "!contains(github.ref, '-rc')"
     steps:
       - name: Checkout latest clarity js sdk
         uses: actions/checkout@v2
@@ -37,7 +38,7 @@ jobs:
         uses: peter-evans/create-pull-request@v3
         with:
           token: ${{ secrets.GH_TOKEN }}
-          commit-message: 'chore: update clarity-native-bin tag'
+          commit-message: "chore: update clarity-native-bin tag"
           committer: ${{ env.COMMIT_USER }} <${{ env.COMMIT_EMAIL }}>
           author: ${{ env.COMMIT_USER }} <${{ env.COMMIT_EMAIL }}>
           branch: auto/update-bin-tag
