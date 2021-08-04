@@ -968,6 +968,8 @@ impl<'a, 'b> Environment<'a, 'b> {
         result
     }
 
+    /// Runs the contract identified by `contract_identifier`. Calls the
+    /// function called `tx_name` with arguments `args`.
     pub fn execute_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,

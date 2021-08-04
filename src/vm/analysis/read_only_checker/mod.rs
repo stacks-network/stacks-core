@@ -23,6 +23,7 @@ use vm::representations::SymbolicExpressionType::{
 };
 use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use vm::types::{parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSignature, Value};
+use std::collections::BTreeMap;
 
 use std::collections::HashMap;
 use vm::variables::NativeVariables;
@@ -36,6 +37,14 @@ use super::AnalysisDatabase;
 
 #[cfg(test)]
 mod tests;
+
+/// Mappings that are active at a parcitular part of the call stack, but
+/// which are not active throughout the entire contract.
+/// 
+/// For example, the mapping from variable name to function type.
+struct ActiveMappings {
+    pub active_traits: BTreeMap<ClarityName, ClarityName>,
+}
 
 pub struct ReadOnlyChecker<'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
@@ -55,7 +64,10 @@ impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
     }
 }
 
+/// `ReadOnlyChecker` analyzes a contract to determine whether there are any violations
+/// of read-only rules.
 impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
+    /// Factory function. 
     fn new(db: &'a mut AnalysisDatabase<'b>, contract_analysis: &'a ContractAnalysis) -> ReadOnlyChecker<'a, 'b> {
         Self {
             db,
@@ -65,7 +77,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         }
     }
 
+    /// Checks each top-level expression in `contract_analysis.expressions` to determine
+    /// whether it comprises only read-only operations.
+    /// 
+    /// Returns successfully iff this function is read-only compatible.
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
+        // Iterate over all the top-level statements in a contract.
         for exp in contract_analysis.expressions.iter() {
             warn!("exp: {:?}", exp);
             let mut result = self.check_reads_only_valid(&exp);
@@ -80,6 +97,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok(())
     }
 
+    /// Used to check the function definitions `PrivateFunction`, `PublicFunction` and `ReadOnlyFunction`.
+    /// 
+    /// Returns a pair of 1) the function name defined, and 2) a `bool` indicating whether the function
+    /// is read-only correct.
     fn check_define_function(
         &mut self,
         signature: &[SymbolicExpression],
@@ -148,10 +169,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok(())
     }
 
-    /// Checks the supplied symbolic expressions
-    ///   (1) for whether or not they are valid with respect to read-only requirements.
-    ///   (2) if valid, returns whether or not they are read only.
-    /// Note that because of (1), this function _cannot_ short-circuit on read-only.
+    /// Checks the `expr` to determine whether it is it constitutes only read-only operations.
+    /// 
+    /// Returns `true` iff the expression is read-only.
     fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
         // contract-call? contract get-1
         warn!("expr {:?}", expr);
@@ -170,10 +190,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         }
     }
 
-    /// Checks all of the supplied symbolic expressions
-    ///   (1) for whether or not they are valid with respect to read-only requirements.
-    ///   (2) if valid, returns whether or not they are read only.
-    /// Note that because of (1), this function _cannot_ short-circuit on read-only.
+    /// Checks each expression in `expressions` to determine whether each constitutes only
+    /// read-only operations.
+    /// 
+    /// Returns `true` iff all expressions are read-only.
     fn check_all_read_only(&mut self, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
         warn!("here");
         let mut result = true;
@@ -185,6 +205,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok(result)
     }
 
+    /// Checks the native function application of the function named by the
+    /// string `function` to `args` to determine whether it is read-only
+    /// compliant.
+    /// 
+    /// Returns `true` iff all expressions are read-only compliant.
     fn try_native_function_check(
         &mut self,
         function: &str,
@@ -204,6 +229,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             )
     }
 
+    /// Checks the native function application of the NativeFunctions `function`
+    /// to `args` to determine whether it is read-only compliant.
+    /// 
+    /// Returns `true` iff all expressions are read-only compliant.
     fn check_native_function(
         &mut self,
         function: &NativeFunctions,
@@ -312,7 +341,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     .match_atom()
                     .ok_or(CheckErrors::ContractCallExpectName)?;
 
-                    // function_name: ClarityName("get-1")
+                // NOTE! This is the function we are going to call.
+                // function_name: ClarityName("get-1")
                 warn!("function_name: {:?}", function_name);
 
                 // args0: Atom(ClarityName("contract"))
@@ -341,9 +371,13 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         // This should somehow use the "trait reference" to look up a trait, and check function_name and see what it's type is.
                         // let bt = backtrace::Backtrace::new();
                         // warn!("bt20: {:?}", bt);
+
+                        // can cross-reference trait_reference with read_only_function_types
+                        // But!.. how do we know which function we are in?
                         warn!("trait_reference_ {:?}", _trait_reference);
                         warn!("variable_types {:#?}", self.contract_analysis.variable_types);
                         warn!("defined_traits {:#?}", self.contract_analysis.defined_traits);
+                        warn!("read_only_function_types {:#?}", self.contract_analysis.read_only_function_types);
                         warn!("implemented_traits {:#?}", self.contract_analysis.implemented_traits);
                         warn!("referenced_traits {:#?}", self.contract_analysis.referenced_traits);
                         //  referenced_traits {ClarityName("trait-2"): TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } }}
@@ -373,11 +407,15 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         }
     }
 
+    /// Checks the native function application implied by `expressions`. The first
+    /// argument is used as the function name, and the tail is used as the arguments.
+    /// 
+    /// Returns `true` iff all expressions are read-only compliant.
     fn check_function_application_read_only(
         &mut self,
-        expression: &[SymbolicExpression],
+        expressions: &[SymbolicExpression],
     ) -> CheckResult<bool> {
-        let (function_name, args) = expression
+        let (function_name, args) = expressions
             .split_first()
             .ok_or(CheckErrors::NonFunctionApplication)?;
 
@@ -393,7 +431,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             warn!("result {:?}", result);
             if let Err(ref mut check_err) = result {
             warn!("here");
-                check_err.set_expressions(expression);
+                check_err.set_expressions(expressions);
             }
             result
         } else {

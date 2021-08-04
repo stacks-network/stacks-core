@@ -94,6 +94,7 @@ pub fn run_analysis(
         warn!("do all passes");
         // Note: We do all the passes here.
         TypeChecker::run_pass(&mut contract_analysis, db)?;
+        warn!("run_analysis contract_analysis {:#?}", contract_analysis);
         TraitChecker::run_pass(&mut contract_analysis, db)?;
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
