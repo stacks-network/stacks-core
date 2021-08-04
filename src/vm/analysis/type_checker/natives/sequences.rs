@@ -415,9 +415,9 @@ pub fn check_special_slice(
     };
 
     // Check position argument
-    let position = checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
     // Check length argument
-    let length = checker.type_check_expects(&args[2], context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(&args[2], context, &TypeSignature::UIntType)?;
 
     Ok(seq)
 }
