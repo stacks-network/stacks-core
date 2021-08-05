@@ -38,14 +38,8 @@ use super::AnalysisDatabase;
 #[cfg(test)]
 mod tests;
 
-/// Mappings that are active at a parcitular part of the call stack, but
-/// which are not active throughout the entire contract.
-/// 
-/// For example, the mapping from variable name to function type.
-struct ActiveMappings {
-    pub active_traits: BTreeMap<ClarityName, ClarityName>,
-}
-
+/// `ReadOnlyChecker` analyzes a contract to determine whether there are any violations
+/// of read-only rules.
 pub struct ReadOnlyChecker<'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<ClarityName, bool>,
@@ -64,10 +58,8 @@ impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
     }
 }
 
-/// `ReadOnlyChecker` analyzes a contract to determine whether there are any violations
-/// of read-only rules.
 impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
-    /// Factory function. 
+    /// Creates a new `ReadOnlyChecker`. 
     fn new(db: &'a mut AnalysisDatabase<'b>, contract_analysis: &'a ContractAnalysis) -> ReadOnlyChecker<'a, 'b> {
         Self {
             db,
@@ -77,8 +69,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         }
     }
 
-    /// Checks each top-level expression in `contract_analysis.expressions` to determine
-    /// whether it comprises only read-only operations.
+    /// Checks each top-level expression in `contract_analysis.expressions`.
     /// 
     /// Returns successfully iff this function is read-only compatible.
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
@@ -109,14 +100,14 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 // The _arguments_ to Constant, PersistedVariable, FT defines must be checked to ensure that
                 //   any _evaluated arguments_ supplied to them are valid with respect to read-only requirements.
                 Constant { value, .. } => {
-                    self.check_read_only(value)?;
+                    self.check_symbolic_expression_type(value)?;
                 }
                 PersistedVariable { initial, .. } => {
-                    self.check_read_only(initial)?;
+                    self.check_symbolic_expression_type(initial)?;
                 }
                 BoundedFungibleToken { max_supply, .. } => {
                     // only the *optional* total supply arg is eval'ed
-                    self.check_read_only(max_supply)?;
+                    self.check_symbolic_expression_type(max_supply)?;
                 }
                 PrivateFunction { signature, body } | PublicFunction { signature, body } => {
                     let (f_name, is_read_only) = self.check_define_function(signature, body)?;
@@ -144,7 +135,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 }
             }
         } else {
-            self.check_read_only(expression)?;
+            self.check_symbolic_expression_type(expression)?;
         }
         Ok(())
     }
@@ -172,7 +163,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         // ClarityName("wrapped-get-1") body Atom(ClarityName("contract-call?")) Atom(ClarityName("contract")) Atom(ClarityName("get-1")) LiteralValue(UInt(1))
         warn!("check_define_function signature {:#?}", signature);
         // WARN [1627434611.344313] [src/vm/analysis/read_only_checker/mod.rs:95] [vm::analysis::trait_checker::tests::test_contract_read_only] signature [SymbolicExpression { expression: Atom(ClarityName("wrapped-get-1")), id: 8, span: Span { start_line: 2, start_column: 28, end_line: 2, end_column: 40 } }, SymbolicExpression { expression: List([SymbolicExpression { expression: Atom(ClarityName("target-contract")), id: 10, span: Span { start_line: 2, start_column: 43, end_line: 2, end_column: 57 } }, SymbolicExpression { expression: TraitReference(ClarityName("trait-2"), Imported(TraitIdentifier { name: ClarityName("trait-1"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName("definition1") } })), id: 11, span: Span { start_line: 2, start_column: 59, end_line: 2, end_column: 65 } }]), id: 9, span: Span { start_line: 2, start_column: 42, end_line: 2, end_column: 68 } }]
-        let is_read_only = self.check_read_only(body)?;
+        let is_read_only = self.check_symbolic_expression_type(body)?;
 
         Ok((function_name.clone(), is_read_only))
     }
@@ -180,7 +171,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Checks `expression` to determine whether it is read-only compliant.
     /// 
     /// Returns `true` iff the expression is read-only.
-    fn check_read_only(&mut self, expression: &SymbolicExpression) -> CheckResult<bool> {
+    fn check_symbolic_expression_type(&mut self, expression: &SymbolicExpression) -> CheckResult<bool> {
         // contract-call? contract get-1
         warn!("expression {:?}", expression);
         match expression.expr {
@@ -191,7 +182,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             List(ref expression) =>{
                 warn!("method:list");
                 // expression starts with "contract-call?"
-                let ret = self.check_function_application_read_only(expression);
+                let ret = self.check_function_application_implied_by_expressions(expression);
                 warn!("method:list {:?} {:?}", expression, ret);
                 ret
             },
@@ -207,7 +198,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         let mut result = true;
         for expression in expressions.iter() {
         warn!("expression {:?}", expression);
-            let expr_read_only = self.check_read_only(expression)?;
+            let expr_read_only = self.check_symbolic_expression_type(expression)?;
             result = result && expr_read_only;
         }
         Ok(result)
@@ -218,7 +209,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// compliant.
     /// 
     /// Returns `true` iff all expressions are read-only compliant.
-    fn try_native_function_check(
+    fn try_check_native_function(
         &mut self,
         function: &str,
         args: &[SymbolicExpression],
@@ -267,8 +258,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             AtBlock => {
                 check_argument_count(2, args)?;
 
-                let is_block_arg_read_only = self.check_read_only(&args[0])?;
-                let closure_read_only = self.check_read_only(&args[1])?;
+                let is_block_arg_read_only = self.check_symbolic_expression_type(&args[0])?;
+                let closure_read_only = self.check_symbolic_expression_type(&args[1])?;
                 if !closure_read_only {
                     return Err(CheckErrors::AtBlockClosureMustBeReadOnly.into());
                 }
@@ -295,7 +286,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         return Err(CheckErrors::BadSyntaxBinding.into());
                     }
 
-                    if !self.check_read_only(&pair_expression[1])? {
+                    if !self.check_symbolic_expression_type(&pair_expression[1])? {
                         return Ok(false);
                     }
                 }
@@ -311,11 +302,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 //   we're asking the read only checker to check whether a function application
                 //     of the _mapping function_ onto the rest of the supplied arguments would be
                 //     read-only or not.
-                self.check_function_application_read_only(args)
+                self.check_function_application_implied_by_expressions(args)
             }
             Filter => {
                 check_argument_count(2, args)?;
-                self.check_function_application_read_only(args)
+                self.check_function_application_implied_by_expressions(args)
             }
             Fold => {
                 check_argument_count(3, args)?;
@@ -326,7 +317,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 //   we're asking the read only checker to check whether a function application
                 //     of the _folding function_ onto the rest of the supplied arguments would be
                 //     read-only or not.
-                self.check_function_application_read_only(args)
+                self.check_function_application_implied_by_expressions(args)
             }
             TupleCons => {
                 for pair in args.iter() {
@@ -336,7 +327,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         return Err(CheckErrors::TupleExpectsPairs.into());
                     }
 
-                    if !self.check_read_only(&pair_expression[1])? {
+                    if !self.check_symbolic_expression_type(&pair_expression[1])? {
                         return Ok(false);
                     }
                 }
@@ -419,7 +410,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// argument is used as the function name, and the tail is used as the arguments.
     /// 
     /// Returns `true` iff all expressions are read-only compliant.
-    fn check_function_application_read_only(
+    fn check_function_application_implied_by_expressions(
         &mut self,
         expressions: &[SymbolicExpression],
     ) -> CheckResult<bool> {
@@ -434,7 +425,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
             warn!("function_name {:?}", function_name);
             // function name is "contract call"
-        if let Some(mut result) = self.try_native_function_check(function_name, args) {
+        if let Some(mut result) = self.try_check_native_function(function_name, args) {
             // this is false with "contract call"
             warn!("result {:?}", result);
             if let Err(ref mut check_err) = result {
