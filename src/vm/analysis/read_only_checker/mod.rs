@@ -116,15 +116,15 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     self.check_symbolic_expression_type(max_supply)?;
                 }
                 PrivateFunction { signature, body } | PublicFunction { signature, body } => {
-                    let (f_name, is_read_only) = self.check_define_function(signature, body)?;
-                    self.defined_functions.insert(f_name, is_read_only);
+                    let (function_name, is_read_only) = self.check_define_function(signature, body)?;
+                    self.defined_functions.insert(function_name, is_read_only);
                 }
                 ReadOnlyFunction { signature, body } => {
-                    let (f_name, is_read_only) = self.check_define_function(signature, body)?;
+                    let (function_name, is_read_only) = self.check_define_function(signature, body)?;
                     if !is_read_only {
                         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
                     } else {
-                        self.defined_functions.insert(f_name, is_read_only);
+                        self.defined_functions.insert(function_name, is_read_only);
                     }
                 }
                 Map { .. } | NonFungibleToken { .. } | UnboundedFungibleToken { .. } => {
