@@ -47,7 +47,6 @@ pub struct ReadOnlyChecker<'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<ClarityName, bool>,
     clarity_version: ClarityVersion,
-    contract_analysis: &'a ContractAnalysis,
 }
 
 impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
