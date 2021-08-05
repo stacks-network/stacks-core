@@ -337,10 +337,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 };
 
                 // false
-                warn!("location is_function_read_only {:?}", is_function_read_only); // this is false
                 self.check_each_expression(&args[2..])
                     .map(|args_read_only| {
-                        warn!("args_read_only {:?}", args_read_only);
                         args_read_only && is_function_read_only
                     })
             }
