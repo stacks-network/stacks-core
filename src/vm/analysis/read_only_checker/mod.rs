@@ -40,7 +40,7 @@ mod tests;
 /// `ReadOnlyChecker` analyzes a contract to determine whether there are any violations
 /// of read-only declarations. That is, a violating contract is one in which a function
 /// that is declared as read-only actually attempts to modify chainstate.
-/// 
+///
 /// A contract that does not violate its read-only declarations will be called
 /// a *read-only compliant* contract.
 pub struct ReadOnlyChecker<'a, 'b> {
@@ -70,11 +70,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     }
 
     /// Checks each top-level expression in `contract_analysis.expressions` for read-only correctness.
-    /// 
+    ///
     /// Returns successfully iff this function is read-only compatible.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only violation.
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
         // Iterate over all the top-level statements in a contract.
@@ -93,11 +93,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
     /// Checks the top-level expression `expression` to determine whether it is
     /// read-only compliant.
-    /// 
+    ///
     /// Returns successfully iff this function is read-only compatible.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only violation.
     fn check_top_level_expression(&mut self, expression: &SymbolicExpression) -> CheckResult<()> {
         use vm::functions::define::DefineFunctionsParsed::*;
@@ -140,12 +140,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok(())
     }
 
-
     /// Checks a function with signature `signature` and body `body` for read-only correctness.
-    /// 
+    ///
     /// Used to check the function definitions `PrivateFunction`, `PublicFunction` and `ReadOnlyFunction`
     /// for read-only correctness.
-    /// 
+    ///
     /// Returns a pair of 1) the function name defined, and 2) a `bool` indicating whether the function
     /// is read-only correct.
     fn check_define_function(
@@ -166,25 +165,26 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
     /// Checks `expression` to determine whether it is read-only compliant. This is used when
     /// `expression` is not parsed by `DefineFunctionsParsed::try_parse`.
-    /// 
+    ///
     /// Returns `true` iff the expression is read-only.
-    fn check_symbolic_expression_type(&mut self, expression: &SymbolicExpression) -> CheckResult<bool> {
+    fn check_symbolic_expression_type(
+        &mut self,
+        expression: &SymbolicExpression,
+    ) -> CheckResult<bool> {
         // contract-call? contract get-1
         match expression.expr {
-            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => {
-                Ok(true)
-            },
-            List(ref expression) =>{
+            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),
+            List(ref expression) => {
                 // expression starts with "contract-call?"
                 let ret = self.check_function_application_implied_by_expressions(expression);
                 ret
-            },
+            }
         }
     }
 
     /// Checks each expression in `expressions` to determine whether each constitutes only
     /// read-only operations.
-    /// 
+    ///
     /// Returns `true` iff all expressions are read-only.
     fn check_each_expression(&mut self, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
         let mut result = true;
@@ -198,7 +198,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Checks the native function application of the function named by the
     /// string `function` to `args` to determine whether it is read-only
     /// compliant.
-    /// 
+    ///
     /// Returns `true` iff this function application is read-only compliant.
     fn try_check_native_function(
         &mut self,
@@ -206,15 +206,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         args: &[SymbolicExpression],
     ) -> Option<CheckResult<bool>> {
         NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
-            .map(|function| {
-                self.check_native_function(&function, args)
-            }
-            )
+            .map(|function| self.check_native_function(&function, args))
     }
 
     /// Checks the native function application of the NativeFunctions `function`
     /// to `args` to determine whether it is read-only compliant.
-    /// 
+    ///
     /// Returns `true` iff this function application is read-only compliant.
     fn check_native_function(
         &mut self,
@@ -326,12 +323,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 let is_function_read_only = match &args[0].expr {
                     SymbolicExpressionType::LiteralValue(Value::Principal(
                         PrincipalData::Contract(ref contract_identifier),
-                    )) => {
-                        self
+                    )) => self
                         .db
                         .get_read_only_function_type(&contract_identifier, function_name)?
-                        .is_some()
-                    },
+                        .is_some(),
                     SymbolicExpressionType::Atom(_trait_reference) => {
                         // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
                         // which would defeat granting a static readonly stamp.
@@ -346,15 +341,15 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 self.check_each_expression(&args[2..])
                     .map(|args_read_only| {
                         warn!("args_read_only {:?}", args_read_only);
-                        args_read_only && is_function_read_only}
-                    )
+                        args_read_only && is_function_read_only
+                    })
             }
         }
     }
 
     /// Checks the native function application implied by `expressions`. The first
     /// argument is used as the function name, and the tail is used as the arguments.
-    /// 
+    ///
     /// Returns `true` iff all expressions are read-only compliant.
     fn check_function_application_implied_by_expressions(
         &mut self,
