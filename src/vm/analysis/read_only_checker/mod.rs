@@ -61,6 +61,7 @@ impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
 }
 
 impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
+    // Creates a new `ReadOnlyChecker`.
     fn new(db: &'a mut AnalysisDatabase<'b>, version: &ClarityVersion) -> ReadOnlyChecker<'a, 'b> {
         Self {
             db,
@@ -93,7 +94,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     }
 
     /// Checks the top-level expression `expression` to determine whether it is
-    /// read-only compliant. `expression` maybe have composite structure that can be parsed.
+    /// read-only compliant. `expression` maybe have composite structure that can be
+    /// parsed into multiple expressions.
     ///
     /// Returns successfully iff this function is read-only correct.
     ///
@@ -132,13 +134,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     }
                 }
                 Map { .. } | NonFungibleToken { .. } | UnboundedFungibleToken { .. } => {
-                    // No arguments to (define-map ...) or
-                    // (define-non-fungible-token) or fungible tokens without
+                    // No arguments to (define-map ...) or (define-non-fungible-token) or fungible tokens without
                     // max supplies are eval'ed.
                 }
                 Trait { .. } | UseTrait { .. } | ImplTrait { .. } => {
-                    // No arguments to (use-trait ...), (define-trait ...). or
-                    // (impl-trait) are eval'ed.
+                    // No arguments to (use-trait ...), (define-trait ...). or (impl-trait) are eval'ed.
                 }
             }
         } else {
