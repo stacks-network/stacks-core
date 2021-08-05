@@ -806,8 +806,8 @@ mod tests {
         test_deser_ser(Value::Int(0));
         test_deser_ser(Value::Int(1));
         test_deser_ser(Value::Int(-1));
-        test_deser_ser(Value::Int(i128::max_value()));
-        test_deser_ser(Value::Int(i128::min_value()));
+        test_deser_ser(Value::Int(i128::MAX));
+        test_deser_ser(Value::Int(i128::MIN));
 
         test_bad_expectation(Value::Int(1), TypeSignature::UIntType);
     }
@@ -816,8 +816,8 @@ mod tests {
     fn test_uints() {
         test_deser_ser(Value::UInt(0));
         test_deser_ser(Value::UInt(1));
-        test_deser_ser(Value::UInt(u128::max_value()));
-        test_deser_ser(Value::UInt(u128::min_value()));
+        test_deser_ser(Value::UInt(u128::MAX));
+        test_deser_ser(Value::UInt(u128::MIN));
 
         test_bad_expectation(Value::UInt(1), TypeSignature::IntType);
     }

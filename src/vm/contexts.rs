@@ -1711,8 +1711,7 @@ mod test {
         let mut am2 = AssetMap::new();
 
         am1.add_token_transfer(&p1, t1.clone(), 1).unwrap();
-        am1.add_token_transfer(&p2, t1.clone(), u128::max_value())
-            .unwrap();
+        am1.add_token_transfer(&p2, t1.clone(), u128::MAX).unwrap();
         am2.add_token_transfer(&p1, t1.clone(), 1).unwrap();
         am2.add_token_transfer(&p2, t1.clone(), 1).unwrap();
 
@@ -1720,7 +1719,7 @@ mod test {
 
         let table = am1.to_table();
 
-        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(u128::max_value()));
+        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(u128::MAX));
         assert_eq!(table[&p1][&t1], AssetMapEntry::Token(1));
     }
 
