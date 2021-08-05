@@ -1520,8 +1520,8 @@ impl ConversationHttp {
     /// The order of chain tips this method prefers is as follows:
     /// * If `use_latest_tip` is true, the method attempts to return the unconfirmed chain tip,
     ///     and returns the confirmed stacks chain tip if that doesn't work.
-    /// * `tip_opt`, if it's Some(..),
-    /// * the confirmed canonical stacks chain tip
+    /// * If `tip_opt` is Some(tip), the method returns tip.
+    /// * The last option the function considers is the canonical Stacks chain tip.
     fn handle_load_stacks_chain_tip<W: Write>(
         http: &mut StacksHttp,
         fd: &mut W,
@@ -2899,6 +2899,8 @@ mod test {
         (begin
           (map-set unit-map { account: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R } { units: 123 }))";
 
+    const TEST_CONTRACT_UNCONFIRMED: &'static str = "(define-read-only (ro-test) (ok 1))";
+
     fn convo_send_recv(
         sender: &mut ConversationHttp,
         sender_chainstate: &mut StacksChainState,
@@ -2938,6 +2940,12 @@ mod test {
         }
     }
 
+    /// General testing function to test RPC calls.
+    /// This function sets up two peers, a client and a server.
+    /// It takes in a function of type F that generates the request to be sent to the server
+    /// It takes in another function of type C that verifies that the result from
+    /// the server is as expected.
+    /// The parameter `include_microblocks` determines whether a microblock stream is mined or not.
     fn test_rpc<F, C>(
         test_name: &str,
         peer_1_p2p: u16,
@@ -3061,7 +3069,7 @@ mod test {
         };
 
         // make an unconfirmed contract
-        let unconfirmed_contract = "(define-read-only (ro-test) (ok 1))";
+        let unconfirmed_contract = TEST_CONTRACT_UNCONFIRMED.clone();
         let mut tx_unconfirmed_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
@@ -3390,6 +3398,9 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_getpoxinfo() {
+        /// Test v2/pox (aka GetPoxInfo) endpoint.
+        /// In this test, we don't set any tip parameters, and we expect that querying for pox info
+        /// against the canonical Stacks tip will succeed.
         let pox_server_info = RefCell::new(None);
         test_rpc(
             "test_rpc_getpoxinfo",
@@ -3441,6 +3452,9 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_getpoxinfo_use_latest_tip() {
+        /// Test v2/pox (aka GetPoxInfo) endpoint.
+        /// In this test, we set `use_latest_tip` to true, and we expect that querying for pox
+        /// info against the unconfirmed state will succeed.
         let pox_server_info = RefCell::new(None);
         test_rpc(
             "test_rpc_getpoxinfo",
@@ -4172,6 +4186,11 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_get_contract_src() {
+        /// Test v2/contracts/source (aka GetContractSrc) endpoint.
+        /// In this test, we don't set any tip parameters, and allow the endpoint to execute against
+        /// the canonical Stacks tip.
+        /// The contract source we are querying for exists in the anchored state, so we expect the
+        /// query to succeed.
         test_rpc(
             "test_rpc_get_contract_src",
             40090,
@@ -4210,7 +4229,55 @@ mod test {
 
     #[test]
     #[ignore]
-    fn test_rpc_get_contract_src_unconfirmed() {
+    fn test_rpc_get_contract_src_unconfirmed_with_latest_tip() {
+        /// Test v2/contracts/source (aka GetContractSrc) endpoint.
+        /// In this test, we don't set any tip parameters, and allow the endpoint to execute against
+        /// the canonical Stacks tip.
+        /// The contract source we are querying for exists in the unconfirmed state, so we expect
+        /// the query to fail.
+        test_rpc(
+            "test_rpc_get_contract_src",
+            40090,
+            40091,
+            50090,
+            50091,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getcontractsrc(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world-unconfirmed".try_into().unwrap(),
+                    None,
+                    false,
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::NotFound(_, error_str) => {
+                        assert_eq!(error_str, "No contract source data found");
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_contract_src_with_unconfirmed_tip() {
+        /// Test v2/contracts/source (aka GetContractSrc) endpoint.
+        /// In this test, we set `tip_opt` to be the unconfirmed chain tip.
+        /// The contract source we are querying for exists in the unconfirmed state, so we expect
+        /// the query to succeed.
         test_rpc(
             "test_rpc_get_contract_src_unconfirmed",
             40100,
@@ -4232,7 +4299,7 @@ mod test {
                 convo_client.new_getcontractsrc(
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
-                    "hello-world".try_into().unwrap(),
+                    "hello-world-unconfirmed".try_into().unwrap(),
                     Some(unconfirmed_tip),
                     false,
                     false,
@@ -4242,7 +4309,7 @@ mod test {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetContractSrc(response_md, data) => {
-                        assert_eq!(data.source, TEST_CONTRACT);
+                        assert_eq!(data.source, TEST_CONTRACT_UNCONFIRMED);
                         true
                     }
                     _ => {
@@ -4257,6 +4324,10 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_get_contract_src_use_latest_tip() {
+        /// Test v2/contracts/source (aka GetContractSrc) endpoint.
+        /// In this test, we set `use_latest_tip` to true.
+        /// The contract source we are querying for exists in the unconfirmed state, so we expect
+        /// the query to succeed.
         test_rpc(
             "test_rpc_get_contract_src_unconfirmed",
             40100,
@@ -4271,7 +4342,7 @@ mod test {
                 convo_client.new_getcontractsrc(
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
-                    "hello-world".try_into().unwrap(),
+                    "hello-world-unconfirmed".try_into().unwrap(),
                     None,
                     false,
                     true,
@@ -4281,7 +4352,7 @@ mod test {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetContractSrc(response_md, data) => {
-                        assert_eq!(data.source, TEST_CONTRACT);
+                        assert_eq!(data.source, TEST_CONTRACT_UNCONFIRMED);
                         true
                     }
                     _ => {
@@ -4474,6 +4545,9 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_get_map_entry() {
+        /// Test v2/map_entry (aka GetMapEntry) endpoint.
+        /// In this test, we don't set any tip parameters, and we expect that querying for map data
+        /// against the canonical Stacks tip will succeed.
         test_rpc(
             "test_rpc_get_map_entry",
             40130,
@@ -4529,6 +4603,9 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_get_map_entry_unconfirmed() {
+        /// Test v2/map_entry (aka GetMapEntry) endpoint.
+        /// In this test, we set `use_latest_tip` to true, and we expect that querying for map data
+        /// against the unconfirmed state will succeed.
         test_rpc(
             "test_rpc_get_map_entry_unconfirmed",
             40140,
@@ -4646,6 +4723,9 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_get_contract_abi() {
+        /// Test /v2/contracts/interface (aka GetContractABI) endpoint.
+        /// In this test, we don't set any tip parameters, and we expect that querying
+        /// against the canonical Stacks tip will succeed.
         test_rpc(
             "test_rpc_get_contract_abi",
             40150,
@@ -4684,6 +4764,9 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_get_contract_abi_unconfirmed() {
+        /// Test /v2/contracts/interface (aka GetContractABI) endpoint.
+        /// In this test, we set `use_latest_tip` to true, and we expect that querying
+        /// against the unconfirmed state will succeed.
         test_rpc(
             "test_rpc_get_contract_abi_unconfirmed",
             40160,
@@ -4761,6 +4844,9 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_call_read_only() {
+        /// Test /v2/contracts/call-read (aka CallReadOnlyFunction) endpoint.
+        /// In this test, we don't set any tip parameters, and we expect that querying
+        /// against the canonical Stacks tip will succeed.
         test_rpc(
             "test_rpc_call_read_only",
             40170,
@@ -4807,6 +4893,9 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_call_read_only_use_latest_tip() {
+        /// Test /v2/contracts/call-read (aka CallReadOnlyFunction) endpoint.
+        /// In this test, we set `use_latest_tip` to true , and we expect that querying
+        /// against the unconfirmed state will succeed.
         test_rpc(
             "test_rpc_call_read_only_unconfirmed",
             40180,
