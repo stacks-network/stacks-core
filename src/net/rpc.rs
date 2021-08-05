@@ -4229,7 +4229,7 @@ mod test {
 
     #[test]
     #[ignore]
-    fn test_rpc_get_contract_src_unconfirmed_with_latest_tip() {
+    fn test_rpc_get_contract_src_unconfirmed_with_canonical_tip() {
         /// Test v2/contracts/source (aka GetContractSrc) endpoint.
         /// In this test, we don't set any tip parameters, and allow the endpoint to execute against
         /// the canonical Stacks tip.
