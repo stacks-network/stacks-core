@@ -336,7 +336,6 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName)),
                 };
 
-                // false
                 self.check_each_expression(&args[2..])
                     .map(|args_read_only| {
                         args_read_only && is_function_read_only
