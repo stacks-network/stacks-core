@@ -41,6 +41,9 @@ mod tests;
 /// `ReadOnlyChecker` analyzes a contract to determine whether there are any violations
 /// of read-only declarations. That is, a violating contract is one in which a function
 /// that is declared as read-only actually attempts to modify chainstate.
+/// 
+/// A contract that does not violate its read-only declarations will be called
+/// a *read-only compliant* contract.
 pub struct ReadOnlyChecker<'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<ClarityName, bool>,
@@ -73,6 +76,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Checks each top-level expression in `contract_analysis.expressions` for read-only compliance.
     /// 
     /// Returns successfully iff this function is read-only compatible.
+    /// 
+    /// # Errors
+    /// 
+    /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only violation.
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
         // Iterate over all the top-level statements in a contract.
         for exp in contract_analysis.expressions.iter() {
@@ -93,6 +100,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// read-only compliant.
     /// 
     /// Returns successfully iff this function is read-only compatible.
+    /// 
+    /// # Errors
+    /// 
+    /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only violation.
     fn check_top_level_expression(&mut self, expression: &SymbolicExpression) -> CheckResult<()> {
         warn!("expression: {:?}", expression);
         use vm::functions::define::DefineFunctionsParsed::*;
@@ -169,7 +180,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok((function_name.clone(), is_read_only))
     }
 
-    /// Checks `expression` to determine whether it is read-only compliant.
+    /// Checks `expression` to determine whether it is read-only compliant. This is used when
+    /// `expression` is not parsed by `DefineFunctionsParsed::try_parse`.
     /// 
     /// Returns `true` iff the expression is read-only.
     fn check_symbolic_expression_type(&mut self, expression: &SymbolicExpression) -> CheckResult<bool> {
@@ -194,7 +206,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// read-only operations.
     /// 
     /// Returns `true` iff all expressions are read-only.
-    fn check_all_expressions(&mut self, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn check_each_expression(&mut self, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
         warn!("here");
         let mut result = true;
         for expression in expressions.iter() {
@@ -209,7 +221,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// string `function` to `args` to determine whether it is read-only
     /// compliant.
     /// 
-    /// Returns `true` iff all expressions are read-only compliant.
+    /// Returns `true` iff this function application is read-only compliant.
     fn try_check_native_function(
         &mut self,
         function: &str,
@@ -232,7 +244,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Checks the native function application of the NativeFunctions `function`
     /// to `args` to determine whether it is read-only compliant.
     /// 
-    /// Returns `true` iff all expressions are read-only compliant.
+    /// Returns `true` iff this function application is read-only compliant.
     fn check_native_function(
         &mut self,
         function: &NativeFunctions,
@@ -254,7 +266,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
             | ElementAt | IndexOf => {
                 // Check all arguments.
-                self.check_all_expressions(args)
+                self.check_each_expression(args)
             }
             AtBlock => {
                 check_argument_count(2, args)?;
@@ -268,12 +280,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             FetchEntry => {
                 check_argument_count(2, args)?;
-                self.check_all_expressions(args)
+                self.check_each_expression(args)
             }
             StxTransfer | StxTransferMemo | StxBurn | SetEntry | DeleteEntry | InsertEntry
             | SetVar | MintAsset | MintToken | TransferAsset | TransferToken | BurnAsset
             | BurnToken => {
-                self.check_all_expressions(args)?;
+                self.check_each_expression(args)?;
                 Ok(false)
             }
             Let => {
@@ -292,7 +304,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     }
                 }
 
-                self.check_all_expressions(&args[1..args.len()])
+                self.check_each_expression(&args[1..args.len()])
             }
             Map => {
                 check_arguments_at_least(2, args)?;
@@ -398,7 +410,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
                 // false
                 warn!("location is_function_read_only {:?}", is_function_read_only); // this is false
-                self.check_all_expressions(&args[2..])
+                self.check_each_expression(&args[2..])
                     .map(|args_read_only| {
                         warn!("args_read_only {:?}", args_read_only);
                         args_read_only && is_function_read_only}
@@ -441,7 +453,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 .get(function_name)
                 .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?
                 .clone();
-            self.check_all_expressions(args)
+            self.check_each_expression(args)
                 .map(|args_read_only| args_read_only && is_function_read_only)
         }
     }
