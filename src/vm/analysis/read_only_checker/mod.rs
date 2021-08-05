@@ -116,7 +116,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     self.check_atomic_expression_is_read_only(initial)?;
                 }
                 BoundedFungibleToken { max_supply, .. } => {
-                    // Only the *optional* total supply argument is eval'd.
+                    // Only the *optional* total supply argument is eval'ed.
                     self.check_atomic_expression_is_read_only(max_supply)?;
                 }
                 PrivateFunction { signature, body } | PublicFunction { signature, body } => {
