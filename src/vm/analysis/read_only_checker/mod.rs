@@ -39,7 +39,8 @@ use super::AnalysisDatabase;
 mod tests;
 
 /// `ReadOnlyChecker` analyzes a contract to determine whether there are any violations
-/// of read-only rules.
+/// of read-only declarations. That is, a violating contract is one in which a function
+/// that is declared as read-only actually attempts to modify chainstate.
 pub struct ReadOnlyChecker<'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<ClarityName, bool>,
@@ -69,7 +70,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         }
     }
 
-    /// Checks each top-level expression in `contract_analysis.expressions`.
+    /// Checks each top-level expression in `contract_analysis.expressions` for read-only compliance.
     /// 
     /// Returns successfully iff this function is read-only compatible.
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
