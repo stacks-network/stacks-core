@@ -69,7 +69,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         }
     }
 
-    /// Checks each top-level expression in `contract_analysis.expressions` for read-only compliance.
+    /// Checks each top-level expression in `contract_analysis.expressions` for read-only correctness.
     /// 
     /// Returns successfully iff this function is read-only compatible.
     /// 
@@ -141,10 +141,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     }
 
 
-    /// Checks a function with signature `signature` and body `body` for read-only compliance.
+    /// Checks a function with signature `signature` and body `body` for read-only correctness.
     /// 
     /// Used to check the function definitions `PrivateFunction`, `PublicFunction` and `ReadOnlyFunction`
-    /// for read-only compliance.
+    /// for read-only correctness.
     /// 
     /// Returns a pair of 1) the function name defined, and 2) a `bool` indicating whether the function
     /// is read-only correct.
