@@ -93,7 +93,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     }
 
     /// Checks the top-level expression `expression` to determine whether it is
-    /// read-only compliant.
+    /// read-only compliant. `expression` maybe have composite structure that can be parsed.
     ///
     /// Returns successfully iff this function is read-only correct.
     ///
@@ -114,7 +114,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     self.check_atomic_expression_is_read_only(initial)?;
                 }
                 BoundedFungibleToken { max_supply, .. } => {
-                    // Only the *optional* total supply arg is eval'ed.
+                    // Only the *optional* total supply argument is eval'd.
                     self.check_atomic_expression_is_read_only(max_supply)?;
                 }
                 PrivateFunction { signature, body } | PublicFunction { signature, body } => {
@@ -147,10 +147,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok(())
     }
 
-    /// Checks a function with signature `signature` and body `body` for read-only correctness.
+    /// Checks that a function with signature `signature` and body `body` is read-only.
     ///
-    /// Used to check the function definitions `PrivateFunction`, `PublicFunction` and `ReadOnlyFunction`
-    /// for read-only correctness.
+    /// This is used to check the function definitions `PrivateFunction`, `PublicFunction`
+    /// and `ReadOnlyFunction`.
     ///
     /// Returns a pair of 1) the function name defined, and 2) a `bool` indicating whether the function
     /// is read-only.
@@ -170,26 +170,21 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok((function_name.clone(), is_read_only))
     }
 
-    /// Checks `expression` to determine whether it is read-only compliant. This is used when
-    /// `expression` is not parsed by `DefineFunctionsParsed::try_parse`.
+    /// Checks an atomic `expression` to determine whether it is read-only correct.
+    /// An atomic expression is one that does not need to be parsed into multiple expressions.
     ///
     /// Returns `true` iff the expression is read-only.
     fn check_atomic_expression_is_read_only(
         &mut self,
         expression: &SymbolicExpression,
     ) -> CheckResult<bool> {
-        // contract-call? contract get-1
         match expression.expr {
             AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),
-            List(ref expression) => {
-                // expression starts with "contract-call?"
-                let ret = self.check_expression_application_is_read_only(expression);
-                ret
-            }
+            List(ref expression) => self.check_expression_application_is_read_only(expression),
         }
     }
 
-    /// Checks each expression in `expressions` to determine whether each constitutes only
+    /// Checks each expression in `expressions` to determine whether each uses only
     /// read-only operations.
     ///
     /// Returns `true` iff all expressions are read-only.
@@ -355,7 +350,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Checks the native function application implied by `expressions`. The first
     /// argument is used as the function name, and the tail is used as the arguments.
     ///
-    /// Returns `true` iff all expressions are read-only.
+    /// Returns `true` iff the function application is read-only.
     fn check_expression_application_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
