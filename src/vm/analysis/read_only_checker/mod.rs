@@ -205,7 +205,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// compliant.
     ///
     /// Returns `true` iff this function application is read-only.
-    fn try_check_native_function(
+    fn try_check_native_function_is_read_only(
         &mut self,
         function: &str,
         args: &[SymbolicExpression],
@@ -363,7 +363,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .match_atom()
             .ok_or(CheckErrors::NonFunctionApplication)?;
 
-        if let Some(mut result) = self.try_check_native_function(function_name, args) {
+        if let Some(mut result) = self.try_check_native_function_is_read_only(function_name, args) {
             if let Err(ref mut check_err) = result {
                 check_err.set_expressions(expressions);
             }
