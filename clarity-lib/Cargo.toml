@@ -1,5 +1,5 @@
 [package]
-name = "lib-clarity-vm"
+name = "clarity-lib"
 version = "0.0.1"
 authors = [ "Jude Nelson <jude@stacks.org>",
             "Aaron Blankstein <aaron@blockstack.com>",
