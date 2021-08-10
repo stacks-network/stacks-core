@@ -16,6 +16,10 @@
 
 use crate::vm::ClarityVersion;
 use chainstate::stacks::boot::BOOT_CODE_COSTS;
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 use vm::analysis::type_checker::tests::mem_type_check;
 use vm::analysis::{
     arithmetic_checker::ArithmeticOnlyChecker, arithmetic_checker::Error,
@@ -27,6 +31,12 @@ use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::types::QualifiedContractIdentifier;
 use vm::variables::NativeVariables;
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn template_test_clarity_versions(#[case] version: ClarityVersion) {}
 
 /// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
 /// map would not pass this check).
@@ -55,8 +65,8 @@ fn test_boot_definitions() {
     check_good(BOOT_CODE_COSTS);
 }
 
-#[test]
-fn test_bad_defines() {
+#[apply(template_test_clarity_versions)]
+fn test_bad_defines(#[case] version: ClarityVersion) {
     let tests = [
         ("(define-public (foo) (ok 1))", DefineTypeForbidden(DefineFunctions::PublicFunction)),
         ("(define-map foo-map ((a uint)) ((b uint))) (define-private (foo) (map-get? foo-map {a: u1}))", DefineTypeForbidden(DefineFunctions::Map)),
@@ -67,20 +77,10 @@ fn test_bad_defines() {
         ("(define-trait foo-trait ((foo (uint)) (response uint uint)))", DefineTypeForbidden(DefineFunctions::Trait)),
     ];
 
-    // Check Clarity1.
+    // Check bad defines for each clarity version
     for (contract, error) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract, ClarityVersion::Clarity1),
-            Err(error.clone()),
-            "Check contract:\n {}",
-            contract
-        );
-    }
-
-    // Check Clarity2.
-    for (contract, error) in tests.iter() {
-        assert_eq!(
-            arithmetic_check(contract, ClarityVersion::Clarity2),
+            arithmetic_check(contract, version),
             Err(error.clone()),
             "Check contract:\n {}",
             contract
