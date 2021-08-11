@@ -3399,8 +3399,9 @@ mod test {
     #[ignore]
     fn test_rpc_getpoxinfo() {
         /// Test v2/pox (aka GetPoxInfo) endpoint.
-        /// In this test, we don't set any tip parameters, and we expect that querying for pox info
-        /// against the canonical Stacks tip will succeed.
+        /// In this test, we don't set any tip parameters (meaning `use_latest_tip` is false, and
+        /// `tip_opt` is None). Thus, the query for pox info will be against the canonical Stacks
+        /// tip, which we expect to succeed.
         let pox_server_info = RefCell::new(None);
         test_rpc(
             "test_rpc_getpoxinfo",
@@ -4233,8 +4234,8 @@ mod test {
         /// Test v2/contracts/source (aka GetContractSrc) endpoint.
         /// In this test, we don't set any tip parameters, and allow the endpoint to execute against
         /// the canonical Stacks tip.
-        /// The contract source we are querying for exists in the unconfirmed state, so we expect
-        /// the query to fail.
+        /// The contract source we are querying for only exists in the unconfirmed state, so we
+        /// expect the query to fail.
         test_rpc(
             "test_rpc_get_contract_src",
             40090,
