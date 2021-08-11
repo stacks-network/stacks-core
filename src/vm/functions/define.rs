@@ -178,7 +178,6 @@ fn handle_define_function(
     //         ),
     //     ],
 
-
     // This is where we create a new DefinedFunction.
     let function = DefinedFunction::new(
         arguments,
@@ -311,7 +310,7 @@ impl DefineFunctions {
 impl<'a> DefineFunctionsParsed<'a> {
     /// Try to parse a Top-Level Expression (e.g., (define-private (foo) 1)) as
     /// a define-statement, returns None if the supplied expression is not a define.
-    /// 
+    ///
     // Note: Key function.
     pub fn try_parse(
         expression: &'a SymbolicExpression,
@@ -495,9 +494,7 @@ pub fn evaluate_define(
             } => {
                 warn!("evaluate_define");
                 handle_use_trait(name, trait_identifier)
-            }
-                
-                ,
+            } ,
             DefineFunctionsParsed::ImplTrait { trait_identifier } => {
                 warn!("evaluate_define");
                 handle_impl_trait(trait_identifier)

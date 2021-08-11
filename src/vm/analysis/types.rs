@@ -159,7 +159,7 @@ impl ContractAnalysis {
         self.implemented_traits.insert(trait_identifier);
     }
 
-    pub fn add_referenced_trait(&mut self, name:ClarityName, trait_identifier: TraitIdentifier) {
+    pub fn add_referenced_trait(&mut self, name: ClarityName, trait_identifier: TraitIdentifier) {
         self.referenced_traits.insert(name, trait_identifier);
     }
 
@@ -203,7 +203,10 @@ impl ContractAnalysis {
         let trait_name = trait_identifier.name.to_string();
 
         for (func_name, expected_sig) in trait_definition.iter() {
-            warn!("trait_name {:?} func_name {:?} expected_sig {:?}", trait_name, func_name, expected_sig);
+            warn!(
+                "trait_name {:?} func_name {:?} expected_sig {:?}",
+                trait_name, func_name, expected_sig
+            );
             match (
                 self.get_public_function_type(func_name),
                 self.get_read_only_function_type(func_name),

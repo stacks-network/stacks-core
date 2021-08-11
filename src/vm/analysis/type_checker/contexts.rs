@@ -212,7 +212,11 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn add_referenced_trait(&mut self, name:ClarityName, trait_identifier: TraitIdentifier) -> CheckResult<()> {
+    pub fn add_referenced_trait(
+        &mut self,
+        name: ClarityName,
+        trait_identifier: TraitIdentifier,
+    ) -> CheckResult<()> {
         self.referenced_traits.insert(name, trait_identifier);
         Ok(())
     }

@@ -302,7 +302,11 @@ impl FunctionType {
         func_args: &[Value],
     ) -> CheckResult<TypeSignature> {
         let (expected_args, returns, read_only) = match self {
-            FunctionType::Fixed(FixedFunction { args, returns, read_only }) => (args, returns, read_only),
+            FunctionType::Fixed(FixedFunction {
+                args,
+                returns,
+                read_only,
+            }) => (args, returns, read_only),
             _ => panic!("Unexpected function type"),
         };
         check_argument_count(expected_args.len(), func_args)?;

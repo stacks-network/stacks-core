@@ -992,14 +992,14 @@ impl StacksChainState {
                 let analysis_resp =
                     clarity_tx.analyze_smart_contract(&contract_id, &contract_code_str);
 
-                    // Greg Note: This is what we want to call.
-            let result = Contract::initialize_from_ast(
-                contract_identifier.clone(),
-                contract_content,
-                self.sponsor.clone(),
-                &mut self.global_context,
-                version,
-            );
+                //         // Greg Note: This is what we want to call.
+                // let result = Contract::initialize_from_ast(
+                //     contract_identifier.clone(),
+                //     contract_content,
+                //     self.sponsor.clone(),
+                //     &mut self.global_context,
+                //     version,
+                // );
 
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,

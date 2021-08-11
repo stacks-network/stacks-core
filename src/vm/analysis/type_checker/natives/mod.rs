@@ -593,7 +593,7 @@ impl TypedNativeFunction {
                             .expect("FAIL: ClarityName failed to accept default arg name"),
                     )],
                     returns: TypeSignature::IntType,
-                read_only: false,
+                    read_only: false,
                 })))
             }
             BuffToUIntLe | BuffToUIntBe => {
@@ -604,7 +604,7 @@ impl TypedNativeFunction {
                             .expect("FAIL: ClarityName failed to accept default arg name"),
                     )],
                     returns: TypeSignature::UIntType,
-                read_only: false,
+                    read_only: false,
                 })))
             }
             StringToInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(

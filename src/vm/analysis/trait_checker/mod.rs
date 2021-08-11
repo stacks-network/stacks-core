@@ -51,10 +51,16 @@ impl TraitChecker {
     ) -> CheckResult<()> {
         // let bt = backtrace::Backtrace::new();
         // warn!("bt10: {:?}", bt);
-        warn!("check_analysis2 {:?} {:?}", contract_analysis.implemented_traits, contract_analysis.defined_traits);
+        warn!(
+            "check_analysis2 {:?} {:?}",
+            contract_analysis.implemented_traits, contract_analysis.defined_traits
+        );
         for trait_identifier in &contract_analysis.implemented_traits {
             let trait_name = trait_identifier.name.to_string();
-        warn!("trait_identifier {:?} trait_name {:?}", trait_identifier, trait_name);
+            warn!(
+                "trait_identifier {:?} trait_name {:?}",
+                trait_identifier, trait_name
+            );
             let contract_defining_trait = analysis_db
                 .load_contract(&trait_identifier.contract_identifier)
                 .ok_or(CheckErrors::TraitReferenceUnknown(
@@ -68,7 +74,10 @@ impl TraitChecker {
                 ))?;
 
             // Key Note: Check trait compliance.
-            warn!("call check_trait_compliance trait_identifier {:#?} trait_definition {:#?}", trait_identifier, trait_definition);
+            warn!(
+                "call check_trait_compliance trait_identifier {:#?} trait_definition {:#?}",
+                trait_identifier, trait_definition
+            );
             contract_analysis.check_trait_compliance(trait_identifier, trait_definition)?;
         }
         Ok(())

@@ -904,17 +904,28 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         // ClarityVersionPragmaTodo: need to use contract's declared version or default
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
 
+        let is_mainnet = self.mainnet;
         using!(self.cost_track, "cost tracker", |mut cost_track| {
-            self.inner_with_analysis_db(|db| {
+            let (cost_track, mut contract_ast) = self.with_clarity_db_readonly_owned(|clarity_db| {
+                let mut vm_env =
+                    OwnedEnvironment::new_cost_limited(is_mainnet, clarity_db, cost_track);
+
+                let (clarity_db, mut cost_track) = vm_env
+                    .destruct()
+                    .expect("Failed to recover database reference after executing transaction");
 
                 // Note: We build the ast here, could we also get the contract?
                 let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
+                let mut contract_ast = ast_result.unwrap();
+                ((cost_track, contract_ast), clarity_db)
+            });
 
-                let mut contract_ast = match ast_result {
-                    Ok(x) => x,
-                    Err(e) => return (cost_track, Err(e.into())),
-                };
+            // let mut contract_ast = match ast_result {
+            //     Ok(x) => x,
+            //     Err(e) => return (cost_track, Err(e.into())),
+            // };
 
+            self.inner_with_analysis_db(|db| {
                 let result = analysis::run_analysis(
                     identifier,
                     &mut contract_ast.expressions,

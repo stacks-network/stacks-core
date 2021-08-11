@@ -188,9 +188,17 @@ impl From<&str> for TypeSignature {
 
 impl From<FixedFunction> for FunctionSignature {
     fn from(data: FixedFunction) -> FunctionSignature {
-        let FixedFunction { args, returns, read_only } = data;
+        let FixedFunction {
+            args,
+            returns,
+            read_only,
+        } = data;
         let args = args.into_iter().map(|x| x.signature).collect();
-        FunctionSignature { args, returns, read_only }
+        FunctionSignature {
+            args,
+            returns,
+            read_only,
+        }
     }
 }
 
@@ -1020,7 +1028,7 @@ impl TypeSignature {
             let args = function_type
                 .match_list()
                 .ok_or(CheckErrors::DefineTraitBadSignature)?;
-            if args.len() != 3 && args.len() != 4{
+            if args.len() != 3 && args.len() != 4 {
                 return Err(CheckErrors::InvalidTypeDescription);
             }
 

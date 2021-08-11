@@ -48,7 +48,7 @@ fn test_all() {
         // test_return_trait_with_contract_of,
         // test_return_trait_with_contract_of_wrapped_in_begin,
         // test_return_trait_with_contract_of_wrapped_in_let,
-        test_read_only_trait
+        test_read_only_trait,
     ];
     for test in to_test.iter() {
         with_memory_environment(test, false);
@@ -98,14 +98,13 @@ fn test_read_only_trait(owned_env: &mut OwnedEnvironment) {
         let result_contract = impl_contract_instance.clone();
         let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
 
-        let return_value = 
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatch1").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![impl_contract_instance.clone()]),
-                // &symbols_from_values(vec![]),
-                true
-            );
+        let return_value = env.execute_contract(
+            &QualifiedContractIdentifier::local("dispatch1").unwrap(),
+            "wrapped-get-1",
+            &symbols_from_values(vec![impl_contract_instance.clone()]),
+            // &symbols_from_values(vec![]),
+            true,
+        );
         warn!("return_value {:?}", return_value);
         //     // .unwrap();
         // warn!("return_value {:?}", return_value);

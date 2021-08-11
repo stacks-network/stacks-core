@@ -1355,7 +1355,6 @@ fn test_contract_read_only_conflict() {
     assert_eq!(
         result.unwrap_err().err,
         CheckErrors::BadTraitImplementation("trait-1".to_string(), "get-1".to_string())
-
     );
 }
 

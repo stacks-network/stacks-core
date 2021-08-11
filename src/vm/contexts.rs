@@ -78,7 +78,7 @@ pub struct Environment<'a, 'b> {
 }
 
 pub struct OwnedEnvironment<'a> {
-    context: GlobalContext<'a>,
+    pub context: GlobalContext<'a>,
     default_contract: ContractContext,
     call_stack: CallStack,
 }
@@ -983,7 +983,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             .global_context
             .database
             .get_contract_size(contract_identifier)?;
-            warn!("contract_size: {:?}", contract_size);
+        warn!("contract_size: {:?}", contract_size);
         runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
 
         self.global_context.add_memory(contract_size)?;
@@ -1051,7 +1051,10 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
 
         let next_contract_context = next_contract_context.unwrap_or(self.contract_context);
-        warn!("execute_function_as_transaction next_contract_context {:#?}", next_contract_context.functions);
+        warn!(
+            "execute_function_as_transaction next_contract_context {:#?}",
+            next_contract_context.functions
+        );
 
         let result = {
             let mut nested_env = Environment::new(
@@ -1108,8 +1111,14 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_content: &str,
     ) -> Result<()> {
         let contract_ast = ast::build_ast(&contract_identifier, contract_content, self)?;
-        warn!("initialize_contract contract_ast.referenced_traits {:#?}", contract_ast.referenced_traits);
-        warn!("initialize_contract contract_ast.implemented_traits {:#?}", contract_ast.implemented_traits);
+        warn!(
+            "initialize_contract contract_ast.referenced_traits {:#?}",
+            contract_ast.referenced_traits
+        );
+        warn!(
+            "initialize_contract contract_ast.implemented_traits {:#?}",
+            contract_ast.implemented_traits
+        );
         self.initialize_contract_from_ast(contract_identifier, &contract_ast, &contract_content)
     }
 
