@@ -120,6 +120,7 @@ impl DefinedFunction {
             self.arguments.len(),
         )?;
 
+        // Note: DefinedFunction has its `arg_types` parsed.
         for arg_type in self.arg_types.iter() {
             runtime_cost(
                 ClarityCostFunction::InnerTypeCheckCost,

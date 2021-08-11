@@ -177,6 +177,9 @@ fn handle_define_function(
     //             },
     //         ),
     //     ],
+
+
+    // This is where we create a new DefinedFunction.
     let function = DefinedFunction::new(
         arguments,
         expression.clone(),

@@ -41,6 +41,8 @@ impl Contract {
     ) -> Result<Contract> {
         let mut contract_context = ContractContext::new(contract_identifier, version);
 
+        // Note: Runs after AST, and creates a Contract.
+        // This has the defined functions.
         eval_all(
             &contract.expressions,
             &mut contract_context,

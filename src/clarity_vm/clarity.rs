@@ -906,6 +906,8 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
 
         using!(self.cost_track, "cost tracker", |mut cost_track| {
             self.inner_with_analysis_db(|db| {
+
+                // Note: We build the ast here, could we also get the contract?
                 let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
 
                 let mut contract_ast = match ast_result {

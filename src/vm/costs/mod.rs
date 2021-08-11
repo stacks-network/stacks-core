@@ -795,6 +795,7 @@ fn compute_cost(
 
     let function_invocation = [SymbolicExpression::list(program.into_boxed_slice())];
 
+    // Calls eval_all to get the cost.
     let eval_result = eval_all(
         &function_invocation,
         cost_contract,

@@ -987,8 +987,20 @@ impl StacksChainState {
                 // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
                 // The reason for this is that analyzing the transaction is itself an expensive
                 // operation, and the paying account will need to be debited the fee regardless.
+
+                // Note: Analyze happens here.
                 let analysis_resp =
                     clarity_tx.analyze_smart_contract(&contract_id, &contract_code_str);
+
+                    // Greg Note: This is what we want to call.
+            let result = Contract::initialize_from_ast(
+                contract_identifier.clone(),
+                contract_content,
+                self.sponsor.clone(),
+                &mut self.global_context,
+                version,
+            );
+
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
                     Err(e) => {
