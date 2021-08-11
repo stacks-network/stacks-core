@@ -232,6 +232,7 @@ pub struct LocalContext<'a> {
     pub function_context: Option<&'a LocalContext<'a>>,
     pub parent: Option<&'a LocalContext<'a>>,
     pub variables: HashMap<ClarityName, Value>,
+    // Note: this is used for traits.
     pub callable_contracts: HashMap<ClarityName, (QualifiedContractIdentifier, TraitIdentifier)>,
     depth: u16,
 }
@@ -680,6 +681,7 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
+    // Note: execute the transaction
     pub fn execute_transaction(
         &mut self,
         sender: PrincipalData,

@@ -47,6 +47,7 @@ pub struct ReadOnlyChecker<'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<ClarityName, bool>,
     clarity_version: ClarityVersion,
+    contract_analysis: &'a ContractAnalysis,
 }
 
 impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
@@ -54,19 +55,19 @@ impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
-        let mut command = ReadOnlyChecker::new(analysis_db, &contract_analysis.clarity_version);
+        let mut command = ReadOnlyChecker::new(analysis_db, &contract_analysis);
         command.run(contract_analysis)?;
         Ok(())
     }
 }
 
 impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
-    // Creates a new `ReadOnlyChecker`.
-    fn new(db: &'a mut AnalysisDatabase<'b>, version: &ClarityVersion) -> ReadOnlyChecker<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>, contract_analysis: &'a ContractAnalysis) -> ReadOnlyChecker<'a, 'b> {
         Self {
             db,
             defined_functions: HashMap::new(),
-            clarity_version: version.clone(),
+            clarity_version: (*contract_analysis).clarity_version.clone(),
+            contract_analysis: contract_analysis,
         }
     }
 
@@ -165,7 +166,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
 
-        let is_read_only = self.check_atomic_expression_is_read_only(body, None)?;
+            warn!("signature2 {:?}", signature);
+
+        let is_read_only = self.check_atomic_expression_is_read_only(body, Some(signature))?;
 
         Ok((function_name.clone(), is_read_only))
     }
@@ -181,7 +184,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ) -> CheckResult<bool> {
         match expression.expr {
             AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),
-            List(ref expression) => self.check_expression_application_is_read_only(expression, None),
+            List(ref expression) => self.check_expression_application_is_read_only(expression, signature),
         }
     }
 
@@ -192,10 +195,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     fn check_each_expression_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
+        signature: Option<&[SymbolicExpression]>,
     ) -> CheckResult<bool> {
         let mut result = true;
         for expression in expressions.iter() {
-            let expr_read_only = self.check_atomic_expression_is_read_only(expression, None)?;
+            let expr_read_only = self.check_atomic_expression_is_read_only(expression, signature)?;
             result = result && expr_read_only;
         }
         Ok(result)
@@ -213,7 +217,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         signature: Option<&[SymbolicExpression]>,
     ) -> Option<CheckResult<bool>> {
         NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
-            .map(|function| self.check_native_function_is_read_only(&function, args, None))
+            .map(|function| self.check_native_function_is_read_only(&function, args, signature))
     }
 
     /// Checks the native function application of the NativeFunctions `function`
@@ -241,13 +245,13 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
             | ElementAt | IndexOf => {
                 // Check all arguments.
-                self.check_each_expression_is_read_only(args)
+                self.check_each_expression_is_read_only(args, signature)
             }
             AtBlock => {
                 check_argument_count(2, args)?;
 
-                let is_block_arg_read_only = self.check_atomic_expression_is_read_only(&args[0], None)?;
-                let closure_read_only = self.check_atomic_expression_is_read_only(&args[1], None)?;
+                let is_block_arg_read_only = self.check_atomic_expression_is_read_only(&args[0], signature)?;
+                let closure_read_only = self.check_atomic_expression_is_read_only(&args[1], signature)?;
                 if !closure_read_only {
                     return Err(CheckErrors::AtBlockClosureMustBeReadOnly.into());
                 }
@@ -255,12 +259,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             FetchEntry => {
                 check_argument_count(2, args)?;
-                self.check_each_expression_is_read_only(args)
+                self.check_each_expression_is_read_only(args, signature)
             }
             StxTransfer | StxTransferMemo | StxBurn | SetEntry | DeleteEntry | InsertEntry
             | SetVar | MintAsset | MintToken | TransferAsset | TransferToken | BurnAsset
             | BurnToken => {
-                self.check_each_expression_is_read_only(args)?;
+                self.check_each_expression_is_read_only(args, signature)?;
                 Ok(false)
             }
             Let => {
@@ -279,7 +283,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     }
                 }
 
-                self.check_each_expression_is_read_only(&args[1..args.len()])
+                self.check_each_expression_is_read_only(&args[1..args.len()], signature)
             }
             Map => {
                 check_arguments_at_least(2, args)?;
@@ -290,11 +294,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 //   we're asking the read only checker to check whether a function application
                 //     of the _mapping function_ onto the rest of the supplied arguments would be
                 //     read-only or not.
-                self.check_expression_application_is_read_only(args, None)
+                self.check_expression_application_is_read_only(args, signature)
             }
             Filter => {
                 check_argument_count(2, args)?;
-                self.check_expression_application_is_read_only(args, None)
+                self.check_expression_application_is_read_only(args, signature)
             }
             Fold => {
                 check_argument_count(3, args)?;
@@ -305,7 +309,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 //   we're asking the read only checker to check whether a function application
                 //     of the _folding function_ onto the rest of the supplied arguments would be
                 //     read-only or not.
-                self.check_expression_application_is_read_only(args, None)
+                self.check_expression_application_is_read_only(args, signature)
             }
             TupleCons => {
                 for pair in args.iter() {
@@ -315,7 +319,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         return Err(CheckErrors::TupleExpectsPairs.into());
                     }
 
-                    if !self.check_atomic_expression_is_read_only(&pair_expression[1], None)? {
+                    if !self.check_atomic_expression_is_read_only(&pair_expression[1], signature)? {
                         return Ok(false);
                     }
                 }
@@ -339,12 +343,32 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         // Dynamic dispatch from a readonly-function can only be guaranteed at runtime,
                         // which would defeat granting a static readonly stamp.
                         // As such dynamic dispatch is currently forbidden.
+                        // target_contract -> trait-2
+                        // trait-2 -> definition1, trait-1
+                        // trait-1, get-1 -> function def, includes read only
+
+                        // Key Note: xx1
+                        // This is where we reaach and conclude the function is not read-only.
+                        // This should somehow use the "trait reference" to look up a trait, and check function_name and see what it's type is.
+                        // let bt = backtrace::Backtrace::new();
+                        // warn!("bt20: {:?}", bt);
+
+                        // can cross-reference trait_reference with read_only_function_types
+                        // But!.. how do we know which function we are in?
+                        warn!("trait_reference_ {:?}", _trait_reference);
+                        warn!("signature1 {:#?}", signature);
+                        warn!("variable_types {:#?}", self.contract_analysis.variable_types);
+                        warn!("defined_traits {:#?}", self.contract_analysis.defined_traits);
+                        warn!("public_function_types {:#?}", self.contract_analysis.public_function_types);
+                        warn!("read_only_function_types {:#?}", self.contract_analysis.read_only_function_types);
+                        warn!("implemented_traits {:#?}", self.contract_analysis.implemented_traits);
+                        warn!("referenced_traits {:#?}", self.contract_analysis.referenced_traits);
                         false
                     }
                     _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName)),
                 };
 
-                self.check_each_expression_is_read_only(&args[2..])
+                self.check_each_expression_is_read_only(&args[2..], signature)
                     .map(|args_read_only| args_read_only && is_function_read_only)
             }
         }
@@ -367,7 +391,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .match_atom()
             .ok_or(CheckErrors::NonFunctionApplication)?;
 
-        if let Some(mut result) = self.try_check_native_function_is_read_only(function_name, args, None) {
+        if let Some(mut result) = self.try_check_native_function_is_read_only(function_name, args, signature) {
             if let Err(ref mut check_err) = result {
                 check_err.set_expressions(expressions);
             }
@@ -378,7 +402,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 .get(function_name)
                 .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?
                 .clone();
-            self.check_each_expression_is_read_only(args)
+            self.check_each_expression_is_read_only(args, signature)
                 .map(|args_read_only| args_read_only && is_function_read_only)
         }
     }

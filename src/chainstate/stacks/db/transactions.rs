@@ -881,6 +881,7 @@ impl StacksChainState {
                 let cost_before = clarity_tx.cost_so_far();
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
 
+                // Note run_contract_call
                 let contract_call_resp = clarity_tx.run_contract_call(
                     &origin_account.principal,
                     sponsor,

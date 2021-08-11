@@ -415,6 +415,8 @@ pub fn special_less(
 }
 
 pub fn native_add(mut args: Vec<Value>) -> InterpreterResult<Value> {
+    let bt = backtrace::Backtrace::new();
+    warn!("native_add:bt {:?}", bt);
     type_force_variadic_arithmetic!(add, args)
 }
 pub fn native_sub(mut args: Vec<Value>) -> InterpreterResult<Value> {
