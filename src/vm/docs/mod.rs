@@ -266,7 +266,7 @@ const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(or b1 b2 ...)",
-    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
+    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `true`, the function short-circuits, and no subsequent arguments are evaluated.",
     example: "(or true false) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 3 4)) ;; Returns false
@@ -426,7 +426,7 @@ which must return the same type. In the case that the boolean input is `true`, t
 };
 
 const LET_API: SpecialAPI = SpecialAPI {
-    input_type: "((name2 AnyType) (name2 AnyType) ...), AnyType, ... A",
+    input_type: "((name1 AnyType) (name2 AnyType) ...), AnyType, ... A",
     output_type: "A",
     signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
     description: "The `let` function accepts a list of `variable name` and `expression` pairs,

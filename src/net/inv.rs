@@ -747,7 +747,7 @@ impl NeighborBlockStats {
         let mut bit = target_pox_reward_cycle;
         while bit < (network.pox_id.len() as u64) - 1
             && (bit - target_pox_reward_cycle) < poxinv_data.bitlen as u64
-            && (bit - target_pox_reward_cycle) < u16::max_value() as u64
+            && (bit - target_pox_reward_cycle) < u16::MAX as u64
         {
             if network.pox_id.has_ith_anchor_block(bit as usize)
                 && !poxinv_data.has_ith_reward_cycle((bit - target_pox_reward_cycle) as u16)
@@ -771,7 +771,7 @@ impl NeighborBlockStats {
         let mut bit = target_pox_reward_cycle;
         while bit < (network.pox_id.len() as u64) - 1
             && (bit - target_pox_reward_cycle) < poxinv_data.bitlen as u64
-            && (bit - target_pox_reward_cycle) < u16::max_value() as u64
+            && (bit - target_pox_reward_cycle) < u16::MAX as u64
         {
             if !network.pox_id.has_ith_anchor_block(bit as usize)
                 && poxinv_data.has_ith_reward_cycle((bit - target_pox_reward_cycle) as u16)
@@ -3121,8 +3121,7 @@ mod test {
     #[test]
     fn test_inv_merge_pox_inv() {
         let mut burnchain = Burnchain::regtest("unused");
-        burnchain.pox_constants =
-            PoxConstants::new(5, 3, 3, 25, 5, u64::max_value(), u64::max_value());
+        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX);
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..32 {
@@ -3140,8 +3139,7 @@ mod test {
     #[test]
     fn test_inv_truncate_pox_inv() {
         let mut burnchain = Burnchain::regtest("unused");
-        burnchain.pox_constants =
-            PoxConstants::new(5, 3, 3, 25, 5, u64::max_value(), u64::max_value());
+        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX);
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..5 {

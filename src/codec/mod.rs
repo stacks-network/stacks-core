@@ -156,7 +156,7 @@ where
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Vec<T>, Error> {
-        read_next_at_most::<R, T>(fd, u32::max_value())
+        read_next_at_most::<R, T>(fd, u32::MAX)
     }
 }
 

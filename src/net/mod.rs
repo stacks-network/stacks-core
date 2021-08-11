@@ -1502,7 +1502,7 @@ pub trait ProtocolFamily {
 pub struct StacksP2P {}
 
 // an array in our protocol can't exceed this many items
-pub const ARRAY_MAX_LEN: u32 = u32::max_value();
+pub const ARRAY_MAX_LEN: u32 = u32::MAX;
 
 // maximum number of neighbors in a NeighborsData
 pub const MAX_NEIGHBORS_DATA_LEN: u32 = 128;
@@ -2119,8 +2119,7 @@ pub mod test {
                 )
                 .unwrap(),
             );
-            burnchain.pox_constants =
-                PoxConstants::new(5, 3, 3, 25, 5, u64::max_value(), u64::max_value());
+            burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX);
 
             let mut spending_account = TestMinerFactory::new().next_miner(
                 &burnchain,
