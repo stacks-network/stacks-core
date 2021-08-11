@@ -2070,6 +2070,7 @@ fn transaction_validation_integration_test() {
     // OnChainOnly).
     assert!(err_str.contains("NoSuchContract"));
 
+    // The function `submit_tx` panics if the tx is unable to be submitted.
     // Call the contract defined in the microblock, but make mempool admission check against unconfirmed state.
     submit_tx(&http_origin, &call_tx, TransactionAnchorMode::OffChainOnly);
     // Call the contract defined in the microblock, but make mempool admission check against either anchored or unconfirmed state.

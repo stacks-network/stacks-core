@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Changed
+- Updated the mempool admission logic used for the `v2/transaction` endpoint.
+  Now, a transaction is accepted if it validates against *either* the confirmed
+  state or the unconfirmed state. Users can specify the query parameter `mempool_admission_check`
+  to modify this behavior. If `mempool_admission_check`=="unconfirmed", the 
+  transaction will only be validated against unconfirmed state.
+  If `mempool_admission_check`=="confirmed", the transaction will only be 
+  validated against the confirmed state.
+
 ## [2.0.11.2.0]
 
 ### Added
@@ -39,7 +50,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 This software update is our monthly release. It introduces fixes and features for both developers and miners. 
 This release's chainstate directory is compatible with chainstate directories from 2.0.11.0.0.
 
-## Added
+### Added
 
 - `/new_microblock` endpoint to notify event observers when a valid microblock
   has been received (#2571).
@@ -51,12 +62,12 @@ This release's chainstate directory is compatible with chainstate directories fr
 - Add `key-for-seed` command to the `stacks-node` binary - outputs the associated secret key hex string
   and WIF formatted secret key for a given "seed" value (#2658).
 
-## Changed
+### Changed
 
 - Improved mempool walk order (#2514).
 - Renamed database `tx_tracking.db` to `tx_tracking.sqlite` (#2666).
   
-## Fixed 
+### Fixed 
 
 - Alter the miner to prioritize spending the most recent UTXO when building a transaction, 
   instead of the largest UTXO. In the event of a tie, it uses the smallest UTXO first (#2661).
@@ -71,7 +82,7 @@ This release's chainstate directory is compatible with chainstate directories fr
 The chainstate directory has been restructured in this release. It is not
 compatible with prior chainstate directories.
 
-## Added
+### Added
 
 - `/drop_mempool_tx` endpoint to notify event observers when a mempool
   transaction has been removed the mempool.
@@ -87,7 +98,7 @@ compatible with prior chainstate directories.
   attachments. This re-enables off-chain BNS name storage.
 - Re-activate microblock mining.
 
-## Changed
+### Changed
 
 - Improved chainstate directory layout
 - Improved node boot up time
@@ -96,7 +107,7 @@ compatible with prior chainstate directories.
   information about the current and next PoX cycles. For details, see
   `docs/rpc-endpoints.md`
   
-## Fixed 
+### Fixed 
 
 - Fixed faulty logic in the mempool that was still treating the transaction fee
   as a fee rate, which prevented replace-by-fee from working as expected.
@@ -114,7 +125,7 @@ chainstate directory of 2.0.10 is compatible with 2.0.9. If booting up a node fr
 an existing node has stalled in downloading blocks, this hotfix is necessary for your
 node.
 
-## Fixed
+### Fixed
 
 - Bug in microblocks inventory vector calculation that included invalidated microblocks
   as present bit. This bug will impact nodes booting up from genesis, but not affect nodes
@@ -128,7 +139,7 @@ This is a hotfix release for improved handling of arriving Stacks blocks through
 both the RPC interface and the P2P ineterface.  The chainstate directory of
 2.0.9 is compatible with the 2.0.8 chainstate.
 
-## Fixed
+### Fixed
 
 - TOCTTOU bug fixed in the chain processing logic that, which now ensures that
   an arriving Stacks block is processed at most once.
@@ -139,7 +150,7 @@ This is a hotfix release for improved handling of static analysis storage and
 improved `at-block` behavior. The chainstate directory of 2.0.8 is compatible with
 the 2.0.7 chainstate.
 
-## Fixed
+### Fixed
 
 - Improved static analysis storage
 - `at-block` behavior in `clarity-cli` and unit tests (no changes in `stacks-node`
@@ -150,7 +161,7 @@ the 2.0.7 chainstate.
 This is an emergency hotfix that prevents the node from accidentally deleting
 valid block data if its descendant microblock stream is invalid for some reason.
 
-## Fixed
+### Fixed
 
 - Do not delete a valid parent Stacks block.
 

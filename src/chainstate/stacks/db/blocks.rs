@@ -5231,13 +5231,12 @@ impl StacksChainState {
     /// If `mempool_admission_check`==OnChainOnly, the transaction will only be validated against confirmed state.
     /// If `mempool_admission_check`=Any, the transaction will be accepted if it validates against either unconfirmed or confirmed tip
     ///
-    /// This function returns an error if
-    ///     - The transaction fails a basic semantic check (for example, if the sender & recipient
-    ///       of a token transfer are the same).
-    ///     - If there was a failure in querying the stacks block height.
-    ///     - If the tx is a poison microblock tx, and there is a failure in recovering the
-    ///       public key.
-    ///     -
+    /// # Errors
+    ///  - The transaction fails a basic semantic check (for example, if the sender & recipient
+    ///    of a token transfer are the same).
+    ///  - If there was a failure in querying the stacks block height.
+    ///  - If the tx is a poison microblock tx, and there is a failure in recovering the
+    ///    public key.
     pub fn will_admit_mempool_tx(
         &mut self,
         current_consensus_hash: &ConsensusHash,
@@ -5288,15 +5287,13 @@ impl StacksChainState {
                 StacksChainState::get_parent_index_block(current_consensus_hash, current_block)
             }
             TransactionAnchorMode::OffChainOnly => {
-                if let Some(unconfirmed_state) = &self.unconfirmed_state {
-                    if unconfirmed_state.is_readable() {
-                        unconfirmed_state.unconfirmed_chain_tip
-                    } else {
-                        StacksChainState::get_parent_index_block(
-                            current_consensus_hash,
-                            current_block,
-                        )
-                    }
+                if self.unconfirmed_state.is_some()
+                    && self.unconfirmed_state.as_ref().unwrap().is_readable()
+                {
+                    self.unconfirmed_state
+                        .as_ref()
+                        .unwrap()
+                        .unconfirmed_chain_tip
                 } else {
                     StacksChainState::get_parent_index_block(current_consensus_hash, current_block)
                 }
@@ -5307,10 +5304,14 @@ impl StacksChainState {
             StacksChainState::can_include_tx(conn, &conf, has_microblock_pubk, tx, tx_size)
         }) {
             Ok(Some(r)) => r,
-            Ok(None) | Err(_) => Err(MemPoolRejection::NoSuchChainTip(
+            Ok(None) => Err(MemPoolRejection::NoSuchChainTip(
                 current_consensus_hash.clone(),
                 current_block.clone(),
             )),
+            Err(e) => Err(MemPoolRejection::Other(format!(
+                "Error validating tx: {:?}",
+                e
+            ))),
         };
 
         match res {
