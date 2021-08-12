@@ -51,6 +51,39 @@ pub fn type_check(
     .map_err(|(e, _)| e)
 }
 
+pub fn extended_type_check(
+    contract_identifier: &QualifiedContractIdentifier,
+    expressions: &mut [SymbolicExpression],
+    analysis_db: &mut AnalysisDatabase,
+    save_contract: bool,
+) -> Result<ContractAnalysis, CheckError> {
+                    // Note: We build the ast here, could we also get the contract?
+                    let ast_result = ast::build_ast(
+                        identifier,
+                        contract_content,
+                        &mut vm_env.context.cost_track,
+                    );
+                    let mut contract_ast = ast_result.unwrap();
+
+                    let contract = Contract::initialize_from_ast(
+                        identifier.clone(),
+                        &contract_ast,
+                        None,
+                        &mut vm_env.context,
+                        clarity_version,
+                    ).unwrap();
+    run_analysis(
+        contract_identifier,
+        expressions,
+        analysis_db,
+        save_contract,
+        LimitedCostTracker::new_free(),
+        ClarityVersion::Clarity2,
+        None,
+    )
+    .map_err(|(e, _)| e)
+}
+
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))
             (let ((balance

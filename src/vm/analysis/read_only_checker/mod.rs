@@ -389,6 +389,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                             "referenced_traits {:#?}",
                             self.contract_analysis.referenced_traits
                         );
+
+
+                        // Could this just be true?
                         false
                     }
                     _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName)),
