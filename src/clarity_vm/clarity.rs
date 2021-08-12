@@ -32,6 +32,7 @@ use vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
 use vm::ast;
 use vm::ast::{errors::ParseError, errors::ParseErrors, ContractAST};
 use vm::contexts::{AssetMap, Environment, OwnedEnvironment};
+use vm::contracts::Contract;
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
@@ -906,19 +907,33 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
 
         let is_mainnet = self.mainnet;
         using!(self.cost_track, "cost tracker", |mut cost_track| {
-            let (cost_track, mut contract_ast) = self.with_clarity_db_readonly_owned(|clarity_db| {
-                let mut vm_env =
-                    OwnedEnvironment::new_cost_limited(is_mainnet, clarity_db, cost_track);
+            let (cost_track, mut contract_ast) =
+                self.with_clarity_db_readonly_owned(|clarity_db| {
+                    let mut vm_env =
+                        OwnedEnvironment::new_cost_limited(is_mainnet, clarity_db, cost_track);
 
-                let (clarity_db, mut cost_track) = vm_env
-                    .destruct()
-                    .expect("Failed to recover database reference after executing transaction");
+                    // Note: We build the ast here, could we also get the contract?
+                    let ast_result = ast::build_ast(
+                        identifier,
+                        contract_content,
+                        &mut vm_env.context.cost_track,
+                    );
+                    let mut contract_ast = ast_result.unwrap();
 
-                // Note: We build the ast here, could we also get the contract?
-                let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
-                let mut contract_ast = ast_result.unwrap();
-                ((cost_track, contract_ast), clarity_db)
-            });
+                    let _result = Contract::initialize_from_ast(
+                        identifier.clone(),
+                        &contract_ast,
+                        None,
+                        &mut vm_env.context,
+                        clarity_version,
+                    );
+
+                    let (clarity_db, mut cost_track) = vm_env
+                        .destruct()
+                        .expect("Failed to recover database reference after executing transaction");
+
+                    ((cost_track, contract_ast), clarity_db)
+                });
 
             // let mut contract_ast = match ast_result {
             //     Ok(x) => x,
