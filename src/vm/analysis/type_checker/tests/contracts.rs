@@ -46,6 +46,7 @@ pub fn type_check(
         save_contract,
         LimitedCostTracker::new_free(),
         ClarityVersion::Clarity2,
+        None,
     )
     .map_err(|(e, _)| e)
 }

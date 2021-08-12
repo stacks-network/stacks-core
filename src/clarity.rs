@@ -198,6 +198,7 @@ fn run_analysis_free<C: ClarityStorage>(
         LimitedCostTracker::new_free(),
         // ClarityVersionPragmaTodo: need to use contract's declared version
         ClarityVersion::Clarity1,
+        None,
     )
 }
 
@@ -227,6 +228,7 @@ fn run_analysis<C: ClarityStorage>(
         cost_track,
         // ClarityVersionPragmaTodo: need to use contract's declared version
         ClarityVersion::Clarity1,
+        None,
     )
 }
 

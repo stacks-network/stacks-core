@@ -948,6 +948,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
                     false,
                     cost_track,
                     clarity_version,
+                    None,
                 );
 
                 match result {

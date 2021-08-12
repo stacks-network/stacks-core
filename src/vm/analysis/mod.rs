@@ -30,6 +30,7 @@ use vm::representations::SymbolicExpression;
 use vm::types::{QualifiedContractIdentifier, TypeSignature};
 use vm::ClarityVersion;
 
+use vm::contracts::Contract;
 pub use self::analysis_db::AnalysisDatabase;
 pub use self::errors::{CheckError, CheckErrors, CheckResult};
 
@@ -56,6 +57,7 @@ pub fn mem_type_check(
         false,
         LimitedCostTracker::new_free(),
         version,
+        None,
     ) {
         Ok(x) => {
             // return the first type result of the type checker
@@ -78,6 +80,7 @@ pub fn run_analysis(
     save_contract: bool,
     cost_tracker: LimitedCostTracker,
     version: ClarityVersion,
+    contract: Option<&Contract>,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
     let bt = backtrace::Backtrace::new();
     warn!("run_analysis:bt {:?}", bt);
