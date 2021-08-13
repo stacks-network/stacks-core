@@ -454,7 +454,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let mut bytes_so_far = self.runtime.bytes_so_far;
         let mut num_txs = self.runtime.num_mined;
 
-        let result = mem_pool.iterate_candidates(self.anchor_block_height, |micro_txs| {
+        let iterate_result = mem_pool.iterate_candidates(self.anchor_block_height, |micro_txs| {
             let mut result = Ok(());
             for mempool_tx in micro_txs.into_iter() {
                 match StacksMicroblockBuilder::mine_next_transaction(
@@ -466,9 +466,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 ) {
                     Ok(true) => {
                         bytes_so_far += mempool_tx.metadata.len;
-
-                        debug!(
-                            "Micro-block added: tx {} ({}) in microblock.",
+                        info!(
+                            "Transaction added: tx {} ({}) in microblock.",
                             mempool_tx.tx.txid(),
                             mempool_tx.tx.payload.name()
                         );
@@ -476,16 +475,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         num_txs += 1;
                     }
                     Ok(false) => {
-                        debug!(
-                            "Micro-block not added: tx {} ({}) in microblock.",
+                        warn!(
+                            "Transaction skipped: tx {} ({}) in microblock.",
                             mempool_tx.tx.txid(),
                             mempool_tx.tx.payload.name()
                         );
                         continue;
                     }
                     Err(e) => {
-                        debug!(
-                            "Micro-block not added: tx {} ({}) in microblock. {}",
+                        warn!(
+                            "Transaction skipped: tx {} ({}) in microblock. {}",
                             mempool_tx.tx.txid(),
                             mempool_tx.tx.payload.name(),
                             e
@@ -513,19 +512,31 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.considered.replace(considered);
         self.runtime.num_mined = num_txs;
 
-        match result {
-            Ok(_) => {}
+        match iterate_result {
+            Ok(_) => {
+                info!("Microblock info: No errors in creating transactions.");
+            }
             Err(Error::BlockTooBigError) => {
-                info!("Micro-block not added: Block size budget reached with microblocks.");
+                warn!("Microblock warning: BlockTooBigError produced.");
                 // Note: Why not return here?
             }
             Err(e) => {
-                warn!("Micro-block not added: Error producing microblock: {}.", e);
+                warn!("Microblock not added: Error producing microblock: {}.", e);
                 return Err(e);
             }
         }
 
-        return self.make_next_microblock(txs_included, miner_key);
+        let microblock_result = self.make_next_microblock(txs_included, miner_key);
+        match microblock_result {
+            Ok(microblock) => {
+                info!("Microblock created successfully.");
+                Ok(microblock)
+            }
+            Err(err) => {
+                warn!("Microblock error: {} ", &err);
+                Err(err)
+            }
+        }
     }
 
     pub fn get_bytes_so_far(&self) -> u64 {
