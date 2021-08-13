@@ -305,14 +305,14 @@ impl<'a> StacksMicroblockBuilder<'a> {
             && tx.anchor_mode != TransactionAnchorMode::Any
         {
             info!(
-                "Transaction skipped: Not mining because anchor mode prohibits it {}.",
+                "Transaction skipped: Not mining because anchor mode prohibits it, tx {}.",
                 &tx.txid()
             );
             return Ok(false);
         }
         if considered.contains(&tx.txid()) {
             info!(
-                "Transaction skipped: Not mining because txid already considered {}.",
+                "Transaction skipped: Not mining because txid already considered, tx {}.",
                 &tx.txid()
             );
             return Ok(false);
@@ -346,13 +346,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 }
                 _ => {
                     warn!(
-                        "Transaction skipped: Error processing TX {}: {}",
+                        "Transaction skipped: Error processing tx {}: {}",
                         tx.txid(),
                         e
                     );
                 }
             },
-        };
+        }
         return Ok(false);
     }
 
@@ -421,6 +421,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         match result {
             Err(Error::BlockTooBigError) => {
                 warn!("Block not added: Block size budget reached with microblocks.");
+                // Note: Why do we not return here?
             }
             Err(e) => {
                 warn!("Block not added: Error producing microblock: {}.", e);
@@ -483,6 +484,12 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         continue;
                     }
                     Err(e) => {
+                        debug!(
+                            "Micro-block not added: tx {} ({}) in microblock. {}",
+                            mempool_tx.tx.txid(),
+                            mempool_tx.tx.payload.name(),
+                            e
+                        );
                         result = Err(e);
                         break;
                     }
@@ -510,6 +517,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             Ok(_) => {}
             Err(Error::BlockTooBigError) => {
                 info!("Micro-block not added: Block size budget reached with microblocks.");
+                // Note: Why not return here?
             }
             Err(e) => {
                 warn!("Micro-block not added: Error producing microblock: {}.", e);
@@ -784,10 +792,7 @@ impl StacksBlockBuilder {
                     _ => e,
                 })?;
 
-            info!("Include tx {} {} {}"
-                  , tx.txid(),
-                  , tx.payload.name(),
-                  , tx.origin_address());
+            info!("Include tx {} {} {}"                  , tx.txid(),                  , tx.payload.name(),                  , tx.origin_address());
 
             // save
             self.txs.push(tx.clone());
