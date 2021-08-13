@@ -1471,7 +1471,7 @@ impl StacksBlockBuilder {
                                     "Transaction skipped: Nonce is wrong, tx {}, {} vs {}.",
                                     &txinfo.tx.txid(),
                                     *nonce,
-                                    txinfo.tx.get_sponsor_nonce()
+                                    sponsor_nonce
                                 );
                                 continue;
                             }
