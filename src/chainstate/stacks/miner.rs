@@ -321,7 +321,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
         if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             info!(
-                "Transaction skipped: Adding tx {} would exceed epoch data size.",
+                "Transaction skipped: Adding tx {} would exceed microblock epoch data size.",
                 &tx.txid()
             );
             return Err(Error::BlockTooBigError);
@@ -393,10 +393,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     txs_included.push(tx);
                 }
                 Ok(false) => {
+                    warn!("Transaction skipped: tx {}.", &tx.txid(), e);
                     continue;
                 }
                 Err(e) => {
-                    warn!("Transaction skipped: error {}.", e);
+                    warn!("Transaction skipped: tx {} error {}.", &tx.txid(), e);
                     result = Err(e);
                     break;
                 }
@@ -420,14 +421,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         match result {
             Err(Error::BlockTooBigError) => {
-                warn!("Block not added: Block size budget reached with microblocks.");
+                warn!("Microblock warning: Block size budget reached with microblocks.");
                 // Note: Why do we not return here?
             }
             Err(e) => {
-                warn!("Block not added: Error producing microblock: {}.", e);
+                warn!("Microblock error: Error producing microblock: {}.", e);
                 return Err(e);
             }
-            _ => {}
+            _ => {
+                warn!("Microblock info: No errors so far, after assembling transactions.");
+            }
         }
 
         return self.make_next_microblock(txs_included, miner_key);
