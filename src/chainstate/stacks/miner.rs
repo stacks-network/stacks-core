@@ -792,7 +792,12 @@ impl StacksBlockBuilder {
                     _ => e,
                 })?;
 
-            info!("Include tx {} {} {}"                  , tx.txid(),                  , tx.payload.name(),                  , tx.origin_address());
+            info!(
+                "Include tx {} {} {}",
+                tx.txid(),
+                tx.payload.name(),
+                tx.origin_address()
+            );
 
             // save
             self.txs.push(tx.clone());
