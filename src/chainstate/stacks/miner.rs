@@ -393,11 +393,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     txs_included.push(tx);
                 }
                 Ok(false) => {
-                    warn!("Transaction skipped: tx {}.", &tx.txid(), e);
+                    warn!("Transaction skipped: tx {}, no error.", &tx.txid());
                     continue;
                 }
                 Err(e) => {
-                    warn!("Transaction skipped: tx {} error {}.", &tx.txid(), e);
+                    warn!("Transaction skipped: tx {}, error {}.", &tx.txid(), e);
                     result = Err(e);
                     break;
                 }
@@ -1469,7 +1469,7 @@ impl StacksBlockBuilder {
                 if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
                     if *nonce >= txinfo.tx.get_origin_nonce() {
                         warn!(
-                            "Transaction skipped: Nonce is wrong, tx {}, {} vs {}.",
+                            "Transaction skipped: Origin nonce is wrong, tx {}, {} vs {}.",
                             &txinfo.tx.txid(),
                             *nonce,
                             txinfo.tx.get_origin_nonce()
@@ -1482,7 +1482,7 @@ impl StacksBlockBuilder {
                         if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
                             if *nonce >= sponsor_nonce {
                                 warn!(
-                                    "Transaction skipped: Nonce is wrong, tx {}, {} vs {}.",
+                                    "Transaction skipped: Sponsor nonce is wrong, tx {}, {} vs {}.",
                                     &txinfo.tx.txid(),
                                     *nonce,
                                     sponsor_nonce
