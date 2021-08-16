@@ -358,7 +358,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "clarity-lib"
+name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff",
