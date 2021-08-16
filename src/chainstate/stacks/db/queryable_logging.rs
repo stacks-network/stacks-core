@@ -7,7 +7,6 @@
 //! transaction.
 //!
 /// Logs a queryable message for the case where `txid` has succeeded.
-
 use chainstate::stacks::StacksTransaction;
 
 fn create_transaction_key(tx: &StacksTransaction) {
@@ -28,7 +27,9 @@ pub fn log_transaction_error(tx: &StacksTransaction, err: &Error) {
 /// Logs a queryable message for the case where `tx` has been skipped
 /// for reason `reason`.
 pub fn log_transaction_skipped(tx: &StacksTransaction, reason: str) {
-    info!("{} skipped for reason: ", create_transaction_key(tx), reason);
+    info!(
+        "{} skipped for reason: ",
+        create_transaction_key(tx),
+        reason
+    );
 }
-
-

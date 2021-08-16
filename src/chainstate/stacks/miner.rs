@@ -26,6 +26,7 @@ use burnchains::PublicKey;
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
 use chainstate::burn::operations::*;
 use chainstate::burn::*;
+use chainstate::stacks::db::queryable_logging::*;
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use chainstate::stacks::db::{
     blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
@@ -331,13 +332,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
             return Err(Error::BlockTooBigError);
         }
         let quiet = !cfg!(test);
+
+        // Note: `process_transaction` will log the outcome.
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet) {
             Ok(_) => {
-                log_transaction_success(&tx);
                 return Ok(true);
             }
             Err(e) => match e {
-                log_transaction_error(&tx, &e);
                 Error::CostOverflowError(cost_before, cost_after, total_budget) => {
                     // note: this path _does_ not perform the tx block budget % heuristic,
                     //  because this code path is not directly called with a mempool handle.

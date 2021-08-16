@@ -23,8 +23,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use chainstate::burn::db::sortdb::*;
+use chainstate::stacks::db::queryable_loggging::*;
 use chainstate::stacks::db::*;
-use chainstate::stacks::queryable_loggging::*;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use clarity_vm::clarity::{
@@ -288,7 +288,6 @@ fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
 }
-
 
 impl StacksChainState {
     /// Get the payer account
@@ -1172,21 +1171,16 @@ impl StacksChainState {
     ///
     /// # Logging
     ///
-    /// - This method will log success or failure in "queryable form". 
+    /// - This method will log success or failure in "queryable form".
     pub fn process_transaction(
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
         quiet: bool,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        let result = 
-process_transaction_internal(
-        clarity_block,
-        tx,
-        quiet,
-    );
+        let result = process_transaction_internal(clarity_block, tx, quiet);
         match result {
             Ok(tx) => log_transaction_success(tx),
-            Err(err) => log_transaction_error(tx, &error), 
+            Err(err) => log_transaction_error(tx, &error),
         };
 
         result
