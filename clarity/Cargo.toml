@@ -15,8 +15,8 @@ readme = "README.md"
 debug = true
 
 [lib]
-name = "libvm"
-path = "../src/libvm.rs"
+name = "clarity"
+path = "../src/libclarity.rs"
 
 [dependencies]
 tini = "0.2"
