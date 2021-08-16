@@ -23,7 +23,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use chainstate::burn::db::sortdb::*;
-use chainstate::stacks::db::queryable_loggging::*;
+use chainstate::stacks::db::queryable_logging::*;
 use chainstate::stacks::db::*;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
@@ -1164,14 +1164,14 @@ impl StacksChainState {
         Ok((fee, tx_receipt))
     }
 
-    /// Process the transaction `tx`.
+    /// Process the transaction `tx`, and add it to the underlying connection in `clarity_block`.
     ///
     /// On success, returns the fee and the transaction receipt, and mutates the
     /// underlying connection in `clarity_block`.
     ///
     /// # Logging
     ///
-    /// - This method will log success or failure in "queryable form".
+    /// - This method will log success or failure in "queryable form" (see queryable_logging).
     pub fn process_transaction(
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
@@ -1182,7 +1182,6 @@ impl StacksChainState {
             Ok(tx) => log_transaction_success(tx),
             Err(err) => log_transaction_error(tx, &error),
         };
-
         result
     }
 }

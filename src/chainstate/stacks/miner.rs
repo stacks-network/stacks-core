@@ -298,7 +298,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
     /// Returns true/false if the transaction was/was not mined into this microblock.
     ///
     /// # Logging
-    ///    This method handles the logging
+    ///
+    /// - This method will log its outcome (success, error or skip) in "queryable form" (see
+    /// queryable_logging).
     fn mine_next_microblock_transaction(
         clarity_tx: &mut ClarityTx<'a>,
         tx: StacksTransaction,
@@ -333,7 +335,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
         let quiet = !cfg!(test);
 
-        // Note: `process_transaction` will log the outcome.
+        // Note: `process_transaction` will log its outcome in queryable form.
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet) {
             Ok(_) => {
                 return Ok(true);
@@ -376,6 +378,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let mut result = Ok(());
         for (tx, tx_len) in txs_and_lens.into_iter() {
+            // Note: `mine_next_microblock_transaction` will log its outcome in queryable form.
             match StacksMicroblockBuilder::mine_next_microblock_transaction(
                 &mut clarity_tx,
                 tx.clone(),
