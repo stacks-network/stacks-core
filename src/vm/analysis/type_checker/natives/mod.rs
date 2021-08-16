@@ -585,7 +585,9 @@ impl TypedNativeFunction {
             BuffToIntLe | BuffToIntBe => {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![FunctionArg::new(
-                        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(16))),
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                            BufferLength::try_from(16_u32).unwrap(),
+                        )),
                         ClarityName::try_from("value".to_owned())
                             .expect("FAIL: ClarityName failed to accept default arg name"),
                     )],
@@ -595,7 +597,9 @@ impl TypedNativeFunction {
             BuffToUIntLe | BuffToUIntBe => {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                     args: vec![FunctionArg::new(
-                        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(16))),
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                            BufferLength::try_from(16_u32).unwrap(),
+                        )),
                         ClarityName::try_from("value".to_owned())
                             .expect("FAIL: ClarityName failed to accept default arg name"),
                     )],

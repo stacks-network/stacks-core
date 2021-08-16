@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::execute_v2;
 use vm::types::SequenceSubtype::{BufferType, StringType};
@@ -54,7 +55,7 @@ fn test_simple_buff_to_int_le() {
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "wrong-type".as_bytes().to_vec()
             })))
@@ -67,7 +68,7 @@ fn test_simple_buff_to_int_le() {
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 00]
             }))
@@ -106,7 +107,7 @@ fn test_simple_buff_to_uint_le() {
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "wrong-type".as_bytes().to_vec()
             })))
@@ -119,7 +120,7 @@ fn test_simple_buff_to_uint_le() {
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 00]
             }))
@@ -158,7 +159,7 @@ fn test_simple_buff_to_int_be() {
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength::try_from(16 as u32).unwrap())),
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "wrong-type".as_bytes().to_vec()
             })))
@@ -171,7 +172,7 @@ fn test_simple_buff_to_int_be() {
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 00]
             }))
@@ -210,7 +211,7 @@ fn test_simple_buff_to_uint_be() {
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "wrong-type".as_bytes().to_vec()
             })))
@@ -223,7 +224,7 @@ fn test_simple_buff_to_uint_be() {
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength(16))),
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 00]
             }))
