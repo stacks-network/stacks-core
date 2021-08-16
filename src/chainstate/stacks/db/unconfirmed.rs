@@ -164,7 +164,7 @@ impl UnconfirmedState {
         burn_dbconn: &dyn BurnStateDB,
         mblocks: Vec<StacksMicroblock>,
     ) -> Result<ProcessedUnconfirmedState, Error> {
-        if self.last_mblock_seq == u16::max_value() {
+        if self.last_mblock_seq == u16::MAX {
             // drop them -- nothing to do
             return Ok(Default::default());
         }
@@ -317,7 +317,7 @@ impl UnconfirmedState {
             &chainstate.db(),
             &StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash),
             0,
-            u16::max_value(),
+            u16::MAX,
         )
     }
 
@@ -333,7 +333,7 @@ impl UnconfirmedState {
             "BUG: code tried to write unconfirmed state to a read-only instance"
         );
 
-        if self.last_mblock_seq == u16::max_value() {
+        if self.last_mblock_seq == u16::MAX {
             // no-op
             return Ok(Default::default());
         }

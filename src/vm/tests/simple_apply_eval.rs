@@ -507,7 +507,7 @@ fn test_simple_arithmetic_functions() {
         Value::Bool(true),
         Value::Bool(true),
         Value::Int(65536),
-        Value::Int(u32::max_value() as i128 + 1),
+        Value::Int(u32::MAX as i128 + 1),
         Value::Int(1),
         Value::Int(170_141_183_460_469_231_731_687_303_715_884_105_727),
         Value::UInt(340_282_366_920_938_463_463_374_607_431_768_211_455),
@@ -525,10 +525,10 @@ fn test_simple_arithmetic_functions() {
         Value::Int(3),
         Value::Int(126),
         Value::UInt(127),
-        Value::UInt(u128::max_value()),
+        Value::UInt(u128::MAX),
         Value::UInt(137),
-        Value::Int(i128::max_value()),
-        Value::Int(-1 * (u32::max_value() as i128 + 1)),
+        Value::Int(i128::MAX),
+        Value::Int(-1 * (u32::MAX as i128 + 1)),
     ];
 
     tests
