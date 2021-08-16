@@ -292,9 +292,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
         Ok(microblock)
     }
 
-    /// Mine the next transaction into a microblock.
+    /// Mine the next transaction into a *microblock*.
+    ///
     /// Returns true/false if the transaction was/was not mined into this microblock.
-    fn mine_next_transaction(
+    ///
+    /// # Logging
+    ///    This method handles the logging
+    fn mine_next_microblock_transaction(
         clarity_tx: &mut ClarityTx<'a>,
         tx: StacksTransaction,
         tx_len: u64,
@@ -304,52 +308,43 @@ impl<'a> StacksMicroblockBuilder<'a> {
         if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
             && tx.anchor_mode != TransactionAnchorMode::Any
         {
-            info!(
-                "Transaction skipped: Not mining because anchor mode prohibits it, tx {}.",
-                &tx.txid()
+            log_transaction_skipped(
+                &tx,
+                format!(
+                    "Not mining because anchor mode prohibits it, mode={}.",
+                    tx.anchor_mode
+                ),
             );
             return Ok(false);
         }
         if considered.contains(&tx.txid()) {
-            info!(
-                "Transaction skipped: Not mining because txid already considered, tx {}.",
-                &tx.txid()
-            );
+            log_transaction_skipped(&tx, "Not mining because already considered.");
             return Ok(false);
         } else {
             considered.insert(tx.txid());
         }
         if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            info!(
-                "Transaction skipped: Adding tx {} would exceed microblock epoch data size.",
-                &tx.txid()
+            log_transaction_skipped(
+                &tx,
+                "Adding transaction would exceed microblock epoch data size.",
             );
             return Err(Error::BlockTooBigError);
         }
         let quiet = !cfg!(test);
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet) {
             Ok(_) => {
-                info!("Transaction added: {}.", &tx.txid());
+                log_transaction_success(&tx);
                 return Ok(true);
             }
             Err(e) => match e {
+                log_transaction_error(&tx, &e);
                 Error::CostOverflowError(cost_before, cost_after, total_budget) => {
                     // note: this path _does_ not perform the tx block budget % heuristic,
                     //  because this code path is not directly called with a mempool handle.
-                    warn!(
-                        "Transaction skipped: Transaction {} reached block cost {}; budget was {}",
-                        &tx.txid(),
-                        &cost_after,
-                        &total_budget
-                    );
                     clarity_tx.reset_cost(cost_before);
                 }
                 _ => {
-                    warn!(
-                        "Transaction skipped: Error processing tx {}: {}",
-                        tx.txid(),
-                        e
-                    );
+                    // Pass on other cases.
                 }
             },
         }
@@ -380,7 +375,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let mut result = Ok(());
         for (tx, tx_len) in txs_and_lens.into_iter() {
-            match StacksMicroblockBuilder::mine_next_transaction(
+            match StacksMicroblockBuilder::mine_next_microblock_transaction(
                 &mut clarity_tx,
                 tx.clone(),
                 tx_len,
@@ -393,11 +388,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     txs_included.push(tx);
                 }
                 Ok(false) => {
-                    warn!("Transaction skipped: tx {}, no error.", &tx.txid());
                     continue;
                 }
                 Err(e) => {
-                    warn!("Transaction skipped: tx {}, error {}.", &tx.txid(), e);
                     result = Err(e);
                     break;
                 }
@@ -460,7 +453,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let iterate_result = mem_pool.iterate_candidates(self.anchor_block_height, |micro_txs| {
             let mut result = Ok(());
             for mempool_tx in micro_txs.into_iter() {
-                match StacksMicroblockBuilder::mine_next_transaction(
+                match StacksMicroblockBuilder::mine_next_microblock_transaction(
                     &mut clarity_tx,
                     mempool_tx.tx.clone(),
                     mempool_tx.metadata.len,
@@ -469,29 +462,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 ) {
                     Ok(true) => {
                         bytes_so_far += mempool_tx.metadata.len;
-                        info!(
-                            "Transaction added: tx {} ({}) in microblock.",
-                            mempool_tx.tx.txid(),
-                            mempool_tx.tx.payload.name()
-                        );
                         txs_included.push(mempool_tx.tx);
                         num_txs += 1;
                     }
                     Ok(false) => {
-                        warn!(
-                            "Transaction skipped: tx {} ({}) in microblock.",
-                            mempool_tx.tx.txid(),
-                            mempool_tx.tx.payload.name()
-                        );
                         continue;
                     }
                     Err(e) => {
-                        warn!(
-                            "Transaction skipped: tx {} ({}) in microblock. {}",
-                            mempool_tx.tx.txid(),
-                            mempool_tx.tx.payload.name(),
-                            e
-                        );
                         result = Err(e);
                         break;
                     }
@@ -1451,7 +1428,7 @@ impl StacksBlockBuilder {
 
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
-        let result = mempool.iterate_candidates(tip_height, |available_txs| {
+        let iterate_candidates_result = mempool.iterate_candidates(tip_height, |available_txs| {
             if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
                 warn!("Block limit reached.");
                 return Ok(());
@@ -1460,19 +1437,18 @@ impl StacksBlockBuilder {
             for txinfo in available_txs.into_iter() {
                 // skip transactions early if we can
                 if considered.contains(&txinfo.tx.txid()) {
-                    warn!(
-                        "Transaction skipped: Already considered {}.",
-                        txinfo.tx.txid()
-                    );
+                    log_transaction_skipped(&txinfo.tx, "Already considered.");
                     continue;
                 }
                 if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
                     if *nonce >= txinfo.tx.get_origin_nonce() {
-                        warn!(
-                            "Transaction skipped: Origin nonce is wrong, tx {}, {} vs {}.",
-                            &txinfo.tx.txid(),
-                            *nonce,
-                            txinfo.tx.get_origin_nonce()
+                        log_transaction_skipped(
+                            &txinfo.tx,
+                            format!(
+                                "Origin nonce is wrong: {} vs {}.",
+                                *nonce,
+                                txinfo.tx.get_origin_nonce()
+                            ),
                         );
                         continue;
                     }
@@ -1481,11 +1457,12 @@ impl StacksBlockBuilder {
                     if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
                         if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
                             if *nonce >= sponsor_nonce {
-                                warn!(
-                                    "Transaction skipped: Sponsor nonce is wrong, tx {}, {} vs {}.",
-                                    &txinfo.tx.txid(),
-                                    *nonce,
-                                    sponsor_nonce
+                                log_transaction_skipped(
+                                    &txinfo.tx,
+                                    format!(
+                                        "Origin nonce is wrong: {} vs {}.",
+                                        *nonce, sponsor_nonce
+                                    ),
                                 );
                                 continue;
                             }
@@ -1569,7 +1546,7 @@ impl StacksBlockBuilder {
             observer.mempool_txs_dropped(invalidated_txs, MemPoolDropReason::TOO_EXPENSIVE);
         }
 
-        match result {
+        match iterate_candidates_result {
             Ok(_) => {
                 info!("Block built successfully.");
             }
