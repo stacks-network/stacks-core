@@ -49,7 +49,8 @@ use vm::database::{
     NULL_HEADER_DB,
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
-use vm::types::{PrincipalData, QualifiedContractIdentifier};
+use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier};
+use vm::ClarityVersion;
 use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 
 use burnchains::PoxConstants;
@@ -195,6 +196,8 @@ fn run_analysis_free<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         LimitedCostTracker::new_free(),
+        // ClarityVersionPragmaTodo: need to use contract's declared version
+        ClarityVersion::Clarity1,
     )
 }
 
@@ -222,6 +225,8 @@ fn run_analysis<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         cost_track,
+        // ClarityVersionPragmaTodo: need to use contract's declared version
+        ClarityVersion::Clarity1,
     )
 }
 
@@ -719,7 +724,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                 let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
                 let mut vm_env = OwnedEnvironment::new_free(mainnet, db);
                 vm_env
-                    .initialize_contract(contract_identifier, &contract_content)
+                    .initialize_contract(contract_identifier, &contract_content, None)
                     .unwrap();
             }
             Err(_) => {
@@ -749,6 +754,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     vm_env
         .execute_transaction(
             sender,
+            None,
             pox_contract,
             "set-burnchain-parameters",
             params.as_slice(),
@@ -1037,7 +1043,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             };
             let mut marf = MemoryBackingStore::new();
             let mut vm_env = OwnedEnvironment::new_free(mainnet, marf.as_clarity_db());
-            let mut exec_env = vm_env.get_exec_environment(None);
+            let mut exec_env = vm_env.get_exec_environment(None, None);
             let mut analysis_marf = MemoryBackingStore::new();
 
             let contract_id = QualifiedContractIdentifier::transient();
@@ -1109,7 +1115,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 friendly_expect(parse(&contract_id, &content), "Failed to parse program.");
             match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                 Ok(_) => {
-                    let result = vm_env.get_exec_environment(None).eval_raw(&content);
+                    let result = vm_env.get_exec_environment(None, None).eval_raw(&content);
                     match result {
                         Ok(x) => (
                             0,
@@ -1159,7 +1165,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
                     vm_env
-                        .get_exec_environment(None)
+                        .get_exec_environment(None, None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                 });
                 (header_db, marf, result_and_cost)
@@ -1212,7 +1218,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
                     vm_env
-                        .get_exec_environment(None)
+                        .get_exec_environment(None, None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                 });
                 (marf, result_and_cost)
@@ -1285,7 +1291,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
                     vm_env
-                        .get_exec_environment(None)
+                        .get_exec_environment(None, None)
                         .eval_read_only(&contract_identifier, &content)
                 });
                 (marf, result_and_cost)
@@ -1375,8 +1381,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         Ok(analysis) => {
                             let result_and_cost =
                                 with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                                    vm_env
-                                        .initialize_contract(contract_identifier, &contract_content)
+                                    vm_env.initialize_contract(
+                                        contract_identifier,
+                                        &contract_content,
+                                        None,
+                                    )
                                 });
                             (header_db, marf, Ok((analysis, result_and_cost)))
                         }
@@ -1487,7 +1496,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    vm_env.execute_transaction(sender, contract_identifier, &tx_name, &arguments)
+                    vm_env.execute_transaction(
+                        sender,
+                        None,
+                        contract_identifier,
+                        &tx_name,
+                        &arguments,
+                    )
                 });
                 (header_db, marf, result_and_cost)
             });

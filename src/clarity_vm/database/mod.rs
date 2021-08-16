@@ -18,6 +18,8 @@ use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId
 use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
 
+use core::StacksEpoch;
+
 pub mod marf;
 
 impl HeadersDB for DBConn {
@@ -97,6 +99,31 @@ impl BurnStateDB for SortitionHandleTx<'_> {
             _ => return None,
         }
     }
+
+    fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        SortitionDB::get_stacks_epoch(self.tx(), height as u64)
+            .expect("BUG: failed to get epoch for burn block height")
+    }
+
+    fn get_burn_start_height(&self) -> u32 {
+        self.context.first_block_height as u32
+    }
+
+    fn get_v1_unlock_height(&self) -> u32 {
+        self.context.pox_constants.v1_unlock_height
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        self.context.pox_constants.prepare_length
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        self.context.pox_constants.reward_cycle_length
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        self.context.pox_constants.pox_rejection_fraction
+    }
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
@@ -117,6 +144,31 @@ impl BurnStateDB for SortitionDBConn<'_> {
             Ok(Some(x)) => Some(x.burn_header_hash),
             _ => return None,
         }
+    }
+
+    fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        SortitionDB::get_stacks_epoch(self.conn(), height as u64)
+            .expect("BUG: failed to get epoch for burn block height")
+    }
+
+    fn get_burn_start_height(&self) -> u32 {
+        self.context.first_block_height as u32
+    }
+
+    fn get_v1_unlock_height(&self) -> u32 {
+        self.context.pox_constants.v1_unlock_height
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        self.context.pox_constants.prepare_length
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        self.context.pox_constants.reward_cycle_length
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        self.context.pox_constants.pox_rejection_fraction
     }
 }
 

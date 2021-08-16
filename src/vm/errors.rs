@@ -88,6 +88,7 @@ pub enum RuntimeErrorType {
     TransferNonPositiveAmount,
     NoSuchToken,
     NotImplemented,
+    NoCallerInContext,
     NoSenderInContext,
     NonPositiveTokenSupply,
     JSONParseError(IncomparableError<SerdeJSONErr>),
@@ -96,6 +97,7 @@ pub enum RuntimeErrorType {
     UnknownBlockHeaderHash(BlockHeaderHash),
     BadBlockHash(Vec<u8>),
     UnwrapFailure,
+    DefunctPoxContract,
 }
 
 #[derive(Debug, PartialEq)]

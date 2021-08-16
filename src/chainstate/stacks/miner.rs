@@ -1121,6 +1121,8 @@ impl StacksBlockBuilder {
         );
 
         let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
+        let burn_tip_height =
+            SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height as u32;
         let stacking_burn_ops = SortitionDB::get_stack_stx_ops(burn_dbconn.conn(), &burn_tip)?;
         let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(burn_dbconn.conn(), &burn_tip)?;
 
@@ -1180,6 +1182,8 @@ impl StacksBlockBuilder {
             parent_microblocks.len(),
             t2.saturating_sub(t1)
         );
+
+        StacksChainState::process_epoch_transition(&mut tx, burn_tip_height + 1)?;
 
         StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops);
         StacksChainState::process_transfer_ops(&mut tx, transfer_burn_ops);
@@ -2026,7 +2030,7 @@ pub mod test {
         pub fn get_miner_balance<'a>(clarity_tx: &mut ClarityTx<'a>, addr: &StacksAddress) -> u128 {
             clarity_tx.with_clarity_db_readonly(|db| {
                 db.get_account_stx_balance(&StandardPrincipalData::from(addr.clone()).into())
-                    .amount_unlocked
+                    .amount_unlocked()
             })
         }
 
@@ -8656,8 +8660,14 @@ pub mod test {
                     let (ct_ast, ct_analysis) = tx
                         .analyze_smart_contract(&CONTRACT_IDENT, CONTRACT)
                         .unwrap();
-                    tx.initialize_smart_contract(&CONTRACT_IDENT, &ct_ast, CONTRACT, |_, _| false)
-                        .unwrap();
+                    tx.initialize_smart_contract(
+                        &CONTRACT_IDENT,
+                        &ct_ast,
+                        CONTRACT,
+                        None,
+                        |_, _| false,
+                    )
+                    .unwrap();
                     tx.save_analysis(&CONTRACT_IDENT, &ct_analysis).unwrap();
                 })
             })),
@@ -8668,6 +8678,8 @@ pub mod test {
             0,
             &BurnchainHeaderHash([1; 32]),
             1,
+            &StacksEpoch::unit_test(0),
+            PoxConstants::test_default(),
             true,
         )
         .unwrap();

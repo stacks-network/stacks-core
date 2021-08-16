@@ -245,16 +245,8 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let mut balance = STXBalance::initial(amount);
                 let mut snapshot = db.get_stx_balance_snapshot_genesis(principal);
-                let existing_balance = snapshot.balance().amount_unlocked;
-                if existing_balance > 0 {
-                    balance.amount_unlocked = balance
-                        .amount_unlocked
-                        .checked_add(existing_balance)
-                        .expect("Genesis credit balance overflow");
-                }
-                snapshot.set_balance(balance);
+                snapshot.credit(amount);
                 snapshot.save();
                 Ok(())
             })
@@ -277,7 +269,7 @@ impl StacksChainState {
     }
 
     /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
-    pub fn pox_lock(
+    pub fn pox_lock_v2(
         db: &mut ClarityDatabase,
         principal: &PrincipalData,
         lock_amount: u128,
@@ -287,20 +279,58 @@ impl StacksChainState {
         assert!(lock_amount > 0);
 
         let mut snapshot = db.get_stx_balance_snapshot(principal);
+
         if snapshot.has_locked_tokens() {
             return Err(Error::PoxAlreadyLocked);
         }
         if !snapshot.can_transfer(lock_amount) {
             return Err(Error::PoxInsufficientBalance);
         }
-        snapshot.lock_tokens(lock_amount, unlock_burn_height);
+        snapshot.lock_tokens_v2(lock_amount, unlock_burn_height);
 
         debug!(
-            "PoX lock {} uSTX (new balance {}) until burnchain block height {} for {:?}",
-            snapshot.balance().amount_locked,
-            snapshot.balance().amount_unlocked,
-            unlock_burn_height,
-            principal
+            "PoX v2 lock applied";
+            "pox_locked_ustx" => snapshot.balance().amount_locked(),
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(())
+    }
+
+    /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
+    pub fn pox_lock_v1(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        lock_amount: u128,
+        unlock_burn_height: u64,
+    ) -> Result<(), Error> {
+        assert!(unlock_burn_height > 0);
+        assert!(lock_amount > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if snapshot.balance().was_locked_by_v2() {
+            debug!("PoX Lock attempted on an account locked by v2");
+            return Err(Error::DefunctPoxContract);
+        }
+
+        if snapshot.has_locked_tokens() {
+            return Err(Error::PoxAlreadyLocked);
+        }
+        if !snapshot.can_transfer(lock_amount) {
+            return Err(Error::PoxInsufficientBalance);
+        }
+        snapshot.lock_tokens_v1(lock_amount, unlock_burn_height);
+
+        debug!(
+            "PoX v1 lock applied";
+            "pox_locked_ustx" => snapshot.balance().amount_locked(),
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
         );
 
         snapshot.save();

@@ -29,6 +29,7 @@ use vm::analysis::type_checker::{
     TypeResult, TypingContext,
 };
 
+use crate::vm::ClarityVersion;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 
@@ -37,7 +38,9 @@ fn get_simple_native_or_user_define(
     checker: &mut TypeChecker,
 ) -> CheckResult<FunctionType> {
     runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
-    if let Some(ref native_function) = NativeFunctions::lookup_by_name(function_name) {
+    if let Some(ref native_function) =
+        NativeFunctions::lookup_by_name_at_version(function_name, &checker.clarity_version)
+    {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
             TypedNativeFunction::type_native_function(native_function)
         {
@@ -102,7 +105,7 @@ pub fn check_special_map(
         func_args.push(entry_type);
     }
 
-    let mapped_type = function_type.check_args(checker, &func_args)?;
+    let mapped_type = function_type.check_args(checker, &func_args, checker.clarity_version)?;
     TypeSignature::list_of(mapped_type, min_args)
         .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }
@@ -130,7 +133,8 @@ pub fn check_special_filter(
             _ => Err(CheckErrors::ExpectedSequence(argument_type.clone())),
         }?;
 
-        let filter_type = function_type.check_args(checker, &[input_type])?;
+        let filter_type =
+            function_type.check_args(checker, &[input_type], checker.clarity_version)?;
 
         if TypeSignature::BoolType != filter_type {
             return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into());
@@ -169,11 +173,15 @@ pub fn check_special_fold(
     //           B = list items type
 
     // f must accept the initial value and the list items type
-    let return_type =
-        function_type.check_args(checker, &[input_type.clone(), initial_value_type])?;
+    let return_type = function_type.check_args(
+        checker,
+        &[input_type.clone(), initial_value_type],
+        checker.clarity_version,
+    )?;
 
     // f must _also_ accepts its own return type!
-    let return_type = function_type.check_args(checker, &[input_type, return_type])?;
+    let return_type =
+        function_type.check_args(checker, &[input_type, return_type], checker.clarity_version)?;
 
     Ok(return_type)
 }

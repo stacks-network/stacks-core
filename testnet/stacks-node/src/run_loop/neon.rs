@@ -1,10 +1,9 @@
+use ctrlc as termination;
 use std::cmp;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
-
-use ctrlc as termination;
 
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;

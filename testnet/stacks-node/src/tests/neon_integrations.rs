@@ -3544,6 +3544,7 @@ fn pox_integration_test() {
         15,
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
+        u32::max_value(),
     );
     burnchain_config.pox_constants = pox_constants.clone();
 

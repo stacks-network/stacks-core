@@ -248,7 +248,7 @@ impl BurnSamplePoint {
         let mut burn_sample = commits_with_priors
             .into_iter()
             .map(|mut linked_commits| {
-                let mut all_burns: Vec<_> = linked_commits
+                let all_burns: Vec<_> = linked_commits
                     .iter()
                     .map(|commit| {
                         if let Some(commit) = commit {
@@ -262,13 +262,14 @@ impl BurnSamplePoint {
                     .collect();
                 let most_recent_burn = all_burns[0];
 
-                all_burns.sort();
+                let mut sorted_burns = all_burns.clone();
+                sorted_burns.sort();
                 let median_burn = if window_size % 2 == 0 {
-                    (all_burns[(window_size / 2) as usize]
-                        + all_burns[(window_size / 2 - 1) as usize])
+                    (sorted_burns[(window_size / 2) as usize]
+                        + sorted_burns[(window_size / 2 - 1) as usize])
                         / 2
                 } else {
-                    all_burns[(window_size / 2) as usize]
+                    sorted_burns[(window_size / 2) as usize]
                 };
 
                 let burns = cmp::min(median_burn, most_recent_burn);

@@ -28,11 +28,13 @@ use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
 use vm::tests::costs::get_simple_test;
 use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memory_environment};
-use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
+use vm::types::{
+    AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
+};
 
-use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::proof::ClarityMarfTrieId;
+use crate::{clarity_vm::database::marf::MarfedKV, vm::database::NULL_BURN_STATE_DB_2_1};
 
 pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let marf = MarfedKV::temporary();
@@ -85,15 +87,19 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB_2_1,
         );
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(&trait_contract_id, contract_trait)
                 .unwrap();
-            conn.initialize_smart_contract(&trait_contract_id, &ct_ast, contract_trait, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &trait_contract_id,
+                &ct_ast,
+                contract_trait,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&trait_contract_id, &ct_analysis)
                 .unwrap();
@@ -107,15 +113,28 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
             &StacksBlockId([1 as u8; 32]),
             &StacksBlockId([2 as u8; 32]),
             &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB_2_1,
         );
+
+        conn.as_transaction(|conn| {
+            conn.with_clarity_db(|db| {
+                db.set_clarity_epoch_version(crate::core::StacksEpochId::Epoch21);
+                Ok(())
+            })
+        })
+        .unwrap();
+
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(&other_contract_id, contract_other)
                 .unwrap();
-            conn.initialize_smart_contract(&other_contract_id, &ct_ast, contract_other, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &other_contract_id,
+                &ct_ast,
+                contract_other,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&other_contract_id, &ct_analysis)
                 .unwrap();
@@ -129,16 +148,20 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
             &StacksBlockId([2 as u8; 32]),
             &StacksBlockId([3 as u8; 32]),
             &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB_2_1,
         );
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(&self_contract_id, &contract_self)
                 .unwrap();
-            conn.initialize_smart_contract(&self_contract_id, &ct_ast, &contract_self, |_, _| {
-                false
-            })
+            conn.initialize_smart_contract(
+                &self_contract_id,
+                &ct_ast,
+                &contract_self,
+                None,
+                |_, _| false,
+            )
             .unwrap();
             conn.save_analysis(&self_contract_id, &ct_analysis).unwrap();
         });

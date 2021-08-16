@@ -58,9 +58,11 @@ pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
 const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
+pub const POX_1_NAME: &'static str = "pox";
+pub const POX_2_NAME: &'static str = "pox-2";
 
 lazy_static! {
-    static ref BOOT_CODE_POX_MAINNET: String =
+    pub static ref BOOT_CODE_POX_MAINNET: String =
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     pub static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
@@ -196,10 +198,11 @@ impl StacksChainState {
         sortdb: &SortitionDB,
         tip: &StacksBlockId,
         reward_cycle: u128,
+        pox_contract: &str,
     ) -> Result<u128, Error> {
         let function = "get-total-ustx-stacked";
         let mainnet = self.mainnet;
-        let contract_identifier = boot::boot_code_id("pox", mainnet);
+        let contract_identifier = boot::boot_code_id(pox_contract, mainnet);
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
         let result = self
@@ -241,11 +244,12 @@ impl StacksChainState {
         sortdb: &SortitionDB,
         stacks_block_id: &StacksBlockId,
         reward_cycle: u128,
+        pox_contract: &str,
     ) -> Result<bool, Error> {
         self.eval_boot_code_read_only(
             sortdb,
             stacks_block_id,
-            "pox",
+            pox_contract,
             &format!("(is-pox-active u{})", reward_cycle),
         )
         .map(|value| value.expect_bool())
@@ -354,7 +358,13 @@ impl StacksChainState {
             .block_height_to_reward_cycle(current_burn_height)
             .ok_or(Error::PoxNoRewardCycle)?;
 
-        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128)? {
+        let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
+
+        let pox_contract_name = burnchain
+            .pox_constants
+            .active_pox_contract(reward_cycle_start_height);
+
+        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, pox_contract_name)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
                 block_id, reward_cycle
@@ -362,12 +372,14 @@ impl StacksChainState {
             return Ok(vec![]);
         }
 
+        debug!("Using pox_contract = {}", pox_contract_name);
+
         // how many in this cycle?
         let num_addrs = self
             .eval_boot_code_read_only(
                 sortdb,
                 block_id,
-                "pox",
+                pox_contract_name,
                 &format!("(get-reward-set-size u{})", reward_cycle),
             )?
             .expect_u128();
@@ -385,7 +397,7 @@ impl StacksChainState {
                 .eval_boot_code_read_only(
                     sortdb,
                     block_id,
-                    "pox",
+                    pox_contract_name,
                     &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
                 )?
                 .expect_optional()
@@ -414,8 +426,8 @@ impl StacksChainState {
                 false => hash_mode.to_version_testnet(),
             };
 
-            test_debug!(
-                "PoX reward address (for {} ustx): {:?}",
+            debug!(
+                "PoX reward address (for {} ustx): {}",
                 total_ustx,
                 &StacksAddress::new(version, hash)
             );
@@ -427,7 +439,9 @@ impl StacksChainState {
 }
 
 #[cfg(test)]
-mod contract_tests;
+pub mod contract_tests;
+#[cfg(test)]
+pub mod pox_2_tests;
 
 #[cfg(test)]
 pub mod test {
@@ -490,7 +504,7 @@ pub mod test {
 
     #[test]
     fn get_reward_threshold_units() {
-        let test_pox_constants = PoxConstants::new(501, 1, 1, 1, 5, 5000, 10000);
+        let test_pox_constants = PoxConstants::new(501, 1, 1, 1, 5, 5000, 10000, u32::max_value());
         // when the liquid amount = the threshold step,
         //   the threshold should always be the step size.
         let liquid = POX_THRESHOLD_STEPS_USTX;
@@ -578,7 +592,7 @@ pub mod test {
         key_to_stacks_addr(&StacksPrivateKey::new())
     }
 
-    fn key_to_stacks_addr(key: &StacksPrivateKey) -> StacksAddress {
+    pub fn key_to_stacks_addr(key: &StacksPrivateKey) -> StacksAddress {
         StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -588,13 +602,24 @@ pub mod test {
         .unwrap()
     }
 
-    fn instantiate_pox_peer<'a>(
+    pub fn instantiate_pox_peer<'a>(
         burnchain: &Burnchain,
         test_name: &str,
         port: u16,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
+        instantiate_pox_peer_with_epoch(burnchain, test_name, port, None, None)
+    }
+
+    pub fn instantiate_pox_peer_with_epoch<'a>(
+        burnchain: &Burnchain,
+        test_name: &str,
+        port: u16,
+        epochs: Option<Vec<StacksEpoch>>,
+        observer: Option<&'a TestEventObserver>,
+    ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
         let mut peer_config = TestPeerConfig::new(test_name, port, port + 1);
         peer_config.burnchain = burnchain.clone();
+        peer_config.epochs = epochs;
         peer_config.setup_code = format!(
             "(contract-call? .pox set-burnchain-parameters u{} u{} u{} u{})",
             burnchain.first_block_height,
@@ -633,12 +658,12 @@ pub mod test {
             .collect();
 
         peer_config.initial_balances = balances;
-        let peer = TestPeer::new(peer_config);
+        let peer = TestPeer::new_with_observer(peer_config, observer);
 
         (peer, keys.to_vec())
     }
 
-    fn eval_at_tip(peer: &mut TestPeer, boot_contract: &str, expr: &str) -> Value {
+    pub fn eval_at_tip(peer: &mut TestPeer, boot_contract: &str, expr: &str) -> Value {
         let sortdb = peer.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -682,7 +707,7 @@ pub mod test {
         value
     }
 
-    fn get_liquid_ustx(peer: &mut TestPeer) -> u128 {
+    pub fn get_liquid_ustx(peer: &mut TestPeer) -> u128 {
         let value = eval_at_tip(peer, "pox", "stx-liquid-supply");
         if let Value::UInt(inner_uint) = value {
             return inner_uint;
@@ -691,7 +716,7 @@ pub mod test {
         }
     }
 
-    fn get_balance(peer: &mut TestPeer, addr: &PrincipalData) -> u128 {
+    pub fn get_balance(peer: &mut TestPeer, addr: &PrincipalData) -> u128 {
         let value = eval_at_tip(
             peer,
             "pox",
@@ -704,7 +729,7 @@ pub mod test {
         }
     }
 
-    fn get_stacker_info(
+    pub fn get_stacker_info(
         peer: &mut TestPeer,
         addr: &PrincipalData,
     ) -> Option<(u128, (AddressHashMode, Hash160), u128, u128)> {
@@ -732,7 +757,7 @@ pub mod test {
         Some((amount_ustx, pox_addr, lock_period, first_reward_cycle))
     }
 
-    fn with_sortdb<F, R>(peer: &mut TestPeer, todo: F) -> R
+    pub fn with_sortdb<F, R>(peer: &mut TestPeer, todo: F) -> R
     where
         F: FnOnce(&mut StacksChainState, &SortitionDB) -> R,
     {
@@ -742,7 +767,7 @@ pub mod test {
         r
     }
 
-    fn get_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAccount {
+    pub fn get_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAccount {
         let account = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
             let (consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -790,7 +815,7 @@ pub mod test {
         )
     }
 
-    fn make_pox_lockup(
+    pub fn make_pox_lockup(
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
@@ -815,6 +840,34 @@ pub mod test {
         )
     }
 
+    pub fn make_pox_2_lockup(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        addr_version: AddressHashMode,
+        addr_bytes: Hash160,
+        lock_period: u128,
+        burn_ht: u64,
+    ) -> StacksTransaction {
+        // (define-public (stack-stx (amount-ustx uint)
+        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+        //                           (lock-period uint))
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_2_NAME,
+            "stack-stx",
+            vec![
+                Value::UInt(amount),
+                make_pox_addr(addr_version, addr_bytes),
+                Value::UInt(burn_ht as u128),
+                Value::UInt(lock_period),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     fn make_tx(
         key: &StacksPrivateKey,
         nonce: u64,
@@ -834,7 +887,7 @@ pub mod test {
         tx_signer.get_tx().unwrap()
     }
 
-    fn make_pox_contract_call(
+    pub fn make_pox_contract_call(
         key: &StacksPrivateKey,
         nonce: u64,
         function_name: &str,
@@ -843,6 +896,23 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             "pox",
+            function_name,
+            args,
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_2_contract_call(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        function_name: &str,
+        args: Vec<Value>,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_2_NAME,
             function_name,
             args,
         )
@@ -1025,7 +1095,7 @@ pub mod test {
         make_pox_contract_call(key, nonce, "reject-pox", vec![])
     }
 
-    fn get_reward_addresses_with_par_tip(
+    pub fn get_reward_addresses_with_par_tip(
         state: &mut StacksChainState,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
@@ -1040,7 +1110,7 @@ pub mod test {
             })
     }
 
-    fn get_parent_tip(
+    pub fn get_parent_tip(
         parent_opt: &Option<&StacksBlock>,
         chainstate: &StacksChainState,
         sortdb: &SortitionDB,
@@ -1453,7 +1523,10 @@ pub mod test {
         }
     }
 
-    fn get_par_burn_block_height(state: &mut StacksChainState, block_id: &StacksBlockId) -> u64 {
+    pub fn get_par_burn_block_height(
+        state: &mut StacksChainState,
+        block_id: &StacksBlockId,
+    ) -> u64 {
         let parent_block_id = StacksChainState::get_parent_block_id(state.db(), block_id)
             .unwrap()
             .unwrap();
@@ -1557,11 +1630,11 @@ pub mod test {
 
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(
-                        alice_account.stx_balance.amount_unlocked,
+                        alice_account.stx_balance.amount_unlocked(),
                         1024 * POX_THRESHOLD_STEPS_USTX
                     );
-                    assert_eq!(alice_account.stx_balance.amount_locked, 0);
-                    assert_eq!(alice_account.stx_balance.unlock_height, 0);
+                    assert_eq!(alice_account.stx_balance.amount_locked(), 0);
+                    assert_eq!(alice_account.stx_balance.unlock_height(), 0);
                 }
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
@@ -1659,13 +1732,13 @@ pub mod test {
 
                     // Lock-up is consistent with stacker state
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
-                    assert_eq!(alice_account.stx_balance.amount_unlocked, 0);
+                    assert_eq!(alice_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
-                        alice_account.stx_balance.amount_locked,
+                        alice_account.stx_balance.amount_locked(),
                         1024 * POX_THRESHOLD_STEPS_USTX
                     );
                     assert_eq!(
-                        alice_account.stx_balance.unlock_height as u128,
+                        alice_account.stx_balance.unlock_height() as u128,
                         (first_reward_cycle + lock_period)
                             * (burnchain.pox_constants.reward_cycle_length as u128)
                             + (burnchain.first_block_height as u128)
@@ -1805,11 +1878,11 @@ pub mod test {
 
                         let account = get_account(&mut peer, &key_to_stacks_addr(&key).into());
                         assert_eq!(
-                            account.stx_balance.amount_unlocked,
+                            account.stx_balance.amount_unlocked(),
                             1024 * POX_THRESHOLD_STEPS_USTX
                         );
-                        assert_eq!(account.stx_balance.amount_locked, 0);
-                        assert_eq!(account.stx_balance.unlock_height, 0);
+                        assert_eq!(account.stx_balance.amount_locked(), 0);
+                        assert_eq!(account.stx_balance.unlock_height(), 0);
                     }
                 }
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
@@ -1915,13 +1988,13 @@ pub mod test {
 
                         // Lock-up is consistent with stacker state
                         let account = get_account(&mut peer, &key_to_stacks_addr(&key).into());
-                        assert_eq!(account.stx_balance.amount_unlocked, 0);
+                        assert_eq!(account.stx_balance.amount_unlocked(), 0);
                         assert_eq!(
-                            account.stx_balance.amount_locked,
+                            account.stx_balance.amount_locked(),
                             1024 * POX_THRESHOLD_STEPS_USTX
                         );
                         assert_eq!(
-                            account.stx_balance.unlock_height as u128,
+                            account.stx_balance.unlock_height() as u128,
                             (first_reward_cycle + lock_period)
                                 * (burnchain.pox_constants.reward_cycle_length as u128)
                                 + (burnchain.first_block_height as u128)
@@ -2156,13 +2229,13 @@ pub mod test {
                             &mut peer,
                             &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                         );
-                        assert_eq!(contract_account.stx_balance.amount_unlocked, 0);
+                        assert_eq!(contract_account.stx_balance.amount_unlocked(), 0);
                         assert_eq!(
-                            contract_account.stx_balance.amount_locked,
+                            contract_account.stx_balance.amount_locked(),
                             1024 * POX_THRESHOLD_STEPS_USTX
                         );
                         assert_eq!(
-                            contract_account.stx_balance.unlock_height as u128,
+                            contract_account.stx_balance.unlock_height() as u128,
                             (first_reward_cycle + lock_period)
                                 * (burnchain.pox_constants.reward_cycle_length as u128)
                                 + (burnchain.first_block_height as u128)
@@ -2182,13 +2255,13 @@ pub mod test {
                             &mut peer,
                             &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                         );
-                        assert_eq!(contract_account.stx_balance.amount_unlocked, 0);
+                        assert_eq!(contract_account.stx_balance.amount_unlocked(), 0);
                         assert_eq!(
-                            contract_account.stx_balance.amount_locked,
+                            contract_account.stx_balance.amount_locked(),
                             1024 * POX_THRESHOLD_STEPS_USTX
                         );
                         assert_eq!(
-                            contract_account.stx_balance.unlock_height as u128,
+                            contract_account.stx_balance.unlock_height() as u128,
                             (alice_reward_cycle + 1)
                                 * (burnchain.pox_constants.reward_cycle_length as u128)
                                 + (burnchain.first_block_height as u128)
@@ -2812,13 +2885,13 @@ pub mod test {
                         // Lock-up is consistent with stacker state
                         let alice_account =
                             get_account(&mut peer, &key_to_stacks_addr(&alice).into());
-                        assert_eq!(alice_account.stx_balance.amount_unlocked, 0);
+                        assert_eq!(alice_account.stx_balance.amount_unlocked(), 0);
                         assert_eq!(
-                            alice_account.stx_balance.amount_locked,
+                            alice_account.stx_balance.amount_locked(),
                             1024 * POX_THRESHOLD_STEPS_USTX
                         );
                         assert_eq!(
-                            alice_account.stx_balance.unlock_height as u128,
+                            alice_account.stx_balance.unlock_height() as u128,
                             (first_reward_cycle + lock_period)
                                 * (burnchain.pox_constants.reward_cycle_length as u128)
                                 + (burnchain.first_block_height as u128)
@@ -2843,13 +2916,13 @@ pub mod test {
                         // Unlock is lazy
                         let alice_account =
                             get_account(&mut peer, &key_to_stacks_addr(&alice).into());
-                        assert_eq!(alice_account.stx_balance.amount_unlocked, 0);
+                        assert_eq!(alice_account.stx_balance.amount_unlocked(), 0);
                         assert_eq!(
-                            alice_account.stx_balance.amount_locked,
+                            alice_account.stx_balance.amount_locked(),
                             1024 * POX_THRESHOLD_STEPS_USTX
                         );
                         assert_eq!(
-                            alice_account.stx_balance.unlock_height as u128,
+                            alice_account.stx_balance.unlock_height() as u128,
                             (alice_reward_cycle + 1)
                                 * (burnchain.pox_constants.reward_cycle_length as u128)
                                 + (burnchain.first_block_height as u128)
@@ -3156,13 +3229,13 @@ pub mod test {
 
                     // Lock-up is consistent with stacker state
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
-                    assert_eq!(alice_account.stx_balance.amount_unlocked, 0);
+                    assert_eq!(alice_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
-                        alice_account.stx_balance.amount_locked,
+                        alice_account.stx_balance.amount_locked(),
                         1024 * POX_THRESHOLD_STEPS_USTX
                     );
                     assert_eq!(
-                        alice_account.stx_balance.unlock_height as u128,
+                        alice_account.stx_balance.unlock_height() as u128,
                         (first_reward_cycle + lock_period)
                             * (burnchain.pox_constants.reward_cycle_length as u128)
                             + (burnchain.first_block_height as u128)
@@ -3173,13 +3246,13 @@ pub mod test {
                         &mut peer,
                         &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     );
-                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 0);
+                    assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
-                        charlie_account.stx_balance.amount_locked,
+                        charlie_account.stx_balance.amount_locked(),
                         1024 * POX_THRESHOLD_STEPS_USTX
                     );
                     assert_eq!(
-                        charlie_account.stx_balance.unlock_height as u128,
+                        charlie_account.stx_balance.unlock_height() as u128,
                         (first_reward_cycle + lock_period)
                             * (burnchain.pox_constants.reward_cycle_length as u128)
                             + (burnchain.first_block_height as u128)
@@ -3210,13 +3283,13 @@ pub mod test {
 
                     // Unlock is lazy
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
-                    assert_eq!(alice_account.stx_balance.amount_unlocked, 0);
+                    assert_eq!(alice_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
-                        alice_account.stx_balance.amount_locked,
+                        alice_account.stx_balance.amount_locked(),
                         1024 * POX_THRESHOLD_STEPS_USTX
                     );
                     assert_eq!(
-                        alice_account.stx_balance.unlock_height as u128,
+                        alice_account.stx_balance.unlock_height() as u128,
                         (first_reward_cycle + 1)
                             * (burnchain.pox_constants.reward_cycle_length as u128)
                             + (burnchain.first_block_height as u128)
@@ -3227,9 +3300,9 @@ pub mod test {
                         &mut peer,
                         &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     );
-                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 0);
-                    assert_eq!(charlie_account.stx_balance.amount_locked, 0);
-                    assert_eq!(charlie_account.stx_balance.unlock_height as u128, 0);
+                    assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
+                    assert_eq!(charlie_account.stx_balance.amount_locked(), 0);
+                    assert_eq!(charlie_account.stx_balance.unlock_height() as u128, 0);
                 }
             } else if second_reward_cycle > 0 {
                 if cur_reward_cycle == second_reward_cycle {
@@ -3283,15 +3356,15 @@ pub mod test {
                     // Lock-up is consistent with stacker state
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(
-                        alice_account.stx_balance.amount_unlocked,
+                        alice_account.stx_balance.amount_unlocked(),
                         512 * POX_THRESHOLD_STEPS_USTX
                     );
                     assert_eq!(
-                        alice_account.stx_balance.amount_locked,
+                        alice_account.stx_balance.amount_locked(),
                         512 * POX_THRESHOLD_STEPS_USTX
                     );
                     assert_eq!(
-                        alice_account.stx_balance.unlock_height as u128,
+                        alice_account.stx_balance.unlock_height() as u128,
                         (second_reward_cycle + lock_period)
                             * (burnchain.pox_constants.reward_cycle_length as u128)
                             + (burnchain.first_block_height as u128)
@@ -3302,13 +3375,13 @@ pub mod test {
                         &mut peer,
                         &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     );
-                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 0);
+                    assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
-                        charlie_account.stx_balance.amount_locked,
+                        charlie_account.stx_balance.amount_locked(),
                         512 * POX_THRESHOLD_STEPS_USTX
                     );
                     assert_eq!(
-                        charlie_account.stx_balance.unlock_height as u128,
+                        charlie_account.stx_balance.unlock_height() as u128,
                         (second_reward_cycle + lock_period)
                             * (burnchain.pox_constants.reward_cycle_length as u128)
                             + (burnchain.first_block_height as u128)
@@ -3341,15 +3414,15 @@ pub mod test {
                     // Unlock is lazy
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(
-                        alice_account.stx_balance.amount_unlocked,
+                        alice_account.stx_balance.amount_unlocked(),
                         512 * POX_THRESHOLD_STEPS_USTX
                     );
                     assert_eq!(
-                        alice_account.stx_balance.amount_locked,
+                        alice_account.stx_balance.amount_locked(),
                         512 * POX_THRESHOLD_STEPS_USTX
                     );
                     assert_eq!(
-                        alice_account.stx_balance.unlock_height as u128,
+                        alice_account.stx_balance.unlock_height() as u128,
                         (second_reward_cycle + 1)
                             * (burnchain.pox_constants.reward_cycle_length as u128)
                             + (burnchain.first_block_height as u128)
@@ -3360,13 +3433,13 @@ pub mod test {
                         &mut peer,
                         &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     );
-                    assert_eq!(charlie_account.stx_balance.amount_unlocked, 0);
+                    assert_eq!(charlie_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
-                        charlie_account.stx_balance.amount_locked,
+                        charlie_account.stx_balance.amount_locked(),
                         512 * POX_THRESHOLD_STEPS_USTX
                     );
                     assert_eq!(
-                        charlie_account.stx_balance.unlock_height as u128,
+                        charlie_account.stx_balance.unlock_height() as u128,
                         (second_reward_cycle + 1)
                             * (burnchain.pox_constants.reward_cycle_length as u128)
                             + (burnchain.first_block_height as u128)
@@ -3755,10 +3828,10 @@ pub mod test {
                         stacker_addrs.iter().zip(balances_stacked.iter())
                     {
                         let account = get_account(&mut peer, addr);
-                        assert_eq!(account.stx_balance.amount_unlocked, 0);
-                        assert_eq!(account.stx_balance.amount_locked, *expected_balance);
+                        assert_eq!(account.stx_balance.amount_unlocked(), 0);
+                        assert_eq!(account.stx_balance.amount_locked(), *expected_balance);
                         assert_eq!(
-                            account.stx_balance.unlock_height as u128,
+                            account.stx_balance.unlock_height() as u128,
                             (reward_cycle + 1)
                                 * (burnchain.pox_constants.reward_cycle_length as u128)
                                 + (burnchain.first_block_height as u128)
@@ -3802,9 +3875,9 @@ pub mod test {
                     stacker_addrs.iter().zip(balances_after_spending.iter())
                 {
                     let account = get_account(&mut peer, addr);
-                    assert_eq!(account.stx_balance.amount_unlocked, *expected_balance);
-                    assert_eq!(account.stx_balance.amount_locked, 0);
-                    assert_eq!(account.stx_balance.unlock_height, 0);
+                    assert_eq!(account.stx_balance.amount_unlocked(), *expected_balance);
+                    assert_eq!(account.stx_balance.amount_locked(), 0);
+                    assert_eq!(account.stx_balance.unlock_height(), 0);
                 }
             } else if cur_reward_cycle >= reward_cycle {
                 // not unlocked, but unlock is lazy
@@ -3813,10 +3886,10 @@ pub mod test {
                     .zip(balances_stacked.iter().zip(balances_during_stacking.iter()))
                 {
                     let account = get_account(&mut peer, addr);
-                    assert_eq!(account.stx_balance.amount_unlocked, *expected_balance);
-                    assert_eq!(account.stx_balance.amount_locked, *expected_locked);
+                    assert_eq!(account.stx_balance.amount_unlocked(), *expected_balance);
+                    assert_eq!(account.stx_balance.amount_locked(), *expected_locked);
                     assert_eq!(
-                        account.stx_balance.unlock_height as u128,
+                        account.stx_balance.unlock_height() as u128,
                         (reward_cycle + 1) * (burnchain.pox_constants.reward_cycle_length as u128)
                             + (burnchain.first_block_height as u128)
                     );
@@ -3985,11 +4058,11 @@ pub mod test {
 
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
                     assert_eq!(
-                        alice_account.stx_balance.amount_unlocked,
+                        alice_account.stx_balance.amount_unlocked(),
                         1024 * POX_THRESHOLD_STEPS_USTX
                     );
-                    assert_eq!(alice_account.stx_balance.amount_locked, 0);
-                    assert_eq!(alice_account.stx_balance.unlock_height, 0);
+                    assert_eq!(alice_account.stx_balance.amount_locked(), 0);
+                    assert_eq!(alice_account.stx_balance.unlock_height(), 0);
                 }
 
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
@@ -4078,13 +4151,13 @@ pub mod test {
 
                     // Lock-up is consistent with stacker state
                     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
-                    assert_eq!(alice_account.stx_balance.amount_unlocked, 0);
+                    assert_eq!(alice_account.stx_balance.amount_unlocked(), 0);
                     assert_eq!(
-                        alice_account.stx_balance.amount_locked,
+                        alice_account.stx_balance.amount_locked(),
                         1024 * POX_THRESHOLD_STEPS_USTX
                     );
                     assert_eq!(
-                        alice_account.stx_balance.unlock_height as u128,
+                        alice_account.stx_balance.unlock_height() as u128,
                         (first_reward_cycle + lock_period)
                             * (burnchain.pox_constants.reward_cycle_length as u128)
                             + (burnchain.first_block_height as u128)

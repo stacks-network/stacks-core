@@ -25,8 +25,7 @@ use vm::contracts::Contract;
 use vm::costs::CostOverflowingMath;
 use vm::database::*;
 use vm::errors::{
-    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType,
+    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use vm::eval;
 use vm::representations::SymbolicExpression;
@@ -37,32 +36,44 @@ use vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
+use crate::{
+    burnchains::PoxConstants,
+    clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
+    util::boot::boot_code_id,
 };
-use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
-use crate::util::boot::boot_code_id;
+use crate::{
+    core::StacksEpoch,
+    types::proof::{ClarityMarfTrieId, TrieMerkleProof},
+};
+use crate::{
+    core::StacksEpochId,
+    types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
+    },
+};
+
+use clarity_vm::clarity::Error as ClarityError;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
 lazy_static! {
-    static ref FIRST_INDEX_BLOCK_HASH: StacksBlockId = StacksBlockHeader::make_index_block_hash(
+    pub static ref FIRST_INDEX_BLOCK_HASH: StacksBlockId = StacksBlockHeader::make_index_block_hash(
         &FIRST_BURNCHAIN_CONSENSUS_HASH,
         &FIRST_STACKS_BLOCK_HASH
     );
-    static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
-    static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
+    pub static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
+    pub static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
-    static ref USER_KEYS: Vec<StacksPrivateKey> =
+    pub static ref USER_KEYS: Vec<StacksPrivateKey> =
         (0..50).map(|_| StacksPrivateKey::new()).collect();
-    static ref POX_ADDRS: Vec<Value> = (0..50u64)
+    pub static ref POX_ADDRS: Vec<Value> = (0..50u64)
         .map(|ix| execute(&format!(
             "{{ version: 0x00, hashbytes: 0x000000000000000000000000{} }}",
             &to_hex(&ix.to_le_bytes())
         )))
         .collect();
-    static ref MINER_KEY: StacksPrivateKey = StacksPrivateKey::new();
-    static ref MINER_ADDR: StacksAddress = StacksAddress::from_public_keys(
+    pub static ref MINER_KEY: StacksPrivateKey = StacksPrivateKey::new();
+    pub static ref MINER_ADDR: StacksAddress = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
@@ -98,14 +109,30 @@ impl From<&StacksPrivateKey> for Value {
     }
 }
 
-struct ClarityTestSim {
+pub struct ClarityTestSim {
     marf: MarfedKV,
     height: u64,
     fork: u64,
+    /// This vec specifies the transitions for each epoch.
+    /// It is a list of heights at which the simulated chain transitions
+    /// first to Epoch 2.0, then to Epoch 2.1, etc. If the Epoch 2.0 transition
+    /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
+    /// begin in Epoch 1.0.
+    epoch_bounds: Vec<u64>,
 }
 
-struct TestSimHeadersDB {
+pub struct TestSimHeadersDB {
     height: u64,
+}
+
+pub struct TestSimBurnStateDB {
+    /// This vec specifies the transitions for each epoch.
+    /// It is a list of heights at which the simulated chain transitions
+    /// first to Epoch 2.0, then to Epoch 2.1, etc. If the Epoch 2.0 transition
+    /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
+    /// begin in Epoch 1.0.
+    epoch_bounds: Vec<u64>,
+    pox_constants: PoxConstants,
 }
 
 impl ClarityTestSim {
@@ -137,7 +164,40 @@ impl ClarityTestSim {
             marf,
             height: 0,
             fork: 0,
+            epoch_bounds: vec![0, u64::max_value()],
         }
+    }
+
+    pub fn execute_next_block_as_conn<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut ClarityBlockConnection) -> R,
+    {
+        let r = {
+            let mut store = self.marf.begin(
+                &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
+                &StacksBlockId(test_sim_height_to_hash(self.height + 1, self.fork)),
+            );
+
+            let headers_db = TestSimHeadersDB {
+                height: self.height + 1,
+            };
+            let burn_db = TestSimBurnStateDB {
+                epoch_bounds: self.epoch_bounds.clone(),
+                pox_constants: PoxConstants::test_default(),
+            };
+
+            Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+
+            let mut block_conn =
+                ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db);
+            let r = f(&mut block_conn);
+            block_conn.commit_block();
+
+            r
+        };
+
+        self.height += 1;
+        r
     }
 
     pub fn execute_next_block<F, R>(&mut self, f: F) -> R
@@ -153,8 +213,14 @@ impl ClarityTestSim {
             let headers_db = TestSimHeadersDB {
                 height: self.height + 1,
             };
-            let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &NULL_BURN_STATE_DB));
+            let burn_db = TestSimBurnStateDB {
+                epoch_bounds: self.epoch_bounds.clone(),
+                pox_constants: PoxConstants::test_default(),
+            };
+
+            Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+
+            let mut owned_env = OwnedEnvironment::new(store.as_clarity_db(&headers_db, &burn_db));
             f(&mut owned_env)
         };
 
@@ -162,6 +228,26 @@ impl ClarityTestSim {
         self.height += 1;
 
         r
+    }
+
+    fn check_and_bump_epoch(
+        store: &mut WritableMarfStore,
+        headers_db: &TestSimHeadersDB,
+        burn_db: &dyn BurnStateDB,
+    ) {
+        let mut clarity_db = store.as_clarity_db(headers_db, burn_db);
+        clarity_db.begin();
+        let parent_epoch = clarity_db.get_clarity_epoch_version();
+        let sortition_epoch = clarity_db
+            .get_stacks_epoch(headers_db.height as u32)
+            .unwrap()
+            .epoch_id;
+
+        if parent_epoch != sortition_epoch {
+            clarity_db.set_clarity_epoch_version(sortition_epoch);
+        }
+
+        clarity_db.commit();
     }
 
     pub fn execute_block_as_fork<F, R>(&mut self, parent_height: u64, f: F) -> R
@@ -177,8 +263,12 @@ impl ClarityTestSim {
             let headers_db = TestSimHeadersDB {
                 height: parent_height + 1,
             };
+
+            Self::check_and_bump_epoch(&mut store, &headers_db, &NULL_BURN_STATE_DB);
+
             let mut owned_env =
                 OwnedEnvironment::new(store.as_clarity_db(&headers_db, &NULL_BURN_STATE_DB));
+
             f(&mut owned_env)
         };
 
@@ -204,6 +294,76 @@ fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
         let mut bytes = [0; 8];
         bytes.copy_from_slice(&in_bytes[0..8]);
         Some(u64::from_le_bytes(bytes))
+    }
+}
+
+impl BurnStateDB for TestSimBurnStateDB {
+    fn get_burn_block_height(
+        &self,
+        sortition_id: &crate::types::chainstate::SortitionId,
+    ) -> Option<u32> {
+        panic!("Not implemented in TestSim");
+    }
+
+    fn get_burn_header_hash(
+        &self,
+        height: u32,
+        sortition_id: &crate::types::chainstate::SortitionId,
+    ) -> Option<BurnchainHeaderHash> {
+        panic!("Not implemented in TestSim");
+    }
+
+    fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        let epoch_begin_index = match self.epoch_bounds.binary_search(&(height as u64)) {
+            Ok(index) => index,
+            Err(index) => {
+                if index == 0 {
+                    return Some(StacksEpoch {
+                        start_height: 0,
+                        end_height: self.epoch_bounds[0],
+                        epoch_id: StacksEpochId::Epoch10,
+                    });
+                } else {
+                    index - 1
+                }
+            }
+        };
+
+        let epoch_id = match epoch_begin_index {
+            0 => StacksEpochId::Epoch20,
+            1 => StacksEpochId::Epoch21,
+            _ => panic!("Epoch unknown"),
+        };
+
+        Some(StacksEpoch {
+            start_height: self.epoch_bounds[epoch_begin_index],
+            end_height: self
+                .epoch_bounds
+                .get(epoch_begin_index + 1)
+                .cloned()
+                .unwrap_or(u64::max_value()),
+            epoch_id,
+        })
+    }
+
+    fn get_burn_start_height(&self) -> u32 {
+        0
+    }
+
+    fn get_v1_unlock_height(&self) -> u32 {
+        u32::max_value()
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        self.pox_constants.prepare_length
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        self.pox_constants.reward_cycle_length
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        self.pox_constants.pox_rejection_fraction
     }
 }
 
@@ -270,12 +430,97 @@ impl HeadersDB for TestSimHeadersDB {
 }
 
 #[test]
+fn simple_epoch21_test() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 3];
+    let delegator = StacksPrivateKey::new();
+
+    let clarity_2_0_id =
+        QualifiedContractIdentifier::new(StandardPrincipalData::transient(), "contract-2-0".into());
+    let clarity_2_0_bad_id = QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        "contract-2-0-bad".into(),
+    );
+    let clarity_2_0_content = "
+(define-private (stx-account (a principal)) 1)
+(define-public (call-through)
+  (ok (stx-account 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)))
+";
+
+    let clarity_2_1_id =
+        QualifiedContractIdentifier::new(StandardPrincipalData::transient(), "contract-2-1".into());
+    let clarity_2_1_bad_id = QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        "contract-2-1-bad".into(),
+    );
+    let clarity_2_1_content = "
+(define-public (call-through)
+  (let ((balance-1 (stx-account 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
+        (balance-2 (unwrap-panic (contract-call? .contract-2-0 call-through)))
+        (balance-3 (stx-account 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)))
+       (print balance-1)
+       (print balance-2)
+       (print balance-3)
+       (ok 1)))
+(call-through)
+";
+
+    sim.execute_next_block_as_conn(|block| {
+        test_deploy_smart_contract(block, &clarity_2_0_id, clarity_2_0_content)
+            .expect("2.0 'good' contract should deploy successfully");
+        match test_deploy_smart_contract(block, &clarity_2_0_bad_id, clarity_2_1_content)
+            .expect_err("2.0 'bad' contract should not deploy successfully")
+        {
+            ClarityError::Analysis(e) => {
+                assert_eq!(e.err, CheckErrors::UnknownFunction("stx-account".into()));
+            }
+            e => panic!("Should have caused an analysis error: {:#?}", e),
+        };
+    });
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block_as_conn(|block| {
+        test_deploy_smart_contract(block, &clarity_2_1_id, clarity_2_1_content)
+            .expect("2.1 'good' contract should deploy successfully");
+        match test_deploy_smart_contract(block, &clarity_2_1_bad_id, clarity_2_0_content)
+            .expect_err("2.1 'bad' contract should not deploy successfully")
+        {
+            ClarityError::Interpreter(e) => {
+                assert_eq!(
+                    e,
+                    Error::Unchecked(CheckErrors::NameAlreadyUsed("stx-account".into()))
+                );
+            }
+            e => panic!("Should have caused an Interpreter error: {:#?}", e),
+        };
+    });
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+}
+
+fn test_deploy_smart_contract(
+    block: &mut ClarityBlockConnection,
+    contract_id: &QualifiedContractIdentifier,
+    content: &str,
+) -> Result<(), ClarityError> {
+    block.as_transaction(|tx| {
+        let (ast, analysis) = tx.analyze_smart_contract(&contract_id, content)?;
+        tx.initialize_smart_contract(&contract_id, &ast, content, None, |_, _| false)?;
+        tx.save_analysis(&contract_id, &analysis)?;
+        return Ok(());
+    })
+}
+
+#[test]
 fn recency_tests() {
     let mut sim = ClarityTestSim::new();
     let delegator = StacksPrivateKey::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET)
+        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET, None)
             .unwrap()
     });
     sim.execute_next_block(|env| {
@@ -283,6 +528,7 @@ fn recency_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-stx",
                 &symbols_from_values(vec![
@@ -302,6 +548,7 @@ fn recency_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -319,6 +566,7 @@ fn recency_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -344,13 +592,14 @@ fn delegation_tests() {
     const REWARD_CYCLE_LENGTH: u128 = 1050;
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET)
+        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET, None)
             .unwrap()
     });
     sim.execute_next_block(|env| {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -369,6 +618,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -386,6 +636,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[1]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -402,6 +653,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[2]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -419,6 +671,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[3]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -436,6 +689,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[4]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
@@ -457,6 +711,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -477,6 +732,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -497,6 +753,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -531,6 +788,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-aggregation-commit",
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
@@ -545,6 +803,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -565,6 +824,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -585,6 +845,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -605,6 +866,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -659,6 +921,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-aggregation-commit",
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
@@ -691,6 +954,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-aggregation-commit",
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
@@ -709,6 +973,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -743,6 +1008,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-aggregation-commit",
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(2)])
@@ -757,6 +1023,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "stack-aggregation-commit",
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
@@ -820,6 +1087,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -844,6 +1112,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[4]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "revoke-delegate-stx",
                 &[]
@@ -857,6 +1126,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[4]).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "revoke-delegate-stx",
                 &[]
@@ -870,6 +1140,7 @@ fn delegation_tests() {
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
+                None,
                 POX_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
                 &symbols_from_values(vec![
@@ -893,13 +1164,18 @@ fn test_vote_withdrawal() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            None,
+        )
+        .unwrap();
 
         // Submit a proposal
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "submit-proposal",
                 &symbols_from_values(vec![
@@ -930,6 +1206,7 @@ fn test_vote_withdrawal() {
         // Vote on the proposal
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
+            None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
             "vote-proposal",
             &symbols_from_values(vec![Value::UInt(0), Value::UInt(10)]),
@@ -941,6 +1218,7 @@ fn test_vote_withdrawal() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "get-proposal-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -955,6 +1233,7 @@ fn test_vote_withdrawal() {
         // Vote again on the proposal
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
+            None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
             "vote-proposal",
             &symbols_from_values(vec![Value::UInt(0), Value::UInt(5)]),
@@ -966,6 +1245,7 @@ fn test_vote_withdrawal() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "get-proposal-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -981,6 +1261,7 @@ fn test_vote_withdrawal() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "get-principal-votes",
                 &symbols_from_values(vec![
@@ -999,6 +1280,7 @@ fn test_vote_withdrawal() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "withdraw-votes",
                 &symbols_from_values(vec![Value::UInt(0), Value::UInt(20)]),
@@ -1014,6 +1296,7 @@ fn test_vote_withdrawal() {
         // Withdraw votes
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
+            None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
             "withdraw-votes",
             &symbols_from_values(vec![Value::UInt(0), Value::UInt(5)]),
@@ -1024,6 +1307,7 @@ fn test_vote_withdrawal() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "get-proposal-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1045,6 +1329,7 @@ fn test_vote_withdrawal() {
         // Withdraw STX after proposal expires
         env.execute_transaction(
             (&USER_KEYS[0]).into(),
+            None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
             "withdraw-votes",
             &symbols_from_values(vec![Value::UInt(0), Value::UInt(10)]),
@@ -1072,13 +1357,18 @@ fn test_vote_fail() {
 
     // Test voting in a proposal
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            None,
+        )
+        .unwrap();
 
         // Submit a proposal
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "submit-proposal",
                 &symbols_from_values(vec![
@@ -1110,6 +1400,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1126,6 +1417,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "vote-proposal",
                 &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER + 1)]),
@@ -1142,6 +1434,7 @@ fn test_vote_fail() {
         for user in USER_KEYS.iter() {
             env.execute_transaction(
                 user.into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "vote-proposal",
                 &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
@@ -1154,6 +1447,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1170,6 +1464,7 @@ fn test_vote_fail() {
     sim.execute_next_block(|env| {
         env.execute_transaction(
             (&MINER_KEY.clone()).into(),
+            None,
             COST_VOTING_CONTRACT_TESTNET.clone(),
             "veto",
             &symbols_from_values(vec![Value::UInt(0)]),
@@ -1179,6 +1474,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "get-proposal-vetos",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1197,6 +1493,7 @@ fn test_vote_fail() {
         sim.execute_next_block(|env| {
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "veto",
                 &symbols_from_values(vec![Value::UInt(0)]),
@@ -1207,6 +1504,7 @@ fn test_vote_fail() {
             assert_eq!(
                 env.execute_transaction(
                     (&MINER_KEY.clone()).into(),
+                    None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "veto",
                     &symbols_from_values(vec![Value::UInt(0)])
@@ -1230,6 +1528,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-miners",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1254,6 +1553,7 @@ fn test_vote_fail() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-miners",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1273,13 +1573,18 @@ fn test_vote_confirm() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            None,
+        )
+        .unwrap();
 
         // Submit a proposal
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "submit-proposal",
                 &symbols_from_values(vec![
@@ -1311,6 +1616,7 @@ fn test_vote_confirm() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1327,6 +1633,7 @@ fn test_vote_confirm() {
         for user in USER_KEYS.iter() {
             env.execute_transaction(
                 user.into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "vote-proposal",
                 &symbols_from_values(vec![Value::UInt(0), Value::UInt(USTX_PER_HOLDER)]),
@@ -1339,6 +1646,7 @@ fn test_vote_confirm() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-votes",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1366,6 +1674,7 @@ fn test_vote_confirm() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-miners",
                 &symbols_from_values(vec![Value::UInt(0)])
@@ -1386,14 +1695,19 @@ fn test_vote_too_many_confirms() {
 
     let MAX_CONFIRMATIONS_PER_BLOCK = 10;
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            None,
+        )
+        .unwrap();
 
         // Submit a proposal
         for i in 0..(MAX_CONFIRMATIONS_PER_BLOCK + 1) {
             assert_eq!(
                 env.execute_transaction(
                     (&USER_KEYS[0]).into(),
+                    None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "submit-proposal",
                     &symbols_from_values(vec![
@@ -1428,6 +1742,7 @@ fn test_vote_too_many_confirms() {
                 assert_eq!(
                     env.execute_transaction(
                         user.into(),
+                        None,
                         COST_VOTING_CONTRACT_TESTNET.clone(),
                         "vote-proposal",
                         &symbols_from_values(vec![
@@ -1445,6 +1760,7 @@ fn test_vote_too_many_confirms() {
             assert_eq!(
                 env.execute_transaction(
                     (&USER_KEYS[0]).into(),
+                    None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "confirm-votes",
                     &symbols_from_values(vec![Value::UInt(i as u128)])
@@ -1458,6 +1774,7 @@ fn test_vote_too_many_confirms() {
             for user in USER_KEYS.iter() {
                 env.execute_transaction(
                     user.into(),
+                    None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "withdraw-votes",
                     &symbols_from_values(vec![
@@ -1486,6 +1803,7 @@ fn test_vote_too_many_confirms() {
             assert_eq!(
                 env.execute_transaction(
                     (&USER_KEYS[0]).into(),
+                    None,
                     COST_VOTING_CONTRACT_TESTNET.clone(),
                     "confirm-miners",
                     &symbols_from_values(vec![Value::UInt(i as u128)])
@@ -1500,6 +1818,7 @@ fn test_vote_too_many_confirms() {
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
+                None,
                 COST_VOTING_CONTRACT_TESTNET.clone(),
                 "confirm-miners",
                 &symbols_from_values(vec![Value::UInt(MAX_CONFIRMATIONS_PER_BLOCK)])

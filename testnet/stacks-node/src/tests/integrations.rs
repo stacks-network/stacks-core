@@ -4,7 +4,6 @@ use std::sync::Mutex;
 
 use reqwest;
 
-use stacks::burnchains::Address;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
 };
@@ -24,6 +23,7 @@ use stacks::vm::{
     types::{QualifiedContractIdentifier, ResponseData, TupleData},
     Value,
 };
+use stacks::{burnchains::Address, vm::ClarityVersion};
 
 use crate::config::InitialBalance;
 use crate::helium::RunLoop;
@@ -558,7 +558,7 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<ContractInterface>().unwrap();
 
-                let contract_analysis = mem_type_check(GET_INFO_CONTRACT).unwrap().1;
+                let contract_analysis = mem_type_check(GET_INFO_CONTRACT, ClarityVersion::Clarity1).unwrap().1;
                 let expected_interface = build_contract_interface(&contract_analysis);
 
                 eprintln!("{}", serde_json::to_string(&expected_interface).unwrap());
@@ -976,7 +976,7 @@ fn contract_stx_transfer() {
                                         db.get_account_stx_balance(
                                             &contract_identifier.clone().into(),
                                         )
-                                        .amount_unlocked
+                                        .amount_unlocked()
                                     })
                                 }
                             )
@@ -993,7 +993,7 @@ fn contract_stx_transfer() {
                                 &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
-                                        db.get_account_stx_balance(&addr_3).amount_unlocked
+                                        db.get_account_stx_balance(&addr_3).amount_unlocked()
                                     })
                                 }
                             )
@@ -1027,7 +1027,7 @@ fn contract_stx_transfer() {
                                 &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
-                                        db.get_account_stx_balance(&addr_2).amount_unlocked
+                                        db.get_account_stx_balance(&addr_2).amount_unlocked()
                                     })
                                 }
                             )
@@ -1045,7 +1045,7 @@ fn contract_stx_transfer() {
                                         db.get_account_stx_balance(
                                             &contract_identifier.clone().into(),
                                         )
-                                        .amount_unlocked
+                                        .amount_unlocked()
                                     })
                                 }
                             )
@@ -1077,7 +1077,7 @@ fn contract_stx_transfer() {
                                         db.get_account_stx_balance(
                                             &contract_identifier.clone().into(),
                                         )
-                                        .amount_unlocked
+                                        .amount_unlocked()
                                     })
                                 }
                             )
@@ -1094,7 +1094,7 @@ fn contract_stx_transfer() {
                                 &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
-                                        db.get_account_stx_balance(&addr_3).amount_unlocked
+                                        db.get_account_stx_balance(&addr_3).amount_unlocked()
                                     })
                                 }
                             )
@@ -1234,7 +1234,7 @@ fn mine_transactions_out_of_order() {
                                         db.get_account_stx_balance(
                                             &contract_identifier.clone().into(),
                                         )
-                                        .amount_unlocked
+                                        .amount_unlocked()
                                     })
                                 }
                             )
@@ -1449,7 +1449,7 @@ fn bad_contract_tx_rollback() {
                                         db.get_account_stx_balance(
                                             &contract_identifier.clone().into(),
                                         )
-                                        .amount_unlocked
+                                        .amount_unlocked()
                                     })
                                 }
                             )
@@ -1466,7 +1466,7 @@ fn bad_contract_tx_rollback() {
                                 &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
-                                        db.get_account_stx_balance(&addr_3).amount_unlocked
+                                        db.get_account_stx_balance(&addr_3).amount_unlocked()
                                     })
                                 }
                             )

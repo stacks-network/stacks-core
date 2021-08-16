@@ -37,8 +37,8 @@ use vm::representations::{ClarityName, ContractName, SymbolicExpression};
 use vm::stx_transfer_consolidated;
 use vm::types::signatures::FunctionSignature;
 use vm::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
-    Value,
+    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    TraitIdentifier, TypeSignature, Value,
 };
 use vm::{eval, is_reserved};
 
@@ -46,11 +46,12 @@ use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::events::*;
 use chainstate::stacks::Error as ChainstateError;
 
-use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
+use crate::{core::StacksEpochId, types::chainstate::StacksBlockId};
 
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::version::ClarityVersion;
 
 use vm::coverage::CoverageReporter;
 
@@ -59,12 +60,21 @@ pub const MAX_CONTEXT_DEPTH: u16 = 256;
 // TODO:
 //    hide the environment's instance variables.
 //     we don't want many of these changing after instantiation.
+/// Environments pack a reference to the global context (which is basically the db),
+///   the current contract context, a call stack, the current sender, caller, and
+///   sponsor (if one exists).
+/// Essentially, the point of the Environment struct is to prevent all the eval functions
+///   from including all of these items in their method signatures individually. Because
+///   these different contexts can be mixed and matched (i.e., in a contract-call, you change
+///   contract context), a single "invocation" will end up creating multiple environment
+///   objects as context changes occur.
 pub struct Environment<'a, 'b> {
     pub global_context: &'a mut GlobalContext<'b>,
     pub contract_context: &'a ContractContext,
     pub call_stack: &'a mut CallStack,
     pub sender: Option<PrincipalData>,
     pub caller: Option<PrincipalData>,
+    pub sponsor: Option<PrincipalData>,
 }
 
 pub struct OwnedEnvironment<'a> {
@@ -212,6 +222,8 @@ pub struct ContractContext {
     pub meta_nft: HashMap<ClarityName, NonFungibleTokenMetadata>,
     pub meta_ft: HashMap<ClarityName, FungibleTokenMetadata>,
     pub data_size: u64,
+    /// track the clarity version of the contract
+    clarity_version: ClarityVersion,
 }
 
 pub struct LocalContext<'a> {
@@ -531,7 +543,10 @@ impl<'a> OwnedEnvironment<'a> {
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(false, database, LimitedCostTracker::new_free()),
-            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            default_contract: ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity1,
+            ),
             call_stack: CallStack::new(),
         }
     }
@@ -543,7 +558,10 @@ impl<'a> OwnedEnvironment<'a> {
 
         OwnedEnvironment {
             context: GlobalContext::new(false, database, cost_track),
-            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            default_contract: ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity1,
+            ),
             call_stack: CallStack::new(),
         }
     }
@@ -559,7 +577,10 @@ impl<'a> OwnedEnvironment<'a> {
     pub fn new_free(mainnet: bool, database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, database, LimitedCostTracker::new_free()),
-            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            default_contract: ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity1,
+            ),
             call_stack: CallStack::new(),
         }
     }
@@ -571,7 +592,10 @@ impl<'a> OwnedEnvironment<'a> {
     ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, database, cost_tracker),
-            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
+            default_contract: ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity1,
+            ),
             call_stack: CallStack::new(),
         }
     }
@@ -579,6 +603,7 @@ impl<'a> OwnedEnvironment<'a> {
     pub fn get_exec_environment<'b>(
         &'b mut self,
         sender: Option<PrincipalData>,
+        sponsor: Option<PrincipalData>,
     ) -> Environment<'b, 'a> {
         Environment::new(
             &mut self.context,
@@ -586,12 +611,14 @@ impl<'a> OwnedEnvironment<'a> {
             &mut self.call_stack,
             sender.clone(),
             sender,
+            sponsor,
         )
     }
 
     pub fn execute_in_env<F, A, E>(
         &mut self,
         sender: PrincipalData,
+        sponsor: Option<PrincipalData>,
         f: F,
     ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
     where
@@ -602,7 +629,7 @@ impl<'a> OwnedEnvironment<'a> {
         self.begin();
 
         let result = {
-            let mut exec_env = self.get_exec_environment(Some(sender));
+            let mut exec_env = self.get_exec_environment(Some(sender), sponsor);
             f(&mut exec_env)
         };
 
@@ -622,10 +649,13 @@ impl<'a> OwnedEnvironment<'a> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
+        sponsor: Option<PrincipalData>,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(contract_identifier.issuer.clone().into(), |exec_env| {
-            exec_env.initialize_contract(contract_identifier, contract_content)
-        })
+        self.execute_in_env(
+            contract_identifier.issuer.clone().into(),
+            sponsor.clone(),
+            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content),
+        )
     }
 
     pub fn initialize_contract_from_ast(
@@ -633,24 +663,30 @@ impl<'a> OwnedEnvironment<'a> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &ContractAST,
         contract_string: &str,
+        sponsor: Option<PrincipalData>,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(contract_identifier.issuer.clone().into(), |exec_env| {
-            exec_env.initialize_contract_from_ast(
-                contract_identifier,
-                contract_content,
-                contract_string,
-            )
-        })
+        self.execute_in_env(
+            contract_identifier.issuer.clone().into(),
+            sponsor.clone(),
+            |exec_env| {
+                exec_env.initialize_contract_from_ast(
+                    contract_identifier,
+                    contract_content,
+                    contract_string,
+                )
+            },
+        )
     }
 
     pub fn execute_transaction(
         &mut self,
         sender: PrincipalData,
+        sponsor: Option<PrincipalData>,
         contract_identifier: QualifiedContractIdentifier,
         tx_name: &str,
         args: &[SymbolicExpression],
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(sender, |exec_env| {
+        self.execute_in_env(sender, sponsor, |exec_env| {
             exec_env.execute_contract(&contract_identifier, tx_name, args, false)
         })
     }
@@ -660,9 +696,10 @@ impl<'a> OwnedEnvironment<'a> {
         from: &PrincipalData,
         to: &PrincipalData,
         amount: u128,
+        memo: &BuffData,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(from.clone(), |exec_env| {
-            exec_env.stx_transfer(from, to, amount)
+        self.execute_in_env(from.clone(), None, |exec_env| {
+            exec_env.stx_transfer(from, to, amount, memo)
         })
     }
 
@@ -672,22 +709,20 @@ impl<'a> OwnedEnvironment<'a> {
         mblock_hdr_1: &StacksMicroblockHeader,
         mblock_hdr_2: &StacksMicroblockHeader,
     ) -> std::result::Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ChainstateError> {
-        self.execute_in_env(sender.clone(), |exec_env| {
+        self.execute_in_env(sender.clone(), None, |exec_env| {
             exec_env.handle_poison_microblock(mblock_hdr_1, mblock_hdr_2)
         })
     }
 
     #[cfg(test)]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env::<_, _, ()>(recipient.clone(), |env| {
+        self.execute_in_env::<_, _, ()>(recipient.clone(), None, |env| {
             let mut snapshot = env
                 .global_context
                 .database
                 .get_stx_balance_snapshot(&recipient);
 
-            let mut balance = snapshot.balance().clone();
-            balance.amount_unlocked += amount;
-            snapshot.set_balance(balance);
+            snapshot.credit(amount);
             snapshot.save();
 
             env.global_context
@@ -706,6 +741,7 @@ impl<'a> OwnedEnvironment<'a> {
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
+            None,
             |exec_env| exec_env.eval_raw(program),
         )
     }
@@ -717,6 +753,7 @@ impl<'a> OwnedEnvironment<'a> {
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
+            None,
             |exec_env| exec_env.eval_read_only(contract, program),
         )
     }
@@ -812,19 +849,18 @@ impl CostTracker for GlobalContext<'_> {
 }
 
 impl<'a, 'b> Environment<'a, 'b> {
-    // Environments pack a reference to the global context (which is basically the db),
-    //   the current contract context, a call stack, and the current sender.
-    // Essentially, the point of the Environment struct is to prevent all the eval functions
-    //   from including all of these items in their method signatures individually. Because
-    //   these different contexts can be mixed and matched (i.e., in a contract-call, you change
-    //   contract context), a single "invocation" will end up creating multiple environment
-    //   objects as context changes occur.
+    /// Returns an Environment value & checks the types of the contract sender, caller, and sponsor
+    ///
+    /// # Panics
+    /// Panics if the Value types for sender (Principal), caller (Principal), or sponsor
+    /// (Optional Principal) are incorrect.
     pub fn new(
         global_context: &'a mut GlobalContext<'b>,
         contract_context: &'a ContractContext,
         call_stack: &'a mut CallStack,
         sender: Option<PrincipalData>,
         caller: Option<PrincipalData>,
+        sponsor: Option<PrincipalData>,
     ) -> Environment<'a, 'b> {
         Environment {
             global_context,
@@ -832,9 +868,11 @@ impl<'a, 'b> Environment<'a, 'b> {
             call_stack,
             sender,
             caller,
+            sponsor,
         }
     }
 
+    /// Leaving sponsor value as is for this new context (as opposed to setting it to None)
     pub fn nest_as_principal<'c>(&'c mut self, sender: PrincipalData) -> Environment<'c, 'b> {
         Environment::new(
             self.global_context,
@@ -842,6 +880,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             self.call_stack,
             Some(sender.clone()),
             Some(sender),
+            self.sponsor.clone(),
         )
     }
 
@@ -852,6 +891,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             self.call_stack,
             self.sender.clone(),
             Some(caller),
+            self.sponsor.clone(),
         )
     }
 
@@ -883,6 +923,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 self.call_stack,
                 self.sender.clone(),
                 self.caller.clone(),
+                self.sponsor.clone(),
             );
             let local_context = LocalContext::new();
             eval(&parsed[0], &mut nested_env, &local_context)
@@ -972,7 +1013,7 @@ impl<'a, 'b> Environment<'a, 'b> {
 
             match res {
                 Ok(value) => {
-                    handle_contract_call_special_cases(&mut self.global_context, self.sender.as_ref(), contract_identifier, tx_name, &value)?;
+                    handle_contract_call_special_cases(&mut self.global_context, self.sender.as_ref(), self.sponsor.as_ref(), contract_identifier, tx_name, &value)?;
                     Ok(value)
                 },
                 Err(e) => Err(e)
@@ -1003,6 +1044,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 self.call_stack,
                 self.sender.clone(),
                 self.caller.clone(),
+                self.sponsor.clone(),
             );
 
             function.execute_apply(args, &mut nested_env)
@@ -1089,10 +1131,16 @@ impl<'a, 'b> Environment<'a, 'b> {
             let memory_use = contract_string.len() as u64;
             self.add_memory(memory_use)?;
 
+            let version = ClarityVersion::default_for_epoch(
+                self.global_context.database.get_clarity_epoch_version(),
+            );
+
             let result = Contract::initialize_from_ast(
                 contract_identifier.clone(),
                 contract_content,
+                self.sponsor.clone(),
                 &mut self.global_context,
+                version,
             );
             self.drop_memory(memory_use);
             result
@@ -1127,9 +1175,10 @@ impl<'a, 'b> Environment<'a, 'b> {
         from: &PrincipalData,
         to: &PrincipalData,
         amount: u128,
+        memo: &BuffData,
     ) -> Result<Value> {
         self.global_context.begin();
-        let result = stx_transfer_consolidated(self, from, to, amount);
+        let result = stx_transfer_consolidated(self, from, to, amount, memo);
         match result {
             Ok(value) => match value.clone().expect_result() {
                 Ok(_) => {
@@ -1191,11 +1240,13 @@ impl<'a, 'b> Environment<'a, 'b> {
         sender: PrincipalData,
         recipient: PrincipalData,
         amount: u128,
+        memo: BuffData,
     ) -> Result<()> {
         let event_data = STXTransferEventData {
             sender,
             recipient,
             amount,
+            memo,
         };
 
         if let Some(batch) = self.global_context.event_batches.last_mut() {
@@ -1525,7 +1576,10 @@ impl<'a> GlobalContext<'a> {
 }
 
 impl ContractContext {
-    pub fn new(contract_identifier: QualifiedContractIdentifier) -> Self {
+    pub fn new(
+        contract_identifier: QualifiedContractIdentifier,
+        clarity_version: ClarityVersion,
+    ) -> Self {
         Self {
             contract_identifier,
             variables: HashMap::new(),
@@ -1538,6 +1592,7 @@ impl ContractContext {
             meta_data_var: HashMap::new(),
             meta_nft: HashMap::new(),
             meta_ft: HashMap::new(),
+            clarity_version,
         }
     }
 
@@ -1561,11 +1616,15 @@ impl ContractContext {
     }
 
     pub fn is_name_used(&self, name: &str) -> bool {
-        is_reserved(name)
+        is_reserved(name, self.get_clarity_version())
             || self.variables.contains_key(name)
             || self.functions.contains_key(name)
             || self.persisted_names.contains(name)
             || self.defined_traits.contains_key(name)
+    }
+
+    pub fn get_clarity_version(&self) -> &ClarityVersion {
+        &self.clarity_version
     }
 }
 

@@ -16,7 +16,7 @@
 
 use vm::functions::tuples;
 
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost, CostTracker};
 use vm::errors::{
@@ -25,12 +25,15 @@ use vm::errors::{
 };
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    AssetIdentifier, BlockInfoProperty, BuffData, OptionalData, PrincipalData, TypeSignature, Value,
+    AssetIdentifier, BlockInfoProperty, BuffData, CharType, OptionalData, PrincipalData,
+    SequenceData, TypeSignature, Value,
 };
 use vm::{eval, Environment, LocalContext};
 
 use vm::database::ClarityDatabase;
 use vm::database::STXBalance;
+
+use crate::vm::types::TupleData;
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,
@@ -104,6 +107,7 @@ pub fn stx_transfer_consolidated(
     from: &PrincipalData,
     to: &PrincipalData,
     amount: u128,
+    memo: &BuffData,
 ) -> Result<Value> {
     if amount == 0 {
         return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
@@ -123,8 +127,8 @@ pub fn stx_transfer_consolidated(
     // loading from's locked amount and height
     // TODO: this does not count the inner stacks block header load, but arguably,
     // this could be optimized away, so it shouldn't penalize the caller.
-    env.add_memory(STXBalance::size_of as u64)?;
-    env.add_memory(STXBalance::size_of as u64)?;
+    env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
+    env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
     let sender_snapshot = env.global_context.database.get_stx_balance_snapshot(from);
     if !sender_snapshot.can_transfer(amount) {
@@ -134,7 +138,7 @@ pub fn stx_transfer_consolidated(
     sender_snapshot.transfer_to(to, amount)?;
 
     env.global_context.log_stx_transfer(&from, amount)?;
-    env.register_stx_transfer_event(from.clone(), to.clone(), amount)?;
+    env.register_stx_transfer_event(from.clone(), to.clone(), amount, memo.clone())?;
     Ok(Value::okay_true())
 }
 
@@ -150,14 +154,85 @@ pub fn special_stx_transfer(
     let amount_val = eval(&args[0], env, context)?;
     let from_val = eval(&args[1], env, context)?;
     let to_val = eval(&args[2], env, context)?;
+    let memo_val = Value::Sequence(SequenceData::Buffer(BuffData::empty()));
 
-    if let (Value::Principal(ref from), Value::Principal(ref to), Value::UInt(amount)) =
-        (&from_val, to_val, amount_val)
+    if let (
+        Value::Principal(ref from),
+        Value::Principal(ref to),
+        Value::UInt(amount),
+        Value::Sequence(SequenceData::Buffer(ref memo)),
+    ) = (from_val, to_val, amount_val, memo_val)
     {
-        stx_transfer_consolidated(env, from, to, amount)
+        stx_transfer_consolidated(env, from, to, amount, memo)
     } else {
         Err(CheckErrors::BadTransferSTXArguments.into())
     }
+}
+
+pub fn special_stx_transfer_memo(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(4, args)?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+
+    let amount_val = eval(&args[0], env, context)?;
+    let from_val = eval(&args[1], env, context)?;
+    let to_val = eval(&args[2], env, context)?;
+    let memo_val = eval(&args[3], env, context)?;
+
+    if let (
+        Value::Principal(ref from),
+        Value::Principal(ref to),
+        Value::UInt(amount),
+        Value::Sequence(SequenceData::Buffer(ref memo)),
+    ) = (from_val, to_val, amount_val, memo_val)
+    {
+        stx_transfer_consolidated(env, from, to, amount, memo)
+    } else {
+        Err(CheckErrors::BadTransferSTXArguments.into())
+    }
+}
+
+pub fn special_stx_account(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+
+    let owner = eval(&args[0], env, context)?;
+    let principal = if let Value::Principal(p) = owner {
+        p
+    } else {
+        return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into());
+    };
+
+    let stx_balance = env
+        .global_context
+        .database
+        .get_stx_balance_snapshot(&principal)
+        .canonical_balance_repr();
+    let v1_unlock_ht = env.global_context.database.get_v1_unlock_height();
+
+    TupleData::from_data(vec![
+        (
+            "unlocked".try_into().unwrap(),
+            Value::UInt(stx_balance.amount_unlocked()),
+        ),
+        (
+            "locked".try_into().unwrap(),
+            Value::UInt(stx_balance.amount_locked()),
+        ),
+        (
+            "unlock-height".try_into().unwrap(),
+            Value::UInt(stx_balance.effective_unlock_height(v1_unlock_ht) as u128),
+        ),
+    ])
+    .map(|t| Value::Tuple(t))
 }
 
 pub fn special_stx_burn(
@@ -182,7 +257,7 @@ pub fn special_stx_burn(
         }
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(STXBalance::size_of as u64)?;
+        env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
         let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(&from);
         if !burner_snapshot.can_transfer(amount) {

@@ -28,6 +28,7 @@ use vm::costs::LimitedCostTracker;
 use vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use vm::representations::SymbolicExpression;
 use vm::types::{QualifiedContractIdentifier, TypeSignature};
+use vm::ClarityVersion;
 
 pub use self::analysis_db::AnalysisDatabase;
 pub use self::errors::{CheckError, CheckErrors, CheckResult};
@@ -38,47 +39,36 @@ use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::TypeChecker;
 
-pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+pub fn mem_type_check(
+    snippet: &str,
+    version: ClarityVersion,
+) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     use crate::clarity_vm::database::MemoryBackingStore;
     use vm::ast::parse;
     let contract_identifier = QualifiedContractIdentifier::transient();
     let mut contract = parse(&contract_identifier, snippet).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
-    type_check(
+    match run_analysis(
         &QualifiedContractIdentifier::transient(),
         &mut contract,
         &mut analysis_db,
         false,
-    )
-    .map(|x| {
-        // return the first type result of the type checker
-        let first_type = x
-            .type_map
-            .as_ref()
-            .unwrap()
-            .get_type(&x.expressions.last().unwrap())
-            .cloned();
-        (first_type, x)
-    })
-}
-
-// Legacy function
-// The analysis is not just checking type.
-pub fn type_check(
-    contract_identifier: &QualifiedContractIdentifier,
-    expressions: &mut [SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
-    insert_contract: bool,
-) -> CheckResult<ContractAnalysis> {
-    run_analysis(
-        &contract_identifier,
-        expressions,
-        analysis_db,
-        insert_contract,
         LimitedCostTracker::new_free(),
-    )
-    .map_err(|(e, _cost_tracker)| e)
+        version,
+    ) {
+        Ok(x) => {
+            // return the first type result of the type checker
+            let first_type = x
+                .type_map
+                .as_ref()
+                .unwrap()
+                .get_type(&x.expressions.last().unwrap())
+                .cloned();
+            Ok((first_type, x))
+        }
+        Err((e, _)) => Err(e),
+    }
 }
 
 pub fn run_analysis(
@@ -87,11 +77,13 @@ pub fn run_analysis(
     analysis_db: &mut AnalysisDatabase,
     save_contract: bool,
     cost_tracker: LimitedCostTracker,
+    version: ClarityVersion,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
         expressions.to_vec(),
         cost_tracker,
+        version,
     );
     let result = analysis_db.execute(|db| {
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;

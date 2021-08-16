@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::proof::ClarityMarfTrieId;
 use crate::util::boot::boot_code_id;
+use crate::{types::chainstate::BlockHeaderHash, vm::database::NULL_BURN_STATE_DB_2_1};
 use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use clarity_vm::clarity::ClarityInstance;
@@ -39,7 +39,9 @@ use vm::tests::{
     execute, is_committed, is_err_code, symbols_from_values, with_marfed_environment,
     with_memory_environment,
 };
-use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
+use vm::types::{
+    AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
+};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
@@ -77,6 +79,15 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         SetVar => "(var-set var-foo 1)",
         Map => "(map not list-foo)",
         Filter => "(filter not list-foo)",
+        BuffToIntLe => "(buff-to-int-le 0x00000000000000000000000000000001)",
+        BuffToUIntLe => "(buff-to-uint-le 0x00000000000000000000000000000001)",
+        BuffToIntBe => "(buff-to-int-be 0x00000000000000000000000000000001)",
+        BuffToUIntBe => "(buff-to-uint-be 0x00000000000000000000000000000001)",
+        IsStandard => "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
+        StringToInt => r#"(string-to-int "-1")"#,
+        StringToUInt => r#"(string-to-uint "1")"#,
+        IntToAscii => r#"(int-to-ascii 1)"#,
+        IntToUtf8 => r#"(int-to-utf8 1)"#,
         Fold => "(fold + list-bar 0)",
         Append => "(append list-bar 1)",
         Concat => "(concat list-bar list-bar)",
@@ -132,8 +143,10 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         GetTokenSupply => "(ft-get-supply ft-foo)",
         AtBlock => "(at-block 0x55c9861be5cff984a20ce6d99d4aa65941412889bdc665094136429b84f8c2ee 1)",   // first stacksblockid
         GetStxBalance => "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        StxTransfer => "(stx-transfer? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        StxTransfer => r#"(stx-transfer? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
+        StxTransferMemo => r#"(stx-transfer-memo? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x89995432)"#,
         StxBurn => "(stx-burn? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        StxGetAccount => "(stx-account 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
     }
 }
 
@@ -144,7 +157,7 @@ fn execute_transaction(
     tx: &str,
     args: &[SymbolicExpression],
 ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
-    env.execute_transaction(issuer, contract_identifier.clone(), tx, args)
+    env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
 fn test_tracked_costs(prog: &str) -> ExecutionCost {
@@ -210,17 +223,27 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
         &StacksBlockId([1 as u8; 32]),
     );
 
-    let mut owned_env =
-        OwnedEnvironment::new_max_limit(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+    let mut owned_env = OwnedEnvironment::new_max_limit(
+        store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB_2_1),
+    );
 
     owned_env
-        .initialize_contract(trait_contract_id.clone(), contract_trait)
+        .execute_in_env::<_, _, ::vm::errors::Error>(p1_principal.clone().into(), None, |env| {
+            env.global_context
+                .database
+                .set_clarity_epoch_version(crate::core::StacksEpochId::Epoch21);
+            Ok(())
+        })
+        .unwrap();
+
+    owned_env
+        .initialize_contract(trait_contract_id.clone(), contract_trait, None)
         .unwrap();
     owned_env
-        .initialize_contract(other_contract_id.clone(), contract_other)
+        .initialize_contract(other_contract_id.clone(), contract_other, None)
         .unwrap();
     owned_env
-        .initialize_contract(self_contract_id.clone(), &contract_self)
+        .initialize_contract(self_contract_id.clone(), &contract_self, None)
         .unwrap();
 
     let target_contract = Value::from(PrincipalData::Contract(other_contract_id));
@@ -328,7 +351,7 @@ fn test_cost_contract_short_circuits() {
                 let (ast, analysis) = tx
                     .analyze_smart_contract(contract_name, contract_src)
                     .unwrap();
-                tx.initialize_smart_contract(contract_name, &ast, contract_src, |_, _| false)
+                tx.initialize_smart_contract(contract_name, &ast, contract_src, None, |_, _| false)
                     .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();
             });
@@ -573,7 +596,7 @@ fn test_cost_voting_integration() {
                 let (ast, analysis) = tx
                     .analyze_smart_contract(contract_name, contract_src)
                     .unwrap();
-                tx.initialize_smart_contract(contract_name, &ast, contract_src, |_, _| false)
+                tx.initialize_smart_contract(contract_name, &ast, contract_src, None, |_, _| false)
                     .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();
             });

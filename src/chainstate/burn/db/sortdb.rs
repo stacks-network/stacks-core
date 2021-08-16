@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::cmp::Ord;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 use std::convert::{From, TryFrom, TryInto};
 use std::io::{ErrorKind, Write};
 use std::ops::Deref;
@@ -56,6 +58,7 @@ use chainstate::stacks::*;
 use chainstate::ChainstateDB;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
+use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use net::{Error as NetError, Error};
 use util::db::tx_begin_immediate;
@@ -70,7 +73,8 @@ use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use util::log;
 use util::secp256k1::MessageSignature;
 use util::strings::StacksString;
-use util::vrf::*;
+use util::vrf::VRFPublicKey;
+
 use vm::representations::{ClarityName, ContractName};
 use vm::types::Value;
 
@@ -417,7 +421,22 @@ impl FromRow<AcceptedStacksBlockHeader> for AcceptedStacksBlockHeader {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "1";
+impl FromRow<StacksEpoch> for StacksEpoch {
+    fn from_row<'a>(row: &'a Row) -> Result<StacksEpoch, db_error> {
+        let epoch_id_u32: u32 = row.get_unwrap("epoch_id");
+        let epoch_id = StacksEpochId::try_from(epoch_id_u32).map_err(|_| db_error::ParseError)?;
+
+        let start_height = u64::from_column(row, "start_block_height")?;
+        let end_height = u64::from_column(row, "end_block_height")?;
+        Ok(StacksEpoch {
+            epoch_id,
+            start_height,
+            end_height,
+        })
+    }
+}
+
+pub const SORTITION_DB_VERSION: &'static str = "2";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -579,6 +598,13 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
     "CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
     "CREATE TABLE db_config(version TEXT NOT NULL);",
+    r#"
+    CREATE TABLE epochs (
+        start_block_height INTEGER NOT NULL,
+        end_block_height INTEGER NOT NULL,
+        epoch_id INTEGER NOT NULL,
+        PRIMARY KEY(start_block_height,epoch_id)
+    );"#
 ];
 
 pub struct SortitionDB {
@@ -586,16 +612,19 @@ pub struct SortitionDB {
     pub marf: MARF<SortitionId>,
     pub first_block_height: u64,
     pub first_burn_header_hash: BurnchainHeaderHash,
+    pub pox_constants: PoxConstants,
 }
 
 #[derive(Clone)]
 pub struct SortitionDBTxContext {
     pub first_block_height: u64,
+    pub pox_constants: PoxConstants,
 }
 
 #[derive(Clone)]
 pub struct SortitionHandleContext {
     pub first_block_height: u64,
+    pub pox_constants: PoxConstants,
     pub chain_tip: SortitionId,
 }
 
@@ -772,6 +801,7 @@ impl<'a> SortitionHandleTx<'a> {
             SortitionHandleContext {
                 chain_tip: parent_chain_tip.clone(),
                 first_block_height: conn.first_block_height,
+                pox_constants: conn.pox_constants.clone(),
             },
         );
 
@@ -1451,6 +1481,7 @@ impl<'a> SortitionHandleConn<'a> {
             context: SortitionHandleContext {
                 chain_tip: chain_tip.clone(),
                 first_block_height: connection.context.first_block_height,
+                pox_constants: connection.context.pox_constants.clone(),
             },
             index: &connection.index,
         })
@@ -1932,6 +1963,7 @@ impl SortitionDB {
             &mut self.marf,
             SortitionDBTxContext {
                 first_block_height: self.first_block_height,
+                pox_constants: self.pox_constants.clone(),
             },
         );
         Ok(index_tx)
@@ -1943,6 +1975,7 @@ impl SortitionDB {
             &self.marf,
             SortitionDBTxContext {
                 first_block_height: self.first_block_height,
+                pox_constants: self.pox_constants.clone(),
             },
         )
     }
@@ -1953,6 +1986,7 @@ impl SortitionDB {
             SortitionHandleContext {
                 first_block_height: self.first_block_height,
                 chain_tip: chain_tip.clone(),
+                pox_constants: self.pox_constants.clone(),
             },
         )
     }
@@ -1970,6 +2004,7 @@ impl SortitionDB {
             SortitionHandleContext {
                 first_block_height: self.first_block_height,
                 chain_tip: chain_tip.clone(),
+                pox_constants: self.pox_constants.clone(),
             },
         ))
     }
@@ -1986,7 +2021,11 @@ impl SortitionDB {
     /// Open the database on disk.  It must already exist and be instantiated.
     /// It's best not to call this if you are able to call connect().  If you must call this, do so
     /// after you call connect() somewhere else, since connect() performs additional validations.
-    pub fn open(path: &str, readwrite: bool) -> Result<SortitionDB, db_error> {
+    pub fn open(
+        path: &str,
+        readwrite: bool,
+        pox_constants: PoxConstants,
+    ) -> Result<SortitionDB, db_error> {
         let (db_path, index_path) = db_mkdirs(path)?;
         debug!(
             "Open sortdb '{}' as '{}', with index as '{}'",
@@ -2001,6 +2040,7 @@ impl SortitionDB {
         let db = SortitionDB {
             marf,
             readwrite,
+            pox_constants,
             first_block_height: first_snapshot.block_height,
             first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
         };
@@ -2014,6 +2054,8 @@ impl SortitionDB {
         first_block_height: u64,
         first_burn_hash: &BurnchainHeaderHash,
         first_burn_header_timestamp: u64,
+        epochs: &[StacksEpoch],
+        pox_constants: PoxConstants,
         readwrite: bool,
     ) -> Result<SortitionDB, db_error> {
         let create_flag = match fs::metadata(path) {
@@ -2047,6 +2089,7 @@ impl SortitionDB {
             marf,
             readwrite,
             first_block_height,
+            pox_constants,
             first_burn_header_hash: first_burn_hash.clone(),
         };
 
@@ -2056,6 +2099,7 @@ impl SortitionDB {
                 first_block_height,
                 first_burn_hash,
                 first_burn_header_timestamp,
+                epochs,
             )?;
         } else {
             // validate -- must contain the given first block and first block hash
@@ -2089,8 +2133,48 @@ impl SortitionDB {
             first_block_height,
             first_burn_hash,
             get_epoch_time_secs(),
+            &StacksEpoch::unit_test(first_block_height),
+            PoxConstants::test_default(),
             true,
         )
+    }
+
+    /// Validate all Stacks Epochs. Since this is data that always comes from a static variable,
+    /// any invalid StacksEpoch structuring should result in a runtime panic.
+    fn validate_epochs(epochs_ref: &[StacksEpoch]) -> Vec<StacksEpoch> {
+        // sanity check -- epochs must all be contiguous, each epoch must be unique,
+        // and the range of epochs should span the whole non-negative i64 space.
+        let mut epochs = epochs_ref.to_vec();
+        let mut seen_epochs = HashSet::new();
+        epochs.sort();
+
+        let mut epoch_end_height = 0;
+        for epoch in epochs.iter() {
+            assert!(
+                epoch.start_height <= epoch.end_height,
+                "{} > {} for {:?}",
+                epoch.start_height,
+                epoch.end_height,
+                &epoch.epoch_id
+            );
+
+            if epoch_end_height == 0 {
+                // first ever epoch must be defined for all of the prior chain history
+                assert_eq!(epoch.start_height, 0);
+                epoch_end_height = epoch.end_height;
+            } else {
+                assert_eq!(epoch_end_height, epoch.start_height);
+                epoch_end_height = epoch.end_height;
+            }
+            if seen_epochs.contains(&epoch.epoch_id) {
+                panic!("BUG: duplicate epoch");
+            }
+
+            seen_epochs.insert(epoch.epoch_id);
+        }
+
+        assert_eq!(epoch_end_height, STACKS_EPOCH_MAX);
+        epochs
     }
 
     fn instantiate(
@@ -2098,6 +2182,7 @@ impl SortitionDB {
         first_block_height: u64,
         first_burn_header_hash: &BurnchainHeaderHash,
         first_burn_header_timestamp: u64,
+        epochs_ref: &[StacksEpoch],
     ) -> Result<(), db_error> {
         debug!("Instantiate SortDB");
 
@@ -2121,6 +2206,19 @@ impl SortitionDB {
 
         for row_text in SORTITION_DB_INITIAL_SCHEMA {
             db_tx.execute_batch(row_text)?;
+        }
+
+        let epochs = SortitionDB::validate_epochs(epochs_ref);
+        for epoch in epochs.into_iter() {
+            let args: &[&dyn ToSql] = &[
+                &(epoch.epoch_id as u32),
+                &u64_to_sql(epoch.start_height)?,
+                &u64_to_sql(epoch.end_height)?,
+            ];
+            db_tx.execute(
+                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height) VALUES (?1,?2,?3)",
+                args
+            )?;
         }
 
         db_tx.execute(
@@ -2171,6 +2269,7 @@ impl<'a> SortitionDBConn<'a> {
             context: SortitionHandleContext {
                 first_block_height: self.context.first_block_height.clone(),
                 chain_tip: chain_tip.clone(),
+                pox_constants: self.context.pox_constants.clone(),
             },
         }
     }
@@ -3192,6 +3291,20 @@ impl SortitionDB {
         }
 
         Ok(None)
+    }
+
+    /// Get the StacksEpoch for a given burn block height
+    pub fn get_stacks_epoch(
+        conn: &DBConn,
+        burn_block_height: u64,
+    ) -> Result<Option<StacksEpoch>, db_error> {
+        let sql =
+            "SELECT * FROM epochs WHERE start_block_height <= ?1 AND ?2 < end_block_height LIMIT 1";
+        let args: &[&dyn ToSql] = &[
+            &u64_to_sql(burn_block_height)?,
+            &u64_to_sql(burn_block_height)?,
+        ];
+        query_row(conn, sql, args)
     }
 }
 
@@ -6655,5 +6768,239 @@ pub mod tests {
             BlockHeaderHash([0x48; 32])
         );
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 8);
+    }
+
+    #[test]
+    fn test_epoch_switch() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+
+        let mut db = SortitionDB::connect(
+            &db_path_dir,
+            3,
+            &BurnchainHeaderHash([0u8; 32]),
+            0,
+            &vec![
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch10,
+                    start_height: 0,
+                    end_height: 8,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch20,
+                    start_height: 8,
+                    end_height: 12,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch21,
+                    start_height: 12,
+                    end_height: STACKS_EPOCH_MAX,
+                },
+            ],
+            PoxConstants::test_default(),
+            true,
+        )
+        .unwrap();
+
+        let mut cur_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        for i in 0..20 {
+            debug!("Get epoch for block height {}", cur_snapshot.block_height);
+            let cur_epoch = SortitionDB::get_stacks_epoch(db.conn(), cur_snapshot.block_height)
+                .unwrap()
+                .unwrap();
+
+            if cur_snapshot.block_height < 8 {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch10);
+            } else if cur_snapshot.block_height < 12 {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch20);
+            } else {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch21);
+            }
+
+            cur_snapshot =
+                test_append_snapshot(&mut db, BurnchainHeaderHash([((i + 1) as u8); 32]), &vec![]);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bad_epochs_discontinuous() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+
+        let db = SortitionDB::connect(
+            &db_path_dir,
+            3,
+            &BurnchainHeaderHash([0u8; 32]),
+            0,
+            &vec![
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch10,
+                    start_height: 0,
+                    end_height: 8,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch20,
+                    start_height: 9,
+                    end_height: 12,
+                }, // discontinuity
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch21,
+                    start_height: 12,
+                    end_height: STACKS_EPOCH_MAX,
+                },
+            ],
+            PoxConstants::test_default(),
+            true,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bad_epochs_overlapping() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+
+        let db = SortitionDB::connect(
+            &db_path_dir,
+            3,
+            &BurnchainHeaderHash([0u8; 32]),
+            0,
+            &vec![
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch10,
+                    start_height: 0,
+                    end_height: 8,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch20,
+                    start_height: 7,
+                    end_height: 12,
+                }, // overlap
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch21,
+                    start_height: 12,
+                    end_height: STACKS_EPOCH_MAX,
+                },
+            ],
+            PoxConstants::test_default(),
+            true,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bad_epochs_missing_past() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+
+        let db = SortitionDB::connect(
+            &db_path_dir,
+            3,
+            &BurnchainHeaderHash([0u8; 32]),
+            0,
+            &vec![
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch10,
+                    start_height: 1,
+                    end_height: 8,
+                }, // should start at 0
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch20,
+                    start_height: 8,
+                    end_height: 12,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch21,
+                    start_height: 12,
+                    end_height: STACKS_EPOCH_MAX,
+                },
+            ],
+            PoxConstants::test_default(),
+            true,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bad_epochs_missing_future() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+
+        let db = SortitionDB::connect(
+            &db_path_dir,
+            3,
+            &BurnchainHeaderHash([0u8; 32]),
+            0,
+            &vec![
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch10,
+                    start_height: 0,
+                    end_height: 8,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch20,
+                    start_height: 8,
+                    end_height: 12,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch21,
+                    start_height: 12,
+                    end_height: 20,
+                }, // missing future
+            ],
+            PoxConstants::test_default(),
+            true,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bad_epochs_invalid() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+
+        let db = SortitionDB::connect(
+            &db_path_dir,
+            3,
+            &BurnchainHeaderHash([0u8; 32]),
+            0,
+            &vec![
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch10,
+                    start_height: 0,
+                    end_height: 8,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch20,
+                    start_height: 8,
+                    end_height: 7,
+                }, // invalid range
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch21,
+                    start_height: 8,
+                    end_height: STACKS_EPOCH_MAX,
+                },
+            ],
+            PoxConstants::test_default(),
+            true,
+        )
+        .unwrap();
     }
 }

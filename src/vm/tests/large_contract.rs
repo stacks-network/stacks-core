@@ -91,9 +91,13 @@ pub fn rollback_log_memory_test() {
                 .unwrap();
             assert!(format!(
                 "{:?}",
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| { false }
+                )
                 .unwrap_err()
             )
             .contains("MemoryBalanceExceeded"));
@@ -157,9 +161,13 @@ pub fn let_memory_test() {
                 .unwrap();
             assert!(format!(
                 "{:?}",
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| { false }
+                )
                 .unwrap_err()
             )
             .contains("MemoryBalanceExceeded"));
@@ -221,9 +229,13 @@ pub fn argument_memory_test() {
                 .unwrap();
             assert!(format!(
                 "{:?}",
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
+                conn.initialize_smart_contract(
+                    &contract_identifier,
+                    &ct_ast,
+                    &contract,
+                    None,
+                    |_, _| { false }
+                )
                 .unwrap_err()
             )
             .contains("MemoryBalanceExceeded"));
@@ -308,6 +320,7 @@ pub fn fcall_memory_test() {
                     &contract_identifier,
                     &ct_ast,
                     &contract_ok,
+                    None,
                     |_, _| true
                 )
                 .unwrap_err()
@@ -327,6 +340,7 @@ pub fn fcall_memory_test() {
                     &contract_identifier,
                     &ct_ast,
                     &contract_err,
+                    None,
                     |_, _| false
                 )
                 .unwrap_err()
@@ -405,6 +419,7 @@ pub fn ccall_memory_test() {
                         &contract_identifier,
                         &ct_ast,
                         &contract,
+                        None,
                         |_, _| false,
                     )
                     .unwrap();
@@ -422,6 +437,7 @@ pub fn ccall_memory_test() {
                             &contract_identifier,
                             &ct_ast,
                             &contract,
+                            None,
                             |_, _| false
                         )
                         .unwrap_err()

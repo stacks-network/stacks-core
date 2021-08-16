@@ -217,7 +217,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
-        let sort_db = SortitionDB::open(&sort_db_path, false)
+        let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
             .expect(&format!("Failed to open {}", &sort_db_path));
         let chain_id = core::CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
@@ -264,7 +264,7 @@ check if the associated microblocks can be downloaded
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
-        let sort_db = SortitionDB::open(&sort_db_path, false)
+        let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
             .expect(&format!("Failed to open {}", &sort_db_path));
         let chain_id = core::CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
@@ -374,8 +374,8 @@ check if the associated microblocks can be downloaded
             .map(|x| x.parse().expect("Failed to parse <end-height> argument"))
             .unwrap_or(start_height);
 
-        let sort_db =
-            SortitionDB::open(&argv[2], false).expect(&format!("Failed to open {}", argv[2]));
+        let sort_db = SortitionDB::open(&argv[2], false, PoxConstants::mainnet_default())
+            .expect(&format!("Failed to open {}", argv[2]));
         let chain_tip = SortitionDB::get_canonical_sortition_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
         let sort_conn = sort_db.index_handle(&chain_tip);
@@ -434,7 +434,7 @@ simulating a miner.
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
-        let sort_db = SortitionDB::open(&sort_db_path, false)
+        let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
             .expect(&format!("Failed to open {}", &sort_db_path));
         let chain_id = core::CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
@@ -671,7 +671,8 @@ simulating a miner.
         let path = &argv[2];
         let sort_path = &argv[3];
         let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, path).unwrap();
-        let mut sortition_db = SortitionDB::open(sort_path, true).unwrap();
+        let mut sortition_db =
+            SortitionDB::open(sort_path, true, PoxConstants::mainnet_default()).unwrap();
         let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn())
             .unwrap()
             .sortition_id;
@@ -714,7 +715,8 @@ simulating a miner.
 
         let (old_chainstate, _) =
             StacksChainState::open(false, 0x80000000, old_chainstate_path).unwrap();
-        let old_sortition_db = SortitionDB::open(old_sort_path, true).unwrap();
+        let old_sortition_db =
+            SortitionDB::open(old_sort_path, true, PoxConstants::mainnet_default()).unwrap();
 
         // initial argon balances -- see testnet/stacks-node/conf/testnet-follower-conf.toml
         let initial_balances = vec![
@@ -755,11 +757,13 @@ simulating a miner.
         let burnchain = Burnchain::regtest(&burnchain_db_path);
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
+        let epochs = StacksEpoch::all(first_burnchain_block_height, u64::max_value());
         let (mut new_sortition_db, _) = burnchain
             .connect_db(
                 true,
                 first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
+                epochs,
             )
             .unwrap();
 
@@ -844,11 +848,14 @@ simulating a miner.
         let mut known_stacks_blocks = HashSet::new();
         let mut next_arrival = 0;
 
+        let epochs = StacksEpoch::all(first_burnchain_block_height, u64::max_value());
+
         let (p2p_new_sortition_db, _) = burnchain
             .connect_db(
                 true,
                 first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
+                epochs,
             )
             .unwrap();
         let (mut p2p_chainstate, _) = StacksChainState::open_with_block_limit(

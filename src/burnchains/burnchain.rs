@@ -59,11 +59,13 @@ use chainstate::burn::operations::{
 use chainstate::burn::{BlockSnapshot, Opcodes};
 use chainstate::coordinator::comm::CoordinatorChannels;
 use chainstate::stacks::StacksPublicKey;
+use core::StacksEpoch;
 use core::MINING_COMMITMENT_WINDOW;
 use core::NETWORK_ID_MAINNET;
 use core::NETWORK_ID_TESTNET;
 use core::PEER_VERSION_MAINNET;
 use core::PEER_VERSION_TESTNET;
+use core::STACKS_EPOCHS_MAINNET;
 use deps;
 use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use monitoring::update_burnchain_height;
@@ -623,6 +625,7 @@ impl Burnchain {
         readwrite: bool,
         first_block_header_hash: BurnchainHeaderHash,
         first_block_header_timestamp: u64,
+        epochs: Vec<StacksEpoch>,
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
@@ -634,6 +637,8 @@ impl Burnchain {
             self.first_block_height,
             &first_block_header_hash,
             first_block_header_timestamp,
+            &epochs,
+            self.pox_constants.clone(),
             readwrite,
         )?;
         let burnchaindb = BurnchainDB::connect(
@@ -662,7 +667,7 @@ impl Burnchain {
             return Err(burnchain_error::DBError(db_error::NoDBError));
         }
 
-        let sortition_db = SortitionDB::open(&db_path, readwrite)?;
+        let sortition_db = SortitionDB::open(&db_path, readwrite, self.pox_constants.clone())?;
         let burnchain_db = BurnchainDB::open(&burnchain_db_path, readwrite)?;
 
         Ok((sortition_db, burnchain_db))
@@ -940,6 +945,7 @@ impl Burnchain {
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
+            indexer.get_stacks_epochs(),
         )?;
         let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
             error!("Failed to query burn chain tip from burn DB: {}", e);
@@ -1161,6 +1167,7 @@ impl Burnchain {
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
+            indexer.get_stacks_epochs(),
         )?;
         let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
             error!("Failed to query burn chain tip from burn DB: {}", e);

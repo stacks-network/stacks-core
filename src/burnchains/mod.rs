@@ -38,6 +38,7 @@ use util::db::Error as db_error;
 use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
@@ -282,7 +283,7 @@ pub struct BurnchainBlockHeader {
     pub timestamp: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Burnchain {
     pub peer_version: u32,
     pub network_id: u32,
@@ -298,7 +299,7 @@ pub struct Burnchain {
     pub initial_reward_start_block: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PoxConstants {
     /// the length (in burn blocks) of the reward cycle
     pub reward_cycle_length: u32,
@@ -317,6 +318,10 @@ pub struct PoxConstants {
     pub sunset_end: u64,
     /// first block height of sunset phase
     pub sunset_start: u64,
+    /// The auto unlock height for PoX v1 lockups before transition to PoX v2. This
+    /// also defines the burn height at which PoX reward sets are calculated using
+    /// PoX v2 rather than v1
+    pub v1_unlock_height: u32,
     _shadow: PhantomData<()>,
 }
 
@@ -329,6 +334,7 @@ impl PoxConstants {
         pox_participation_threshold_pct: u64,
         sunset_start: u64,
         sunset_end: u64,
+        v1_unlock_height: u32,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
         assert!(prepare_length < reward_cycle_length);
@@ -342,13 +348,23 @@ impl PoxConstants {
             pox_participation_threshold_pct,
             sunset_start,
             sunset_end,
+            v1_unlock_height,
             _shadow: PhantomData,
         }
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
         // 20 reward slots; 10 prepare-phase slots
-        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000)
+        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000, u32::max_value())
+    }
+
+    /// Returns the PoX contract that is "active" at the given burn block height
+    pub fn active_pox_contract(&self, burn_height: u64) -> &'static str {
+        if burn_height >= (self.v1_unlock_height as u64) {
+            POX_2_NAME
+        } else {
+            POX_1_NAME
+        }
     }
 
     pub fn reward_slots(&self) -> u32 {
@@ -374,6 +390,7 @@ impl PoxConstants {
             5,
             BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
+            POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT,
         )
     }
 
@@ -386,6 +403,7 @@ impl PoxConstants {
             2,
             BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
+            POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT,
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
@@ -398,6 +416,7 @@ impl PoxConstants {
             1,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
+            1_000_000,
         )
     }
 }

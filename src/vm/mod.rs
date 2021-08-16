@@ -37,6 +37,7 @@ mod variables;
 
 pub mod analysis;
 pub mod docs;
+pub mod version;
 
 pub mod coverage;
 
@@ -66,6 +67,7 @@ use std::convert::{TryFrom, TryInto};
 pub use vm::contexts::MAX_CONTEXT_DEPTH;
 use vm::costs::cost_functions::ClarityCostFunction;
 pub use vm::functions::stx_transfer_consolidated;
+pub use vm::version::ClarityVersion;
 
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
@@ -106,7 +108,9 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
 pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType> {
     runtime_cost(ClarityCostFunction::LookupFunction, env, 0)?;
 
-    if let Some(result) = functions::lookup_reserved_functions(name) {
+    if let Some(result) =
+        functions::lookup_reserved_functions(name, env.contract_context.get_clarity_version())
+    {
         Ok(result)
     } else {
         let user_function = env
@@ -237,23 +241,24 @@ pub fn eval<'a>(
     }
 }
 
-pub fn is_reserved(name: &str) -> bool {
-    if let Some(_result) = functions::lookup_reserved_functions(name) {
+pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
+    if let Some(_result) = functions::lookup_reserved_functions(name, version) {
         true
-    } else if variables::is_reserved_name(name) {
+    } else if variables::is_reserved_name(name, version) {
         true
     } else {
         false
     }
 }
 
-/* This function evaluates a list of expressions, sharing a global context.
- * It returns the final evaluated result.
- */
+/// This function evaluates a list of expressions, sharing a global context.
+/// It returns the final evaluated result.
+/// Used for the initialization of a new contract.
 pub fn eval_all(
     expressions: &[SymbolicExpression],
     contract_context: &mut ContractContext,
     global_context: &mut GlobalContext,
+    sponsor: Option<PrincipalData>,
 ) -> Result<Option<Value>> {
     let mut last_executed = None;
     let context = LocalContext::new();
@@ -266,7 +271,7 @@ pub fn eval_all(
             let try_define = global_context.execute(|context| {
                 let mut call_stack = CallStack::new();
                 let mut env = Environment::new(
-                    context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()));
+                    context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
                 functions::define::evaluate_define(exp, &mut env)
             })?;
             match try_define {
@@ -346,7 +351,7 @@ pub fn eval_all(
                     global_context.execute(|global_context| {
                         let mut call_stack = CallStack::new();
                         let mut env = Environment::new(
-                            global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()));
+                            global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
 
                         let result = eval(exp, &mut env, &context)?;
                         last_executed = Some(result);
@@ -361,21 +366,45 @@ pub fn eval_all(
     })
 }
 
-/* Run provided program in a brand new environment, with a transient, empty
- *  database.
- *
- *  Only used by CLI.
- */
-pub fn execute(program: &str) -> Result<Option<Value>> {
+pub fn execute_against_version_and_network(
+    program: &str,
+    version: ClarityVersion,
+    as_mainnet: bool,
+) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone());
+    let mut contract_context = ContractContext::new(contract_id.clone(), version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
+    let mut global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
-        eval_all(&parsed, &mut contract_context, g)
+        eval_all(&parsed, &mut contract_context, g, None)
     })
+}
+
+/* Run provided program in a brand new environment, with a transient, empty
+ *  database. Only used by CLI and unit tests.
+ */
+pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
+    execute_against_version_and_network(program, version, false)
+}
+
+/* Run provided program in a brand new environment, with a transient, empty
+ *  database. Only used by CLI and unit tests.
+ *
+ * This version of the function assumes that the ClarityVersion is Clarity1.
+ */
+pub fn execute(program: &str) -> Result<Option<Value>> {
+    execute_against_version(program, ClarityVersion::Clarity1)
+}
+
+/* Run provided program in a brand new environment, with a transient, empty
+ *  database. Only used by CLI and unit tests.
+ *
+ * This version of the function assumes that the ClarityVersion is Clarity2.
+ */
+pub fn execute_v2(program: &str) -> Result<Option<Value>> {
+    execute_against_version(program, ClarityVersion::Clarity2)
 }
 
 #[cfg(test)]
@@ -392,6 +421,8 @@ mod test {
         CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
         Value,
     };
+
+    use super::ClarityVersion;
 
     #[test]
     fn test_simple_user_function() {
@@ -422,7 +453,10 @@ mod test {
         );
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
+        let mut contract_context = ContractContext::new(
+            QualifiedContractIdentifier::transient(),
+            ClarityVersion::Clarity1,
+        );
 
         let mut marf = MemoryBackingStore::new();
         let mut global_context =
@@ -440,6 +474,7 @@ mod test {
             &mut global_context,
             &contract_context,
             &mut call_stack,
+            None,
             None,
             None,
         );

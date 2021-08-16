@@ -20,7 +20,8 @@ use vm::callables::CallableType;
 use vm::contexts::{ContractContext, Environment, GlobalContext, LocalContext};
 use vm::errors::InterpreterResult as Result;
 use vm::representations::SymbolicExpression;
-use vm::types::QualifiedContractIdentifier;
+use vm::types::{PrincipalData, QualifiedContractIdentifier};
+use vm::version::ClarityVersion;
 use vm::{apply, eval_all, Value};
 
 #[derive(Serialize, Deserialize)]
@@ -34,14 +35,19 @@ impl Contract {
     pub fn initialize_from_ast(
         contract_identifier: QualifiedContractIdentifier,
         contract: &ContractAST,
+        sponsor: Option<PrincipalData>,
         global_context: &mut GlobalContext,
+        version: ClarityVersion,
     ) -> Result<Contract> {
-        let mut contract_context = ContractContext::new(contract_identifier);
+        let mut contract_context = ContractContext::new(contract_identifier, version);
 
-        eval_all(&contract.expressions, &mut contract_context, global_context)?;
+        eval_all(
+            &contract.expressions,
+            &mut contract_context,
+            global_context,
+            sponsor,
+        )?;
 
-        Ok(Contract {
-            contract_context: contract_context,
-        })
+        Ok(Contract { contract_context })
     }
 }

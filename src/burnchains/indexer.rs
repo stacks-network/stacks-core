@@ -20,6 +20,8 @@ use burnchains::*;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 
+use core::StacksEpoch;
+
 // IPC messages between threads
 pub trait BurnHeaderIPC {
     type H: Send + Sync + Clone;
@@ -62,6 +64,7 @@ pub trait BurnchainIndexer {
     fn get_first_block_height(&self) -> u64;
     fn get_first_block_header_hash(&self) -> Result<BurnchainHeaderHash, burnchain_error>;
     fn get_first_block_header_timestamp(&self) -> Result<u64, burnchain_error>;
+    fn get_stacks_epochs(&self) -> Vec<StacksEpoch>;
 
     fn get_headers_path(&self) -> String;
     fn get_headers_height(&self) -> Result<u64, burnchain_error>;

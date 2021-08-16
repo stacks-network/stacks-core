@@ -715,15 +715,8 @@ impl StacksTransaction {
         privk: &StacksPrivateKey,
     ) -> Result<Txid, net_error> {
         let next_sighash = match self.auth {
-            TransactionAuth::Standard(ref mut origin_condition) => {
-                StacksTransaction::sign_and_append(
-                    origin_condition,
-                    cur_sighash,
-                    &TransactionAuthFlags::AuthStandard,
-                    privk,
-                )?
-            }
-            TransactionAuth::Sponsored(ref mut origin_condition, _) => {
+            TransactionAuth::Standard(ref mut origin_condition)
+            | TransactionAuth::Sponsored(ref mut origin_condition, _) => {
                 StacksTransaction::sign_and_append(
                     origin_condition,
                     cur_sighash,

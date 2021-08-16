@@ -33,9 +33,12 @@ use vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
 use vm::types::signatures::{FunctionSignature, BUFF_20};
 use vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
-    QualifiedContractIdentifier, TupleTypeSignature, TypeSignature, Value,
+    QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TupleTypeSignature, TypeSignature,
+    Value,
 };
 use vm::variables::NativeVariables;
+
+use crate::vm::ClarityVersion;
 
 pub use super::types::{AnalysisPass, ContractAnalysis};
 use super::AnalysisDatabase;
@@ -51,7 +54,7 @@ use vm::contexts::Environment;
 use vm::costs::cost_functions::ClarityCostFunction;
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 /*
 
@@ -75,6 +78,7 @@ pub struct TypeChecker<'a, 'b> {
     function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a mut AnalysisDatabase<'b>,
     pub cost_track: LimitedCostTracker,
+    clarity_version: ClarityVersion,
 }
 
 impl CostTracker for TypeChecker<'_, '_> {
@@ -115,7 +119,8 @@ impl AnalysisPass for TypeChecker<'_, '_> {
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
-        let mut command = TypeChecker::new(analysis_db, cost_track);
+        let mut command =
+            TypeChecker::new(analysis_db, cost_track, &contract_analysis.clarity_version);
         // run the analysis, and replace the cost tracker whether or not the
         //   analysis succeeded.
         match command.run(contract_analysis) {
@@ -140,6 +145,7 @@ impl FunctionType {
         &self,
         accounting: &mut T,
         args: &[TypeSignature],
+        clarity_version: ClarityVersion,
     ) -> CheckResult<TypeSignature> {
         match self {
             FunctionType::Variadic(expected_type, return_type) => {
@@ -220,15 +226,67 @@ impl FunctionType {
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, second)?;
 
-                if first != &TypeSignature::IntType && first != &TypeSignature::UIntType {
+                // Note: Clarity2 expanded the comparable types to include ASCII, UTF8 and Buffer.
+                // Int and UInt have been present since Clarity1.
+                let is_clarity2: bool = clarity_version >= ClarityVersion::Clarity2;
+                // Step 1: Check the first argument on its own, to see that the first argument
+                // has a supported type according to this ClarityVersion.
+                let first_type_supported = match first {
+                    TypeSignature::IntType => true,
+                    TypeSignature::UIntType => true,
+                    TypeSignature::SequenceType(SequenceSubtype::StringType(
+                        StringSubtype::ASCII(_),
+                    )) => is_clarity2,
+                    TypeSignature::SequenceType(SequenceSubtype::StringType(
+                        StringSubtype::UTF8(_),
+                    )) => is_clarity2,
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(_)) => is_clarity2,
+                    _ => false,
+                };
+
+                if !first_type_supported {
                     return Err(CheckErrors::UnionTypeError(
-                        vec![TypeSignature::IntType, TypeSignature::UIntType],
+                        vec![
+                            TypeSignature::IntType,
+                            TypeSignature::UIntType,
+                            TypeSignature::max_string_ascii(),
+                            TypeSignature::max_string_utf8(),
+                            TypeSignature::max_buffer(),
+                        ],
                         first.clone(),
                     )
                     .into());
                 }
 
-                if first != second {
+                // Step 2: Assuming the first argument has a supported type, now check that
+                // both of the types are matching.
+                let pair_of_types_matches = match (first, second) {
+                    (TypeSignature::IntType, TypeSignature::IntType) => true,
+                    (TypeSignature::UIntType, TypeSignature::UIntType) => true,
+                    (
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::ASCII(_),
+                        )),
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::ASCII(_),
+                        )),
+                    ) => true,
+                    (
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::UTF8(_),
+                        )),
+                        TypeSignature::SequenceType(SequenceSubtype::StringType(
+                            StringSubtype::UTF8(_),
+                        )),
+                    ) => true,
+                    (
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)),
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(_)),
+                    ) => true,
+                    (_, _) => false,
+                };
+
+                if !pair_of_types_matches {
                     return Err(CheckErrors::TypeError(first.clone(), second.clone()).into());
                 }
 
@@ -287,11 +345,12 @@ fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> Chec
     Ok(total_size)
 }
 
-fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
-    if let Some(variable) = NativeVariables::lookup_by_name(variable_name) {
+fn type_reserved_variable(variable_name: &str, version: &ClarityVersion) -> Option<TypeSignature> {
+    if let Some(variable) = NativeVariables::lookup_by_name_at_version(variable_name, version) {
         use vm::variables::NativeVariables::*;
         let var_type = match variable {
             TxSender => TypeSignature::PrincipalType,
+            TxSponsor => TypeSignature::new_option(TypeSignature::PrincipalType).unwrap(),
             ContractCaller => TypeSignature::PrincipalType,
             BlockHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,
@@ -300,6 +359,7 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
             NativeFalse => TypeSignature::BoolType,
             TotalLiquidMicroSTX => TypeSignature::UIntType,
             Regtest => TypeSignature::BoolType,
+            Mainnet => TypeSignature::BoolType,
         };
         Some(var_type)
     } else {
@@ -315,6 +375,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     fn new(
         db: &'a mut AnalysisDatabase<'b>,
         cost_track: LimitedCostTracker,
+        clarity_version: &ClarityVersion,
     ) -> TypeChecker<'a, 'b> {
         Self {
             db,
@@ -322,6 +383,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             contract_context: ContractContext::new(),
             function_return_tracker: None,
             type_map: TypeMap::new(),
+            clarity_version: clarity_version.clone(),
         }
     }
 
@@ -495,9 +557,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         func_type: &FunctionType,
         args: &[SymbolicExpression],
         context: &TypingContext,
+        clarity_version: ClarityVersion,
     ) -> TypeResult {
         let typed_args = self.type_check_all(args, context)?;
-        func_type.check_args(self, &typed_args)
+        func_type.check_args(self, &typed_args, clarity_version)
     }
 
     fn get_function_type(&self, function_name: &str) -> Option<FunctionType> {
@@ -606,7 +669,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         args: &[SymbolicExpression],
         context: &TypingContext,
     ) -> Option<TypeResult> {
-        if let Some(ref native_function) = NativeFunctions::lookup_by_name(function) {
+        if let Some(ref native_function) =
+            NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
+        {
             let typed_function = TypedNativeFunction::type_native_function(native_function);
             Some(typed_function.type_check_appliction(self, args, context))
         } else {
@@ -648,7 +713,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     fn lookup_variable(&mut self, name: &str, context: &TypingContext) -> TypeResult {
         runtime_cost(ClarityCostFunction::AnalysisLookupVariableConst, self, 0)?;
 
-        if let Some(type_result) = type_reserved_variable(name) {
+        if let Some(type_result) = type_reserved_variable(name, &self.clarity_version) {
             Ok(type_result)
         } else if let Some(type_result) = self.contract_context.get_variable_type(name) {
             Ok(type_result.clone())

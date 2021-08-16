@@ -963,9 +963,17 @@ impl BuffData {
         self.data.len().try_into().unwrap()
     }
 
+    pub fn as_slice(&self) -> &[u8] {
+        self.data.as_slice()
+    }
+
     fn append(&mut self, other_seq: &mut BuffData) -> Result<()> {
         self.data.append(&mut other_seq.data);
         Ok(())
+    }
+
+    pub fn empty() -> Self {
+        Self { data: Vec::new() }
     }
 }
 
