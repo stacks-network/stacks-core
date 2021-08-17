@@ -6,10 +6,11 @@
 //! This way, when debugging a miner, we can run a standard query, and see what happened to the
 //! transaction.
 //!
+use chainstate::stacks::Error;
 /// Logs a queryable message for the case where `txid` has succeeded.
 use chainstate::stacks::StacksTransaction;
 
-fn create_transaction_key(tx: &StacksTransaction) {
+fn create_transaction_key(tx: &StacksTransaction) -> String {
     format!("Transaction outcome {}:", &tx.txid())
 }
 
@@ -21,14 +22,14 @@ pub fn log_transaction_success(tx: &StacksTransaction) {
 /// Logs a queryable message for the case where `txid` has failed
 /// with error `err`.
 pub fn log_transaction_error(tx: &StacksTransaction, err: &Error) {
-    warn!("{} failed with error: ", create_transaction_key(tx), err);
+    warn!("{} failed with error: {}", create_transaction_key(tx), err);
 }
 
 /// Logs a queryable message for the case where `tx` has been skipped
 /// for reason `reason`.
-pub fn log_transaction_skipped(tx: &StacksTransaction, reason: str) {
+pub fn log_transaction_skipped(tx: &StacksTransaction, reason: String) {
     info!(
-        "{} skipped for reason: ",
+        "{} skipped for reason: {}",
         create_transaction_key(tx),
         reason
     );

@@ -314,14 +314,14 @@ impl<'a> StacksMicroblockBuilder<'a> {
             log_transaction_skipped(
                 &tx,
                 format!(
-                    "Not mining because anchor mode prohibits it, mode={}.",
+                    "Not mining because anchor mode prohibits it, anchor_mode={:?}.",
                     tx.anchor_mode
                 ),
             );
             return Ok(false);
         }
         if considered.contains(&tx.txid()) {
-            log_transaction_skipped(&tx, "Not mining because already considered.");
+            log_transaction_skipped(&tx, "Not mining because already considered.".to_string());
             return Ok(false);
         } else {
             considered.insert(tx.txid());
@@ -329,7 +329,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             log_transaction_skipped(
                 &tx,
-                "Adding transaction would exceed microblock epoch data size.",
+                "Adding transaction would exceed microblock epoch data size.".to_string(),
             );
             return Err(Error::BlockTooBigError);
         }
@@ -337,17 +337,21 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         // Note: `process_transaction` will log its outcome in queryable form.
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet) {
-            Ok(_) => {
-                return Ok(true);
-            }
+            Ok(_) => return Ok(true),
             Err(e) => match e {
                 Error::CostOverflowError(cost_before, cost_after, total_budget) => {
                     // note: this path _does_ not perform the tx block budget % heuristic,
                     //  because this code path is not directly called with a mempool handle.
+                    warn!(
+                        "Transaction {} reached block cost {}; budget was {}",
+                        tx.txid(),
+                        &cost_after,
+                        &total_budget
+                    );
                     clarity_tx.reset_cost(cost_before);
                 }
                 _ => {
-                    // Pass on other cases.
+                    warn!("Error processing TX {}: {}", tx.txid(), e);
                 }
             },
         }
@@ -418,16 +422,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         match result {
             Err(Error::BlockTooBigError) => {
-                warn!("Microblock warning: Block size budget reached with microblocks.");
-                // Note: Why do we not return here?
+                info!("Block size budget reached with microblocks");
             }
             Err(e) => {
-                warn!("Microblock error: Error producing microblock: {}.", e);
+                warn!("Error producing microblock: {}", e);
                 return Err(e);
             }
-            _ => {
-                warn!("Microblock info: No errors so far, after assembling transactions.");
-            }
+            _ => {}
         }
 
         return self.make_next_microblock(txs_included, miner_key);
@@ -457,6 +458,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let iterate_result = mem_pool.iterate_candidates(self.anchor_block_height, |micro_txs| {
             let mut result = Ok(());
             for mempool_tx in micro_txs.into_iter() {
+                // Note: `mine_next_microblock_transaction` will log its outcome in queryable form.
                 match StacksMicroblockBuilder::mine_next_microblock_transaction(
                     &mut clarity_tx,
                     mempool_tx.tx.clone(),
@@ -466,6 +468,12 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 ) {
                     Ok(true) => {
                         bytes_so_far += mempool_tx.metadata.len;
+
+                        debug!(
+                            "Include tx {} ({}) in microblock",
+                            mempool_tx.tx.txid(),
+                            mempool_tx.tx.payload.name()
+                        );
                         txs_included.push(mempool_tx.tx);
                         num_txs += 1;
                     }
@@ -497,30 +505,17 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.num_mined = num_txs;
 
         match iterate_result {
-            Ok(_) => {
-                info!("Microblock info: No errors in creating transactions.");
-            }
+            Ok(_) => {}
             Err(Error::BlockTooBigError) => {
-                warn!("Microblock warning: BlockTooBigError produced.");
-                // Note: Why not return here?
+                info!("Block size budget reached with microblocks");
             }
             Err(e) => {
-                warn!("Microblock not added: Error producing microblock: {}.", e);
+                warn!("Error producing microblock: {}", e);
                 return Err(e);
             }
         }
 
-        let microblock_result = self.make_next_microblock(txs_included, miner_key);
-        match microblock_result {
-            Ok(microblock) => {
-                info!("Microblock created successfully.");
-                Ok(microblock)
-            }
-            Err(err) => {
-                warn!("Microblock error: {} ", &err);
-                Err(err)
-            }
-        }
+        return self.make_next_microblock(txs_included, miner_key);
     }
 
     pub fn get_bytes_so_far(&self) -> u64 {
@@ -1441,7 +1436,10 @@ impl StacksBlockBuilder {
             for txinfo in available_txs.into_iter() {
                 // skip transactions early if we can
                 if considered.contains(&txinfo.tx.txid()) {
-                    log_transaction_skipped(&txinfo.tx, "Already considered.");
+                    log_transaction_skipped(
+                        &txinfo.tx,
+                        "Not mining because already considered.".to_string(),
+                    );
                     continue;
                 }
                 if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
@@ -1551,9 +1549,7 @@ impl StacksBlockBuilder {
         }
 
         match iterate_candidates_result {
-            Ok(_) => {
-                info!("Block built successfully.");
-            }
+            Ok(_) => {}
             Err(e) => {
                 warn!("Failure building block: {}", e);
                 epoch_tx.rollback_block();

@@ -1177,12 +1177,17 @@ impl StacksChainState {
         tx: &StacksTransaction,
         quiet: bool,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        let result = process_transaction_internal(clarity_block, tx, quiet);
+        let result = StacksChainState::process_transaction_internal(clarity_block, tx, quiet);
         match result {
-            Ok(tx) => log_transaction_success(tx),
-            Err(err) => log_transaction_error(tx, &error),
-        };
-        result
+            Ok(pair) => {
+                log_transaction_success(tx);
+                Ok(pair)
+            }
+            Err(err) => {
+                log_transaction_error(tx, &err);
+                Err(err)
+            }
+        }
     }
 }
 
