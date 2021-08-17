@@ -1430,6 +1430,7 @@ impl StacksBlockBuilder {
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
         let iterate_candidates_result = mempool.iterate_candidates(tip_height, |available_txs| {
+            // Note: This should be a function.
             if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
                 warn!("Block limit reached.");
                 return Ok(());
