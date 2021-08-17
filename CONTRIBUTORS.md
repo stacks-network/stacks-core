@@ -158,73 +158,81 @@ Moreover, Pull requests where a large number of changes only deal with whitespac
 rejected.
 
 # Comments
-Comments are very important. Not only are they are an aid to the reader, but in many
-cases the comments specify the contract against which the code is evaluated.
-Without a clear contract for a function, for example, it is *impossible* to determine
-whether the function is implemented correctly.
-Here are high level rules for creating comments:
+Information-adding comments are very important for the readability and correctness of the codebase. The purpose of comments is:
+
+* Allow readers to understand the roles of components and functions without having to check how they are used.
+* Allow readers to check the correctness of the code against the comments.
+* Allow readers to follow tests.
+
+In the limit, if there are no comments, the problems that arise are:
+
+* Understanding one part of the code requires understanding *many* parts of the code. E.g., understanding what a function does requires reading its definition, which requires reading the definitions of all the functions it depends on, and so on recursively.
+* The user cannot be certain if there is a bug in the code, because there is no distinction between the contract of a function, and its definition.
+* The user cannot be sure if a test is correct, because the logic of the test is not specified, and the functions do not have contracts.
+
+## Formatting
+
+Comments are to be formatted in typical `rust` style, specifically:
+
 - Use markdown to format comments.
+
 - Use the triple forward slash "///" for modules, structs, enums, traits and functions. Use double forward slash "//" for comments on individual lines of code.
+
 - Start with a high-level description of the function, adding more sentences with details if necessary.
-- For some functions, you might want to add a markdown section for panics, errors, none results, or for examples.
-- Rust has explicit typing, so it most cases explicit documentation for input and outputs of functions is not necessary. However, if there is any ambiguity, document it in the function comment. 
-- Comments are not meant to recapitulate things that are obvious from the context, whether the type signature or otherwise. Use your best judgement to document that which is not obvious.
+
+- When documenting panics, errors, or other conceptual sections, introduce a Markdown section with a single `#`, e.g.:
+
+  - ```
+    # Errors
+    * ContractTooLargeError: Thrown when `contract` is larger than `MAX_CONTRACT_SIZE`.
+    ```
+
+## What to Comment
 The following kinds of things should have comments.
 
-## Components (`struct`'s, `trait`'s, and `enum`'s)
+### Components
 Comments for a component (`struct`, `trait`, or `enum`) should explain what the overall
-purpose of that component is. This is usually a concept, and not a formal contract.
-
-Help the reader understand why this group of data or methods are grouped
-together. By explaining what a component *does* we also implicitly explain what
-it *does not do* in a modular architecture.
+purpose of that component is. This is usually a concept, and not a formal contract. Include anything that is not obvious about this component.
 
 Example:
 
 ```rust
-/// The `BurnStateDB` allows the user to query the state of the underlying
-/// "burn chain", which in practice is the Bitcoin chain.
-trait BurnChainDB {
+/// The `ReadOnlyChecker` analyzes a contract to determine whether 
+/// there are any violations of read-only declarations. By a "violation"
+/// we mean a function that is marked as "read only" but which tries
+/// to modify chainstate.
+pub struct ReadOnlyChecker<'a, 'b> {
 ```
 
-## Functions
-The comments on a function should explain the contract that the function
-implements. This is very important. Without a clear contract, we cannot
-evaluate the correctness of the implementation.
+### Functions
+The comments on a function should explain what the function does, without having to read it. Wherever practical, it should specify the contract of a function, such that a bug in the logic could be discovered by a discrepancy between contract and implementation, or such that a test could be written with only access to the function comment.
 
 Without being unnecessarily verbose, explain how the output is calculated
-from the inputs. Explain any restrictions on the inputs. Explain error
+from the inputs. Explain the side effects. Explain any restrictions on the inputs. Explain failure
 conditions, including when the function will panic, return an error
 or return an empty value.
 
 Example:
 
 ```rust
-pub trait BurnStateDB {
-    /// Returns the *header hash* of the burnchain block at the
-    /// burnchain height `height` in sortition `sortition_id`.
+/// A contract that does not violate its read-only declarations is called
+/// *read-only correct*.
+impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
+    /// Checks each top-level expression in `contract_analysis.expressions`
+    /// for read-only correctness.
     ///
-    /// Returns None if there is no block at this height.
-    fn get_burn_header_hash(
-        &self,
-        height: u32,
-        sortition_id: &SortitionId,
-    ) -> Option<BurnchainHeaderHash>;
+    /// Returns successfully iff this function is read-only correct.
+    ///
+    /// # Errors
+    ///
+    /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only
+    ///   violation, i.e. if some function marked read-only attempts to modify
+    ///   the chainstate.
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()>
 ```
-```rust
-/// Returns 0 if the input is less than or equal to 5, and panics otherwise.
-/// 
-/// # Panics 
-/// The function panics if the input is greater than 5.
-pub fn example(i: int) -> int {
-    if i > 5 {
-        panic!("Panicking")
-    } else {
-        0
-    }
-}
+
 Note that, if a function implements an interface, the comments should not
-repeat what was specified on the interface declaration.
+repeat what was specified on the interface declaration. The comment should only add information specific to that implementation.
 
 ## Data Members
 Each data member in a struct should have a comment describing what that member
@@ -235,20 +243,21 @@ name and type.
 Example:
 
 ```rust
-pub struct ContractAnalysis {
-    /// The identifier associated with the contract represented in
-    /// this `ContractAnalysis`.
-    pub contract_identifier: QualifiedContractIdentifier,
+pub struct ReadOnlyChecker<'a, 'b> {
+    /// Mapping from function name to a boolean indicating whether
+    /// the function with that name is read-only.
+    /// This map contains all functions in the contract analyzed.
+    defined_functions: HashMap<ClarityName, bool>,
 ```
 
-## Tests
+### Tests
 Each test should have enough comments to help an unfamiliar reader understand:
 
 1. what is conceptually being tested
-1. why the answer is expected
+1. why a given answer is expected
 
-Some times this can be obvious without much comments, perhaps from the context,
-or because the test is very simple. Usually it isn't.
+Sometimes this can be obvious without much comments, perhaps from the context,
+or because the test is very simple. Often though, comments are necessary.
 
 Example:
 
@@ -260,6 +269,35 @@ fn test_simple_buff_to_uint_be() {
     assert_eq!(Value::UInt(256), execute_v2(good1_test).unwrap().unwrap());
 }
 ```
+
+## How Much to Comment
+
+Contributors should strike a balance between commenting "too much" and commenting "too little". Commenting "too much" primarily includes commenting things that are clear from the context. Commenting "too little" primarily includes writing no comments at all, or writing comments that leave important questions unresolved. 
+
+Human judgment and creativity must be used to create good comments, which convey important information with small amounts of text. There is no single rule which can determine what a good comment is. More comments are *not* always better, since needlessly long comments have a cost: they require the reader to read more, take up whitespace, and take longer to write and review. 
+
+*Don't* over-comment by documenting things that are clear from the context. E.g.:
+
+- Don't document the types of inputs or outputs, since these are parts of the type signature in `rust`.
+- Don't necessarily document standard "getters" and "setters", like `get_clarity_version()`, unless there is unexpected information to add with the comment.
+- Don't explain that a specific test does type-checking, if it is in a file that is dedicated to type-checking.
+
+*Do* document things that are not clear, e.g.:
+
+- For a function called `process_block`, explain what it means to "process" a block.
+- For a function called `process_block`, make clear whether we mean anchored blocks, microblocks, or both.
+- For a function called `run`, explain the steps involved in "running".
+- For a function that takes arguments `peer1` and `peer2`, explain the difference between the two.
+- For a function that takes an argument `height`, either explain in the comment what this is the *height of*. Alternatively, expand the variable name to remove the ambiguity.
+- For a test, document what it is meant to test, and why the expected answers are, in fact, expected.
+
+## Changing Code Instead of Comments
+
+Keep in mind that better variable names can reduce the need for comments, e.g.:
+
+* `burnblock_height` instead of `height` may eliminate the need to comment that `height` refers to a burnblock height
+* `process_microblocks` instead of `process_blocks` is more correct, and may eliminate the need to to explain that the inputs are microblocks
+* `add_transaction_to_microblock` explains more than `handle_transaction`, and reduces the need to even read the comment
 
 # Licensing and contributor license agreement
 
