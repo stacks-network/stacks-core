@@ -159,7 +159,11 @@ Comments are very important. Not only are they are an aid to the reader, but in 
 cases the comments specify the contract against which the code is evaluated.
 Without a clear contract for a function, for example, it is *impossible* to determine
 whether the function is implemented correctly.
-
+Here are high level rules for creating comments:
+- Use markdown to format comments, and use the triple backlash "///"
+- Start with a high-level description of the function, adding more sentences with details if necessary.
+- For some functions, you might want to add a markdown section for panics, errors, none results, or for examples.
+- Rust has explicit typing, so it most cases explicit documentation for input and outputs of functions is not necessary. However, if there is any ambiguity, document it in the function comment. 
 The following kinds of things should have comments.
 
 ## Components (`struct`'s, `trait`'s, and `enum`'s)
@@ -202,7 +206,18 @@ pub trait BurnStateDB {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
 ```
-
+```rust
+/// Returns 0 if the input is less than or equal to 5, and panics otherwise.
+/// 
+/// # Panics 
+/// The function panics if the input is greater than 5.
+pub fn example(i: int) -> int {
+    if i > 5 {
+        panic!("Panicking")
+    } else {
+        0
+    }
+}
 Note that, if a function implements an interface, the comments should not
 repeat what was specified on the interface declaration.
 
