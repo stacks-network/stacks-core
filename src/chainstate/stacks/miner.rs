@@ -757,6 +757,7 @@ impl StacksBlockBuilder {
                 ));
             }
 
+            // Note: `process_transaction` will log its outcome in queryable form.
             let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, quiet)
                 .map_err(|e| match e {
                     Error::CostOverflowError(cost_before, cost_after, total_budget) => {
@@ -803,6 +804,7 @@ impl StacksBlockBuilder {
                 ));
             }
 
+            // Note: `process_transaction` will log its outcome in queryable form.
             let (fee, _receipt) = StacksChainState::process_transaction(clarity_tx, tx, quiet)
                 .map_err(|e| match e {
                     Error::CostOverflowError(cost_before, cost_after, total_budget) => {
