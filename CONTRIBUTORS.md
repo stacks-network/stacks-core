@@ -160,10 +160,12 @@ cases the comments specify the contract against which the code is evaluated.
 Without a clear contract for a function, for example, it is *impossible* to determine
 whether the function is implemented correctly.
 Here are high level rules for creating comments:
-- Use markdown to format comments, and use the triple backlash "///"
+- Use markdown to format comments.
+- Use the triple forward slash "///" for modules, structs, enums, traits and functions. Use double forward slash "//" for comments on individual lines of code.
 - Start with a high-level description of the function, adding more sentences with details if necessary.
 - For some functions, you might want to add a markdown section for panics, errors, none results, or for examples.
 - Rust has explicit typing, so it most cases explicit documentation for input and outputs of functions is not necessary. However, if there is any ambiguity, document it in the function comment. 
+- Comments are not meant to recapitulate things that are obvious from the context, whether the type signature or otherwise. Use your best judgement to document that which is not obvious.
 The following kinds of things should have comments.
 
 ## Components (`struct`'s, `trait`'s, and `enum`'s)
