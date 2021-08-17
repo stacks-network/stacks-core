@@ -255,7 +255,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let miner_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(miner_key));
         if txs.len() == 0 {
-            warn!("No transactions to mine.");
             return Err(Error::NoTransactionsToMine);
         }
 
@@ -335,7 +334,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
         let quiet = !cfg!(test);
 
-        // Note: `process_transaction` will log its outcome in queryable form.
+        // `process_transaction` will log its outcome in queryable form.
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet) {
             Ok(_) => return Ok(true),
             Err(e) => match e {
@@ -382,7 +381,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let mut result = Ok(());
         for (tx, tx_len) in txs_and_lens.into_iter() {
-            // Note: `mine_next_microblock_transaction` will log its outcome in queryable form.
+            // `mine_next_microblock_transaction` will log its outcome in queryable form.
             match StacksMicroblockBuilder::mine_next_microblock_transaction(
                 &mut clarity_tx,
                 tx.clone(),
@@ -458,7 +457,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let iterate_result = mem_pool.iterate_candidates(self.anchor_block_height, |micro_txs| {
             let mut result = Ok(());
             for mempool_tx in micro_txs.into_iter() {
-                // Note: `mine_next_microblock_transaction` will log its outcome in queryable form.
+                // `mine_next_microblock_transaction` will log its outcome in queryable form.
                 match StacksMicroblockBuilder::mine_next_microblock_transaction(
                     &mut clarity_tx,
                     mempool_tx.tx.clone(),
@@ -1502,6 +1501,7 @@ impl StacksBlockBuilder {
 
                 considered.insert(txinfo.tx.txid());
 
+                // `try_mine_tx_with_len` will log its outcome in queryable form.
                 match builder.try_mine_tx_with_len(
                     &mut epoch_tx,
                     &txinfo.tx,
@@ -1512,7 +1512,6 @@ impl StacksBlockBuilder {
                     Err(Error::BlockTooBigError) => {
                         // done mining -- our execution budget is exceeded.
                         // Make the block from the transactions we did manage to get
-                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
                         if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
                             block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
                             continue;
@@ -1521,10 +1520,6 @@ impl StacksBlockBuilder {
                         }
                     }
                     Err(Error::TransactionTooBigError) => {
-                        warn!(
-                            "Transaction skipped: TransactionTooBigError on tx {}",
-                            &txinfo.tx.txid()
-                        );
                         invalidated_txs.push(txinfo.metadata.txid);
                         if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
                             block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
@@ -1538,11 +1533,7 @@ impl StacksBlockBuilder {
                         continue;
                     }
                     Err(e) => {
-                        warn!(
-                            "Transaction skipped: Failed to apply tx {}: {:?}",
-                            &txinfo.tx.txid(),
-                            &e
-                        );
+                        warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
                         continue;
                     }
                 }
