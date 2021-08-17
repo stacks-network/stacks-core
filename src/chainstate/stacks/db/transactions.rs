@@ -1167,7 +1167,7 @@ impl StacksChainState {
     /// Process the transaction `tx`, and add it to the underlying connection in `clarity_block`.
     ///
     /// On success, returns the fee and the transaction receipt, and mutates the
-    /// underlying connection in `clarity_block`.
+    /// underlying connection in mutable input `clarity_block`.
     ///
     /// # Logging
     ///

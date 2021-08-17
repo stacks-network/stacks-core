@@ -255,7 +255,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let miner_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(miner_key));
         if txs.len() == 0 {
-            warn!("No transactions: Error::NoTransactionsToMine");
+            warn!("No transactions to mine.");
             return Err(Error::NoTransactionsToMine);
         }
 
@@ -1480,19 +1480,11 @@ impl StacksBlockBuilder {
                     txinfo.metadata.len,
                     &block_limit_hit,
                 ) {
-                    Ok(_) => {
-                        info!(
-                            "Transaction added: Block mined successfully {}.",
-                            &txinfo.tx.txid()
-                        );
-                    }
+                    Ok(_) => {}
                     Err(Error::BlockTooBigError) => {
                         // done mining -- our execution budget is exceeded.
                         // Make the block from the transactions we did manage to get
-                        warn!(
-                            "Transaction skipped: BlockTooBigError on tx {}",
-                            &txinfo.tx.txid()
-                        );
+                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
                         if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
                             block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
                             continue;
@@ -1513,12 +1505,7 @@ impl StacksBlockBuilder {
                             block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                         }
                     }
-                    Err(Error::InvalidStacksTransaction(msg, true)) => {
-                        warn!(
-                            "Transaction skipped: InvalidStacksTransaction on tx {}, msg: {}",
-                            &txinfo.tx.txid(),
-                            &msg
-                        );
+                    Err(Error::InvalidStacksTransaction(_, true)) => {
                         // if we have an invalid transaction that was quietly ignored, don't warn here either
                         continue;
                     }
