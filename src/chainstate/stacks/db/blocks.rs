@@ -5229,7 +5229,7 @@ impl StacksChainState {
     /// The input `mempool_admission_check` determines what the transaction is validated against.
     /// If `mempool_admission_check`==OffChainOnly, the transaction will only be validated against unconfirmed state.
     /// If `mempool_admission_check`==OnChainOnly, the transaction will only be validated against confirmed state.
-    /// If `mempool_admission_check`=Any, the transaction will be accepted if it validates against either unconfirmed or confirmed tip
+    /// If `mempool_admission_check`==Any, the transaction will be accepted if it validates against the unconfirmed tip.
     ///
     /// # Errors
     ///  - The transaction fails a basic semantic check (for example, if the sender & recipient
@@ -5283,10 +5283,10 @@ impl StacksChainState {
         };
 
         let current_tip = match mempool_admission_check {
-            TransactionAnchorMode::OnChainOnly | TransactionAnchorMode::Any => {
+            TransactionAnchorMode::OnChainOnly => {
                 StacksChainState::get_parent_index_block(current_consensus_hash, current_block)
             }
-            TransactionAnchorMode::OffChainOnly => {
+            TransactionAnchorMode::OffChainOnly | TransactionAnchorMode::Any => {
                 if self.unconfirmed_state.is_some()
                     && self.unconfirmed_state.as_ref().unwrap().is_readable()
                 {
@@ -5314,36 +5314,7 @@ impl StacksChainState {
             ))),
         };
 
-        match res {
-            Ok(x) => Ok(x),
-            Err(e) => {
-                // if mempool admission check is Any, try against unconfirmed state regardless of what the error is
-                if mempool_admission_check == TransactionAnchorMode::Any
-                    && self.unconfirmed_state.is_some()
-                {
-                    info!("Transaction {} is unminable in the confirmed chain tip due to err {:?}; trying the unconfirmed chain tip",
-                           &tx.txid(), e);
-                    self.with_read_only_unconfirmed_clarity_tx(&NULL_BURN_STATE_DB, |conn| {
-                        StacksChainState::can_include_tx(
-                            conn,
-                            &conf,
-                            has_microblock_pubk,
-                            tx,
-                            tx_size,
-                        )
-                    })
-                    .map_err(|_| {
-                        MemPoolRejection::NoSuchChainTip(
-                            current_consensus_hash.clone(),
-                            current_block.clone(),
-                        )
-                    })?
-                    .expect("BUG: do not have unconfirmed state, despite being Some(..)")
-                } else {
-                    Err(e)
-                }
-            }
-        }
+        res
     }
 
     /// Given an outstanding clarity connection, can we append the tx to the chain state?

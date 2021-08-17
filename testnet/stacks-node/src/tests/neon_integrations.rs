@@ -2073,7 +2073,8 @@ fn transaction_validation_integration_test() {
     // The function `submit_tx` panics if the tx is unable to be submitted.
     // Call the contract defined in the microblock, but make mempool admission check against unconfirmed state.
     submit_tx(&http_origin, &call_tx, TransactionAnchorMode::OffChainOnly);
-    // Call the contract defined in the microblock, but make mempool admission check against either anchored or unconfirmed state.
+    // Call the contract defined in the microblock. Set the transaction anchor mode to `Any`, which
+    // makes mempool admission check occur against the unconfirmed state.
     submit_tx(&http_origin, &call_tx, TransactionAnchorMode::Any);
 }
 

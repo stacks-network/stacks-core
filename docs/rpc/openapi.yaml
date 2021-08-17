@@ -46,7 +46,7 @@ paths:
           description: |
             If mempool_admission_check=="unconfirmed", the transaction will only be validated against unconfirmed state.
             If mempool_admission_check=="confirmed", the transaction will only be validated against confirmed state.
-            If unspecified, the transaction will be accepted if it validates against either unconfirmed or confirmed state.
+            If unspecified, the transaction will be accepted if it validates against the unconfirmed state.
             If the validation fails, the submitted transaction will not be admitted into the mempool.
           schema:
             type: string
