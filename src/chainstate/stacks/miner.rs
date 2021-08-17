@@ -716,6 +716,10 @@ impl StacksBlockBuilder {
 
     /// Append a transaction if doing so won't exceed the epoch data size.
     /// Errors out if we exceed budget, or the transaction is invalid.
+    ///
+    /// # Logging
+    /// - This method will log its outcome (success, error or skip) in "queryable form" (see
+    /// queryable_logging).
     fn try_mine_tx_with_len(
         &mut self,
         clarity_tx: &mut ClarityTx,
@@ -724,6 +728,13 @@ impl StacksBlockBuilder {
         limit_behavior: &BlockLimitFunction,
     ) -> Result<(), Error> {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+            log_transaction_skipped(
+                &tx,
+                format!(
+                    "Adding transaction would make block too big, {} {} {}",
+                    self.bytes_so_far, tx_len, MAX_EPOCH_SIZE
+                ),
+            );
             return Err(Error::BlockTooBigError);
         }
 
@@ -734,14 +745,24 @@ impl StacksBlockBuilder {
                         // once we've hit the runtime limit once, allow boot code contract calls, but do not try to eval
                         //   other contract calls
                         if !cc.address.is_boot_code_addr() {
+                            log_transaction_skipped(&tx, "Contract limit hit, only boot code contract calls allowed now, and this is not a boot code contract call.".to_string());
                             return Ok(());
                         }
                     }
-                    TransactionPayload::SmartContract(_) => return Ok(()),
+                    TransactionPayload::SmartContract(_) => {
+                        log_transaction_skipped(
+                            &tx,
+                            "Contract limit hit, cannot load smart contract.".to_string(),
+                        );
+                        return Ok(());
+                    }
                     _ => {}
                 }
             }
-            BlockLimitFunction::LIMIT_REACHED => return Ok(()),
+            BlockLimitFunction::LIMIT_REACHED => {
+                log_transaction_skipped(&tx, "Block limit reached.".to_string());
+                return Ok(());
+            }
             BlockLimitFunction::NO_LIMIT_HIT => {}
         };
 
@@ -751,10 +772,12 @@ impl StacksBlockBuilder {
             if tx.anchor_mode != TransactionAnchorMode::OnChainOnly
                 && tx.anchor_mode != TransactionAnchorMode::Any
             {
-                return Err(Error::InvalidStacksTransaction(
+                let err = Error::InvalidStacksTransaction(
                     "Invalid transaction anchor mode for anchored data".to_string(),
                     false,
-                ));
+                );
+                log_transaction_error(&tx, &err);
+                return Err(err);
             }
 
             // Note: `process_transaction` will log its outcome in queryable form.
@@ -798,10 +821,12 @@ impl StacksBlockBuilder {
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
                 && tx.anchor_mode != TransactionAnchorMode::Any
             {
-                return Err(Error::InvalidStacksTransaction(
+                let err = Error::InvalidStacksTransaction(
                     "Invalid transaction anchor mode for streamed data".to_string(),
                     false,
-                ));
+                );
+                log_transaction_error(&tx, &err);
+                return Err(err);
             }
 
             // Note: `process_transaction` will log its outcome in queryable form.
