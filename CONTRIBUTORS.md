@@ -35,6 +35,9 @@ This project and everyone participating in it is governed by this [Code of Condu
 - Any major changes should be added to the [CHANGELOG](CHANGELOG.md).
 - Mention any required documentation changes in the description of your pull request.
 - If adding an RPC endpoint, add an entry for the new endpoint to the OpenAPI spec `./docs/rpc/openapi.yaml`.
+- If your code adds or modifies any major features (struct, trait, test, module, function, etc.), each should be documented according to our [style rules](#comments).
+  - To generate HTML documentation for the library, run `cargo doc --no-deps --open`.
+  - It's possible to check the percentage of code coverage by (a) switching to the nightly version of rust (can run `rustup default nightly`, and also might need to edit `rust-toolchain` file to say "nightly" instead of "stable"), and (b) running `RUSTDOCFLAGS='-Z unstable-options --show-coverage' cargo doc`.
 
 ### Each file should include relevant unit tests
 
