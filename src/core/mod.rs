@@ -120,6 +120,9 @@ pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u
 
 pub const POX_MAX_NUM_CYCLES: u8 = 12;
 
+// This value is taken from the corresponding variable in `pox-tesnet.clar`.
+pub const POX_TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
+
 pub const POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT: u32 = 1_000_000;
 pub const POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT: u32 = 2_000_000;
 
