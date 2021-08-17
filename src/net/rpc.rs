@@ -1521,7 +1521,7 @@ impl ConversationHttp {
     /// * If `use_latest_tip` is true, the method attempts to return the unconfirmed chain tip,
     ///     and returns the confirmed stacks chain tip if that doesn't work.
     /// * If `tip_opt` is Some(tip), the method returns tip.
-    /// * The last option the function considers is the canonical Stacks chain tip.
+    /// * Otherwise, the function considers the canonical Stacks chain tip.
     fn handle_load_stacks_chain_tip<W: Write>(
         http: &mut StacksHttp,
         fd: &mut W,
