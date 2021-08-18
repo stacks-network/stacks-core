@@ -204,7 +204,10 @@ Example:
 pub struct ReadOnlyChecker<'a, 'b> {
 ```
 
+This comment is considered positive because it explains the concept behind the class at a glance, so that the reader has some idea about what the methods will achieve, without reading each method declaration and comment. It also defines some terms that can be used in the comments on the method names.
+
 ### Functions
+
 The comments on a function should explain what the function does, without having to read it. Wherever practical, it should specify the contract of a function, such that a bug in the logic could be discovered by a discrepancy between contract and implementation, or such that a test could be written with only access to the function comment.
 
 Without being unnecessarily verbose, explain how the output is calculated
@@ -231,6 +234,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()>
 ```
 
+This comment is considered positive because it explains the contract of the function in pseudo-code. Someone who understands the constructs mentioned could, e.g., write a test for this method from this description.
+
+### Commenting Implementation Methods
+
 Note that, if a function implements an interface, the comments should not
 repeat what was specified on the interface declaration. The comment should only add information specific to that implementation.
 
@@ -250,7 +257,10 @@ pub struct ReadOnlyChecker<'a, 'b> {
     defined_functions: HashMap<ClarityName, bool>,
 ```
 
+This comment is considered positive because it clarifies users might have about the content and role of this member. E.g., it explains that the `bool` indicates whether the function is *read-only*, whereas this cannot be gotten from the signature alone.
+
 ### Tests
+
 Each test should have enough comments to help an unfamiliar reader understand:
 
 1. what is conceptually being tested
@@ -262,19 +272,28 @@ or because the test is very simple. Often though, comments are necessary.
 Example:
 
 ```rust
-fn test_simple_buff_to_uint_be() {
-    // For big-endian encoding, 0100 at the end should be interpreted as least
-    // significant bits. Hexadecimal 0x0100 converts to integer 256.
-    let good_test = "(buff-to-uint-be 0x00000000000000000000000000000100)";
-    assert_eq!(Value::UInt(256), execute_v2(good1_test).unwrap().unwrap());
-}
+#[test]
+#[ignore]
+fn transaction_validation_integration_test() {
+    /// The purpose of this test is to check if the mempool admission checks
+    /// for the post tx endpoint are working as expected wrt the optional 
+    /// `mempool_admission_check` query parameter.
+    ///
+    /// In this test, we are manually creating a microblock as well as
+    /// reloading the unconfirmed state of the chainstate, instead of relying
+    /// on `next_block_and_wait` to generate microblocks. We do this because
+    /// the unconfirmed state is not automatically being initialized
+    /// on the node, so attempting to validate any transactions against the
+    /// expected unconfirmed state fails.
 ```
+
+This comment is considered positive because it explains the purpose of the test (checking the case of an optional parameter), it also guides the reader to understand the low-level details about why a microblock is created manually.
 
 ## How Much to Comment
 
 Contributors should strike a balance between commenting "too much" and commenting "too little". Commenting "too much" primarily includes commenting things that are clear from the context. Commenting "too little" primarily includes writing no comments at all, or writing comments that leave important questions unresolved. 
 
-Human judgment and creativity must be used to create good comments, which convey important information with small amounts of text. There is no single rule which can determine what a good comment is. More comments are *not* always better, since needlessly long comments have a cost: they require the reader to read more, take up whitespace, and take longer to write and review. 
+Human judgment and creativity must be used to create good comments, which convey important information with small amounts of text. There is no single rule which can determine what a good comment is. Longer comments are *not* always better, since needlessly long comments have a cost: they require the reader to read more, take up whitespace, and take longer to write and review. 
 
 *Don't* over-comment by documenting things that are clear from the context. E.g.:
 
