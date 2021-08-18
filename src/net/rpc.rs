@@ -1546,11 +1546,21 @@ impl ConversationHttp {
             if let Some(unconfirmed_chain_tip) = unconfirmed_chain_tip_opt {
                 Ok(Some(unconfirmed_chain_tip))
             } else {
-                let tip = chainstate.get_stacks_chain_tip(sortdb).unwrap().unwrap();
-                Ok(Some(StacksBlockHeader::make_index_block_hash(
-                    &tip.consensus_hash,
-                    &tip.anchored_block_hash,
-                )))
+                match chainstate.get_stacks_chain_tip(sortdb)? {
+                    Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
+                        &tip.consensus_hash,
+                        &tip.anchored_block_hash,
+                    ))),
+                    None => {
+                        let response_metadata = HttpResponseMetadata::from(req);
+                        warn!("Failed to load Stacks chain tip");
+                        let response = HttpResponseType::ServerError(
+                            response_metadata,
+                            format!("Failed to load Stacks chain tip"),
+                        );
+                        response.send(http, fd).and_then(|_| Ok(None))
+                    }
+                }
             }
         } else {
             match tip_opt {
@@ -3405,10 +3415,10 @@ mod test {
         let pox_server_info = RefCell::new(None);
         test_rpc(
             "test_rpc_getpoxinfo",
-            40000,
-            40001,
-            50000,
-            50001,
+            40002,
+            40003,
+            50002,
+            50003,
             true,
             |ref mut peer_client,
              ref mut convo_client,
@@ -3458,11 +3468,11 @@ mod test {
         /// info against the unconfirmed state will succeed.
         let pox_server_info = RefCell::new(None);
         test_rpc(
-            "test_rpc_getpoxinfo",
-            40000,
-            40001,
-            50000,
-            50001,
+            "test_rpc_getpoxinfo_use_latest_tip",
+            40004,
+            40005,
+            50004,
+            50005,
             true,
             |ref mut peer_client,
              ref mut convo_client,
@@ -4096,10 +4106,10 @@ mod test {
     fn test_rpc_missing_confirmed_getmicroblocks() {
         test_rpc(
             "test_rpc_missing_confirmed_getmicroblocks",
-            40070,
-            40071,
-            50070,
-            50071,
+            40072,
+            40073,
+            50072,
+            50073,
             true,
             |ref mut peer_client,
              ref mut convo_client,
@@ -4237,11 +4247,11 @@ mod test {
         /// The contract source we are querying for only exists in the unconfirmed state, so we
         /// expect the query to fail.
         test_rpc(
-            "test_rpc_get_contract_src",
-            40090,
-            40091,
-            50090,
-            50091,
+            "test_rpc_get_contract_src_unconfirmed_with_canonical_tip",
+            40100,
+            40101,
+            50100,
+            50101,
             true,
             |ref mut peer_client,
              ref mut convo_client,
@@ -4280,11 +4290,11 @@ mod test {
         /// The contract source we are querying for exists in the unconfirmed state, so we expect
         /// the query to succeed.
         test_rpc(
-            "test_rpc_get_contract_src_unconfirmed",
-            40100,
-            40101,
-            50100,
-            50101,
+            "test_rpc_get_contract_src_with_unconfirmed_tip",
+            40102,
+            40103,
+            50102,
+            50103,
             true,
             |ref mut peer_client,
              ref mut convo_client,
@@ -4330,11 +4340,11 @@ mod test {
         /// The contract source we are querying for exists in the unconfirmed state, so we expect
         /// the query to succeed.
         test_rpc(
-            "test_rpc_get_contract_src_unconfirmed",
-            40100,
-            40101,
-            50100,
-            50101,
+            "test_rpc_get_contract_src_use_latest_tip",
+            40104,
+            40105,
+            50104,
+            50105,
             true,
             |ref mut peer_client,
              ref mut convo_client,
@@ -4413,11 +4423,11 @@ mod test {
     #[ignore]
     fn test_rpc_get_account_use_latest_tip() {
         test_rpc(
-            "test_rpc_get_account",
-            40110,
-            40111,
-            50110,
-            50111,
+            "test_rpc_get_account_use_latest_tip",
+            40112,
+            40113,
+            50112,
+            50113,
             true,
             |ref mut peer_client,
              ref mut convo_client,
@@ -4459,10 +4469,10 @@ mod test {
     fn test_rpc_get_account_use_latest_tip_no_microblocks() {
         test_rpc(
             "test_rpc_get_account",
-            40110,
-            40111,
-            50110,
-            50111,
+            40114,
+            40115,
+            50114,
+            50115,
             false,
             |ref mut peer_client,
              ref mut convo_client,
@@ -4670,11 +4680,11 @@ mod test {
     #[ignore]
     fn test_rpc_get_map_entry_use_latest_tip() {
         test_rpc(
-            "test_rpc_get_map_entry_unconfirmed",
-            40140,
-            40141,
-            50140,
-            50141,
+            "test_rpc_get_map_entry_use_latest_tip",
+            40142,
+            40143,
+            50142,
+            50143,
             true,
             |ref mut peer_client,
              ref mut convo_client,
@@ -4770,10 +4780,10 @@ mod test {
         /// against the unconfirmed state will succeed.
         test_rpc(
             "test_rpc_get_contract_abi_unconfirmed",
-            40160,
-            40161,
-            50160,
-            50161,
+            40152,
+            40153,
+            50152,
+            50153,
             true,
             |ref mut peer_client,
              ref mut convo_client,
@@ -4811,11 +4821,11 @@ mod test {
     #[ignore]
     fn test_rpc_get_contract_abi_use_latest_tip() {
         test_rpc(
-            "test_rpc_get_contract_abi_unconfirmed",
-            40160,
-            40161,
-            50160,
-            50161,
+            "test_rpc_get_contract_abi_use_latest_tip",
+            40154,
+            40155,
+            50154,
+            50155,
             true,
             |ref mut peer_client,
              ref mut convo_client,
@@ -4898,11 +4908,11 @@ mod test {
         /// In this test, we set `use_latest_tip` to true , and we expect that querying
         /// against the unconfirmed state will succeed.
         test_rpc(
-            "test_rpc_call_read_only_unconfirmed",
-            40180,
-            40181,
-            50180,
-            50181,
+            "test_rpc_call_read_only_use_latest_tip",
+            40172,
+            40173,
+            50172,
+            50173,
             true,
             |ref mut peer_client,
              ref mut convo_client,
@@ -5004,10 +5014,10 @@ mod test {
     fn test_rpc_getattachmentsinv_limit_reached() {
         test_rpc(
             "test_rpc_getattachmentsinv",
-            40000,
-            40001,
-            50000,
-            50001,
+            40190,
+            40191,
+            50190,
+            50191,
             true,
             |ref mut peer_client,
              ref mut convo_client,
