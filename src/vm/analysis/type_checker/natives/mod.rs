@@ -521,6 +521,9 @@ fn check_get_block_info(
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
 
+// # Errors
+// - `CheckErrors::GetBurnBlockInfoExpectPropertyName` when `args[0]` is not a valid `ClarityName`.
+// - `CheckErrors::NoSuchBlockInfoProperty` when `args[0]` doesnot name a `BurnBlockInfoProperty`.
 fn check_get_burn_block_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -530,7 +533,7 @@ fn check_get_burn_block_info(
 
     let block_info_prop_str = args[0]
         .match_atom()
-        .ok_or(CheckError::new(CheckErrors::GetBlockInfoExpectPropertyName))?;
+        .ok_or(CheckError::new(CheckErrors::GetBurnBlockInfoExpectPropertyName))?;
 
     let block_info_prop =
         BurnBlockInfoProperty::lookup_by_name(block_info_prop_str).ok_or(CheckError::new(
