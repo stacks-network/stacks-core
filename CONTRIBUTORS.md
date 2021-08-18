@@ -197,7 +197,7 @@ purpose of that component is. This is usually a concept, and not a formal contra
 Example:
 
 ```rust
-/// The `ReadOnlyChecker` analyzes a contract to determine whether 
+/// The `ReadOnlyChecker` analyzes a contract to determine whether
 /// there are any violations of read-only declarations. By a "violation"
 /// we mean a function that is marked as "read only" but which tries
 /// to modify chainstate.
@@ -276,7 +276,7 @@ Example:
 #[ignore]
 fn transaction_validation_integration_test() {
     /// The purpose of this test is to check if the mempool admission checks
-    /// for the post tx endpoint are working as expected wrt the optional 
+    /// for the post tx endpoint are working as expected wrt the optional
     /// `mempool_admission_check` query parameter.
     ///
     /// In this test, we are manually creating a microblock as well as
@@ -291,9 +291,9 @@ This comment is considered positive because it explains the purpose of the test 
 
 ## How Much to Comment
 
-Contributors should strike a balance between commenting "too much" and commenting "too little". Commenting "too much" primarily includes commenting things that are clear from the context. Commenting "too little" primarily includes writing no comments at all, or writing comments that leave important questions unresolved. 
+Contributors should strike a balance between commenting "too much" and commenting "too little". Commenting "too much" primarily includes commenting things that are clear from the context. Commenting "too little" primarily includes writing no comments at all, or writing comments that leave important questions unresolved.
 
-Human judgment and creativity must be used to create good comments, which convey important information with small amounts of text. There is no single rule which can determine what a good comment is. Longer comments are *not* always better, since needlessly long comments have a cost: they require the reader to read more, take up whitespace, and take longer to write and review. 
+Human judgment and creativity must be used to create good comments, which convey important information with small amounts of text. There is no single rule which can determine what a good comment is. Longer comments are *not* always better, since needlessly long comments have a cost: they require the reader to read more, take up whitespace, and take longer to write and review.
 
 *Don't* over-comment by documenting things that are clear from the context. E.g.:
 
