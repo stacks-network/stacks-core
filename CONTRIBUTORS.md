@@ -16,6 +16,7 @@ You can find information on joining online community forums (Discord, mailing li
 [Style](#style)
 * [Git Commit Messages](#git-commit-messages)
 * [Rust Styleguide](#rust-styleguide)
+* [Comments](#comments)
 
 [License Agreement](#licensing-and-contributor-license-agreement)
 
@@ -157,8 +158,8 @@ All contributions should use the same whitespacing as the rest of the project.
 Moreover, Pull requests where a large number of changes only deal with whitespace will be
 rejected.
 
-# Comments
-Information-adding comments are very important for the readability and correctness of the codebase. The purpose of comments is:
+## Comments
+Comments are very important for the readability and correctness of the codebase. The purpose of comments is:
 
 * Allow readers to understand the roles of components and functions without having to check how they are used.
 * Allow readers to check the correctness of the code against the comments.
@@ -166,11 +167,11 @@ Information-adding comments are very important for the readability and correctne
 
 In the limit, if there are no comments, the problems that arise are:
 
-* Understanding one part of the code requires understanding *many* parts of the code. E.g., understanding what a function does requires reading its definition, which requires reading the definitions of all the functions it depends on, and so on recursively.
+* Understanding one part of the code requires understanding *many* parts of the code. This is because the reader is forced to learn the meanings of constructs inductively through their use. Learning how one construct is used requires understanding its neighbors, and then their neighbors, and so on, recursively. Instead, with a good comment, the reader can understand the role of a construct with `O(1)` work by reading the comment.
 * The user cannot be certain if there is a bug in the code, because there is no distinction between the contract of a function, and its definition.
 * The user cannot be sure if a test is correct, because the logic of the test is not specified, and the functions do not have contracts.
 
-## Formatting
+### Comment Formatting
 
 Comments are to be formatted in typical `rust` style, specifically:
 
@@ -187,14 +188,14 @@ Comments are to be formatted in typical `rust` style, specifically:
     * ContractTooLargeError: Thrown when `contract` is larger than `MAX_CONTRACT_SIZE`.
     ```
 
-## What to Comment
+### Content of Comments
 The following kinds of things should have comments.
 
-### Components
+#### Components
 Comments for a component (`struct`, `trait`, or `enum`) should explain what the overall
 purpose of that component is. This is usually a concept, and not a formal contract. Include anything that is not obvious about this component.
 
-Example:
+**Example:**
 
 ```rust
 /// The `ReadOnlyChecker` analyzes a contract to determine whether
@@ -206,7 +207,7 @@ pub struct ReadOnlyChecker<'a, 'b> {
 
 This comment is considered positive because it explains the concept behind the class at a glance, so that the reader has some idea about what the methods will achieve, without reading each method declaration and comment. It also defines some terms that can be used in the comments on the method names.
 
-### Functions
+#### Functions
 
 The comments on a function should explain what the function does, without having to read it. Wherever practical, it should specify the contract of a function, such that a bug in the logic could be discovered by a discrepancy between contract and implementation, or such that a test could be written with only access to the function comment.
 
@@ -215,7 +216,7 @@ from the inputs. Explain the side effects. Explain any restrictions on the input
 conditions, including when the function will panic, return an error
 or return an empty value.
 
-Example:
+**Example:**
 
 ```rust
 /// A contract that does not violate its read-only declarations is called
@@ -236,18 +237,18 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
 This comment is considered positive because it explains the contract of the function in pseudo-code. Someone who understands the constructs mentioned could, e.g., write a test for this method from this description.
 
-### Commenting Implementation Methods
+#### Comments on Implementations of Virtual Methods 
 
-Note that, if a function implements an interface, the comments should not
+Note that, if a function implements a virtual function on an interface, the comments should not
 repeat what was specified on the interface declaration. The comment should only add information specific to that implementation.
 
-## Data Members
+### Data Members
 Each data member in a struct should have a comment describing what that member
 is, and what it is used for. Such comments are usually brief but should
 clear up any ambiguity that might result from having only the variable
 name and type.
 
-Example:
+**Example:**
 
 ```rust
 pub struct ReadOnlyChecker<'a, 'b> {
@@ -259,7 +260,7 @@ pub struct ReadOnlyChecker<'a, 'b> {
 
 This comment is considered positive because it clarifies users might have about the content and role of this member. E.g., it explains that the `bool` indicates whether the function is *read-only*, whereas this cannot be gotten from the signature alone.
 
-### Tests
+#### Tests
 
 Each test should have enough comments to help an unfamiliar reader understand:
 
@@ -269,7 +270,7 @@ Each test should have enough comments to help an unfamiliar reader understand:
 Sometimes this can be obvious without much comments, perhaps from the context,
 or because the test is very simple. Often though, comments are necessary.
 
-Example:
+**Example:**
 
 ```rust
 #[test]
@@ -289,7 +290,7 @@ fn transaction_validation_integration_test() {
 
 This comment is considered positive because it explains the purpose of the test (checking the case of an optional parameter), it also guides the reader to understand the low-level details about why a microblock is created manually.
 
-## How Much to Comment
+### How Much to Comment
 
 Contributors should strike a balance between commenting "too much" and commenting "too little". Commenting "too much" primarily includes commenting things that are clear from the context. Commenting "too little" primarily includes writing no comments at all, or writing comments that leave important questions unresolved.
 
@@ -310,7 +311,7 @@ Human judgment and creativity must be used to create good comments, which convey
 - For a function that takes an argument `height`, either explain in the comment what this is the *height of*. Alternatively, expand the variable name to remove the ambiguity.
 - For a test, document what it is meant to test, and why the expected answers are, in fact, expected.
 
-## Changing Code Instead of Comments
+### Changing Code Instead of Comments
 
 Keep in mind that better variable names can reduce the need for comments, e.g.:
 
