@@ -167,7 +167,7 @@ impl ArithmeticOnlyChecker {
         match function {
             FetchVar | GetBlockInfo | GetTokenBalance | GetAssetOwner | FetchEntry | SetEntry
             | DeleteEntry | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset
-            | TransferToken | ContractCall | StxTransfer | StxBurn | AtBlock | GetStxBalance
+            | TransferToken | ContractCall | ContractCallBench | StxTransfer | StxBurn | AtBlock | GetStxBalance
             | GetTokenSupply | BurnToken | BurnAsset => {
                 return Err(Error::FunctionNotPermitted(function));
             }

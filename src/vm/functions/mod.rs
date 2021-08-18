@@ -99,6 +99,7 @@ define_named_enum!(NativeFunctions {
     Secp256k1Verify("secp256k1-verify"),
     Print("print"),
     ContractCall("contract-call?"),
+    ContractCallBench("contract-call-bench?"),
     AsContract("as-contract"),
     ContractOf("contract-of"),
     PrincipalOf("principal-of?"),
@@ -304,6 +305,9 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Print => SpecialFunction("special_print", &special_print),
             ContractCall => {
                 SpecialFunction("special_contract-call", &database::special_contract_call)
+            }
+            ContractCallBench => {
+                SpecialFunction("special_contract-call-bench", &database::special_contract_call_bench)
             }
             AsContract => SpecialFunction("special_as-contract", &special_as_contract),
             ContractOf => SpecialFunction("special_contract-of", &special_contract_of),

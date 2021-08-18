@@ -1668,7 +1668,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Secp256k1Recover => make_for_special(&SECP256K1RECOVER_API, name),
         Secp256k1Verify => make_for_special(&SECP256K1VERIFY_API, name),
         Print => make_for_special(&PRINT_API, name),
-        ContractCall => make_for_special(&CONTRACT_CALL_API, name),
+        ContractCall | ContractCallBench => make_for_special(&CONTRACT_CALL_API, name),
         ContractOf => make_for_special(&CONTRACT_OF_API, name),
         PrincipalOf => make_for_special(&PRINCIPAL_OF_API, name),
         AsContract => make_for_special(&AS_CONTRACT_API, name),

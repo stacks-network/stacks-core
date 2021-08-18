@@ -257,7 +257,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 }
                 Ok(true)
             }
-            ContractCall => {
+            ContractCall | ContractCallBench => {
                 check_arguments_at_least(2, args)?;
 
                 let function_name = args[1]

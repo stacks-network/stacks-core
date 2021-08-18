@@ -217,7 +217,7 @@ impl<'a> DefinitionSorter {
                             NativeFunctions::lookup_by_name(function_name)
                         {
                             match native_function {
-                                NativeFunctions::ContractCall => {
+                                NativeFunctions::ContractCall | NativeFunctions::ContractCallBench => {
                                     // Args: [contract-name, function-name, ...]: ignore contract-name, function-name, handle rest
                                     if function_args.len() > 2 {
                                         for expr in function_args[2..].iter() {
