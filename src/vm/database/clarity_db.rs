@@ -17,7 +17,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
-use chainstate::burn::ConsensusHash;
 use core::{
     StacksEpoch, BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -89,7 +88,6 @@ pub trait HeadersDB {
     ) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId)
         -> Option<BurnchainHeaderHash>;
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash>;
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
@@ -103,16 +101,36 @@ pub trait BurnStateDB {
     fn get_pox_prepare_length(&self) -> u32;
     fn get_pox_reward_cycle_length(&self) -> u32;
     fn get_pox_rejection_fraction(&self) -> u64;
+
+    /// Returns the header hash of the burnchain block at burnchain height `height`
+    /// using the sortition `sortition_id`.
+    ///
+    /// Returns None if `height` is negative or greater than the canonical burn
+    /// chain height.
+    ///
+    /// # Panics
+    /// Panics if there is an error with the underlying database connection or
+    /// query.
     fn get_burn_header_hash(
         &self,
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
-    fn get_burn_header_hash_using_consensus_hash(
+
+    /// Returns the header hash of the burnchain block at burnchain height `height`
+    /// using the "canonical sortition" (see SortitionDB::get_canonical_sortition_tip).
+    ///
+    /// Returns None if `height` is negative or greater than the canonical burn
+    /// chain height.
+    ///
+    /// # Panics
+    /// Panics if there is an error with the underlying database connection or
+    /// query.
+    fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
-        consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash>;
+
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
 }
 
@@ -122,9 +140,6 @@ impl HeadersDB for &dyn HeadersDB {
         id_bhh: &StacksBlockId,
     ) -> Option<BlockHeaderHash> {
         (*self).get_stacks_block_header_hash_for_block(id_bhh)
-    }
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        None
     }
     fn get_burn_header_hash_for_block(&self, bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
         (*self).get_burn_header_hash_for_block(bhh)
@@ -164,14 +179,11 @@ impl BurnStateDB for &dyn BurnStateDB {
         (*self).get_burn_header_hash(height, sortition_id)
     }
 
-    fn get_burn_header_hash_using_consensus_hash(
+    fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
-        consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        let bt = backtrace::Backtrace::new();
-        warn!("look2 {:?}", bt);
-        (*self).get_burn_header_hash_using_consensus_hash(height, consensus_hash)
+        (*self).get_burn_header_hash_using_canonical_sortition(height)
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -221,9 +233,6 @@ impl HeadersDB for NullHeadersDB {
         } else {
             None
         }
-    }
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        None
     }
     fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
         None
@@ -289,13 +298,10 @@ impl BurnStateDB for NullBurnStateDB {
         None
     }
 
-    fn get_burn_header_hash_using_consensus_hash(
+    fn get_burn_header_hash_using_canonical_sortition(
         &self,
-        height: u32,
-        consensus_hash: &ConsensusHash,
+        _height: u32,
     ) -> Option<BurnchainHeaderHash> {
-        let bt = backtrace::Backtrace::new();
-        warn!("look2 {:?}", bt);
         None
     }
 
@@ -713,20 +719,20 @@ impl<'a> ClarityDatabase<'a> {
             .expect("Failed to get block data.")
     }
 
+    /// Returns the header hash of the burnchain block at `burnchain_block_height`
+    /// using the "canonical sortition" (see SortitionDB::get_canonical_sortition_tip).
+    ///
+    /// Returns None if `height` is negative or greater than the canonical burn
+    /// chain height.
+    ///
+    /// # Panics
+    /// Panics if the underlying database is not available.
     pub fn get_burnchain_block_header_hash_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,
-    ) -> BurnchainHeaderHash {
-        let block_height = self.get_current_block_height();
-        let id_bhh = self.get_index_block_header_hash(block_height);
-        let consensus_hash = self
-            .headers_db
-            .get_consensus_hash_for_block(&id_bhh)
-            .expect("Failed to get block data.");
-
+    ) -> Option<BurnchainHeaderHash> {
         self.burn_state_db
-            .get_burn_header_hash_using_consensus_hash(burnchain_block_height, &consensus_hash)
-            .expect("Failed to get block data.")
+            .get_burn_header_hash_using_canonical_sortition(burnchain_block_height)
     }
 
     pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {

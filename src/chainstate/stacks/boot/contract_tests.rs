@@ -313,14 +313,11 @@ impl BurnStateDB for TestSimBurnStateDB {
         panic!("Not implemented in TestSim");
     }
 
-    fn get_burn_header_hash_using_consensus_hash(
+    fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
-        consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        let bt = backtrace::Backtrace::new();
-        warn!("look2 {:?}", bt);
-        None
+        panic!("Not implemented in TestSim");
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -388,9 +385,6 @@ impl HeadersDB for TestSimHeadersDB {
             self.get_burn_block_height_for_block(id_bhh)?;
             Some(BurnchainHeaderHash(id_bhh.0.clone()))
         }
-    }
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        None
     }
 
     fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {

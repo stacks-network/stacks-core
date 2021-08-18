@@ -25,9 +25,9 @@ use vm::types::signatures::{ASCII_40, UTF8_40};
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::TypeSignature::SequenceType;
 use vm::types::{
-    BlockInfoProperty, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
-    PrincipalData, SequenceSubtype, TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32,
-    BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
+    BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
+    FunctionSignature, FunctionType, PrincipalData, SequenceSubtype, TupleTypeSignature,
+    TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };
 
 use vm::costs::cost_functions::ClarityCostFunction;
@@ -521,6 +521,27 @@ fn check_get_block_info(
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
 
+fn check_get_burn_block_info(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_arguments_at_least(2, args)?;
+
+    let block_info_prop_str = args[0]
+        .match_atom()
+        .ok_or(CheckError::new(CheckErrors::GetBlockInfoExpectPropertyName))?;
+
+    let block_info_prop =
+        BurnBlockInfoProperty::lookup_by_name(block_info_prop_str).ok_or(CheckError::new(
+            CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string()),
+        ))?;
+
+    checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
+
+    Ok(TypeSignature::new_option(block_info_prop.type_result())?)
+}
+
 impl TypedNativeFunction {
     pub fn type_check_appliction(
         &self,
@@ -761,6 +782,7 @@ impl TypedNativeFunction {
             ContractOf => Special(SpecialNativeFunction(&check_contract_of)),
             PrincipalOf => Special(SpecialNativeFunction(&check_principal_of)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
+            GetBurnBlockInfo => Special(SpecialNativeFunction(&check_get_burn_block_info)),
             ConsSome => Special(SpecialNativeFunction(&options::check_special_some)),
             ConsOkay => Special(SpecialNativeFunction(&options::check_special_okay)),
             ConsError => Special(SpecialNativeFunction(&options::check_special_error)),

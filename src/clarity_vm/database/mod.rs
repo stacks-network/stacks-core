@@ -3,7 +3,6 @@ use rusqlite::{Connection, OptionalExtension};
 use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
-use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
 use util::db::{DBConn, FromRow};
@@ -24,16 +23,11 @@ use core::StacksEpoch;
 pub mod marf;
 
 impl HeadersDB for DBConn {
-    // Is this it?
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
     ) -> Option<BlockHeaderHash> {
-        // I think it's this one.
         get_stacks_header_info(self, id_bhh).map(|x| x.anchored_header.block_hash())
-    }
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        get_stacks_header_info(self, id_bhh).map(|x| x.consensus_hash)
     }
 
     fn get_burn_header_hash_for_block(
@@ -106,14 +100,13 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         }
     }
 
-    fn get_burn_header_hash_using_consensus_hash(
+    fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
-        consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        let bt = backtrace::Backtrace::new();
-        warn!("look2 {:?}", bt);
-        None
+        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.tx())
+            .expect("Failed to get sortition tip.");
+        self.get_burn_header_hash(height, &sortition_id)
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -162,19 +155,13 @@ impl BurnStateDB for SortitionDBConn<'_> {
         }
     }
 
-    // This is the one the integration test is calling.
-    fn get_burn_header_hash_using_consensus_hash(
+    fn get_burn_header_hash_using_canonical_sortition(
         &self,
         height: u32,
-        consensus_hash: &ConsensusHash,
     ) -> Option<BurnchainHeaderHash> {
-        let bt = backtrace::Backtrace::new();
-        warn!("look2 {:?}", bt);
-        let db_handle = SortitionHandleConn::open_reader_consensus(self, consensus_hash).ok()?;
-        match db_handle.get_block_snapshot_by_height(height as u64) {
-            Ok(Some(x)) => Some(x.burn_header_hash),
-            _ => return None,
-        }
+        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn())
+            .expect("Failed to get sortition tip.");
+        self.get_burn_header_hash(height, &sortition_id)
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -220,6 +207,16 @@ impl MemoryBackingStore {
 
     pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+    }
+
+    /// Returns a new ClarityDatabase with underlying databases `headers_db` and
+    /// `burn_state_db`.
+    pub fn as_clarity_db_with_databases<'a>(
+        &'a mut self,
+        headers_db: &'a dyn HeadersDB,
+        burn_state_db: &'a dyn BurnStateDB,
+    ) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self, headers_db, burn_state_db)
     }
 
     pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {

@@ -49,9 +49,10 @@ use chainstate::stacks::Error as ChainstateError;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::{core::StacksEpochId, types::chainstate::StacksBlockId};
 
+use vm::version::ClarityVersion;
+
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
-use vm::version::ClarityVersion;
 
 use vm::coverage::CoverageReporter;
 
@@ -540,15 +541,24 @@ impl EventBatch {
 
 impl<'a> OwnedEnvironment<'a> {
     #[cfg(test)]
-    pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+    pub fn new_with_version(
+        database: ClarityDatabase<'a>,
+        clarity_version: ClarityVersion,
+    ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(false, database, LimitedCostTracker::new_free()),
             default_contract: ContractContext::new(
                 QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity1,
+                clarity_version,
             ),
             call_stack: CallStack::new(),
         }
+    }
+
+    #[cfg(test)]
+    /// Returns a new OwnedEnvironment using clarity version Clarity1.
+    pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+        OwnedEnvironment::new_with_version(database, ClarityVersion::Clarity1)
     }
 
     #[cfg(test)]

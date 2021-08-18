@@ -291,6 +291,10 @@ fn test_functions_clarity2() {
             r#"(stx-transfer-memo? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 0x010203)"#,
             Err(FunctionNotPermitted(NativeFunctions::StxTransferMemo)),
         ),
+        (
+            r#"(get-burn-block-info? header-hash 0)"#,
+            Err(FunctionNotPermitted(NativeFunctions::GetBurnBlockInfo)),
+        ),
     ];
 
     for (contract, result) in tests.iter() {
