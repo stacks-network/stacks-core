@@ -2035,14 +2035,61 @@ fn transaction_validation_integration_test() {
         stacks_block.clone(),
         vec_tx,
     );
+    let mut mblock_bytes = vec![];
+    mblock.consensus_serialize(&mut mblock_bytes).unwrap();
 
-    // Store the microblock we just created, and reload the unconfirmed state to apply that microblock to the unconfirmed state.
-    assert!(chainstate
-        .preprocess_streamed_microblock(&consensus_hash, &stacks_block.block_hash(), &mblock)
-        .unwrap());
-    chainstate
-        .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
+    let client = reqwest::blocking::Client::new();
+
+    // Post the microblock
+    let path = format!("{}/v2/microblocks", &http_origin);
+    let res: String = client
+        .post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(mblock_bytes.clone())
+        .send()
+        .unwrap()
+        .json()
         .unwrap();
+
+    assert_eq!(res, format!("{}", &mblock.block_hash()));
+
+    // Wait for the microblock to be accepted
+    sleep_ms(5_000);
+    let path = format!("{}/v2/info", &http_origin);
+    let mut iter_count = 0;
+    let tip_info = loop {
+        let tip_info = client
+            .get(&path)
+            .send()
+            .unwrap()
+            .json::<RPCPeerInfoData>()
+            .unwrap();
+        eprintln!("{:#?}", tip_info);
+        if tip_info.unanchored_tip == StacksBlockId([0; 32]) {
+            iter_count += 1;
+            assert!(
+                iter_count < 10,
+                "Hit retry count while waiting for net module to process pushed microblock"
+            );
+            sleep_ms(5_000);
+            continue;
+        } else {
+            break tip_info;
+        }
+    };
+
+    // Wait at least two p2p refreshes so it can produce the microblock.
+    for i in 0..30 {
+        info!(
+            "wait {} more seconds for microblock miner to find our transaction...",
+            30 - i
+        );
+        sleep_ms(1000);
+    }
+
+    // Check event observer for new microblock event (expect 1).
+    let mut microblock_events = test_observer::get_microblocks();
+    assert_eq!(microblock_events.len(), 1);
 
     // Call the contract we just defined in a microblock, but make the mempool admission check occur against anchored state.
     let call_tx = make_contract_call(
@@ -2054,7 +2101,7 @@ fn transaction_validation_integration_test() {
         "execute",
         &[],
     );
-    let client = reqwest::blocking::Client::new();
+
     let query =
         HttpRequestType::make_query_string_for_post_tx_endpoint(TransactionAnchorMode::OnChainOnly);
     let path = format!("{}/v2/transactions{}", http_origin, query);
@@ -2076,6 +2123,23 @@ fn transaction_validation_integration_test() {
     // Call the contract defined in the microblock. Set the transaction anchor mode to `Any`, which
     // makes mempool admission check occur against the unconfirmed state.
     submit_tx(&http_origin, &call_tx, TransactionAnchorMode::Any);
+
+    // Mine an anchored block because now we want to have no unconfirmed state.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let second_call_tx = make_contract_call(
+        &spender_sk,
+        3,
+        1000,
+        &spender_stacks_addr,
+        "caller",
+        "execute",
+        &[],
+    );
+
+    // The underlying MARF trie for the unconfirmed tip will not exist, so the transaction will be
+    // validated against the confirmed chain tip instead of the unconfirmed tip.
+    submit_tx(&http_origin, &second_call_tx, TransactionAnchorMode::Any);
 }
 
 #[test]

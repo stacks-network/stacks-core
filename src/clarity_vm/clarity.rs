@@ -48,6 +48,7 @@ use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
 use crate::util::boot::boot_code_id;
+use crate::util::db::Error as db_error;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -422,6 +423,18 @@ impl ClarityInstance {
             header_db,
             burn_state_db,
         })
+    }
+
+    pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, db_error> {
+        let datastore = self.datastore.get_marf();
+        let mut marf_tx = match datastore.begin_tx() {
+            Ok(tx) => tx,
+            Err(e) => return Err(db_error::IndexError(e)),
+        };
+        match marf_tx.has_block(bhh) {
+            Ok(res) => Ok(res),
+            Err(e) => Err(db_error::IndexError(e)),
+        }
     }
 
     pub fn eval_read_only(

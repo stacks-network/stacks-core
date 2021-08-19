@@ -5227,9 +5227,9 @@ impl StacksChainState {
 
     /// Check to see if a transaction can be (potentially) appended on top of a given chain tip.
     /// The input `mempool_admission_check` determines what the transaction is validated against.
-    /// If `mempool_admission_check`==OffChainOnly, the transaction will only be validated against unconfirmed state.
+    /// If `mempool_admission_check`==OffChainOnly or `mempool_admission_check`==Any, the
+    ///     transaction will only be validated against unconfirmed state.
     /// If `mempool_admission_check`==OnChainOnly, the transaction will only be validated against confirmed state.
-    /// If `mempool_admission_check`==Any, the transaction will be accepted if it validates against the unconfirmed tip.
     ///
     /// # Errors
     ///  - The transaction fails a basic semantic check (for example, if the sender & recipient
@@ -5290,10 +5290,26 @@ impl StacksChainState {
                 if self.unconfirmed_state.is_some()
                     && self.unconfirmed_state.as_ref().unwrap().is_readable()
                 {
-                    self.unconfirmed_state
-                        .as_ref()
-                        .unwrap()
-                        .unconfirmed_chain_tip
+                    // Check if underlying MARF trie exists before returning unconfirmed chain tip
+                    let unconfirmed_state = self.unconfirmed_state.as_mut().unwrap();
+                    let trie_exists = match unconfirmed_state
+                        .clarity_inst
+                        .trie_exists_for_block(&unconfirmed_state.unconfirmed_chain_tip)
+                    {
+                        Ok(res) => res,
+                        Err(e) => {
+                            return Err(MemPoolRejection::DBError(e));
+                        }
+                    };
+
+                    if trie_exists {
+                        unconfirmed_state.unconfirmed_chain_tip
+                    } else {
+                        StacksChainState::get_parent_index_block(
+                            current_consensus_hash,
+                            current_block,
+                        )
+                    }
                 } else {
                     StacksChainState::get_parent_index_block(current_consensus_hash, current_block)
                 }

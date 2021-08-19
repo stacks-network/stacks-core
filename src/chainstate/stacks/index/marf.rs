@@ -306,6 +306,10 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         self.inner_setup_extension(chain_tip, next_chain_tip, block_height, true)
     }
 
+    pub fn has_block(&mut self, bhh: &T) -> Result<bool, Error> {
+        self.storage.has_block(bhh)
+    }
+
     /// Set up the trie extension we're making.
     /// Sets storage pointer to chain_tip.
     /// Returns the height next_chain_tip would be at.
