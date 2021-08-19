@@ -17,6 +17,7 @@
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::proof::ClarityMarfTrieId;
+use chainstate::burn::BlockSnapshot;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use clarity_vm::clarity::ClarityInstance;
 use core::StacksEpoch;
@@ -45,6 +46,7 @@ use vm::version::ClarityVersion;
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
+use chainstate::burn::ConsensusHash;
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))
@@ -180,6 +182,12 @@ impl BurnStateDB for BurnBlockTestDB {
     }
     fn get_burn_start_height(&self) -> u32 {
         0
+    }
+    fn get_block_snapshot_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<BlockSnapshot> {
+        None
     }
     fn get_burn_header_hash(
         &self,

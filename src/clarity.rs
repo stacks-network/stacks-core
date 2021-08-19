@@ -557,7 +557,6 @@ impl HeadersDB for CLIHeadersDB {
         }
     }
 
-
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         let conn = self.conn();
         if let Some(_) = get_cli_block_height(&conn, id_bhh) {

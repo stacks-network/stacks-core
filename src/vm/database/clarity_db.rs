@@ -116,7 +116,7 @@ pub trait BurnStateDB {
     /// Returns None if no matching object found.
     fn get_block_snapshot_from_consensus_hash(
         &self,
-        consensus_hash: ConsensusHash,
+        consensus_hash: &ConsensusHash,
     ) -> Option<BlockSnapshot>;
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
@@ -160,7 +160,7 @@ impl BurnStateDB for &dyn BurnStateDB {
 
     fn get_block_snapshot_from_consensus_hash(
         &self,
-        consensus_hash: ConsensusHash,
+        consensus_hash: &ConsensusHash,
     ) -> Option<BlockSnapshot> {
         (*self).get_block_snapshot_from_consensus_hash(consensus_hash)
     }
@@ -286,7 +286,7 @@ impl BurnStateDB for NullBurnStateDB {
 
     fn get_block_snapshot_from_consensus_hash(
         &self,
-        consensus_hash: ConsensusHash,
+        consensus_hash: &ConsensusHash,
     ) -> Option<BlockSnapshot> {
         None
     }

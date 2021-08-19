@@ -1,10 +1,10 @@
 use rusqlite::{Connection, OptionalExtension};
 
-use chainstate::burn::BlockSnapshot;
-use chainstate::burn::ConsensusHash;
 use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
+use chainstate::burn::BlockSnapshot;
+use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
 use util::db::{DBConn, FromRow};
@@ -108,7 +108,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
 
     fn get_block_snapshot_from_consensus_hash(
         &self,
-        consensus_hash: ConsensusHash,
+        consensus_hash: &ConsensusHash,
     ) -> Option<BlockSnapshot> {
         match SortitionDB::get_block_snapshot_consensus(self.tx(), consensus_hash) {
             Ok(Some(x)) => Some(x),
@@ -164,7 +164,7 @@ impl BurnStateDB for SortitionDBConn<'_> {
 
     fn get_block_snapshot_from_consensus_hash(
         &self,
-        consensus_hash: ConsensusHash,
+        consensus_hash: &ConsensusHash,
     ) -> Option<BlockSnapshot> {
         match SortitionDB::get_block_snapshot_consensus(self.conn(), consensus_hash) {
             Ok(Some(x)) => Some(x),

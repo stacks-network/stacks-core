@@ -3,6 +3,7 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use address::AddressHashMode;
+use chainstate::burn::BlockSnapshot;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
@@ -311,6 +312,12 @@ impl BurnStateDB for TestSimBurnStateDB {
         sortition_id: &crate::types::chainstate::SortitionId,
     ) -> Option<BurnchainHeaderHash> {
         panic!("Not implemented in TestSim");
+    }
+    fn get_block_snapshot_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<BlockSnapshot> {
+        None
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {

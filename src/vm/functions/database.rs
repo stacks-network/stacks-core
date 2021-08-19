@@ -519,8 +519,9 @@ pub fn special_get_burn_block_info(
         .match_atom()
         .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
-    let block_info_prop = BurnBlockInfoProperty::lookup_by_name(property_name)
-        .ok_or(CheckErrors::NoSuchBurnBlockInfoProperty(property_name.to_string()))?;
+    let block_info_prop = BurnBlockInfoProperty::lookup_by_name(property_name).ok_or(
+        CheckErrors::NoSuchBurnBlockInfoProperty(property_name.to_string()),
+    )?;
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;

@@ -2055,12 +2055,13 @@ mod test {
         clarity_vm::database::marf::MarfedKV,
         vm::analysis::type_checker::tests::contracts::type_check,
     };
+    use chainstate::burn::BlockSnapshot;
+    use chainstate::burn::ConsensusHash;
 
     use super::make_all_api_reference;
     use super::make_json_api_reference;
 
     use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
-use chainstate::burn::ConsensusHash;
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
@@ -2072,10 +2073,7 @@ use chainstate::burn::ConsensusHash;
         ) -> Option<BurnchainHeaderHash> {
             None
         }
-        fn get_consensus_hash_for_block(
-            &self,
-            _bhh: &StacksBlockId,
-        ) -> Option<ConsensusHash> {
+        fn get_consensus_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<ConsensusHash> {
             None
         }
         fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
@@ -2126,6 +2124,12 @@ use chainstate::burn::ConsensusHash;
                 )
                 .unwrap(),
             )
+        }
+        fn get_block_snapshot_from_consensus_hash(
+            &self,
+            consensus_hash: &ConsensusHash,
+        ) -> Option<BlockSnapshot> {
+            None
         }
 
         fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
