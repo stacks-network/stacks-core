@@ -207,62 +207,92 @@ pub const BURNCHAIN_DB_VERSION: &'static str = "2";
 
 const BURNCHAIN_DB_SCHEMA: &'static str = r#"
 CREATE TABLE burnchain_db_block_headers (
+    -- height of the block (non-negative)
     block_height INTEGER NOT NULL,
+    -- 32-byte hash of the block
     block_hash TEXT UNIQUE NOT NULL,
+    -- 32-byte hash of this block's parent block
     parent_block_hash TEXT NOT NULL,
+    -- number of transactions in this block
     num_txs INTEGER NOT NULL,
+    -- Unix timestamp at which this block was mined
     timestamp INTEGER NOT NULL,
 
     PRIMARY KEY(block_hash)
 );
 
 CREATE TABLE burnchain_db_block_ops (
+    -- 32-byte hash of the block that contains this parsed operation
     block_hash TEXT NOT NULL,
+    -- opaque serialized operation (e.g. a JSON string)
     op TEXT NOT NULL,
+    -- 32-byte transaction ID
     txid TEXT NOT NULL,
 
+    -- ensure that the operation corresponds to an actual block
     FOREIGN KEY(block_hash) REFERENCES burnchain_db_block_headers(block_hash)
 );
 
 CREATE TABLE affirmation_maps (
+    -- unique ID of this affirmation map
     affirmation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- the weight of this affirmation map.  "weight" is the number of affirmed anchor blocks
     weight INTEGER NOT NULL,
+    -- the affirmation map itself (this is a serialized AffirmationMap)
     affirmation_map TEXT NOT NULL
 );
 CREATE INDEX affirmation_maps_index ON affirmation_maps(affirmation_map);
 
 -- ensure anchor block uniqueness
 CREATE TABLE anchor_blocks (
+    -- the nonnegative reward cycle number
     reward_cycle INTEGER PRIMARY KEY
 );
 
 CREATE TABLE block_commit_metadata (
+    -- 32-byte hash of the burnchain block that contains this block-cmmit
     burn_block_hash TEXT NOT NULL,
+    -- 32-byte hash of the transaction that contains this block-commit
     txid TEXT NOT NULL,
+    -- height of the burnchain block in which this block-commit can be found
     block_height INTEGER NOT NULL,
+    -- index into the list of transactions in this block at which this block-commit can be found
     vtxindex INTEGER NOT NULL,
     
+    -- ID of this block-commit's affirmation map
     affirmation_id INTEGER NOT NULL,
+    -- if not NULL, this block-commit is an anchor block, and this value is the reward cycle for which it is an anchor block
     anchor_block INTEGER,
+    -- if not NULL, this block-commit occurs in a reward cycle with an anchor block, *and* this block-commit descends from the anchor block.
+    -- this value will contain the reward cycle ID.
     anchor_block_descendant INTEGER,
 
+    -- since the burnchain can fork, and since the same transaction can get mined in both forks, ensure global uniqueness
     PRIMARY KEY(burn_block_hash,txid),
+    -- make sure the affirmation map exists for this block-commit
     FOREIGN KEY(affirmation_id) REFERENCES affirmation_maps(affirmation_id),
+    -- if this block-commit is an anchor block, make sure it corresponds to exactly one reward cycle.
     FOREIGN KEY(anchor_block) REFERENCES anchor_blocks(reward_cycle)
 );
 
--- override the canonical affirmation map at the operator's discression
+-- override the canonical affirmation map at the operator's discression.
+-- set values in this table only in an emergency -- such as when a hidden anchor block was mined, and the operator
+-- wants to avoid a deep Stacks blockchain reorg that would arise if the hidden anchor block was later disclosed.
 CREATE TABLE overrides (
     reward_cycle INTEGER PRIMARY KEY NOT NULL,
     affirmation_map TEXT NOT NULL
 );
 
+-- database version
 CREATE TABLE db_config(version TEXT NOT NULL);
 
-INSERT INTO affirmation_maps(affirmation_id,weight,affirmation_map) VALUES (0,0,""); -- empty affirmation map
+-- empty affirmation map always exists, so foreign key relationships work
+INSERT INTO affirmation_maps(affirmation_id,weight,affirmation_map) VALUES (0,0,"");
 "#;
 
 impl<'a> BurnchainDBTransaction<'a> {
+    /// Store a burnchain block header into the burnchain database.
+    /// Returns the row ID on success.
     fn store_burnchain_db_entry(
         &self,
         header: &BurnchainBlockHeader,
@@ -283,6 +313,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         }
     }
 
+    /// Add an affirmation map into the database.  Returns the affirmation map ID.
     fn insert_block_commit_affirmation_map(
         &self,
         affirmation_map: &AffirmationMap,
@@ -300,6 +331,9 @@ impl<'a> BurnchainDBTransaction<'a> {
         }
     }
 
+    /// Update a block-commit's affirmation state -- namely, record the reward cycle that this
+    /// block-commit affirms, if any (anchor_block_descendant), and record the affirmation map ID
+    /// for this block-commit (affirmation_id).
     fn update_block_commit_affirmation(
         &self,
         block_commit: &LeaderBlockCommitOp,
@@ -323,6 +357,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         }
     }
 
+    /// Mark a block-commit as being the anchor block commit for a particular reward cycle.
     pub fn set_anchor_block(
         &self,
         block_commit: &LeaderBlockCommitOp,
@@ -356,6 +391,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         }
     }
 
+    /// Unmark all block-commit(s) that were anchor block(s) for this reward cycle.
     pub fn clear_anchor_block(&self, reward_cycle: u64) -> Result<(), DBError> {
         let sql = "UPDATE block_commit_metadata SET anchor_block = NULL WHERE anchor_block = ?1";
         let args: &[&dyn ToSql] = &[&u64_to_sql(reward_cycle)?];
