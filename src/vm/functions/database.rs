@@ -498,6 +498,10 @@ pub fn special_get_block_info(
     Ok(Value::some(result)?)
 }
 
+/// # Errors:
+/// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
+/// - CheckErrors::GetBlockInfoExpectPropertyName if there is no `args[0]`.
+/// - CheckErrors::GetBlockInfoExpectPropertyName
 pub fn special_get_burn_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
