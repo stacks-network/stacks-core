@@ -66,6 +66,8 @@ impl AffirmationMapEntry {
     }
 }
 
+/// An affirmation map is simply a list of affirmation map entries.  This struct merely wraps the
+/// list behind accessor and mutator methods.
 #[derive(Clone, PartialEq)]
 pub struct AffirmationMap {
     affirmations: Vec<AffirmationMapEntry>,
@@ -115,8 +117,8 @@ impl AffirmationMap {
         }
     }
 
-    pub fn at(&self, reward_cycle: u64) -> Option<AffirmationMapEntry> {
-        self.affirmations.get(reward_cycle as usize).cloned()
+    pub fn at(&self, reward_cycle: u64) -> Option<&AffirmationMapEntry> {
+        self.affirmations.get(reward_cycle as usize)
     }
 
     pub fn push(&mut self, entry: AffirmationMapEntry) {
@@ -163,6 +165,7 @@ impl AffirmationMap {
     /// If `other` contains a reward cycle affirmation that is not present in `self`, then yes.
     /// (Note that this means that if `other` is a prefix of `self`, then no divergence).
     /// Return the index into `other` where the affirmation differs from `self`.
+    /// Return `None` if no difference exists.
     pub fn find_divergence(&self, other: &AffirmationMap) -> Option<u64> {
         for i in 0..cmp::min(self.len(), other.len()) {
             if self.affirmations[i] != other.affirmations[i] {
@@ -200,7 +203,7 @@ impl AffirmationMap {
     }
 
     /// What is the weight of this affirmation map?
-    /// i.e. how many times did the network either affirm an anchor block, or made no election?
+    /// i.e. how many times did the network either affirm an anchor block, or make no election?
     pub fn weight(&self) -> u64 {
         let mut weight = 0;
         for i in 0..self.len() {
@@ -216,7 +219,8 @@ impl AffirmationMap {
 }
 
 /// Get a parent/child reward cycle.  Only return Some(..) if the reward cycle is known for both --
-/// i.e. their block heights are plausible.
+/// i.e. their block heights are plausible -- they are at or after the first burnchain block
+/// height.
 pub fn get_parent_child_reward_cycles(
     parent: &LeaderBlockCommitOp,
     block_commit: &LeaderBlockCommitOp,
@@ -251,7 +255,10 @@ pub fn get_parent_child_reward_cycles(
 }
 
 /// Read a range of blockstack operations for a prepare phase of a given reward cycle.
-/// Only includes block-commits
+/// Only includes block-commits.
+/// The returned vec is a vec of vecs of block-commits in block order.  The ith item is a vec of
+/// block-commits in block order for the ith prepare-phase block (item 0 is the first prepare-phase
+/// block's block-commits).
 pub fn read_prepare_phase_commits<'a, B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction<'a>,
     indexer: &B,
@@ -259,6 +266,7 @@ pub fn read_prepare_phase_commits<'a, B: BurnchainHeaderReader>(
     first_block_height: u64,
     reward_cycle: u64,
 ) -> Result<Vec<Vec<LeaderBlockCommitOp>>, Error> {
+    // start and end heights of the prepare phase for this reward cycle
     let start_height = pox_consts
         .reward_cycle_to_block_height(first_block_height, reward_cycle + 1)
         - (pox_consts.prepare_length as u64);
@@ -306,11 +314,11 @@ pub fn read_prepare_phase_commits<'a, B: BurnchainHeaderReader>(
             }
         }
         block_ops.sort_by(|op1, op2| {
-            if op1.block_height != op2.block_height {
-                op1.block_height.cmp(&op2.block_height)
-            } else {
-                op1.vtxindex.cmp(&op2.vtxindex)
-            }
+            assert_eq!(
+                op1.block_height, op2.block_height,
+                "BUG: block loaded ops from a different block height"
+            );
+            op1.vtxindex.cmp(&op2.vtxindex)
         });
         ret.push(block_ops);
     }
@@ -444,7 +452,7 @@ pub fn filter_orphan_block_commits(
 }
 
 /// Given a list of prepare-phase block-commits, filter out the ones that don't have correct burn
-/// modulii.
+/// modulii.  This means that late block-commits don't count as confirmations.
 pub fn filter_missed_block_commits(
     prepare_phase_ops: Vec<Vec<LeaderBlockCommitOp>>,
 ) -> Vec<Vec<LeaderBlockCommitOp>> {
@@ -487,11 +495,11 @@ pub fn filter_missed_block_commits(
 pub fn find_heaviest_block_commit<'a, B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction<'a>,
     indexer: &B,
-    prepare_ops: &Vec<Vec<LeaderBlockCommitOp>>,
+    prepare_phase_ops: &Vec<Vec<LeaderBlockCommitOp>>,
     anchor_threshold: u32,
 ) -> Result<Option<(LeaderBlockCommitOp, Vec<Vec<bool>>, u64, u64)>, DBError> {
     // sanity check -- must be in order by block height and vtxindex
-    for prepare_block_ops in prepare_ops.iter() {
+    for prepare_block_ops in prepare_phase_ops.iter() {
         let mut expected_block_height = None;
         let mut last_vtxindex = None;
         for opdata in prepare_block_ops.iter() {
@@ -527,7 +535,7 @@ pub fn find_heaviest_block_commit<'a, B: BurnchainHeaderReader>(
     let mut ancestor_confirmations: BTreeMap<(u64, u32), (HashSet<u64>, u64)> = BTreeMap::new();
 
     // calculate each block-commit's parents
-    for prepare_block_ops in prepare_ops.iter() {
+    for prepare_block_ops in prepare_phase_ops.iter() {
         for opdata in prepare_block_ops.iter() {
             parents.insert(
                 (opdata.block_height, opdata.vtxindex),
@@ -540,7 +548,7 @@ pub fn find_heaviest_block_commit<'a, B: BurnchainHeaderReader>(
     }
 
     // calculate the ancestor map -- find the highest non-prepare-phase ancestor for each prepare-phase block-commit.
-    for prepare_block_ops in prepare_ops.iter().rev() {
+    for prepare_block_ops in prepare_phase_ops.iter().rev() {
         for opdata in prepare_block_ops.iter() {
             let mut cursor = (opdata.block_height, opdata.vtxindex);
             while let Some((parent_block, parent_vtxindex)) = parents.get(&cursor) {
@@ -552,7 +560,7 @@ pub fn find_heaviest_block_commit<'a, B: BurnchainHeaderReader>(
 
     // calculate the ancestor confirmations -- figure out how many distinct blocks contain
     // block-commits that descend from each pre-prepare-phase ancestor
-    for prepare_block_ops in prepare_ops.iter() {
+    for prepare_block_ops in prepare_phase_ops.iter() {
         for opdata in prepare_block_ops.iter() {
             if let Some((ancestor_height, ancestor_vtxindex)) =
                 ancestors.get(&(opdata.block_height, opdata.vtxindex))
@@ -650,9 +658,9 @@ pub fn find_heaviest_block_commit<'a, B: BurnchainHeaderReader>(
                 // anchor block as the most_burnt.
                 let mut burn_count = 0;
 
-                let mut descendancy = Vec::with_capacity(prepare_ops.len());
-                for prepare_block_ops in prepare_ops.iter() {
-                    let mut block_descendancy = Vec::with_capacity(prepare_ops.len());
+                let mut descendancy = Vec::with_capacity(prepare_phase_ops.len());
+                for prepare_block_ops in prepare_phase_ops.iter() {
+                    let mut block_descendancy = Vec::with_capacity(prepare_phase_ops.len());
                     let mut found_conf = false;
                     for opdata in prepare_block_ops.iter() {
                         if let Some((op_ancestor_height, op_ancestor_vtxindex, ..)) =
