@@ -238,7 +238,7 @@ impl MemPoolRejection {
         };
         let mut result = json!({
             "txid": format!("{}", txid.to_hex()),
-            "error": "transaction rejected",
+            "error": "transaction rejected, MemPoolRejection",
             "reason": reason_code,
         });
         if let Some(reason_data) = reason_data {
