@@ -1380,6 +1380,7 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(())
     }
 
+    // Comes from the marf.
     pub fn get_block_height_of(
         &mut self,
         bhh: &T,

@@ -1548,6 +1548,7 @@ impl<'a> SortitionHandleConn<'a> {
     ) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
 
+        // Note: This would return None if `block_height` were the height of `chain_tip`.
         SortitionDB::get_ancestor_snapshot(self, block_height, &self.context.chain_tip)
     }
 

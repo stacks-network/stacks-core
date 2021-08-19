@@ -375,6 +375,7 @@ impl<'a> RollbackWrapper<'a> {
         })
     }
 
+    // Comes from the MARF.
     pub fn get_current_block_height(&mut self) -> u32 {
         self.store.get_current_block_height()
     }

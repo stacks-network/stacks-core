@@ -105,20 +105,23 @@ pub trait BurnStateDB {
     fn get_pox_reward_cycle_length(&self) -> u32;
     fn get_pox_rejection_fraction(&self) -> u64;
 
-    /// Returns None if `height` is negative or greater than the canonical burn
-    /// chain height.
+    /// Returns Some if `0 <= height < get_burn_block_height(sorition_id)`, and None otherwise.
     fn get_burn_header_hash(
         &self,
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
 
-    /// Returns None if no matching object found.
+    /// Lookup a `BlockSnapshot` row in the `snapshots` database keyed on `consensus_hash`.
+    ///
+    /// Returns None if no block found.
     fn get_block_snapshot_from_consensus_hash(
         &self,
         consensus_hash: &ConsensusHash,
     ) -> Option<BlockSnapshot>;
 
+    /// The epoch is defined as by a start and end height. This returns
+    /// the epoch enclosing `height`.
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
 }
 
@@ -724,12 +727,17 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Option<BurnchainHeaderHash> {
         let current_stacks_height = self.get_current_block_height();
         let id_bhh = self.get_index_block_header_hash(current_stacks_height);
+
+        // Is this block in the database?
+        // Should this return an error/panic if it fails?
         let consensus = match self.headers_db.get_consensus_hash_for_block(&id_bhh) {
             None => {
                 return None;
             }
             Some(consensus) => consensus,
         };
+
+        // Should this return an error/panic if it fails?
         let snapshot = match self
             .burn_state_db
             .get_block_snapshot_from_consensus_hash(&consensus)
@@ -739,9 +747,8 @@ impl<'a> ClarityDatabase<'a> {
             }
             Some(snapshot) => snapshot,
         };
-        let sortition_id = snapshot.sortition_id;
         self.burn_state_db
-            .get_burn_header_hash(burnchain_block_height, &sortition_id)
+            .get_burn_header_hash(burnchain_block_height, &snapshot.sortition_id)
     }
 
     pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {

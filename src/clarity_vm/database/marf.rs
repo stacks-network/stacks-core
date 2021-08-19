@@ -321,7 +321,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
                 // should never happen
                 let msg = format!(
                     "Failed to obtain current block height of {} (got None)",
-                    &self.chain_tip
+                    &self.chain_tip // StacksBlockId
                 );
                 error!("{}", &msg);
                 panic!("{}", &msg);

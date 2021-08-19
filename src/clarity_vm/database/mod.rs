@@ -39,7 +39,7 @@ impl HeadersDB for DBConn {
         get_stacks_header_info(self, id_bhh).map(|x| x.burn_header_hash)
     }
 
-    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+u   fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
         get_stacks_header_info(self, id_bhh).map(|x| x.consensus_hash)
     }
 
@@ -82,12 +82,14 @@ fn get_miner_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<MinerPaymentS
 
 impl BurnStateDB for SortitionHandleTx<'_> {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+        // Note: This hits the sqlite db.
         match SortitionDB::get_block_snapshot(self.tx(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),
             _ => return None,
         }
     }
 
+    /// Returns Some if `0 <= height < get_burn_block_height(sorition_id)`, and None otherwise.
     fn get_burn_header_hash(
         &self,
         height: u32,
@@ -156,6 +158,16 @@ impl BurnStateDB for SortitionDBConn<'_> {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash> {
         let db_handle = SortitionHandleConn::open_reader(self, &sortition_id).ok()?;
+
+        let current_height = self.get_burn_block_height(sortition_id) {
+            None => { return None; }
+            Some(height) => height,
+        }
+
+        if height < 0 || height >= current_height {
+            return None;
+        }
+
         match db_handle.get_block_snapshot_by_height(height as u64) {
             Ok(Some(x)) => Some(x.burn_header_hash),
             _ => return None,
