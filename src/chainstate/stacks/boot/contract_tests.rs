@@ -391,6 +391,10 @@ impl HeadersDB for TestSimHeadersDB {
         None
     }
 
+    fn get_consensus_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        None
+    }
+
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,

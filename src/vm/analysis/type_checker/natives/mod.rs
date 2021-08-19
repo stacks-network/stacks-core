@@ -531,9 +531,9 @@ fn check_get_burn_block_info(
 ) -> TypeResult {
     check_arguments_at_least(2, args)?;
 
-    let block_info_prop_str = args[0]
-        .match_atom()
-        .ok_or(CheckError::new(CheckErrors::GetBurnBlockInfoExpectPropertyName))?;
+    let block_info_prop_str = args[0].match_atom().ok_or(CheckError::new(
+        CheckErrors::GetBurnBlockInfoExpectPropertyName,
+    ))?;
 
     let block_info_prop =
         BurnBlockInfoProperty::lookup_by_name(block_info_prop_str).ok_or(CheckError::new(

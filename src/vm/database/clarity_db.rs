@@ -50,6 +50,7 @@ use crate::{
         StacksBlockId, VRFSeed,
     },
 };
+use chainstate::burn::ConsensusHash;
 
 use crate::types::proof::TrieMerkleProof;
 
@@ -89,6 +90,7 @@ pub trait HeadersDB {
     ) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId)
         -> Option<BurnchainHeaderHash>;
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash>;
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
@@ -130,6 +132,9 @@ impl HeadersDB for &dyn HeadersDB {
     }
     fn get_burn_header_hash_for_block(&self, bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
         (*self).get_burn_header_hash_for_block(bhh)
+    }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        (*self).get_consensus_hash_for_block(id_bhh)
     }
     fn get_vrf_seed_for_block(&self, bhh: &StacksBlockId) -> Option<VRFSeed> {
         (*self).get_vrf_seed_for_block(bhh)
@@ -239,6 +244,9 @@ impl HeadersDB for NullHeadersDB {
             None
         }
     }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        None
+    }
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         if *id_bhh
             == StacksBlockHeader::make_index_block_hash(
@@ -291,7 +299,6 @@ impl BurnStateDB for NullBurnStateDB {
     ) -> Option<BurnchainHeaderHash> {
         None
     }
-
     fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
         Some(StacksEpoch {
             epoch_id: self.epoch.clone(),
@@ -706,15 +713,17 @@ impl<'a> ClarityDatabase<'a> {
             .expect("Failed to get block data.")
     }
 
-    /// Returns the header hash of the burnchain block at `burnchain_block_height`
-    /// using the "canonical sortition" (see SortitionDB::get_canonical_sortition_tip).
+    /// Gets the `StacksBlockId` for the *current* chain tip Stacks block height, converts this
+    /// `StacksBlockId` to a `SortitionId` and then gets the `BurnchainHeaderHash` from the
+    /// `BurnStateDB` using this `SortitionId`.
     ///
-    /// Returns None if `height` is negative or greater than the canonical burn
-    /// chain height.
+    /// Returns Some() if `0 <= height < current_burnblock_height`, and None otherwise.
     pub fn get_burnchain_block_header_hash_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,
     ) -> Option<BurnchainHeaderHash> {
+        let current_stacks_height = self.get_current_block_height();
+        let id_bhh = self.get_index_block_header_hash(current_stacks_height);
         self.burn_state_db
             .get_burn_header_hash_using_canonical_sortition(burnchain_block_height)
     }

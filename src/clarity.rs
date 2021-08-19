@@ -37,6 +37,7 @@ use util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use util::log;
 use vm::ContractName;
 
+use chainstate::burn::ConsensusHash;
 use vm::analysis;
 use vm::analysis::contract_interface_builder::build_contract_interface;
 use vm::analysis::{errors::CheckError, errors::CheckResult, AnalysisDatabase, ContractAnalysis};
@@ -556,6 +557,7 @@ impl HeadersDB for CLIHeadersDB {
         }
     }
 
+
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         let conn = self.conn();
         if let Some(_) = get_cli_block_height(&conn, id_bhh) {
@@ -582,6 +584,10 @@ impl HeadersDB for CLIHeadersDB {
         } else {
             None
         }
+    }
+
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        None
     }
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         let conn = self.conn();

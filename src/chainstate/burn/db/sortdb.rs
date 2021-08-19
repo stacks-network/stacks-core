@@ -3704,7 +3704,7 @@ impl<'a> SortitionHandleTx<'a> {
             &snapshot.accumulated_coinbase_ustx.to_string(),
         ];
 
-				// Note: insert into snap shots.. is this done by the time that we have this block?
+        // Note: insert into snap shots.. is this done by the time that we have this block?
         self.execute("INSERT INTO snapshots \
                       (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
                       stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, parent_sortition_id, pox_valid, accumulated_coinbase_ustx) \

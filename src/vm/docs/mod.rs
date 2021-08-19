@@ -2060,6 +2060,7 @@ mod test {
     use super::make_json_api_reference;
 
     use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+use chainstate::burn::ConsensusHash;
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
@@ -2069,6 +2070,12 @@ mod test {
             &self,
             _bhh: &StacksBlockId,
         ) -> Option<BurnchainHeaderHash> {
+            None
+        }
+        fn get_consensus_hash_for_block(
+            &self,
+            _bhh: &StacksBlockId,
+        ) -> Option<ConsensusHash> {
             None
         }
         fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {

@@ -498,10 +498,13 @@ pub fn special_get_block_info(
     Ok(Value::some(result)?)
 }
 
+/// Interprets `args` as variables `[property_name, burnblock_height]`, and returns
+/// a property value determined by `property_name`.
+///
 /// # Errors:
 /// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrors::GetBlockInfoExpectPropertyName if there is no `args[0]`.
-/// - CheckErrors::GetBlockInfoExpectPropertyName
+/// - CheckErrors::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - CheckErrors::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
 pub fn special_get_burn_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -517,7 +520,7 @@ pub fn special_get_burn_block_info(
         .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
     let block_info_prop = BurnBlockInfoProperty::lookup_by_name(property_name)
-        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+        .ok_or(CheckErrors::NoSuchBurnBlockInfoProperty(property_name.to_string()))?;
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
@@ -525,7 +528,7 @@ pub fn special_get_burn_block_info(
         Value::UInt(result) => result,
         x => {
             return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x).into());
-        },
+        }
     };
 
     // Note: We assume that we will not have a height bigger than u32::MAX.

@@ -1,5 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 
+use chainstate::burn::ConsensusHash;
 use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
@@ -35,6 +36,10 @@ impl HeadersDB for DBConn {
         id_bhh: &StacksBlockId,
     ) -> Option<BurnchainHeaderHash> {
         get_stacks_header_info(self, id_bhh).map(|x| x.burn_header_hash)
+    }
+
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        get_stacks_header_info(self, id_bhh).map(|x| x.consensus_hash)
     }
 
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
