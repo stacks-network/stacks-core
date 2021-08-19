@@ -499,7 +499,8 @@ pub fn special_get_block_info(
 }
 
 /// Interprets `args` as variables `[property_name, burnblock_height]`, and returns
-/// a property value determined by `property_name`.
+/// a property value determined by `property_name`:
+/// - `header_hash` returns the burnblock header hash at `burnblock_height` 
 ///
 /// # Errors:
 /// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.

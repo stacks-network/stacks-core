@@ -724,7 +724,16 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Option<BurnchainHeaderHash> {
         let current_stacks_height = self.get_current_block_height();
         let id_bhh = self.get_index_block_header_hash(current_stacks_height);
-        None
+        let consensus = match self.headers_db.get_consensus_hash_for_block(&id_bhh) {
+            None => {return None;}
+            Some(consensus) => consensus
+        };
+        let snapshot = match self.burn_state_db.get_block_snapshot_from_consensus_hash(&consensus) {
+            None => {return None;}
+            Some(snapshot) => snapshot
+        };
+        let sortition_id = snapshot.sortition_id;
+        self.burn_state_db.get_burn_header_hash(burnchain_block_height, &sortition_id)
     }
 
     pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {
