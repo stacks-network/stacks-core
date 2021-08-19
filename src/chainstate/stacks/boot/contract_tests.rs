@@ -313,13 +313,6 @@ impl BurnStateDB for TestSimBurnStateDB {
         panic!("Not implemented in TestSim");
     }
 
-    fn get_burn_header_hash_using_canonical_sortition(
-        &self,
-        height: u32,
-    ) -> Option<BurnchainHeaderHash> {
-        panic!("Not implemented in TestSim");
-    }
-
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         let epoch_begin_index = match self.epoch_bounds.binary_search(&(height as u64)) {
             Ok(index) => index,

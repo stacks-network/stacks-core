@@ -1,5 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 
+use chainstate::burn::BlockSnapshot;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
@@ -105,13 +106,14 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         }
     }
 
-    fn get_burn_header_hash_using_canonical_sortition(
+    fn get_block_snapshot_from_consensus_hash(
         &self,
-        height: u32,
-    ) -> Option<BurnchainHeaderHash> {
-        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.tx())
-            .expect("Failed to get sortition tip.");
-        self.get_burn_header_hash(height, &sortition_id)
+        consensus_hash: ConsensusHash,
+    ) -> Option<BlockSnapshot> {
+        match SortitionDB::get_block_snapshot_consensus(self.tx(), consensus_hash) {
+            Ok(Some(x)) => Some(x),
+            _ => return None,
+        }
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -160,13 +162,14 @@ impl BurnStateDB for SortitionDBConn<'_> {
         }
     }
 
-    fn get_burn_header_hash_using_canonical_sortition(
+    fn get_block_snapshot_from_consensus_hash(
         &self,
-        height: u32,
-    ) -> Option<BurnchainHeaderHash> {
-        let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn())
-            .expect("Failed to get sortition tip.");
-        self.get_burn_header_hash(height, &sortition_id)
+        consensus_hash: ConsensusHash,
+    ) -> Option<BlockSnapshot> {
+        match SortitionDB::get_block_snapshot_consensus(self.conn(), consensus_hash) {
+            Ok(Some(x)) => Some(x),
+            _ => return None,
+        }
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {

@@ -50,7 +50,7 @@ use crate::{
         StacksBlockId, VRFSeed,
     },
 };
-use chainstate::burn::ConsensusHash;
+use chainstate::burn::{BlockSnapshot, ConsensusHash};
 
 use crate::types::proof::TrieMerkleProof;
 
@@ -113,12 +113,11 @@ pub trait BurnStateDB {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
 
-    /// Returns None if `height` is negative or greater than the canonical burn
-    /// chain height.
-    fn get_burn_header_hash_using_canonical_sortition(
+    /// Returns None if no matching object found.
+    fn get_block_snapshot_from_consensus_hash(
         &self,
-        height: u32,
-    ) -> Option<BurnchainHeaderHash>;
+        consensus_hash: ConsensusHash,
+    ) -> Option<BlockSnapshot>;
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
 }
@@ -159,6 +158,13 @@ impl BurnStateDB for &dyn BurnStateDB {
         (*self).get_burn_block_height(sortition_id)
     }
 
+    fn get_block_snapshot_from_consensus_hash(
+        &self,
+        consensus_hash: ConsensusHash,
+    ) -> Option<BlockSnapshot> {
+        (*self).get_block_snapshot_from_consensus_hash(consensus_hash)
+    }
+
     fn get_burn_start_height(&self) -> u32 {
         (*self).get_burn_start_height()
     }
@@ -169,13 +175,6 @@ impl BurnStateDB for &dyn BurnStateDB {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash> {
         (*self).get_burn_header_hash(height, sortition_id)
-    }
-
-    fn get_burn_header_hash_using_canonical_sortition(
-        &self,
-        height: u32,
-    ) -> Option<BurnchainHeaderHash> {
-        (*self).get_burn_header_hash_using_canonical_sortition(height)
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -285,6 +284,13 @@ impl BurnStateDB for NullBurnStateDB {
         0
     }
 
+    fn get_block_snapshot_from_consensus_hash(
+        &self,
+        consensus_hash: ConsensusHash,
+    ) -> Option<BlockSnapshot> {
+        None
+    }
+
     fn get_burn_header_hash(
         &self,
         _height: u32,
@@ -293,12 +299,6 @@ impl BurnStateDB for NullBurnStateDB {
         None
     }
 
-    fn get_burn_header_hash_using_canonical_sortition(
-        &self,
-        _height: u32,
-    ) -> Option<BurnchainHeaderHash> {
-        None
-    }
     fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
         Some(StacksEpoch {
             epoch_id: self.epoch.clone(),
@@ -724,8 +724,7 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Option<BurnchainHeaderHash> {
         let current_stacks_height = self.get_current_block_height();
         let id_bhh = self.get_index_block_header_hash(current_stacks_height);
-        self.burn_state_db
-            .get_burn_header_hash_using_canonical_sortition(burnchain_block_height)
+        None
     }
 
     pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {

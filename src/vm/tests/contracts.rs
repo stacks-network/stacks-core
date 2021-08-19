@@ -188,17 +188,6 @@ impl BurnStateDB for BurnBlockTestDB {
     ) -> Option<BurnchainHeaderHash> {
         None
     }
-    // Returns BurnchainHeaderHash::zero() iff `height == 0`, otherwise None.
-    fn get_burn_header_hash_using_canonical_sortition(
-        &self,
-        height: u32,
-    ) -> Option<BurnchainHeaderHash> {
-        if height == 0 {
-            Some(BurnchainHeaderHash::zero())
-        } else {
-            None
-        }
-    }
     fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
         None
     }

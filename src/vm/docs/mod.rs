@@ -2127,17 +2127,6 @@ use chainstate::burn::ConsensusHash;
                 .unwrap(),
             )
         }
-        fn get_burn_header_hash_using_canonical_sortition(
-            &self,
-            height: u32,
-        ) -> Option<BurnchainHeaderHash> {
-            Some(
-                BurnchainHeaderHash::from_hex(
-                    "e67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8",
-                )
-                .unwrap(),
-            )
-        }
 
         fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
             Some(StacksEpoch {
