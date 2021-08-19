@@ -839,28 +839,6 @@ fn test_process_block_ops() {
         };
 
         assert_eq!(sn124, block_124_snapshot);
-
-        // get all winning block commit hashes.
-        // There should only be two -- the winning block at height 124, and the genesis
-        // sentinel block hash.  This is because epochs 121, 122, and 123 don't have any block
-        // commits.
-        let expected_winning_hashes = vec![
-            BlockHeaderHash([0u8; 32]),
-            block_124_winners[scenario_idx].block_header_hash.clone(),
-        ];
-
-        // TODO: pair up with stacks chain state?
-        /*
-        let winning_header_hashes = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_stacks_block_header_inventory(&mut tx, 124).unwrap()
-                .iter()
-                .map(|ref hinv| hinv.0.clone())
-                .collect()
-        };
-
-        assert_eq!(expected_winning_hashes, winning_header_hashes);
-        */
     }
 }
 
