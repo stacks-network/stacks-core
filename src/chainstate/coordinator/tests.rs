@@ -3043,7 +3043,6 @@ fn test_pox_processable_block_in_different_pox_forks() {
             [burnchain_blind].iter_mut(),
         );
 
-        // handle the sortition -- if
         loop {
             let missing_anchor_opt = coord.handle_new_burnchain_block().unwrap();
             if let Some(missing_anchor) = missing_anchor_opt {
