@@ -14,6 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::mem_type_check as mem_run_analysis;
 use vm::analysis::type_checker::{TypeChecker, TypeResult, TypingContext};
@@ -38,9 +42,16 @@ use vm::types::signatures::TypeSignature::OptionalType;
 use vm::types::Value::Sequence;
 
 use super::CheckResult;
+use vm::ClarityVersion;
 
 mod assets;
 pub mod contracts;
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn test_clarity_versions_type_checker(#[case] version: ClarityVersion) {}
 
 /// Backwards-compatibility shim for type_checker tests. Runs at Clarity2 version.
 pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
@@ -103,8 +114,8 @@ fn test_get_block_info() {
     }
 }
 
-#[test]
-fn test_define_trait() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_define_trait(#[case] version: ClarityVersion) {
     let good = [
         "(define-trait trait-1 ((get-1 (uint) (response uint uint))))",
         "(define-trait trait-1 ((get-1 () (response uint (buff 32)))))",
@@ -142,13 +153,13 @@ fn test_define_trait() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
 
-#[test]
-fn test_use_trait() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_use_trait(#[case] version: ClarityVersion) {
     let bad = [
         "(use-trait trait-1 ((get-1 (uint) (response uint uint))))",
         "(use-trait trait-1 ((get-1 uint)))",
@@ -164,13 +175,13 @@ fn test_use_trait() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
 
-#[test]
-fn test_impl_trait() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_impl_trait(#[case] version: ClarityVersion) {
     let bad = ["(impl-trait trait-1)", "(impl-trait)"];
     let bad_expected = [
         ParseErrors::ImplTraitBadSignature,
@@ -179,7 +190,7 @@ fn test_impl_trait() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -287,8 +298,8 @@ fn test_tx_sponsor() {
     }
 }
 
-#[test]
-fn test_destructuring_opts() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_destructuring_opts(#[case] version: ClarityVersion) {
     let good = [
         "(unwrap! (some 1) 2)",
         "(unwrap-err! (err 1) 2)",
@@ -338,7 +349,10 @@ fn test_destructuring_opts() {
     let bad = [
         (
             "(unwrap-err! (some 2) 2)",
-            CheckErrors::ExpectedResponseType(TypeSignature::from("(optional int)")),
+            CheckErrors::ExpectedResponseType(TypeSignature::from_string(
+                "(optional int)",
+                version,
+            )),
         ),
         (
             "(unwrap! (err 3) 2)",
@@ -406,7 +420,7 @@ fn test_destructuring_opts() {
         ("(match)", CheckErrors::RequiresAtLeastArguments(1, 0)),
         (
             "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
-            CheckErrors::BadMatchInput(TypeSignature::from("int")),
+            CheckErrors::BadMatchInput(TypeSignature::from_string("int", version)),
         ),
         (
             "(default-to 3 5)",
@@ -497,8 +511,8 @@ fn test_at_block() {
     }
 }
 
-#[test]
-fn test_trait_reference_unknown() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_trait_reference_unknown(#[case] version: ClarityVersion) {
     let bad = [(
         "(+ 1 <kvstore>)",
         ParseErrors::TraitReferenceUnknown("kvstore".to_string()),
@@ -506,7 +520,7 @@ fn test_trait_reference_unknown() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter() {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -781,8 +795,8 @@ fn test_element_at() {
     }
 }
 
-#[test]
-fn test_eqs() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_eqs(#[case] version: ClarityVersion) {
     let good = [
         "(is-eq (list 1 2 3 4 5) (list 1 2 3 4 5 6 7))",
         "(is-eq (tuple (good 1) (bad 2)) (tuple (good 2) (bad 3)))",
@@ -800,7 +814,10 @@ fn test_eqs() {
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::TypeError(TypeSignature::list_of(IntType, 1).unwrap(), IntType),
-        CheckErrors::TypeError("(optional bool)".into(), "(optional int)".into()),
+        CheckErrors::TypeError(
+            TypeSignature::from_string("(optional bool)", version),
+            TypeSignature::from_string("(optional int)", version),
+        ),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1449,8 +1466,8 @@ fn test_string_to_ints() {
     }
 }
 
-#[test]
-fn test_response_inference() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_response_inference(#[case] version: ClarityVersion) {
     let good = [
         "(define-private (foo (x int)) (err x))
                  (define-private (bar (x bool)) (ok x))
@@ -1485,7 +1502,10 @@ fn test_response_inference() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError("(response bool int)".into(), BoolType),
+        CheckErrors::TypeError(
+            TypeSignature::from_string("(response bool int)", version),
+            BoolType,
+        ),
         CheckErrors::ReturnTypesMustMatch(IntType, BoolType),
         CheckErrors::CouldNotDetermineResponseOkType,
     ];
@@ -1574,8 +1594,8 @@ fn test_factorial() {
     mem_type_check(contract).unwrap();
 }
 
-#[test]
-fn test_options() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_options(#[case] version: ClarityVersion) {
     let contract = "
          (define-private (foo (id (optional int)))
            (+ 1 (default-to 1 id)))
@@ -1604,7 +1624,8 @@ fn test_options() {
 
     assert!(match mem_type_check(contract).unwrap_err().err {
         CheckErrors::TypeError(t1, t2) => {
-            t1 == "(optional bool)".into() && t2 == "(optional int)".into()
+            t1 == TypeSignature::from_string("(optional bool)", version)
+                && t2 == TypeSignature::from_string("(optional int)", version)
         }
         _ => false,
     });

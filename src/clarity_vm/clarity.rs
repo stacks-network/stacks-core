@@ -906,7 +906,12 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
 
         using!(self.cost_track, "cost tracker", |mut cost_track| {
             self.inner_with_analysis_db(|db| {
-                let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
+                let ast_result = ast::build_ast(
+                    identifier,
+                    contract_content,
+                    &mut cost_track,
+                    clarity_version,
+                );
 
                 let mut contract_ast = match ast_result {
                     Ok(x) => x,

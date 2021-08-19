@@ -19,8 +19,11 @@ use crate::types::chainstate::StacksBlockId;
 use crate::types::proof::ClarityMarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use clarity_vm::clarity::ClarityInstance;
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 use util::hash::hex_bytes;
-use vm::ast;
 use vm::ast::errors::ParseErrors;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
@@ -34,9 +37,16 @@ use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
+use vm::{ast, ClarityVersion};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn test_clarity_versions_vm(#[case] version: ClarityVersion) {}
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))
@@ -182,8 +192,8 @@ fn test_block_headers(n: u8) -> StacksBlockId {
     StacksBlockId([n as u8; 32])
 }
 
-#[test]
-fn test_simple_token_system() {
+#[apply(test_clarity_versions_vm)]
+fn test_simple_token_system(#[case] version: ClarityVersion) {
     let mut clarity =
         ClarityInstance::new(false, MarfedKV::temporary(), ExecutionCost::max_value());
     let p1 = PrincipalData::from(
@@ -206,7 +216,8 @@ fn test_simple_token_system() {
 
         let tokens_contract = SIMPLE_TOKENS;
 
-        let contract_ast = ast::build_ast(&contract_identifier, tokens_contract, &mut ()).unwrap();
+        let contract_ast =
+            ast::build_ast(&contract_identifier, tokens_contract, &mut (), version).unwrap();
 
         block.as_transaction(|tx| {
             tx.initialize_smart_contract(

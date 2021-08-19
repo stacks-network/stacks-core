@@ -2021,8 +2021,8 @@ mod test {
         database::{BurnStateDB, HeadersDB, STXBalance},
         eval_all, execute,
         types::PrincipalData,
-        ContractContext, Error, GlobalContext, LimitedCostTracker, QualifiedContractIdentifier,
-        Value,
+        ClarityVersion, ContractContext, Error, GlobalContext, LimitedCostTracker,
+        QualifiedContractIdentifier, Value,
     };
 
     use crate::types::chainstate::VRFSeed;
@@ -2127,6 +2127,7 @@ mod test {
         }
     }
 
+    /// Execute docs against the latest version of Clarity.
     fn docs_execute(marf: &mut MarfedKV, program: &str) {
         // start the next block,
         //  we never commit it so that we can reuse the initialization
@@ -2154,9 +2155,14 @@ mod test {
             let mut analysis_db = store.as_analysis_db();
             let whole_contract = segments.join("\n");
             eprintln!("{}", whole_contract);
-            let mut parsed = ast::build_ast(&contract_id, &whole_contract, &mut ())
-                .unwrap()
-                .expressions;
+            let mut parsed = ast::build_ast(
+                &contract_id,
+                &whole_contract,
+                &mut (),
+                ClarityVersion::latest(),
+            )
+            .unwrap()
+            .expressions;
 
             type_check(&contract_id, &mut parsed, &mut analysis_db, false)
                 .expect("Failed to type check");
@@ -2180,9 +2186,14 @@ mod test {
                     eprintln!("{}", segment);
 
                     let result = {
-                        let parsed = ast::build_ast(&contract_id, segment, &mut ())
-                            .unwrap()
-                            .expressions;
+                        let parsed = ast::build_ast(
+                            &contract_id,
+                            segment,
+                            &mut (),
+                            ClarityVersion::latest(),
+                        )
+                        .unwrap()
+                        .expressions;
                         eval_all(&parsed, &mut contract_context, g, None).unwrap()
                     };
 
@@ -2206,6 +2217,7 @@ mod test {
 
     #[test]
     fn test_examples() {
+        // Execute test examples against the latest version of Clarity
         let apis = make_all_api_reference();
         let mut marf = MarfedKV::temporary();
         // first, load the samples for contract-call
@@ -2222,9 +2234,14 @@ mod test {
                 let mut analysis_db = store.as_analysis_db();
                 let whole_contract =
                     std::fs::read_to_string("sample-contracts/tokens.clar").unwrap();
-                let mut parsed = ast::build_ast(&contract_id, &whole_contract, &mut ())
-                    .unwrap()
-                    .expressions;
+                let mut parsed = ast::build_ast(
+                    &contract_id,
+                    &whole_contract,
+                    &mut (),
+                    ClarityVersion::latest(),
+                )
+                .unwrap()
+                .expressions;
 
                 type_check(&contract_id, &mut parsed, &mut analysis_db, true)
                     .expect("Failed to type check sample-contracts/tokens");
@@ -2232,10 +2249,14 @@ mod test {
 
             {
                 let mut analysis_db = store.as_analysis_db();
-                let mut parsed =
-                    ast::build_ast(&trait_def_id, super::DEFINE_TRAIT_API.example, &mut ())
-                        .unwrap()
-                        .expressions;
+                let mut parsed = ast::build_ast(
+                    &trait_def_id,
+                    super::DEFINE_TRAIT_API.example,
+                    &mut (),
+                    ClarityVersion::latest(),
+                )
+                .unwrap()
+                .expressions;
 
                 type_check(&trait_def_id, &mut parsed, &mut analysis_db, true)
                     .expect("Failed to type check sample-contracts/tokens");

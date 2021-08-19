@@ -20,6 +20,10 @@ use address::c32;
 use address::AddressHashMode;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 use util::hash::{hex_bytes, to_hex};
 use vm::ast::parse;
 use vm::callables::DefinedFunction;
@@ -41,6 +45,12 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn test_clarity_versions_simple_apply_eval(#[case] version: ClarityVersion) {}
+
 #[test]
 fn test_doubly_defined_persisted_vars() {
     let tests = [
@@ -56,8 +66,8 @@ fn test_doubly_defined_persisted_vars() {
     }
 }
 
-#[test]
-fn test_simple_let() {
+#[apply(test_clarity_versions_simple_apply_eval)]
+fn test_simple_let(#[case] version: ClarityVersion) {
     /*
       test program:
       (let ((x 1) (y 2))
@@ -73,7 +83,7 @@ fn test_simple_let() {
                              (+ z y))
                         x))";
     let contract_id = QualifiedContractIdentifier::transient();
-    if let Ok(parsed_program) = parse(&contract_id, &program) {
+    if let Ok(parsed_program) = parse(&contract_id, &program, version) {
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db());
@@ -400,8 +410,8 @@ fn test_principal_equality() {
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
-#[test]
-fn test_simple_if_functions() {
+#[apply(test_clarity_versions_simple_apply_eval)]
+fn test_simple_if_functions(#[case] version: ClarityVersion) {
     //
     //  test program:
     //  (define (with_else x) (if (is-eq 5 x) 1 0)
@@ -419,6 +429,7 @@ fn test_simple_if_functions() {
         &"(with_else 5)
          (without_else 3)
          (with_else 3)",
+        version,
     );
 
     let contract_id = QualifiedContractIdentifier::transient();
@@ -427,6 +438,7 @@ fn test_simple_if_functions() {
         &contract_id,
         &"(if (is-eq 5 x) 1 0)
                                   (if (is-eq 5 x) 1 3)",
+        version,
     );
 
     if let Ok(parsed_bodies) = function_bodies {
@@ -835,8 +847,8 @@ fn test_sequence_comparisons_mismatched_types() {
         });
 }
 
-#[test]
-fn test_simple_arithmetic_errors() {
+#[apply(test_clarity_versions_simple_apply_eval)]
+fn test_simple_arithmetic_errors(#[case] version: ClarityVersion) {
     let tests = [
         "(>= 1)",
         "(+ 1 true)",
@@ -890,7 +902,11 @@ fn test_simple_arithmetic_errors() {
             "Power argument to (pow ...) must be a u32 integer".to_string(),
         )
         .into(),
-        CheckErrors::TypeError(TypeSignature::from("bool"), TypeSignature::from("int")).into(),
+        CheckErrors::TypeError(
+            TypeSignature::from_string("bool", version),
+            TypeSignature::from_string("int", version),
+        )
+        .into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {

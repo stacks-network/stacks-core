@@ -175,15 +175,6 @@ pub struct FunctionArg {
     pub name: ClarityName,
 }
 
-#[cfg(test)]
-impl From<&str> for TypeSignature {
-    fn from(val: &str) -> Self {
-        use vm::ast::parse;
-        let expr = &parse(&QualifiedContractIdentifier::transient(), val).unwrap()[0];
-        TypeSignature::parse_type_repr(expr, &mut ()).unwrap()
-    }
-}
-
 impl From<FixedFunction> for FunctionSignature {
     fn from(data: FixedFunction) -> FunctionSignature {
         let FixedFunction { args, returns } = data;
@@ -1054,6 +1045,12 @@ impl TypeSignature {
         }
         Ok(trait_signature)
     }
+
+    pub fn from_string(val: &str, version: ClarityVersion) -> Self {
+        use vm::ast::parse;
+        let expr = &parse(&QualifiedContractIdentifier::transient(), val, version).unwrap()[0];
+        TypeSignature::parse_type_repr(expr, &mut ()).unwrap()
+    }
 }
 
 /// These implement the size calculations in TypeSignatures
@@ -1239,6 +1236,7 @@ impl TupleTypeSignature {
 
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::CostTracker;
+use vm::ClarityVersion;
 
 pub fn parse_name_type_pairs<A: CostTracker>(
     name_type_pairs: &[SymbolicExpression],
@@ -1363,28 +1361,38 @@ impl fmt::Display for FunctionArg {
 mod test {
     use super::CheckErrors::*;
     use super::*;
-    use vm::execute;
+    #[cfg(test)]
+    use rstest::rstest;
+    #[cfg(test)]
+    use rstest_reuse::{self, *};
+    use vm::{execute, ClarityVersion};
 
-    fn fail_parse(val: &str) -> CheckErrors {
+    #[template]
+    #[rstest]
+    #[case(ClarityVersion::Clarity1)]
+    #[case(ClarityVersion::Clarity2)]
+    fn test_clarity_versions_signatures(#[case] version: ClarityVersion) {}
+
+    fn fail_parse(val: &str, version: ClarityVersion) -> CheckErrors {
         use vm::ast::parse;
-        let expr = &parse(&QualifiedContractIdentifier::transient(), val).unwrap()[0];
+        let expr = &parse(&QualifiedContractIdentifier::transient(), val, version).unwrap()[0];
         TypeSignature::parse_type_repr(expr, &mut ()).unwrap_err()
     }
 
-    #[test]
-    fn type_of_list_of_buffs() {
+    #[apply(test_clarity_versions_signatures)]
+    fn type_of_list_of_buffs(#[case] version: ClarityVersion) {
         let value = execute("(list \"abc\" \"abcde\")").unwrap().unwrap();
-        let type_descr = "(list 2 (string-ascii 5))".into();
+        let type_descr = TypeSignature::from_string("(list 2 (string-ascii 5))", version);
         assert_eq!(TypeSignature::type_of(&value), type_descr);
     }
 
-    #[test]
-    fn type_signature_way_too_big() {
+    #[apply(test_clarity_versions_signatures)]
+    fn type_signature_way_too_big(#[case] version: ClarityVersion) {
         // first_tuple.type_size ~= 131
         // second_tuple.type_size = k * (130+130)
         // to get a type-size greater than max_value all by itself,
         //   set k = 4033
-        let first_tuple = TypeSignature::from("(tuple (a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 bool))");
+        let first_tuple = TypeSignature::from_string("(tuple (a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 bool))", version);
 
         let mut keys = vec![];
         for i in 0..4033 {
@@ -1399,8 +1407,8 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_construction() {
+    #[apply(test_clarity_versions_signatures)]
+    fn test_construction(#[case] version: ClarityVersion) {
         let bad_type_descriptions = [
             ("(tuple)", EmptyTuplesNotAllowed),
             ("(list int int)", InvalidTypeDescription),
@@ -1425,7 +1433,7 @@ mod test {
         ];
 
         for (desc, expected) in bad_type_descriptions.iter() {
-            assert_eq!(&fail_parse(desc), expected);
+            assert_eq!(&fail_parse(desc, version), expected);
         }
 
         let okay_types = [
@@ -1438,7 +1446,7 @@ mod test {
         ];
 
         for desc in okay_types.iter() {
-            TypeSignature::from(*desc); // panics on failed types.
+            TypeSignature::from_string(*desc, version); // panics on failed types.
         }
     }
 }
