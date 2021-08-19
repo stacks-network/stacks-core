@@ -600,6 +600,48 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
         Ok(ret)
     }
 
+    /// Compare the coordinator's heaviest affirmation map to the heaviest affirmation map in the
+    /// burnchain DB.  If they are different, then invalidate all sortitions not represented on
+    /// the coordinator's heaviest affirmation map that are now represented by the burnchain DB's
+    /// heaviest affirmation map.
+    ///
+    /// Care must be taken to ensure that a sortition that was already created, but invalidated, is
+    /// not re-created.  This can happen if the affirmation map flaps, causing a sortition that was
+    /// created and invalidated to become valid again.  The code here addresses this by considering
+    /// three ranges of sortitions (grouped by reward cycle) when processing a new heaviest
+    /// affirmation map:
+    ///
+    /// * The range of sortitions that are valid in both affirmation maps. These sortitions
+    /// correspond to the affirmation maps' common prefix.
+    /// * The range of sortitions that exists and are invalid on the coordinator's current
+    /// affirmation map, but are valid on the new heaviest affirmation map.  These sortitions
+    /// come strictly after the common prefix, and are identified by the variables
+    /// `first_invalid_start_block` and `last_invalid_start_block` (which identifies their lowest
+    /// and highest block heights).
+    /// * The range of sortitions that are currently valid, and need to be invalidated.  This range
+    /// comes strictly after the aforementioned previously-invalid-but-now-valid sortition range.
+    ///
+    /// The code does not modify any sortition state for the common prefix of sortitions.
+    ///
+    /// The code identifies the second range of previously-invalid-but-now-valid sortitions and marks them
+    /// as valid once again.  In addition, it updates the Stacks chainstate DB such that any Stacks
+    /// blocks that were orphaned and never processed can be retried with the now-revalidated
+    /// sortition.
+    ///
+    /// The code identifies the third range of now-invalid sortitions and marks them as invalid in
+    /// the sortition DB.
+    ///
+    /// Note that regardless of the affirmation map status, a Stacks block will remain processed
+    /// once it gets accepted.  Its underlying sortition may become invalidated, in which case, the
+    /// Stacks block would no longer be considered as part of the canonical Stacks fork (since the
+    /// canonical Stacks chain tip must reside on a valid sortition).  However, a Stacks block that
+    /// should be processed at the end of the day may temporarily be considered orphaned if there
+    /// is a "deep" affirmation map reorg that causes at least one reward cycle's sortitions to
+    /// be treated as invalid.  This is what necessitates retrying Stacks blocks that have been
+    /// downloaded and considered orphaned because they were never processed -- they may in fact be
+    /// valid and processable once the node has identified the canonical sortition history!
+    ///
+    /// The only kinds of errors returned here are database query errors.
     fn handle_affirmation_reorg(&mut self) -> Result<(), Error> {
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
         let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
@@ -638,7 +680,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
 
                     // burn chain height at which we'll re-try orphaned Stacks blocks, and
                     // revalidate the sortitions that were previously invalid but have now been
-                    // made valid
+                    // made valid.
                     let mut first_invalidate_start_block = 0;
 
                     // set of sortition IDs that are currently invalid, but will need to be reset
@@ -694,6 +736,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
 
                                 // careful -- we might have already procesed sortitions in this
                                 // reward cycle with this PoX ID, but that were never confirmed
+                                // by a subsequent prepare phase.
                                 let start_height = last_invalidate_start_block;
                                 let end_height = canonical_burnchain_tip.block_height;
                                 for height in start_height..end_height {
@@ -922,7 +965,8 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
             // meaning that we're in the middle of an affirmation reorg.
             let affirmation = canonical_affirmation_map
                 .at(new_reward_cycle - 1)
-                .expect("BUG: checked index overflow");
+                .expect("BUG: checked index overflow")
+                .to_owned();
             test_debug!("Affirmation '{}' for anchor block of previous reward cycle {} canonical affirmation map {}", &affirmation, new_reward_cycle - 1, &canonical_affirmation_map);
 
             // switch reward cycle info assessment based on what the network
@@ -1139,8 +1183,6 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
             burn_header_hashes.join(", ")
         );
 
-        let mut replay_blocks = vec![];
-
         for unprocessed_block in sortitions_to_process.into_iter() {
             let BurnchainBlockData { header, ops } = unprocessed_block;
 
@@ -1261,7 +1303,6 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     self.replay_stacks_blocks(vec![next_snapshot
                         .winning_stacks_block_hash
                         .clone()])?;
-                    replay_blocks.push(next_snapshot.winning_stacks_block_hash);
                 }
             }
 
@@ -1270,9 +1311,6 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
             //   has moved, so we should move our canonical sortition tip as well.
             self.canonical_sortition_tip = Some(sortition_id.clone());
             last_processed_ancestor = sortition_id;
-
-            // self.replay_stacks_blocks(replay_blocks)?;
-            replay_blocks = vec![];
 
             if let Some(pox_anchor) = self.process_ready_blocks()? {
                 if let Some(expected_anchor_block_hash) = self.process_new_pox_anchor(pox_anchor)? {
@@ -1567,8 +1605,8 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
 
                                     if canonical_am
                                         .at(reward_cycle)
-                                        .unwrap_or(AffirmationMapEntry::PoxAnchorBlockAbsent)
-                                        == AffirmationMapEntry::PoxAnchorBlockPresent
+                                        .unwrap_or(&AffirmationMapEntry::PoxAnchorBlockAbsent)
+                                        == &AffirmationMapEntry::PoxAnchorBlockPresent
                                     {
                                         // yup, we're expecting this
                                         info!("Discovered an old anchor block: {}", &pox_anchor);
