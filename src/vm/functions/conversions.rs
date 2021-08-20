@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::runtime_cost;
 use vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
@@ -48,9 +49,9 @@ pub fn buff_to_int_generic(
 ) -> Result<Value> {
     match value {
         Value::Sequence(SequenceData::Buffer(ref sequence_data)) => {
-            if sequence_data.len() > BufferLength(16) {
+            if sequence_data.len() > BufferLength::try_from(16_u32).unwrap() {
                 return Err(CheckErrors::TypeValueError(
-                    SequenceType(BufferType(BufferLength(16))),
+                    SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
                     value,
                 )
                 .into());
@@ -74,7 +75,7 @@ pub fn buff_to_int_generic(
         }
         _ => {
             return Err(CheckErrors::TypeValueError(
-                SequenceType(BufferType(BufferLength(16))),
+                SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
                 value,
             )
             .into())

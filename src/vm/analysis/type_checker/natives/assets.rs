@@ -16,6 +16,7 @@
 
 use super::{no_type, FunctionType, TypeChecker, TypeResult, TypingContext};
 use chainstate::stacks::TOKEN_TRANSFER_MEMO_LENGTH;
+use std::convert::TryFrom;
 use vm::analysis::errors::{check_argument_count, CheckError, CheckErrors, CheckResult};
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost};
@@ -224,7 +225,7 @@ pub fn check_special_stx_transfer_memo(
     let from_type: TypeSignature = TypeSignature::PrincipalType;
     let to_type: TypeSignature = TypeSignature::PrincipalType;
     let memo_type: TypeSignature = TypeSignature::SequenceType(SequenceSubtype::BufferType(
-        BufferLength(TOKEN_TRANSFER_MEMO_LENGTH as u32),
+        BufferLength::try_from(TOKEN_TRANSFER_MEMO_LENGTH as u32).unwrap(),
     ));
 
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 0)?;

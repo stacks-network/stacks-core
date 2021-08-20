@@ -80,8 +80,8 @@ lazy_static! {
         &vec![StacksPublicKey::from_private(&MINER_KEY.clone())],
     )
     .unwrap();
-    pub static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
-    pub static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / 480;
+    static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
+    static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25;
 }
 
 impl From<&StacksPrivateKey> for StandardPrincipalData {
@@ -589,6 +589,7 @@ fn recency_tests() {
 fn delegation_tests() {
     let mut sim = ClarityTestSim::new();
     let delegator = StacksPrivateKey::new();
+    const REWARD_CYCLE_LENGTH: u128 = 1050;
 
     sim.execute_next_block(|env| {
         env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET, None)
@@ -658,7 +659,7 @@ fn delegation_tests() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     (&delegator).into(),
-                    Value::some(Value::UInt(300)).unwrap(),
+                    Value::some(Value::UInt(REWARD_CYCLE_LENGTH * 2)).unwrap(),
                     Value::none()
                 ])
             )
@@ -769,7 +770,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(*MIN_THRESHOLD - 1),
-                Value::UInt(450)
+                Value::UInt(REWARD_CYCLE_LENGTH * 3)
             ))
         );
 
@@ -882,7 +883,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[2]),
                 Value::UInt(*MIN_THRESHOLD - 1),
-                Value::UInt(300)
+                Value::UInt(REWARD_CYCLE_LENGTH * 2)
             ))
         );
 
@@ -989,7 +990,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[3]),
                 Value::UInt(*MIN_THRESHOLD),
-                Value::UInt(450)
+                Value::UInt(REWARD_CYCLE_LENGTH * 3)
             ))
         );
 
@@ -1103,7 +1104,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[1]),
                 Value::UInt(*MIN_THRESHOLD),
-                Value::UInt(450)
+                Value::UInt(REWARD_CYCLE_LENGTH * 3)
             ))
         );
 
