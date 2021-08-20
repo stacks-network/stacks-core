@@ -18,6 +18,7 @@ use std::cmp;
 use std::convert::TryInto;
 
 use address::*;
+use burnchains::affirmation::AffirmationMap;
 use burnchains::bitcoin::address::*;
 use burnchains::bitcoin::blocks::*;
 use burnchains::bitcoin::*;
@@ -501,7 +502,7 @@ fn test_get_commit_at() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, 99, 100);
+    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, 99, 100, u32::max_value());
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -588,4 +589,206 @@ fn test_get_commit_at() {
 
     let cmt = BurnchainDB::get_commit_at(&burnchain_db.conn(), &headers, 4, 0).unwrap();
     assert!(cmt.is_none());
+}
+
+#[test]
+fn test_get_set_check_anchor_block() {
+    let first_bhh = BurnchainHeaderHash([0; 32]);
+    let first_timestamp = 0;
+    let first_height = 1;
+
+    let mut burnchain = Burnchain::regtest(":memory:");
+    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, 99, 100, u32::max_value());
+    burnchain.first_block_height = first_height;
+    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_timestamp = first_timestamp;
+
+    let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+
+    let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
+
+    let mut headers = vec![first_block_header.clone()];
+    let mut parent = None;
+    let mut parent_block_header: Option<BurnchainBlockHeader> = None;
+    let mut cmts = vec![];
+
+    for i in 0..5 {
+        let hdr = BurnchainHeaderHash([(i + 1) as u8; 32]);
+        let block_header = BurnchainBlockHeader {
+            block_height: (first_height + i) as u64,
+            block_hash: hdr,
+            parent_block_hash: parent_block_header
+                .as_ref()
+                .map(|blk| blk.block_hash.clone())
+                .unwrap_or(first_block_header.block_hash.clone()),
+            num_txs: 1,
+            timestamp: i as u64,
+        };
+
+        headers.push(block_header.clone());
+        parent_block_header = Some(block_header);
+    }
+
+    for i in 0..5 {
+        let block_header = &headers[i + 1];
+
+        let cmt = make_simple_block_commit(
+            &burnchain,
+            parent.as_ref(),
+            block_header,
+            BlockHeaderHash([((i + 1) as u8) | 0x80; 32]),
+        );
+        burnchain_db
+            .store_new_burnchain_block_ops_unchecked(
+                &burnchain,
+                &headers,
+                block_header,
+                &vec![BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
+            )
+            .unwrap();
+
+        cmts.push(cmt.clone());
+        parent = Some(cmt);
+    }
+
+    assert!(!BurnchainDB::has_anchor_block(burnchain_db.conn(), 1).unwrap());
+
+    {
+        let tx = burnchain_db.tx_begin().unwrap();
+        tx.set_anchor_block(&cmts[3], 1).unwrap();
+        tx.commit().unwrap();
+    }
+
+    assert!(BurnchainDB::has_anchor_block(burnchain_db.conn(), 1).unwrap());
+    assert_eq!(
+        BurnchainDB::get_anchor_block_commit(burnchain_db.conn(), 1)
+            .unwrap()
+            .unwrap()
+            .0,
+        cmts[3]
+    );
+    assert!(BurnchainDB::is_anchor_block(
+        burnchain_db.conn(),
+        &cmts[3].burn_header_hash,
+        &cmts[3].txid
+    )
+    .unwrap());
+}
+
+#[test]
+fn test_update_block_descendancy() {
+    let first_bhh = BurnchainHeaderHash([0; 32]);
+    let first_timestamp = 0;
+    let first_height = 1;
+
+    let mut burnchain = Burnchain::regtest(":memory:");
+    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, 99, 100, u32::max_value());
+    burnchain.first_block_height = first_height;
+    burnchain.first_block_hash = first_bhh.clone();
+    burnchain.first_block_timestamp = first_timestamp;
+
+    let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+
+    let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
+
+    let mut headers = vec![first_block_header.clone()];
+    let mut parent = None;
+    let mut parent_block_header: Option<BurnchainBlockHeader> = None;
+    let mut cmts = vec![];
+    let mut cmts_genesis = vec![];
+    let mut cmts_invalid = vec![];
+
+    for i in 0..5 {
+        let hdr = BurnchainHeaderHash([(i + 1) as u8; 32]);
+        let block_header = BurnchainBlockHeader {
+            block_height: (first_height + i) as u64,
+            block_hash: hdr,
+            parent_block_hash: parent_block_header
+                .as_ref()
+                .map(|blk| blk.block_hash.clone())
+                .unwrap_or(first_block_header.block_hash.clone()),
+            num_txs: 3,
+            timestamp: i as u64,
+        };
+
+        headers.push(block_header.clone());
+        parent_block_header = Some(block_header);
+    }
+
+    let mut am_id = 0;
+
+    for i in 0..5 {
+        let block_header = &headers[i + 1];
+
+        let cmt = make_simple_block_commit(
+            &burnchain,
+            parent.as_ref(),
+            block_header,
+            BlockHeaderHash([((i + 1) as u8) | 0x80; 32]),
+        );
+
+        // make a second commit that builds off of genesis
+        let mut cmt_genesis = cmt.clone();
+        cmt_genesis.parent_block_ptr = 0;
+        cmt_genesis.parent_vtxindex = 0;
+        cmt_genesis.block_header_hash = BlockHeaderHash([((i + 1) as u8) | 0xa0; 32]);
+        cmt_genesis.txid = next_txid();
+
+        // make an invalid commit
+        let mut cmt_invalid = cmt.clone();
+        cmt_invalid.parent_vtxindex += 1;
+        cmt_invalid.block_header_hash = BlockHeaderHash([((i + 1) as u8) | 0xc0; 32]);
+        cmt_invalid.txid = next_txid();
+
+        burnchain_db
+            .store_new_burnchain_block_ops_unchecked(
+                &burnchain,
+                &headers,
+                block_header,
+                &vec![
+                    BlockstackOperationType::LeaderBlockCommit(cmt.clone()),
+                    BlockstackOperationType::LeaderBlockCommit(cmt_genesis.clone()),
+                    BlockstackOperationType::LeaderBlockCommit(cmt_invalid.clone()),
+                ],
+            )
+            .unwrap();
+
+        cmts.push(cmt.clone());
+        cmts_genesis.push(cmt_genesis.clone());
+        cmts_invalid.push(cmt_invalid.clone());
+
+        parent = Some(cmt);
+
+        if i == 0 {
+            am_id = {
+                let tx = burnchain_db.tx_begin().unwrap();
+                tx.set_anchor_block(&cmts[0], 1).unwrap();
+                let am_id = tx
+                    .insert_block_commit_affirmation_map(&AffirmationMap::decode("p").unwrap())
+                    .unwrap();
+                tx.update_block_commit_affirmation(&cmts[0], Some(1), am_id)
+                    .unwrap();
+                tx.commit().unwrap();
+                am_id
+            };
+            assert_ne!(am_id, 0);
+        }
+    }
+
+    // each valid commit should have cmts[0]'s affirmation map
+    for i in 1..5 {
+        let cmt_am_id =
+            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), &cmts[i]).unwrap();
+        assert_eq!(cmt_am_id.unwrap(), am_id);
+
+        let genesis_am_id =
+            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), &cmts_genesis[i])
+                .unwrap();
+        assert_eq!(genesis_am_id.unwrap(), 0);
+
+        let invalid_am_id =
+            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), &cmts_invalid[i])
+                .unwrap();
+        assert_eq!(invalid_am_id.unwrap(), 0);
+    }
 }
