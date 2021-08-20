@@ -74,7 +74,6 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns successfully iff this function is read-only correct.
     ///
     /// # Errors
-    ///
     /// - `CheckErrors::WriteAttemptedInReadOnly`
     /// - contract parsing errors
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
@@ -99,7 +98,6 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns successfully iff this function is read-only correct.
     ///
     /// # Errors
-    ///
     /// - CheckErrors::WriteAttemptedInReadOnly
     /// - contract parsing errors
     fn check_top_level_expression(&mut self, expression: &SymbolicExpression) -> CheckResult<()> {
