@@ -1944,10 +1944,10 @@ mod tests {
         }
 
         clarity_instance.block_limit = ExecutionCost {
-            write_length: u64::max_value(),
-            write_count: u64::max_value(),
-            read_count: u64::max_value(),
-            read_length: u64::max_value(),
+            write_length: u64::MAX,
+            write_count: u64::MAX,
+            read_count: u64::MAX,
+            read_length: u64::MAX,
             runtime: 100,
         };
 
