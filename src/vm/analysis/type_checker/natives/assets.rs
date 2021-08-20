@@ -195,12 +195,30 @@ pub fn check_special_stx_transfer(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    let memo_passed = if let Ok(()) = check_argument_count(4, args) {
-        true
-    } else {
-        check_argument_count(3, args)?;
-        false
-    };
+    check_argument_count(3, args)?;
+
+    let amount_type: TypeSignature = TypeSignature::UIntType;
+    let from_type: TypeSignature = TypeSignature::PrincipalType;
+    let to_type: TypeSignature = TypeSignature::PrincipalType;
+
+    runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 0)?;
+
+    checker.type_check_expects(&args[0], context, &amount_type)?;
+    checker.type_check_expects(&args[1], context, &from_type)?;
+    checker.type_check_expects(&args[2], context, &to_type)?;
+
+    Ok(
+        TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))
+            .into(),
+    )
+}
+
+pub fn check_special_stx_transfer_memo(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(4, args)?;
 
     let amount_type: TypeSignature = TypeSignature::UIntType;
     let from_type: TypeSignature = TypeSignature::PrincipalType;
@@ -214,9 +232,7 @@ pub fn check_special_stx_transfer(
     checker.type_check_expects(&args[0], context, &amount_type)?;
     checker.type_check_expects(&args[1], context, &from_type)?;
     checker.type_check_expects(&args[2], context, &to_type)?;
-    if memo_passed {
-        checker.type_check_expects(&args[3], context, &memo_type)?;
-    }
+    checker.type_check_expects(&args[3], context, &memo_type)?;
 
     Ok(
         TypeSignature::ResponseType(Box::new((TypeSignature::BoolType, TypeSignature::UIntType)))

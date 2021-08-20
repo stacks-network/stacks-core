@@ -144,6 +144,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     BurnAsset("nft-burn?", ClarityVersion::Clarity1),
     GetStxBalance("stx-get-balance", ClarityVersion::Clarity1),
     StxTransfer("stx-transfer?", ClarityVersion::Clarity1),
+    StxTransferMemo("stx-transfer-memo?", ClarityVersion::Clarity2),
     StxBurn("stx-burn?", ClarityVersion::Clarity1),
     StxGetAccount("stx-account", ClarityVersion::Clarity2),
 });
@@ -192,26 +193,10 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::MoreArg(&arithmetic::native_div),
                 ClarityCostFunction::Div,
             ),
-            CmpGeq => NativeFunction(
-                "native_geq",
-                NativeHandle::DoubleArg(&arithmetic::native_geq),
-                ClarityCostFunction::Geq,
-            ),
-            CmpLeq => NativeFunction(
-                "native_leq",
-                NativeHandle::DoubleArg(&arithmetic::native_leq),
-                ClarityCostFunction::Leq,
-            ),
-            CmpLess => NativeFunction(
-                "native_le",
-                NativeHandle::DoubleArg(&arithmetic::native_le),
-                ClarityCostFunction::Le,
-            ),
-            CmpGreater => NativeFunction(
-                "native_ge",
-                NativeHandle::DoubleArg(&arithmetic::native_ge),
-                ClarityCostFunction::Ge,
-            ),
+            CmpGeq => SpecialFunction("special_geq", &arithmetic::special_geq),
+            CmpLeq => SpecialFunction("special_leq", &arithmetic::special_leq),
+            CmpLess => SpecialFunction("special_le", &arithmetic::special_less),
+            CmpGreater => SpecialFunction("special_ge", &arithmetic::special_greater),
             ToUInt => NativeFunction(
                 "native_to_uint",
                 NativeHandle::SingleArg(&arithmetic::native_to_uint),
@@ -289,50 +274,22 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             StringToInt => NativeFunction(
                 "native_string_to_int",
                 NativeHandle::SingleArg(&conversions::native_string_to_int),
-                // TODO: Create a dedicated cost function for this case.
-                ClarityCostFunction::Mul,
+                ClarityCostFunction::Unimplemented,
             ),
             StringToUInt => NativeFunction(
                 "native_string_to_uint",
                 NativeHandle::SingleArg(&conversions::native_string_to_uint),
-                // TODO: Create a dedicated cost function for this case.
-                ClarityCostFunction::Mul,
+                ClarityCostFunction::Unimplemented,
             ),
             IntToAscii => NativeFunction(
                 "native_int_to_ascii",
                 NativeHandle::SingleArg(&conversions::native_int_to_ascii),
-                // TODO: Create a dedicated cost function for this case.
-                ClarityCostFunction::Mul,
+                ClarityCostFunction::Unimplemented,
             ),
             IntToUtf8 => NativeFunction(
                 "native_int_to_utf8",
                 NativeHandle::SingleArg(&conversions::native_int_to_utf8),
-                // TODO: Create a dedicated cost function for this case.
-                ClarityCostFunction::Mul,
-            ),
-            StringToInt => NativeFunction(
-                "native_string_to_int",
-                NativeHandle::SingleArg(&conversions::native_string_to_int),
-                // TODO: Create a dedicated cost function for this case.
-                ClarityCostFunction::Mul,
-            ),
-            StringToUInt => NativeFunction(
-                "native_string_to_uint",
-                NativeHandle::SingleArg(&conversions::native_string_to_uint),
-                // TODO: Create a dedicated cost function for this case.
-                ClarityCostFunction::Mul,
-            ),
-            IntToAscii => NativeFunction(
-                "native_int_to_ascii",
-                NativeHandle::SingleArg(&conversions::native_int_to_ascii),
-                // TODO: Create a dedicated cost function for this case.
-                ClarityCostFunction::Mul,
-            ),
-            IntToUtf8 => NativeFunction(
-                "native_int_to_utf8",
-                NativeHandle::SingleArg(&conversions::native_int_to_utf8),
-                // TODO: Create a dedicated cost function for this case.
-                ClarityCostFunction::Mul,
+                ClarityCostFunction::Unimplemented,
             ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
@@ -498,6 +455,10 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             AtBlock => SpecialFunction("special_at_block", &database::special_at_block),
             GetStxBalance => SpecialFunction("special_stx_balance", &assets::special_stx_balance),
             StxTransfer => SpecialFunction("special_stx_transfer", &assets::special_stx_transfer),
+            StxTransferMemo => SpecialFunction(
+                "special_stx_transfer_memo",
+                &assets::special_stx_transfer_memo,
+            ),
             StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
             StxGetAccount => SpecialFunction("stx_get_account", &assets::special_stx_account),
         };

@@ -620,16 +620,19 @@ pub struct SortitionDB {
     pub marf: MARF<SortitionId>,
     pub first_block_height: u64,
     pub first_burn_header_hash: BurnchainHeaderHash,
+    pub pox_constants: PoxConstants,
 }
 
 #[derive(Clone)]
 pub struct SortitionDBTxContext {
     pub first_block_height: u64,
+    pub pox_constants: PoxConstants,
 }
 
 #[derive(Clone)]
 pub struct SortitionHandleContext {
     pub first_block_height: u64,
+    pub pox_constants: PoxConstants,
     pub chain_tip: SortitionId,
 }
 
@@ -806,6 +809,7 @@ impl<'a> SortitionHandleTx<'a> {
             SortitionHandleContext {
                 chain_tip: parent_chain_tip.clone(),
                 first_block_height: conn.first_block_height,
+                pox_constants: conn.pox_constants.clone(),
             },
         );
 
@@ -1485,6 +1489,7 @@ impl<'a> SortitionHandleConn<'a> {
             context: SortitionHandleContext {
                 chain_tip: chain_tip.clone(),
                 first_block_height: connection.context.first_block_height,
+                pox_constants: connection.context.pox_constants.clone(),
             },
             index: &connection.index,
         })
@@ -1966,6 +1971,7 @@ impl SortitionDB {
             &mut self.marf,
             SortitionDBTxContext {
                 first_block_height: self.first_block_height,
+                pox_constants: self.pox_constants.clone(),
             },
         );
         Ok(index_tx)
@@ -1977,6 +1983,7 @@ impl SortitionDB {
             &self.marf,
             SortitionDBTxContext {
                 first_block_height: self.first_block_height,
+                pox_constants: self.pox_constants.clone(),
             },
         )
     }
@@ -1987,6 +1994,7 @@ impl SortitionDB {
             SortitionHandleContext {
                 first_block_height: self.first_block_height,
                 chain_tip: chain_tip.clone(),
+                pox_constants: self.pox_constants.clone(),
             },
         )
     }
@@ -2004,6 +2012,7 @@ impl SortitionDB {
             SortitionHandleContext {
                 first_block_height: self.first_block_height,
                 chain_tip: chain_tip.clone(),
+                pox_constants: self.pox_constants.clone(),
             },
         ))
     }
@@ -2020,7 +2029,11 @@ impl SortitionDB {
     /// Open the database on disk.  It must already exist and be instantiated.
     /// It's best not to call this if you are able to call connect().  If you must call this, do so
     /// after you call connect() somewhere else, since connect() performs additional validations.
-    pub fn open(path: &str, readwrite: bool) -> Result<SortitionDB, db_error> {
+    pub fn open(
+        path: &str,
+        readwrite: bool,
+        pox_constants: PoxConstants,
+    ) -> Result<SortitionDB, db_error> {
         let (db_path, index_path) = db_mkdirs(path)?;
         debug!(
             "Open sortdb '{}' as '{}', with index as '{}'",
@@ -2035,6 +2048,7 @@ impl SortitionDB {
         let db = SortitionDB {
             marf,
             readwrite,
+            pox_constants,
             first_block_height: first_snapshot.block_height,
             first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
         };
@@ -2049,6 +2063,7 @@ impl SortitionDB {
         first_burn_hash: &BurnchainHeaderHash,
         first_burn_header_timestamp: u64,
         epochs: &[StacksEpoch],
+        pox_constants: PoxConstants,
         readwrite: bool,
     ) -> Result<SortitionDB, db_error> {
         let create_flag = match fs::metadata(path) {
@@ -2082,6 +2097,7 @@ impl SortitionDB {
             marf,
             readwrite,
             first_block_height,
+            pox_constants,
             first_burn_header_hash: first_burn_hash.clone(),
         };
 
@@ -2126,6 +2142,7 @@ impl SortitionDB {
             first_burn_hash,
             get_epoch_time_secs(),
             &StacksEpoch::unit_test(first_block_height),
+            PoxConstants::test_default(),
             true,
         )
     }
@@ -2284,6 +2301,7 @@ impl<'a> SortitionDBConn<'a> {
             context: SortitionHandleContext {
                 first_block_height: self.context.first_block_height.clone(),
                 chain_tip: chain_tip.clone(),
+                pox_constants: self.context.pox_constants.clone(),
             },
         }
     }
@@ -6867,6 +6885,7 @@ pub mod tests {
                     end_height: STACKS_EPOCH_MAX,
                 },
             ],
+            PoxConstants::test_default(),
             true,
         )
         .unwrap();
@@ -6921,6 +6940,7 @@ pub mod tests {
                     end_height: STACKS_EPOCH_MAX,
                 },
             ],
+            PoxConstants::test_default(),
             true,
         )
         .unwrap();
@@ -6956,6 +6976,7 @@ pub mod tests {
                     end_height: STACKS_EPOCH_MAX,
                 },
             ],
+            PoxConstants::test_default(),
             true,
         )
         .unwrap();
@@ -6991,6 +7012,7 @@ pub mod tests {
                     end_height: STACKS_EPOCH_MAX,
                 },
             ],
+            PoxConstants::test_default(),
             true,
         )
         .unwrap();
@@ -7026,6 +7048,7 @@ pub mod tests {
                     end_height: 20,
                 }, // missing future
             ],
+            PoxConstants::test_default(),
             true,
         )
         .unwrap();
@@ -7061,6 +7084,7 @@ pub mod tests {
                     end_height: STACKS_EPOCH_MAX,
                 },
             ],
+            PoxConstants::test_default(),
             true,
         )
         .unwrap();
