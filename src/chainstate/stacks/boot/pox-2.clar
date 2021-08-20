@@ -311,7 +311,7 @@
     ;; It _should_ be equal to num-cycles.
     (asserts! 
      (is-eq num-cycles 
-            (get i (fold add-pox-addr-to-ith-reward-cycle cycle-indexes 
+                 (get i (fold add-pox-addr-to-ith-reward-cycle cycle-indexes 
                          { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u0 })))
      (err ERR_STACKING_UNREACHABLE))
     (ok true)))
@@ -683,16 +683,34 @@
 )
 
 
+;; Extend an active stacking lock.
+;; *New in Stacks 2.1*
+;; This method extends the `tx-sender`'s current lockup for an additional `extend-count`
+;;    and associates `pox-addr` with the rewards
 (define-public (stack-extend (extend-count uint)
                              (pox-addr { version: (buff 1), hashbytes: (buff 20) }))
    (let ((stacker-info (stx-account tx-sender))
          (amount-ustx (get locked stacker-info))
-         (unlock-height (get unlock-height stacker-info))
-         (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
-         (last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
-         (cur-cycle (current-pox-reward-cycle))
-         (lock-period (- last-extend-cycle cur-cycle))
-         (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle))))
+         (unlock-height (get unlock-height stacker-info)))
+
+    ;; must be called with positive extend-count
+    (asserts! (>= extend-count u1)
+              (err ERR_STACKING_INVALID_LOCK_PERIOD))
+
+    (let ((unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
+          ;; if the account unlocks *during* this cycle (should only occur during testing),
+          ;; set first-extend-cycle to the next cycle.
+          (cur-cycle (current-pox-reward-cycle))
+          (first-extend-cycle (if (> (+ cur-cycle u1) unlock-in-cycle)
+                                     (+ cur-cycle u1) unlock-in-cycle))
+          (last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
+          (lock-period (- last-extend-cycle cur-cycle))
+          (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle))))
+
+      ;; first cycle must be after the current cycle
+      (asserts! (> first-extend-cycle cur-cycle) (err ERR_STACKING_INVALID_LOCK_PERIOD))
+      ;; lock period must be positive
+      (asserts! (> lock-period u0) (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
@@ -723,20 +741,39 @@
           lock-period: lock-period })
 
       ;; return lock-up information
-      (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht })))
+      (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht }))))
 
+;; As a delegator, extend an active stacking lock, issuing a "partial commitment" for the
+;;   extended-to cycles.
+;; *New in Stacks 2.1*
+;; This method extends `stacker`'s current lockup for an additional `extend-count`
+;;    and partially commits those new cycles to `pox-addr`
 (define-public (delegate-stack-extend
                     (stacker principal)
                     (pox-addr { version: (buff 1), hashbytes: (buff 20) })
                     (extend-count uint))
     (let ((stacker-info (stx-account stacker))
-         (amount-ustx (get locked stacker-info))
-         (unlock-height (get unlock-height stacker-info))
-         (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
-         (last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
-         (cur-cycle (current-pox-reward-cycle))
-         (lock-period (- last-extend-cycle cur-cycle))
-         (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle))))
+          (amount-ustx (get locked stacker-info))
+          (unlock-height (get unlock-height stacker-info)))
+
+     ;; must be called with positive extend-count
+     (asserts! (>= extend-count u1)
+               (err ERR_STACKING_INVALID_LOCK_PERIOD))
+
+     (let ((unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
+          ;; if the account unlocks *during* this cycle (should only occur during testing),
+          ;; set first-extend-cycle to the next cycle.
+           (cur-cycle (current-pox-reward-cycle))
+           (first-extend-cycle (if (> (+ cur-cycle u1) unlock-in-cycle)
+                                      (+ cur-cycle u1) unlock-in-cycle))
+           (last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
+           (lock-period (- last-extend-cycle cur-cycle))
+           (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle))))
+
+      ;; first cycle must be after the current cycle
+      (asserts! (> first-extend-cycle cur-cycle) (err ERR_STACKING_INVALID_LOCK_PERIOD))
+      ;; lock period must be positive
+      (asserts! (> lock-period u0) (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
@@ -788,5 +825,5 @@
 
       ;; return the lock-up information, so the node can actually carry out the lock. 
       (ok { stacker: stacker,
-            unlock-burn-height: new-unlock-ht })))
+            unlock-burn-height: new-unlock-ht }))))
 

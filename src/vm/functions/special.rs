@@ -40,6 +40,9 @@ use util::hash::Hash160;
 
 use crate::vm::costs::runtime_cost;
 
+/// Parse the returned value from PoX `stack-stx` and `delegate-stack-stx` functions
+///  into a format more readily digestible in rust.
+/// Panics if the supplied value doesn't match the expected tuple structure
 fn parse_pox_stacking_result(
     result: &Value,
 ) -> std::result::Result<(PrincipalData, u128, u64), i128> {
@@ -73,6 +76,9 @@ fn parse_pox_stacking_result(
     }
 }
 
+/// Parse the returned value from PoX2 `stack-extend` and `delegate-stack-extend` functions
+///  into a format more readily digestible in rust.
+/// Panics if the supplied value doesn't match the expected tuple structure
 fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData, u64), i128> {
     match result.clone().expect_result() {
         Ok(res) => {
@@ -94,6 +100,7 @@ fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData
 
             Ok((stacker, unlock_burn_height))
         }
+        // in the error case, the function should have returned `int` error code
         Err(e) => Err(e.expect_i128()),
     }
 }

@@ -72,6 +72,8 @@ fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
 ///
 #[test]
 fn test_simple_pox_lockup_transition_pox_2() {
+    // this is the number of blocks after the first sortition any V1
+    // PoX locks will automatically unlock at.
     let AUTO_UNLOCK_HEIGHT = 12;
     let EXPECTED_FIRST_V2_CYCLE = 8;
     // the sim environment produces 25 empty sortitions before
@@ -485,7 +487,9 @@ fn test_simple_pox_lockup_transition_pox_2() {
 }
 
 /// In this test case, two Stackers, Alice and Bob stack and interact with the
-///  PoX v1 contract and PoX v2 contract across the epoch transition.
+///  PoX v1 contract and PoX v2 contract across the epoch transition. This test
+///  covers the two different ways a Stacker can validly extend via `stack-extend` --
+///  extending from a V1 lockup and extending from a V2 lockup.
 ///
 /// Alice: stacks via PoX v1 for 4 cycles. The third of these cycles occurs after
 ///        the PoX v1 -> v2 transition, and so Alice gets "early unlocked".
@@ -496,12 +500,18 @@ fn test_simple_pox_lockup_transition_pox_2() {
 ///        Bob extends 6 cycles
 #[test]
 fn test_pox_extend_transition_pox_2() {
+    // this is the number of blocks after the first sortition any V1
+    // PoX locks will automatically unlock at.
     let AUTO_UNLOCK_HT = 12;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
     let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
-    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HT + 25;
+    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HT + EMPTY_SORTITIONS;
 
     let first_v2_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -510,7 +520,7 @@ fn test_pox_extend_transition_pox_2() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 25 + 10);
+    let epochs = StacksEpoch::all(0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -528,7 +538,7 @@ fn test_pox_extend_transition_pox_2() {
     let bob = keys.pop().unwrap();
     let charlie = keys.pop().unwrap();
 
-    let mut alice_reward_cycle = 0;
+    let mut alice_first_reward_cycle = 0;
 
     for tenure_id in 0u32..num_blocks {
         let microblock_privkey = StacksPrivateKey::new();
@@ -673,7 +683,7 @@ fn test_pox_extend_transition_pox_2() {
                 get_par_burn_block_height(peer.chainstate(), &tip_index_block);
 
             if tenure_id == 1 {
-                alice_reward_cycle = 1 + burnchain
+                alice_first_reward_cycle = 1 + burnchain
                     .block_height_to_reward_cycle(tip_burn_block_height)
                     .unwrap() as u128;
             }
@@ -682,8 +692,8 @@ fn test_pox_extend_transition_pox_2() {
                 .unwrap() as u128;
 
             eprintln!(
-                "\nalice reward cycle: {}\ncur reward cycle: {}\n",
-                alice_reward_cycle, cur_reward_cycle
+                "\nalice's first reward cycle: {}\ncur reward cycle: {}\n",
+                alice_first_reward_cycle, cur_reward_cycle
             );
         } else {
             // Alice's address is locked as of the next reward cycle
@@ -706,7 +716,7 @@ fn test_pox_extend_transition_pox_2() {
 
             eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
-            if cur_reward_cycle >= alice_reward_cycle {
+            if cur_reward_cycle >= alice_first_reward_cycle {
                 if cur_reward_cycle < first_v2_cycle as u128 {
                     let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
                         get_stacker_info(&mut peer, &key_to_stacks_addr(&alice).into()).unwrap();
@@ -793,7 +803,7 @@ fn test_pox_extend_transition_pox_2() {
     assert_eq!(
         alice_txs.get(&2).unwrap().result,
         Value::err_none(),
-        "Alice tx2 should have resulted in a runtime error"
+        "Alice tx2 should have resulted in a runtime error (was the attempt to lock again in Pox 1)"
     );
 
     assert!(

@@ -407,6 +407,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         };
     }
 
+    /// Extend this account's current lock to `unlock_burn_height`.
+    /// After calling, this method will set the balance to a "LockedPoxTwo" balance,
+    ///  because this method is only invoked as a result of PoX2 interactions
     pub fn extend_lock_v2(&mut self, unlock_burn_height: u64) {
         let unlocked = self.unlock_available_tokens_if_any();
         if unlocked > 0 {
@@ -430,6 +433,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         };
     }
 
+    /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
+    /// After calling, this method will set the balance to a "LockedPoxTwo" balance,
+    ///  because this method is only invoked as a result of PoX2 interactions
     pub fn lock_tokens_v2(&mut self, amount_to_lock: u128, unlock_burn_height: u64) {
         let unlocked = self.unlock_available_tokens_if_any();
         if unlocked > 0 {
