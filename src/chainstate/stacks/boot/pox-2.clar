@@ -109,6 +109,7 @@
     { reward-cycle: uint, index: uint }
     {
         pox-addr: { version: (buff 1), hashbytes: (buff 20) },
+        stacker: (optional principal),
         total-ustx: uint
     }
 )
@@ -236,13 +237,14 @@
 ;; No checking will be done -- don't call if this PoX address is already registered in this reward cycle!
 (define-private (append-reward-cycle-pox-addr (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                               (reward-cycle uint)
-                                              (amount-ustx uint))
+                                              (amount-ustx uint)
+                                              (stacker (optional principal)))
     (let (
         (sz (get-reward-set-size reward-cycle))
     )
     (map-set reward-cycle-pox-address-list
         { reward-cycle: reward-cycle, index: sz }
-        { pox-addr: pox-addr, total-ustx: amount-ustx })
+        { pox-addr: pox-addr, total-ustx: amount-ustx, stacker: stacker })
     (map-set reward-cycle-pox-address-list-len
         { reward-cycle: reward-cycle }
         { len: (+ u1 sz) })
@@ -257,7 +259,7 @@
 )
 
 ;; Called internally by the node to iterate through the list of PoX addresses in this reward cycle.
-;; Returns (optional (tuple (pox-addr <pox-address>) (total-ustx <uint>)))
+;; Returns (optional { pox-addr: <pox-address>, total-ustx: <uint>, sender: (optional principal) })
 (define-read-only (get-reward-set-pox-address (reward-cycle uint) (index uint))
     (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: index }))
 
@@ -272,7 +274,8 @@
                                                             (first-reward-cycle uint)
                                                             (num-cycles uint)
                                                             (amount-ustx uint)
-                                                            (i uint))))
+                                                            (i uint)
+                                                            (stacker (optional principal)))))
     (let ((reward-cycle (+ (get first-reward-cycle params) (get i params)))
           (num-cycles (get num-cycles params))
           (i (get i params)))
@@ -281,13 +284,15 @@
         first-reward-cycle: (get first-reward-cycle params),
         num-cycles: num-cycles,
         amount-ustx: (get amount-ustx params),
+        stacker: (get stacker params),
         i: (if (< i num-cycles)
             (let ((total-ustx (get-total-ustx-stacked reward-cycle)))
               ;; record how many uSTX this pox-addr will stack for in the given reward cycle
               (append-reward-cycle-pox-addr
                 (get pox-addr params)
                 reward-cycle
-                (get amount-ustx params))
+                (get amount-ustx params)
+                (get stacker params))
 
               ;; update running total
               (map-set reward-cycle-total-stacked
@@ -305,14 +310,16 @@
 (define-private (add-pox-addr-to-reward-cycles (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                                (first-reward-cycle uint)
                                                (num-cycles uint)
-                                               (amount-ustx uint))
+                                               (amount-ustx uint)
+                                               (stacker principal))
   (let ((cycle-indexes (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11)))
     ;; For safety, add up the number of times (add-principal-to-ith-reward-cycle) returns 1.
     ;; It _should_ be equal to num-cycles.
     (asserts! 
      (is-eq num-cycles 
             (get i (fold add-pox-addr-to-ith-reward-cycle cycle-indexes 
-                         { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u0 })))
+                         { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, stacker: (some stacker),
+                          num-cycles: num-cycles, amount-ustx: amount-ustx, i: u0 })))
      (err ERR_STACKING_UNREACHABLE))
     (ok true)))
 
@@ -479,7 +486,7 @@
       (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
 
       ;; register the PoX address with the amount stacked
-      (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle lock-period amount-ustx))
+      (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle lock-period amount-ustx tx-sender))
 
       ;; add stacker record
       (map-set stacking-state
@@ -557,6 +564,7 @@
        { pox-addr: pox-addr,
          first-reward-cycle: reward-cycle,
          num-cycles: u1,
+         stacker: none,
          amount-ustx: amount-ustx,
          i: u0 })
       ;; don't update the stacking-state map,
@@ -682,7 +690,6 @@
     })
 )
 
-
 (define-public (stack-extend (extend-count uint)
                              (pox-addr { version: (buff 1), hashbytes: (buff 20) }))
    (let ((stacker-info (stx-account tx-sender))
@@ -712,7 +719,7 @@
 
       ;; register the PoX address with the amount stacked
       ;;   for the new cycles
-      (try! (add-pox-addr-to-reward-cycles pox-addr first-extend-cycle extend-count amount-ustx))
+      (try! (add-pox-addr-to-reward-cycles pox-addr first-extend-cycle extend-count amount-ustx tx-sender))
 
       ;; update stacker record
       (map-set stacking-state
