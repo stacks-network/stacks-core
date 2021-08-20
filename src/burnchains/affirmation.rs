@@ -335,6 +335,8 @@ pub fn read_prepare_phase_commits<'a, B: BurnchainHeaderReader>(
 }
 
 /// Find all referenced parent block-commits already in the burnchain DB, so we can extract their VRF seeds.
+/// If this method errors out, it's because it couldn't read the burnchain headers DB (or it's
+/// corrupted). Either way, the caller may treat this as a fatal condition.
 pub fn read_parent_block_commits<'a, B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction<'a>,
     indexer: &B,
@@ -347,14 +349,12 @@ pub fn read_parent_block_commits<'a, B: BurnchainHeaderReader>(
                 if let Some(hdr) = indexer.read_burnchain_header(opdata.parent_block_ptr as u64)? {
                     hdr
                 } else {
-                    test_debug!(
-                        "Orphan block commit {},{},{}: no such block {}",
-                        &opdata.txid,
-                        opdata.block_height,
-                        opdata.vtxindex,
-                        opdata.parent_block_ptr
+                    // this is pretty bad if this happens
+                    error!(
+                        "Discontiguous header database: no such block {}, but have block {}",
+                        opdata.parent_block_ptr, opdata.block_height
                     );
-                    continue;
+                    return Err(Error::MissingParentBlock);
                 };
 
             test_debug!("Get header at {}: {:?}", opdata.parent_block_ptr, &hdr);
@@ -710,6 +710,7 @@ pub fn find_heaviest_block_commit<'a, B: BurnchainHeaderReader>(
 ///     (c) the descendancy data for the prepare phase.  Descendency[i][j] is true if the jth
 ///     block-commit in the ith block in the prepare phase descends from the anchor block, or False
 ///     if not.
+/// Returns only database-related errors.
 pub fn find_pox_anchor_block<'a, B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction<'a>,
     reward_cycle: u64,
