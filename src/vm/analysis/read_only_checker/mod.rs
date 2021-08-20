@@ -347,10 +347,15 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         }
     }
 
-    /// Checks the native function application implied by `expressions`. The first
-    /// argument is used as the function name, and the tail is used as the arguments.
+    /// Checks the native and user-defined function applications implied by `expressions`. The
+    /// first argument is used as the function name, and the tail is used as the arguments.
     ///
     /// Returns `true` iff the function application is read-only.
+    ///
+    /// # Errors
+    /// - `CheckErrors::NonFunctionApplication` if there is no first expression, or if the first
+    /// expression is not a `ClarityName`.
+    /// - `CheckErrors::UnknownFunction` if the first expression does not name a known function.
     fn check_expression_application_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
