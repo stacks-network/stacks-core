@@ -314,7 +314,7 @@ impl<'a> BurnchainDBTransaction<'a> {
     }
 
     /// Add an affirmation map into the database.  Returns the affirmation map ID.
-    fn insert_block_commit_affirmation_map(
+    pub fn insert_block_commit_affirmation_map(
         &self,
         affirmation_map: &AffirmationMap,
     ) -> Result<u64, DBError> {
@@ -334,7 +334,7 @@ impl<'a> BurnchainDBTransaction<'a> {
     /// Update a block-commit's affirmation state -- namely, record the reward cycle that this
     /// block-commit affirms, if any (anchor_block_descendant), and record the affirmation map ID
     /// for this block-commit (affirmation_id).
-    fn update_block_commit_affirmation(
+    pub fn update_block_commit_affirmation(
         &self,
         block_commit: &LeaderBlockCommitOp,
         anchor_block_descendant: Option<u64>,
@@ -401,35 +401,8 @@ impl<'a> BurnchainDBTransaction<'a> {
             .map_err(|e| DBError::SqliteError(e))
     }
 
-    /// Clear the descendancy data and affirmations for all block-commits in a reward cycle
-    /// (both the reward and prepare phases), as well as anchor block data.
-    pub fn clear_reward_cycle_descendancies(
-        &self,
-        reward_cycle: u64,
-        burnchain: &Burnchain,
-    ) -> Result<(), DBError> {
-        let first_block_height = burnchain.reward_cycle_to_block_height(reward_cycle);
-        let last_block_height = burnchain.reward_cycle_to_block_height(reward_cycle + 1);
-
-        test_debug!(
-            "Clear descendancy data for reward cycle {} (blocks {}-{})",
-            reward_cycle,
-            first_block_height,
-            last_block_height
-        );
-
-        let sql = "UPDATE block_commit_metadata SET affirmation_id = 0, anchor_block = NULL, anchor_block_descendant = NULL WHERE block_height >= ?1 AND block_height < ?2";
-        let args: &[&dyn ToSql] = &[
-            &u64_to_sql(first_block_height)?,
-            &u64_to_sql(last_block_height)?,
-        ];
-        self.sql_tx
-            .execute(sql, args)
-            .map(|_| ())
-            .map_err(|e| DBError::SqliteError(e))
-    }
-
-    /// Calculate a burnchain block's block-commits' descendancy information
+    /// Calculate a burnchain block's block-commits' descendancy information.
+    /// Only fails on DB errors.
     pub fn update_block_descendancy<B: BurnchainHeaderReader>(
         &self,
         indexer: &B,
@@ -1159,18 +1132,6 @@ impl BurnchainDB {
         query_row(conn, sql, args)
     }
 
-    pub fn get_affirmation_map_at(
-        conn: &DBConn,
-        burn_header_hash: &BurnchainHeaderHash,
-        txid: &Txid,
-    ) -> Result<Option<AffirmationMap>, DBError> {
-        let am_id_opt = BurnchainDB::get_affirmation_map_id_at(conn, burn_header_hash, txid)?;
-        match am_id_opt {
-            Some(am_id) => BurnchainDB::get_affirmation_map(conn, am_id),
-            None => Ok(None),
-        }
-    }
-
     pub fn get_block_commit_affirmation_id(
         conn: &DBConn,
         block_commit: &LeaderBlockCommitOp,
@@ -1215,20 +1176,6 @@ impl BurnchainDB {
             .expect("BUG: no block-commit for block-commit metadata");
 
         Ok(Some((commit, commit_metadata)))
-    }
-
-    pub fn get_block_commit_affirmation_map(
-        conn: &DBConn,
-        block_commit: &LeaderBlockCommitOp,
-    ) -> Result<Option<AffirmationMap>, DBError> {
-        let am_id = match BurnchainDB::get_block_commit_affirmation_id(conn, block_commit)? {
-            Some(am_id) => am_id,
-            None => {
-                return Ok(None);
-            }
-        };
-
-        BurnchainDB::get_affirmation_map(conn, am_id)
     }
 
     // do NOT call directly; only use in tests
@@ -1368,29 +1315,6 @@ impl BurnchainDB {
                 )
             },
         )
-    }
-
-    pub fn get_commit_metadata_at<B: BurnchainHeaderReader>(
-        conn: &DBConn,
-        indexer: &B,
-        block_ptr: u32,
-        vtxindex: u16,
-    ) -> Result<Option<BlockCommitMetadata>, DBError> {
-        let header_hash = match indexer.read_burnchain_header(block_ptr as u64)? {
-            Some(hdr) => hdr.block_hash,
-            None => {
-                test_debug!("No headers at height {}", block_ptr);
-                return Ok(None);
-            }
-        };
-
-        let commit = BurnchainDB::get_commit_in_block_at(conn, &header_hash, block_ptr, vtxindex)?
-            .expect(&format!(
-                "BUG: no metadata for stored block-commit {},{},{})",
-                &header_hash, block_ptr, vtxindex
-            ));
-
-        BurnchainDB::get_commit_metadata(conn, &header_hash, &commit.txid)
     }
 
     /// Get the block-commit and block metadata for the anchor block with the heaviest affirmation
