@@ -61,7 +61,6 @@ impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
 }
 
 impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
-    // Creates a new `ReadOnlyChecker`.
     fn new(db: &'a mut AnalysisDatabase<'b>, version: &ClarityVersion) -> ReadOnlyChecker<'a, 'b> {
         Self {
             db,
@@ -76,8 +75,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///
     /// # Errors
     ///
-    /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only violation, i.e.
-    /// if some function marked read-only attempts to modify the chainstate.
+    /// - `CheckErrors::WriteAttemptedInReadOnly`
+    /// - contract parsing errors
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
         // Iterate over all the top-level statements in a contract.
         for exp in contract_analysis.expressions.iter() {
@@ -101,8 +100,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///
     /// # Errors
     ///
-    /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only violation, i.e.
-    /// if some function marked read-only attempts to modify the chainstate.
+    /// - CheckErrors::WriteAttemptedInReadOnly
+    /// - contract parsing errors
     fn check_top_level_expression(&mut self, expression: &SymbolicExpression) -> CheckResult<()> {
         use vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
@@ -154,6 +153,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///
     /// Returns a pair of 1) the function name defined, and 2) a `bool` indicating whether the function
     /// is read-only.
+    ///
+    /// # Errors
+    /// - Parsing errors.
     fn check_define_function(
         &mut self,
         signature: &[SymbolicExpression],
@@ -174,6 +176,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// An atomic expression is one that does not need to be parsed into multiple expressions.
     ///
     /// Returns `true` iff the expression is read-only.
+    ///
+    /// # Errors
+    /// - Parsing errors.
     fn check_atomic_expression_is_read_only(
         &mut self,
         expression: &SymbolicExpression,
@@ -188,6 +193,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// read-only operations.
     ///
     /// Returns `true` iff all expressions are read-only.
+    ///
+    /// # Errors
+    /// - Parsing errors.
     fn check_each_expression_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
@@ -195,6 +203,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         let mut result = true;
         for expression in expressions.iter() {
             let expr_read_only = self.check_atomic_expression_is_read_only(expression)?;
+            // Note: Don't return early on false, because a subsequent error should be returned.
             result = result && expr_read_only;
         }
         Ok(result)
@@ -204,7 +213,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// string `function` to `args` to determine whether it is read-only
     /// compliant.
     ///
-    /// Returns `true` iff this function application is read-only.
+    /// - Returns `None` if there is no native function named `function`.
+    /// - If there is such a native function, returns `true` iff this function application is
+    /// read-only.
+    ///
+    /// # Errors
+    /// - contract parsing errors
     fn try_check_native_function_is_read_only(
         &mut self,
         function: &str,
@@ -214,10 +228,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .map(|function| self.check_native_function_is_read_only(&function, args))
     }
 
-    /// Checks the native function application of the NativeFunctions `function`
-    /// to `args` to determine whether it is read-only compliant.
-    ///
     /// Returns `true` iff this function application is read-only.
+    ///
+    /// # Errors
+    /// - contract parsing errors
     fn check_native_function_is_read_only(
         &mut self,
         function: &NativeFunctions,
@@ -348,7 +362,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     }
 
     /// Checks the native and user-defined function applications implied by `expressions`. The
-    /// first argument is used as the function name, and the tail is used as the arguments.
+    /// first expression is used as the function name, and the tail expressions are used as the
+    /// arguments.
     ///
     /// Returns `true` iff the function application is read-only.
     ///
