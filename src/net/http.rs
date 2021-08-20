@@ -1698,33 +1698,29 @@ impl HttpRequestType {
         }
     }
 
-    /// Queries the optional query argument `mempool_admission_check`.
-    /// If `mempool_admission_check` == "unconfirmed", the transaction is only validated against
+    /// Queries the optional query argument `use_unconfirmed_tip`, which is true by default.
+    /// If `use_unconfirmed_tip` == true, the transaction is only validated against
     /// the unconfirmed state.
-    /// If `mempool_admission_check` == "confirmed", the transaction is only validated against the
+    /// If `use_unconfirmed_tip` == false, the transaction is only validated against the
     /// confirmed state.
-    /// If `mempool_admission_check` is unspecified, the transaction is validated against both the
-    /// confirmed state and the unconfirmed state.
     /// This function takes the first value we can parse.
-    fn get_mempool_admission_check_query(query: Option<&str>) -> TransactionAnchorMode {
+    fn get_use_unconfirmed_tip_query(query: Option<&str>) -> bool {
         match query {
             Some(query_string) => {
                 for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
-                    if key != "mempool_admission_check" {
+                    if key != "use_unconfirmed_tip" {
                         continue;
                     }
 
-                    if value == "unconfirmed" {
-                        return TransactionAnchorMode::OffChainOnly;
-                    } else if value == "confirmed" {
-                        return TransactionAnchorMode::OnChainOnly;
+                    if value == "true" {
+                        return true;
+                    } else if value == "false" {
+                        return false;
                     }
                 }
-                return TransactionAnchorMode::Any;
+                return true;
             }
-            None => {
-                return TransactionAnchorMode::Any;
-            }
+            None => return true,
         }
     }
 
@@ -2143,7 +2139,7 @@ impl HttpRequestType {
         }
 
         let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
-        let mempool_admission_check = HttpRequestType::get_mempool_admission_check_query(query);
+        let use_unconfirmed_tip = HttpRequestType::get_use_unconfirmed_tip_query(query);
 
         match preamble.content_type {
             None => {
@@ -2153,12 +2149,12 @@ impl HttpRequestType {
             }
             Some(HttpContentType::Bytes) => HttpRequestType::parse_posttransaction_octets(
                 preamble,
-                mempool_admission_check,
+                use_unconfirmed_tip,
                 &mut bound_fd,
             ),
             Some(HttpContentType::JSON) => HttpRequestType::parse_posttransaction_json(
                 preamble,
-                mempool_admission_check,
+                use_unconfirmed_tip,
                 &mut bound_fd,
             ),
             _ => {
@@ -2171,7 +2167,7 @@ impl HttpRequestType {
 
     fn parse_posttransaction_octets<R: Read>(
         preamble: &HttpRequestPreamble,
-        mempool_admission_check: TransactionAnchorMode,
+        use_unconfirmed_tip: bool,
         fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
         let tx = StacksTransaction::consensus_deserialize(fd).map_err(|e| {
@@ -2188,13 +2184,13 @@ impl HttpRequestType {
             HttpRequestMetadata::from_preamble(preamble),
             tx,
             None,
-            mempool_admission_check,
+            use_unconfirmed_tip,
         ))
     }
 
     fn parse_posttransaction_json<R: Read>(
         preamble: &HttpRequestPreamble,
-        mempool_admission_check: TransactionAnchorMode,
+        use_unconfirmed_tip: bool,
         fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
         let body: PostTransactionRequestBody = serde_json::from_reader(fd)
@@ -2229,7 +2225,7 @@ impl HttpRequestType {
             HttpRequestMetadata::from_preamble(preamble),
             tx,
             attachment,
-            mempool_admission_check,
+            use_unconfirmed_tip,
         ))
     }
 
@@ -2514,15 +2510,11 @@ impl HttpRequestType {
     }
 
     /// Formats the query string for a post transaction request.
-    pub fn make_query_string_for_post_tx_endpoint(
-        mempool_admission_check: TransactionAnchorMode,
-    ) -> String {
-        match mempool_admission_check {
-            TransactionAnchorMode::OnChainOnly => "?mempool_admission_check=confirmed".to_string(),
-            TransactionAnchorMode::OffChainOnly => {
-                "?mempool_admission_check=unconfirmed".to_string()
-            }
-            TransactionAnchorMode::Any => "".to_string(),
+    pub fn make_query_string_for_post_tx_endpoint(use_unconfirmed_tip: bool) -> String {
+        if use_unconfirmed_tip {
+            "?use_unconfirmed_tip=true".to_string()
+        } else {
+            "?use_unconfirmed_tip=false".to_string()
         }
     }
 
@@ -2551,9 +2543,9 @@ impl HttpRequestType {
             HttpRequestType::GetTransactionUnconfirmed(_md, txid) => {
                 format!("/v2/transactions/unconfirmed/{}", txid)
             }
-            HttpRequestType::PostTransaction(_md, _, _, mempool_admission_check) => format!(
+            HttpRequestType::PostTransaction(_md, _, _, use_unconfirmed_tip) => format!(
                 "/v2/transactions{}",
-                HttpRequestType::make_query_string_for_post_tx_endpoint(*mempool_admission_check)
+                HttpRequestType::make_query_string_for_post_tx_endpoint(*use_unconfirmed_tip)
             ),
             HttpRequestType::PostBlock(_md, ch, ..) => format!("/v2/blocks/upload/{}", &ch),
             HttpRequestType::PostMicroblock(_md, _, tip_opt) => format!(
@@ -5419,7 +5411,7 @@ mod test {
                 http_request_metadata_dns.clone(),
                 make_test_transaction(),
                 None,
-                TransactionAnchorMode::Any,
+                true,
             ),
             HttpRequestType::OptionsPreflight(http_request_metadata_ip.clone(), "/".to_string()),
         ];

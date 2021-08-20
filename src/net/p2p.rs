@@ -4399,7 +4399,7 @@ impl PeerNetwork {
             block_hash,
             &tx,
             event_observer,
-            TransactionAnchorMode::Any,
+            true,
         ) {
             warn!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;

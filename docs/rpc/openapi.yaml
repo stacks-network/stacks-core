@@ -40,13 +40,13 @@ paths:
               example:
                 $ref: ./api/transaction/post-core-node-transactions-error.example.json
       parameters:
-        - name: mempool_admission_check
+        - name: use_unconfirmed_tip
           in: path
           required: true
           description: |
-            If mempool_admission_check=="unconfirmed", the transaction will only be validated against unconfirmed state.
-            If mempool_admission_check=="confirmed", the transaction will only be validated against confirmed state.
-            If unspecified, the transaction will be accepted if it validates against the unconfirmed state.
+            If use_unconfirmed_tip==true, the transaction will only be validated against unconfirmed state.
+            If use_unconfirmed_tip==false, the transaction will only be validated against confirmed state.
+            If unspecified, this parameters defaults to true.
             If the validation fails, the submitted transaction will not be admitted into the mempool.
           schema:
             type: string

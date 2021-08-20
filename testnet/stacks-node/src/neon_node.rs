@@ -1778,7 +1778,7 @@ impl InitializedNeonNode {
                     &stacks_parent_header.anchored_header.block_hash(),
                     &poison_microblock_tx,
                     Some(event_observer),
-                    TransactionAnchorMode::Any,
+                    true,
                 ) {
                     warn!(
                         "Detected but failed to mine poison-microblock transaction: {:?}",

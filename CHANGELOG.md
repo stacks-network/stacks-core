@@ -10,10 +10,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 - Updated the mempool admission logic used for the `v2/transaction` endpoint.
   Now, a transaction is accepted if it validates against the unconfirmed state.
-  Users can specify the query parameter `mempool_admission_check`
-  to modify this behavior. If `mempool_admission_check`=="unconfirmed", the 
+  Users can specify the query parameter `use_unconfirmed_tip`
+  to modify this behavior. If `use_unconfirmed_tip`==true, the 
   transaction will only be validated against unconfirmed state (which is the default behavior).
-  If `mempool_admission_check`=="confirmed", the transaction will only be 
+  If `use_unconfirmed_tip`==false, the transaction will only be 
   validated against the confirmed state.
 
 ## [2.0.11.2.0]

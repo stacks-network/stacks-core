@@ -920,7 +920,7 @@ fn contract_stx_transfer() {
                             &header_hash,
                             &xfer_to_contract,
                             None,
-                            TransactionAnchorMode::Any,
+                            true,
                         )
                         .unwrap();
                 }
@@ -937,7 +937,7 @@ fn contract_stx_transfer() {
                         &header_hash,
                         &xfer_to_contract,
                         None,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err()
                 {

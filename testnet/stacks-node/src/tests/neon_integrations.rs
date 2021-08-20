@@ -340,13 +340,9 @@ fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) ->
 /// Returns Txid string if tx was submitted successfully.
 /// If submitting the transaction failed, the function returns an error if the failure was due to
 /// a MemPoolRejection error. Otherwise, the function panics.
-fn submit_tx(
-    http_origin: &str,
-    tx: &Vec<u8>,
-    mempool_admission_check: TransactionAnchorMode,
-) -> Result<String, Error> {
+fn submit_tx(http_origin: &str, tx: &Vec<u8>, use_unconfirmed_tip: bool) -> Result<String, Error> {
     let client = reqwest::blocking::Client::new();
-    let query = HttpRequestType::make_query_string_for_post_tx_endpoint(mempool_admission_check);
+    let query = HttpRequestType::make_query_string_for_post_tx_endpoint(use_unconfirmed_tip);
     let path = format!("{}/v2/transactions{}", http_origin, query);
     let res = client
         .post(&path)
@@ -755,13 +751,13 @@ fn liquid_ustx_integration() {
 
     let publish = make_contract_publish(&spender_sk, 0, 1000, "caller", caller_src);
 
-    let replaced_txid = match submit_tx(&http_origin, &publish, TransactionAnchorMode::Any) {
+    let replaced_txid = match submit_tx(&http_origin, &publish, true) {
         Ok(res) => res,
         Err(e) => panic!("Unexpected failure in submitted tx: {:?}", e),
     };
 
     let publish = make_contract_publish(&spender_sk, 0, 1100, "caller", caller_src);
-    assert!(submit_tx(&http_origin, &publish, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &publish, true).is_ok());
 
     let dropped_txs = test_observer::get_memtx_drops();
     assert_eq!(dropped_txs.len(), 1);
@@ -783,7 +779,7 @@ fn liquid_ustx_integration() {
         &[],
     );
 
-    assert!(submit_tx(&http_origin, &call_tx, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &call_tx, true).is_ok());
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -1531,7 +1527,7 @@ fn microblock_integration_test() {
     // okay, let's push a transaction that is marked microblock only!
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
     let tx = make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
-    assert!(submit_tx(&http_origin, &tx, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &tx, true).is_ok());
 
     info!("Try to mine a microblock-only tx");
 
@@ -1935,7 +1931,7 @@ fn microblock_integration_test() {
 #[ignore]
 fn transaction_validation_integration_test() {
     /// The purpose of this test is to check if the mempool admission checks for the post tx
-    /// endpoint are working as expected wrt the optional `mempool_admission_check` query parameter.
+    /// endpoint are working as expected wrt the optional `use_unconfirmed_tip` query parameter.
     ///
     /// In this test, we are manually creating a microblock as well as reloading the unconfirmed
     /// state of the chainstate, instead of relying on `next_block_and_wait` to generate
@@ -2112,8 +2108,7 @@ fn transaction_validation_integration_test() {
         &[],
     );
 
-    let query =
-        HttpRequestType::make_query_string_for_post_tx_endpoint(TransactionAnchorMode::OnChainOnly);
+    let query = HttpRequestType::make_query_string_for_post_tx_endpoint(false);
     let path = format!("{}/v2/transactions{}", http_origin, query);
     let res = client
         .post(&path)
@@ -2123,19 +2118,28 @@ fn transaction_validation_integration_test() {
         .unwrap();
     let err_str = res.text().unwrap();
     // Expect to get "NoSuchContract" because the function we are attempting to call is in a
-    // contract that only exists on unconfirmed state (and we set `mempool_admission_check` to
-    // OnChainOnly).
+    // contract that only exists on unconfirmed state (and we set `use_unconfirmed_tip` to false).
     assert!(err_str.contains("NoSuchContract"));
 
-    // The function `submit_tx` panics if the tx is unable to be submitted.
     // Call the contract defined in the microblock, but make mempool admission check against unconfirmed state.
-    assert!(submit_tx(&http_origin, &call_tx, TransactionAnchorMode::OffChainOnly).is_ok());
-    // Call the contract defined in the microblock. Set the transaction anchor mode to `Any`, which
-    // makes mempool admission check occur against the unconfirmed state.
-    assert!(submit_tx(&http_origin, &call_tx, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &call_tx, true).is_ok());
 
     // Mine an anchored block because now we want to have no unconfirmed state.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Check that the underlying trie for the unconfirmed state does not exist.
+    assert!(chainstate.unconfirmed_state.is_some());
+    let unconfirmed_state = chainstate.unconfirmed_state.as_mut().unwrap();
+    let trie_exists = match unconfirmed_state
+        .clarity_inst
+        .trie_exists_for_block(&unconfirmed_state.unconfirmed_chain_tip)
+    {
+        Ok(res) => res,
+        Err(e) => {
+            panic!("error when determining whether or not trie exists");
+        }
+    };
+    assert!(!trie_exists);
 
     let second_call_tx = make_contract_call(
         &spender_sk,
@@ -2147,9 +2151,9 @@ fn transaction_validation_integration_test() {
         &[],
     );
 
-    // The underlying MARF trie for the unconfirmed tip will not exist, so the transaction will be
-    // validated against the confirmed chain tip instead of the unconfirmed tip.
-    assert!(submit_tx(&http_origin, &second_call_tx, TransactionAnchorMode::Any).is_ok());
+    // The underlying MARF trie for the unconfirmed tip does not exist, so the transaction will be
+    // validated against the confirmed chain tip instead of the unconfirmed tip. This should be valid.
+    assert!(submit_tx(&http_origin, &second_call_tx, true).is_ok());
 }
 
 #[test]
@@ -2253,7 +2257,7 @@ fn size_check_integration_test() {
 
     for tx in txs.iter() {
         // okay, let's push a bunch of transactions that can only fit one per block!
-        assert!(submit_tx(&http_origin, tx, TransactionAnchorMode::Any).is_ok());
+        assert!(submit_tx(&http_origin, tx, true).is_ok());
     }
 
     sleep_ms(75_000);
@@ -2427,7 +2431,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     for tx_batch in txs.iter() {
         for tx in tx_batch.iter() {
             // okay, let's push a bunch of transactions that can only fit one per block!
-            assert!(submit_tx(&http_origin, tx, TransactionAnchorMode::Any).is_ok());
+            assert!(submit_tx(&http_origin, tx, true).is_ok());
         }
     }
 
@@ -2621,7 +2625,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
 
     let mut ctr = 0;
     while ctr < flat_txs.len() {
-        assert!(submit_tx(&http_origin, &flat_txs[ctr], TransactionAnchorMode::Any).is_ok());
+        assert!(submit_tx(&http_origin, &flat_txs[ctr], true).is_ok());
         if !wait_for_microblocks(&microblocks_processed, 60) {
             break;
         }
@@ -2639,7 +2643,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
     microblocks_processed.store(0, Ordering::SeqCst);
 
     while ctr < flat_txs.len() {
-        assert!(submit_tx(&http_origin, &flat_txs[ctr], TransactionAnchorMode::Any).is_ok());
+        assert!(submit_tx(&http_origin, &flat_txs[ctr], true).is_ok());
         if !wait_for_microblocks(&microblocks_processed, 60) {
             break;
         }
@@ -2816,7 +2820,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
 
     let mut ctr = 0;
     for _i in 0..6 {
-        assert!(submit_tx(&http_origin, &flat_txs[ctr], TransactionAnchorMode::Any).is_ok());
+        assert!(submit_tx(&http_origin, &flat_txs[ctr], true).is_ok());
         if !wait_for_microblocks(&microblocks_processed, 60) {
             break;
         }
@@ -3076,7 +3080,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     for tx_batch in txs.iter() {
         for tx in tx_batch.iter() {
             // okay, let's push a bunch of transactions that can only fit one per block!
-            assert!(submit_tx(&http_origin, tx, TransactionAnchorMode::Any).is_ok());
+            assert!(submit_tx(&http_origin, tx, true).is_ok());
         }
     }
 
@@ -3242,7 +3246,7 @@ fn block_replay_integration_test() {
 
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
     let tx = make_stacks_transfer(&spender_sk, 0, 1000, &recipient.into(), 1000);
-    assert!(submit_tx(&http_origin, &tx, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &tx, true).is_ok());
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -3381,7 +3385,7 @@ fn cost_voting_integration() {
     ];
 
     for tx in transactions.into_iter() {
-        assert!(submit_tx(&http_origin, &tx, TransactionAnchorMode::Any).is_ok());
+        assert!(submit_tx(&http_origin, &tx, true).is_ok());
     }
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -3407,8 +3411,8 @@ fn cost_voting_integration() {
         &[Value::UInt(1)],
     );
 
-    assert!(submit_tx(&http_origin, &vote_tx, TransactionAnchorMode::Any).is_ok());
-    assert!(submit_tx(&http_origin, &call_le_tx, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &vote_tx, true).is_ok());
+    assert!(submit_tx(&http_origin, &call_le_tx, true).is_ok());
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -3458,7 +3462,7 @@ fn cost_voting_integration() {
         &[Value::UInt(0)],
     );
 
-    assert!(submit_tx(&http_origin, &confirm_proposal, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &confirm_proposal, true).is_ok());
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -3508,7 +3512,7 @@ fn cost_voting_integration() {
         &[Value::UInt(0)],
     );
 
-    assert!(submit_tx(&http_origin, &confirm_proposal, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &confirm_proposal, true).is_ok());
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // clear and mine another burnchain block, so that the new winner is seen by the observer
@@ -3552,7 +3556,7 @@ fn cost_voting_integration() {
         &[Value::UInt(1)],
     );
 
-    assert!(submit_tx(&http_origin, &call_le_tx, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &call_le_tx, true).is_ok());
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // clear and mine another burnchain block, so that the new winner is seen by the observer
@@ -3678,7 +3682,7 @@ fn near_full_block_integration_test() {
     assert_eq!(account.nonce, 0);
     assert_eq!(account.balance, 10000000);
 
-    assert!(submit_tx(&http_origin, &tx, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &tx, true).is_ok());
     sleep_ms(60_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -3882,7 +3886,7 @@ fn pox_integration_test() {
     );
 
     // okay, let's push that stacking transaction!
-    assert!(submit_tx(&http_origin, &tx, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &tx, true).is_ok());
 
     let mut sort_height = channel.get_sortitions_processed();
     eprintln!("Sort height: {}", sort_height);
@@ -3995,7 +3999,7 @@ fn pox_integration_test() {
     );
 
     // okay, let's push that stacking transaction!
-    assert!(submit_tx(&http_origin, &tx, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &tx, true).is_ok());
 
     let tx = make_contract_call(
         &spender_3_sk,
@@ -4017,7 +4021,7 @@ fn pox_integration_test() {
         ],
     );
 
-    assert!(submit_tx(&http_origin, &tx, TransactionAnchorMode::Any).is_ok());
+    assert!(submit_tx(&http_origin, &tx, true).is_ok());
 
     // mine until the end of the current reward cycle.
     sort_height = channel.get_sortitions_processed();

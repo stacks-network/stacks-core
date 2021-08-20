@@ -1228,7 +1228,7 @@ pub enum HttpRequestType {
         HttpRequestMetadata,
         StacksTransaction,
         Option<Attachment>,
-        TransactionAnchorMode,
+        bool, // use_unconfirmed_tip: signifies which tip to validate a posted tx against
     ),
     PostBlock(HttpRequestMetadata, ConsensusHash, StacksBlock),
     PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),

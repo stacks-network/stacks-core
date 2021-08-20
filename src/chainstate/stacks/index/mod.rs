@@ -39,6 +39,7 @@ pub mod marf;
 pub mod node;
 pub mod proofs;
 pub mod storage;
+/// This module defines the methods for reading and inserting into a Trie
 pub mod trie;
 pub mod trie_sql;
 

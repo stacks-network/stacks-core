@@ -1593,7 +1593,7 @@ impl ConversationHttp {
         atlasdb: &mut AtlasDB,
         attachment: Option<Attachment>,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        mempool_admission_check: TransactionAnchorMode,
+        use_unconfirmed_tip: bool,
     ) -> Result<bool, net_error> {
         let txid = tx.txid();
         let response_metadata = HttpResponseMetadata::from(req);
@@ -1609,7 +1609,7 @@ impl ConversationHttp {
                 &block_hash,
                 &tx,
                 event_observer,
-                mempool_admission_check,
+                use_unconfirmed_tip,
             ) {
                 Ok(_) => (
                     HttpResponseType::TransactionID(response_metadata, txid),
@@ -2073,7 +2073,7 @@ impl ConversationHttp {
                 ref _md,
                 ref tx,
                 ref attachment,
-                ref mempool_admission_check,
+                ref use_unconfirmed_tip,
             ) => {
                 match chainstate.get_stacks_chain_tip(sortdb)? {
                     Some(tip) => {
@@ -2089,7 +2089,7 @@ impl ConversationHttp {
                             &mut network.atlasdb,
                             attachment.clone(),
                             handler_opts.event_observer.as_deref(),
-                            *mempool_admission_check,
+                            *use_unconfirmed_tip,
                         )?;
                         if accepted {
                             // forward to peer network
@@ -2670,13 +2670,13 @@ impl ConversationHttp {
     pub fn new_post_transaction(
         &self,
         tx: StacksTransaction,
-        mempool_admission_check: TransactionAnchorMode,
+        use_unconfirmed_tip: bool,
     ) -> HttpRequestType {
         HttpRequestType::PostTransaction(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             tx,
             None,
-            mempool_admission_check,
+            use_unconfirmed_tip,
         )
     }
 

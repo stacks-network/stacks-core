@@ -218,7 +218,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap();
 
@@ -239,7 +239,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap();
 
@@ -252,7 +252,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap();
 
@@ -266,7 +266,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -308,7 +308,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
 
@@ -337,7 +337,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 assert!(if let MemPoolRejection::BadAddressVersionByte = e {
@@ -356,7 +356,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -376,7 +376,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -396,7 +396,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -417,7 +417,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -440,7 +440,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -473,7 +473,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -493,7 +493,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -513,7 +513,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -532,7 +532,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -559,7 +559,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -586,7 +586,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -613,7 +613,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -633,7 +633,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -668,7 +668,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -705,7 +705,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -743,7 +743,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -764,7 +764,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 eprintln!("Err: {:?}", e);
@@ -822,7 +822,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap();
 
@@ -849,7 +849,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap();
 
@@ -876,7 +876,7 @@ fn mempool_setup_chainstate() {
                         block_hash,
                         &tx,
                         tx_bytes.len() as u64,
-                        TransactionAnchorMode::Any,
+                        true,
                     )
                     .unwrap_err();
                 assert!(if let MemPoolRejection::BadFunctionArgument(_) = e {

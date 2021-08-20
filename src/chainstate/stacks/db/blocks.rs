@@ -5226,10 +5226,9 @@ impl StacksChainState {
     }
 
     /// Check to see if a transaction can be (potentially) appended on top of a given chain tip.
-    /// The input `mempool_admission_check` determines what the transaction is validated against.
-    /// If `mempool_admission_check`==OffChainOnly or `mempool_admission_check`==Any, the
-    ///     transaction will only be validated against unconfirmed state.
-    /// If `mempool_admission_check`==OnChainOnly, the transaction will only be validated against confirmed state.
+    /// The input `use_unconfirmed_tip` determines what the transaction is validated against.
+    /// If `use_unconfirmed_tip`==true, the transaction will only be validated against unconfirmed state.
+    /// If `use_unconfirmed_tip`==false, the transaction will only be validated against confirmed state.
     ///
     /// # Errors
     ///  - The transaction fails a basic semantic check (for example, if the sender & recipient
@@ -5243,7 +5242,7 @@ impl StacksChainState {
         current_block: &BlockHeaderHash,
         tx: &StacksTransaction,
         tx_size: u64,
-        mempool_admission_check: TransactionAnchorMode,
+        use_unconfirmed_tip: bool,
     ) -> Result<(), MemPoolRejection> {
         let is_mainnet = self.clarity_state.is_mainnet();
         StacksChainState::can_admit_mempool_semantic(tx, is_mainnet)?;
@@ -5282,38 +5281,29 @@ impl StacksChainState {
             _ => false, // unused
         };
 
-        let current_tip = match mempool_admission_check {
-            TransactionAnchorMode::OnChainOnly => {
+        let current_tip = if use_unconfirmed_tip
+            && self.unconfirmed_state.is_some()
+            && self.unconfirmed_state.as_ref().unwrap().is_readable()
+        {
+            // Check if underlying MARF trie exists before returning unconfirmed chain tip
+            let unconfirmed_state = self.unconfirmed_state.as_mut().unwrap();
+            let trie_exists = match unconfirmed_state
+                .clarity_inst
+                .trie_exists_for_block(&unconfirmed_state.unconfirmed_chain_tip)
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    return Err(MemPoolRejection::DBError(e));
+                }
+            };
+
+            if trie_exists {
+                unconfirmed_state.unconfirmed_chain_tip
+            } else {
                 StacksChainState::get_parent_index_block(current_consensus_hash, current_block)
             }
-            TransactionAnchorMode::OffChainOnly | TransactionAnchorMode::Any => {
-                if self.unconfirmed_state.is_some()
-                    && self.unconfirmed_state.as_ref().unwrap().is_readable()
-                {
-                    // Check if underlying MARF trie exists before returning unconfirmed chain tip
-                    let unconfirmed_state = self.unconfirmed_state.as_mut().unwrap();
-                    let trie_exists = match unconfirmed_state
-                        .clarity_inst
-                        .trie_exists_for_block(&unconfirmed_state.unconfirmed_chain_tip)
-                    {
-                        Ok(res) => res,
-                        Err(e) => {
-                            return Err(MemPoolRejection::DBError(e));
-                        }
-                    };
-
-                    if trie_exists {
-                        unconfirmed_state.unconfirmed_chain_tip
-                    } else {
-                        StacksChainState::get_parent_index_block(
-                            current_consensus_hash,
-                            current_block,
-                        )
-                    }
-                } else {
-                    StacksChainState::get_parent_index_block(current_consensus_hash, current_block)
-                }
-            }
+        } else {
+            StacksChainState::get_parent_index_block(current_consensus_hash, current_block)
         };
 
         let res = match self.maybe_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {

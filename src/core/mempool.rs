@@ -84,22 +84,21 @@ impl MemPoolAdmitter {
     }
 
     /// Function calls and returns the result of `will_admit_mempool_tx`
-    /// The parameter `mempool_admission_check` determines what chain tip the given transaction will
-    /// be validated against (only the anchored tip, only the unconfirmed state, or both - where
-    /// the transaction is admitted if it is valid against either state).
+    /// The parameter `use_unconfirmed_tip` determines what chain tip the given transaction will
+    /// be validated against (the unanchored tip if true, and the anchored tip otherwise).
     pub fn will_admit_tx(
         &mut self,
         chainstate: &mut StacksChainState,
         tx: &StacksTransaction,
         tx_size: u64,
-        mempool_admission_check: TransactionAnchorMode,
+        use_unconfirmed_tip: bool,
     ) -> Result<(), MemPoolRejection> {
         chainstate.will_admit_mempool_tx(
             &self.cur_consensus_hash,
             &self.cur_block,
             tx,
             tx_size,
-            mempool_admission_check,
+            use_unconfirmed_tip,
         )
     }
 }
@@ -845,9 +844,8 @@ impl MemPoolDB {
     }
 
     /// Submit a transaction to the mempool at a particular chain tip.
-    /// The parameter `mempool_admission_check` determines what chain tip the given transaction will
-    /// be validated against (only the anchored tip, only the unconfirmed state, or both - where
-    /// the transaction is admitted if it is valid against either state).
+    /// The parameter `use_unconfirmed_tip` determines what chain tip the given transaction will
+    /// be validated against (the unanchored tip if true, and the anchored tip otherwise)
     fn tx_submit(
         mempool_tx: &mut MemPoolTx,
         chainstate: &mut StacksChainState,
@@ -856,7 +854,7 @@ impl MemPoolDB {
         tx: &StacksTransaction,
         do_admission_checks: bool,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        mempool_admission_check: TransactionAnchorMode,
+        use_unconfirmed_tip: bool,
     ) -> Result<(), MemPoolRejection> {
         test_debug!(
             "Mempool submit {} at {}/{}",
@@ -907,7 +905,7 @@ impl MemPoolDB {
                 .set_block(&block_hash, (*consensus_hash).clone());
             mempool_tx
                 .admitter
-                .will_admit_tx(chainstate, tx, len, mempool_admission_check)?;
+                .will_admit_tx(chainstate, tx, len, use_unconfirmed_tip)?;
         }
 
         MemPoolDB::try_add_tx(
@@ -941,7 +939,7 @@ impl MemPoolDB {
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        mempool_admission_check: TransactionAnchorMode,
+        use_unconfirmed_tip: bool,
     ) -> Result<(), MemPoolRejection> {
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
         MemPoolDB::tx_submit(
@@ -952,7 +950,7 @@ impl MemPoolDB {
             tx,
             true,
             event_observer,
-            mempool_admission_check,
+            use_unconfirmed_tip,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
@@ -978,7 +976,7 @@ impl MemPoolDB {
             &tx,
             false,
             None,
-            TransactionAnchorMode::Any,
+            true,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
