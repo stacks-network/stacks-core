@@ -818,15 +818,19 @@ supplied), this function returns `none`.
 const SLICE_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint, uint",
     output_type: "(optional sequence_A)",
-    signature: "(slice sequence position length)",
+    signature: "(slice sequence left-position right-position)",
     description:
-        "The `slice` function attempts to return a sub-sequence of size `length` starting from
-index `position` in the provided sequence.
-If `length` is 0 or `position + length` is greater than `(len sequence)`, this function returns `none`.",
-    example: "(slice \"blockstack\" u5 u5) ;; Returns (some \"stack\")
-(slice (list 1 2 3 4 5) u5 u2) ;; Returns none
-(slice (list 1 2 3 4 5) u3 u1) ;; Returns (some (4))
-(slice \"abcd\" u1 u2) ;; Returns (some \"bc\")
+        "The `slice` function attempts to return a sub-sequence of that starts at `left-position` (inclusive), and
+ends at `right-position` (non-inclusive).
+If `left_position`==`right_position`, the function returns an empty sequence.
+If either `left_position` or `right_position` are out of bounds OR if `right_position` is less than
+`left_position`, the function returns `none`.",
+    example: "(slice \"blockstack\" u5 u10) ;; Returns (some \"stack\")
+(slice (list 1 2 3 4 5) u5 u9) ;; Returns none
+(slice (list 1 2 3 4 5) u3 u4) ;; Returns (some (4))
+(slice \"abcd\" u1 u3) ;; Returns (some \"bc\")
+(slice \"abcd\" u2 u2) ;; Returns (some \"\")
+(slice \"abcd\" u3 u1) ;; Returns none
 ",
 };
 

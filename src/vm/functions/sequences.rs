@@ -325,22 +325,26 @@ pub fn special_slice(
     runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
 
     let seq = eval(&args[0], env, context)?;
-    let position = eval(&args[1], env, context)?;
-    let length = eval(&args[2], env, context)?;
+    let left_position = eval(&args[1], env, context)?;
+    let right_position = eval(&args[2], env, context)?;
 
-    let sliced_seq = match (seq, position, length) {
-        (Value::Sequence(seq), Value::UInt(position), Value::UInt(length)) => {
-            let (position, length) = match (u32::try_from(position), u32::try_from(length)) {
-                (Ok(position), Ok(length)) => (position, length),
+    let sliced_seq = match (seq, left_position, right_position) {
+        (Value::Sequence(seq), Value::UInt(left_position), Value::UInt(right_position)) => {
+            let (left_position, right_position) = match (u32::try_from(left_position), u32::try_from(right_position)) {
+                (Ok(left_position), Ok(right_position)) => (left_position, right_position),
                 _ => return Ok(Value::none()),
             };
 
-            // Perform length checks.
-            if length == 0 || (position + length) as usize > seq.len() {
+            // Perform bound checks. Not necessary to check if positions are less than 0 since the vars are unsigned.
+            if left_position as usize >= seq.len() || right_position as usize > seq.len() {
+                return Ok(Value::none())
+
+            }
+            if right_position < left_position {
                 return Ok(Value::none())
             }
 
-            let seq_value = seq.slice(position as usize, length as usize)?;
+            let seq_value = seq.slice(left_position as usize, right_position as usize)?;
             Value::some(seq_value)
         }
         _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),

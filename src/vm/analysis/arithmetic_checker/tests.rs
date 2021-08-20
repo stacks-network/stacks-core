@@ -271,7 +271,7 @@ fn test_functions_clarity1() {
         (r#"(stx-transfer-memo? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 0x010203)"#,
          Ok(())),
         ("(define-private (foo (a (list 3 uint)))
-         (slice a u2 u1))",
+         (slice a u2 u3))",
          Ok(())),
     ];
 
@@ -293,7 +293,7 @@ fn test_functions_clarity2() {
         (r#"(stx-transfer-memo? u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 0x010203)"#,
         Err(FunctionNotPermitted(NativeFunctions::StxTransferMemo))),
         ("(define-private (foo (a (list 3 uint)))
-              (slice a u2 u1))",
+              (slice a u2 u3))",
          Err(FunctionNotPermitted(NativeFunctions::Slice))),
 
         // Clarity1 functions.

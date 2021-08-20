@@ -987,12 +987,12 @@ fn test_buff_fold() {
     let good = [
         "(define-private (get-len (x (buff 1)) (acc uint)) (+ acc u1))
         (fold get-len 0x000102030405 u0)",
-        "(define-private (slice-v1 (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
+        "(define-private (get-slice (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
             (if (< (get cursor acc) (get limit acc))
                 (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
                     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
                 acc))
-        (fold slice-v1 0x00010203040506070809 (tuple (limit u5) (cursor u0) (data 0x)))"];
+        (fold get-slice 0x00010203040506070809 (tuple (limit u5) (cursor u0) (data 0x)))"];
     let expected = [
         "uint",
         "(tuple (cursor uint) (data (buff 10)) (limit uint))",
@@ -2435,12 +2435,12 @@ fn test_string_ascii_fold() {
     let good = [
         "(define-private (get-len (x (string-ascii 1)) (acc uint)) (+ acc u1))
         (fold get-len \"blockstack\" u0)",
-        "(define-private (slice-v1 (x (string-ascii 1)) (acc (tuple (limit uint) (cursor uint) (data (string-ascii 10)))))
+        "(define-private (get-slice (x (string-ascii 1)) (acc (tuple (limit uint) (cursor uint) (data (string-ascii 10)))))
             (if (< (get cursor acc) (get limit acc))
                 (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
                     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
                 acc))
-        (fold slice-v1 \"blockstack\" (tuple (limit u5) (cursor u0) (data \"\")))"];
+        (fold get-slice \"blockstack\" (tuple (limit u5) (cursor u0) (data \"\")))"];
     let expected = [
         "uint",
         "(tuple (cursor uint) (data (string-ascii 10)) (limit uint))",
@@ -2488,12 +2488,12 @@ fn test_string_utf8_fold() {
     let good = [
         "(define-private (get-len (x (string-utf8 1)) (acc uint)) (+ acc u1))
         (fold get-len u\"blockstack\" u0)",
-        "(define-private (slice-v1 (x (string-utf8 1)) (acc (tuple (limit uint) (cursor uint) (data (string-utf8 11)))))
+        "(define-private (get-slice (x (string-utf8 1)) (acc (tuple (limit uint) (cursor uint) (data (string-utf8 11)))))
             (if (< (get cursor acc) (get limit acc))
                 (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u11))))
                     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
                 acc))
-        (fold slice-v1 u\"blockstack\\u{1F926}\" (tuple (limit u5) (cursor u0) (data u\"\")))"];
+        (fold get-slice u\"blockstack\\u{1F926}\" (tuple (limit u5) (cursor u0) (data u\"\")))"];
     let expected = [
         "uint",
         "(tuple (cursor uint) (data (string-utf8 11)) (limit uint))",

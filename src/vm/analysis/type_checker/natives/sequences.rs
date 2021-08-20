@@ -414,9 +414,9 @@ pub fn check_special_slice(
         _ => return Err(CheckErrors::ExpectedSequence(seq_type).into()),
     };
 
-    // Check position argument
+    // Check left position argument
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
-    // Check length argument
+    // Check right position argument
     checker.type_check_expects(&args[2], context, &TypeSignature::UIntType)?;
 
     Ok(seq)

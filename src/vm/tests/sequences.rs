@@ -454,13 +454,15 @@ fn test_slice_list() {
         "(slice (list 2 3 4 5 6 7 8) u0 u3)",
         "(slice (list u0 u1 u2 u3 u4) u3 u2)",
         "(slice (list 2 3 4 5 6 7 8) u0 u0)",
-        "(slice (list 2 3 4 5 6 7 8) u10 u3)",
+        "(slice (list u2 u3 u4 u5 u6 u7 u8) u3 u5)",
+        "(slice (list u2 u3 u4 u5 u6 u7 u8) u1 u11)",
     ];
 
     let expected = [
         Value::some(Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(4)]).unwrap()).unwrap(),
-        Value::some(Value::list_from(vec![Value::UInt(3), Value::UInt(4)]).unwrap()).unwrap(),
         Value::none(),
+        Value::some(Value::list_from(vec![]).unwrap()).unwrap(),
+        Value::some(Value::list_from(vec![Value::UInt(5), Value::UInt(6)]).unwrap()).unwrap(),
         Value::none(),
     ];
 
@@ -474,6 +476,7 @@ fn test_slice_buff() {
     let tests = [
         "(slice 0x000102030405 u0 u3)",
         "(slice 0x000102030405 u3 u3)",
+        "(slice 0x000102030405 u3 u6)",
         "(slice 0x000102030405 u3 u10)",
         "(slice 0x000102030405 u10 u3)",
         "(slice 0x u2 u3)",
@@ -481,6 +484,7 @@ fn test_slice_buff() {
 
     let expected = [
         Value::some(Value::buff_from(vec![0, 1, 2]).unwrap()).unwrap(),
+        Value::some(Value::buff_from(vec![]).unwrap()).unwrap(),
         Value::some(Value::buff_from(vec![3, 4, 5]).unwrap()).unwrap(),
         Value::none(),
         Value::none(),
@@ -496,6 +500,7 @@ fn test_slice_buff() {
 fn test_slice_ascii() {
     let tests = [
         "(slice \"blockstack\" u0 u5)",
+        "(slice \"blockstack\" u5 u10)",
         "(slice \"blockstack\" u5 u5)",
         "(slice \"blockstack\" u5 u0)",
         "(slice \"blockstack\" u11 u3)",
@@ -505,6 +510,7 @@ fn test_slice_ascii() {
     let expected = [
         Value::some(Value::string_ascii_from_bytes("block".into()).unwrap()).unwrap(),
         Value::some(Value::string_ascii_from_bytes("stack".into()).unwrap()).unwrap(),
+        Value::some(Value::string_ascii_from_bytes("".into()).unwrap()).unwrap(),
         Value::none(),
         Value::none(),
         Value::none(),
@@ -519,8 +525,8 @@ fn test_slice_ascii() {
 fn test_slice_utf8() {
     let tests = [
         "(slice u\"hello \\u{1F98A}\" u0 u5)",
-        "(slice u\"hello \\u{1F98A}\" u6 u1)",
-        "(slice u\"hello \\u{1F98A}\" u6 u0)",
+        "(slice u\"hello \\u{1F98A}\" u6 u7)",
+        "(slice u\"hello \\u{1F98A}\" u6 u6)",
         "(slice u\"hello \\u{1F98A}\" u11 u4)",
         "(slice u\"\" u0 u3)",
     ];
@@ -528,7 +534,7 @@ fn test_slice_utf8() {
     let expected = [
         Value::some(Value::string_utf8_from_bytes("hello".into()).unwrap()).unwrap(),
         Value::some(Value::string_utf8_from_bytes("🦊".into()).unwrap()).unwrap(),
-        Value::none(),
+        Value::some(Value::string_utf8_from_bytes("".into()).unwrap()).unwrap(),
         Value::none(),
         Value::none(),
     ];
@@ -774,12 +780,12 @@ fn test_simple_folds_string() {
     let tests =
         ["(define-private (get-len (x (string-ascii 1)) (acc int)) (+ acc 1))
          (fold get-len \"blockstack\" 0)",
-        "(define-private (slice-v1 (x (string-ascii 1)) (acc (tuple (limit uint) (cursor uint) (data (string-ascii 10)))))
+        "(define-private (get-slice (x (string-ascii 1)) (acc (tuple (limit uint) (cursor uint) (data (string-ascii 10)))))
             (if (< (get cursor acc) (get limit acc))
                 (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
                     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data))) 
                 acc))
-        (get data (fold slice-v1 \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\"))))"];
+        (get data (fold get-slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\"))))"];
 
     let expected = [
         Value::Int(10),

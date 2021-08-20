@@ -398,15 +398,15 @@ impl SequenceData {
         Ok(())
     }
 
-    pub fn slice(self, position: usize, length: usize) -> Result<Value> {
-        let empty_seq = position + length > self.len();
+    pub fn slice(self, left_position: usize, right_position: usize) -> Result<Value> {
+        let empty_seq = (left_position == right_position);
 
         let result = match self {
             SequenceData::Buffer(data) => {
                 let data = if empty_seq {
                     vec![]
                 } else {
-                    data.data[position..(length + position)].to_vec()
+                    data.data[left_position..right_position].to_vec()
                 };
                 Value::buff_from(data)
             }
@@ -414,7 +414,7 @@ impl SequenceData {
                 let data = if empty_seq {
                     vec![]
                 } else {
-                    data.data[position..(length + position)].to_vec()
+                    data.data[left_position..right_position].to_vec()
                 };
                 Value::list_from(data)
             }
@@ -422,7 +422,7 @@ impl SequenceData {
                 let data = if empty_seq {
                     vec![]
                 } else {
-                    data.data[position..(length + position)].to_vec()
+                    data.data[left_position..right_position].to_vec()
                 };
                 Value::string_ascii_from_bytes(data)
             }
@@ -430,7 +430,7 @@ impl SequenceData {
                 let data = if empty_seq {
                     vec![]
                 } else {
-                    data.data[position..(length + position)].to_vec()
+                    data.data[left_position..right_position].to_vec()
                 };
                 Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
                     UTF8Data { data },
