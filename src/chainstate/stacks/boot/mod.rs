@@ -805,7 +805,7 @@ pub mod test {
         contract_opt
     }
 
-    fn make_pox_addr(addr_version: AddressHashMode, addr_bytes: Hash160) -> Value {
+    pub fn make_pox_addr(addr_version: AddressHashMode, addr_bytes: Hash160) -> Value {
         Value::Tuple(
             TupleData::from_data(vec![
                 (

@@ -806,10 +806,6 @@
                       true)
                   (err ERR_DELEGATION_EXPIRES_DURING_LOCK)))
 
-      ;; the Stacker must have sufficient unlocked funds
-      (asserts! (>= (stx-get-balance stacker) amount-ustx)
-        (err ERR_STACKING_INSUFFICIENT_FUNDS))
-
       ;; register the PoX address with the amount stacked via partial stacking
       ;;   before it can be included in the reward set, this must be committed!
       (add-pox-partial-stacked pox-addr first-extend-cycle extend-count amount-ustx)
