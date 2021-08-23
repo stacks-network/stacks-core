@@ -50,6 +50,8 @@ use crate::types::chainstate::StacksBlockId;
 use crate::util::boot;
 use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
 
+use core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
+
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
@@ -1139,7 +1141,10 @@ pub mod test {
 
     #[test]
     fn test_liquid_ustx() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -1324,7 +1329,10 @@ pub mod test {
 
     #[test]
     fn test_hook_special_contract_call() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 3;
         burnchain.pox_constants.prepare_length = 1;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -1437,7 +1445,10 @@ pub mod test {
 
     #[test]
     fn test_liquid_ustx_burns() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -1542,7 +1553,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_single_tx_sender() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -1751,7 +1765,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_single_tx_sender_100() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -2011,7 +2028,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_contract() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -2275,7 +2295,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_multi_tx_sender() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -2485,7 +2508,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_no_double_stacking() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -2698,7 +2724,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_single_tx_sender_unlock() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -2936,7 +2965,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_unlock_relock() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -3455,7 +3487,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_unlock_on_spend() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -3902,7 +3937,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_reject() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
