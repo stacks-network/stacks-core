@@ -752,7 +752,7 @@ fn integration_test_get_info() {
                     .unwrap().json::<serde_json::Value>().unwrap();
 
                 eprintln!("{}", res);
-                assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
+                assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected, MemPoolRejection");
                 assert!(res.get("reason").is_some());
 
                 // let's submit an invalid transaction!
@@ -775,7 +775,7 @@ fn integration_test_get_info() {
 
                 eprintln!("{}", res);
                 assert_eq!(res.get("txid").unwrap().as_str().unwrap(), format!("{}", tx_xfer_invalid_tx.txid()));
-                assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected");
+                assert_eq!(res.get("error").unwrap().as_str().unwrap(), "transaction rejected, MemPoolRejection");
                 assert!(res.get("reason").is_some());
 
                 // testing /v2/trait/<contract info>/<trait info>
@@ -1730,7 +1730,7 @@ fn mempool_errors() {
                 );
                 assert_eq!(
                     res.get("error").unwrap().as_str().unwrap(),
-                    "transaction rejected"
+                    "transaction rejected, MemPoolRejection"
                 );
                 assert_eq!(
                     res.get("reason").unwrap().as_str().unwrap(),
@@ -1771,7 +1771,7 @@ fn mempool_errors() {
                 );
                 assert_eq!(
                     res.get("error").unwrap().as_str().unwrap(),
-                    "transaction rejected"
+                    "transaction rejected, MemPoolRejection"
                 );
                 assert_eq!(res.get("reason").unwrap().as_str().unwrap(), "FeeTooLow");
                 let data = res.get("reason_data").unwrap();
@@ -1804,7 +1804,7 @@ fn mempool_errors() {
                 );
                 assert_eq!(
                     res.get("error").unwrap().as_str().unwrap(),
-                    "transaction rejected"
+                    "transaction rejected, MemPoolRejection"
                 );
                 assert_eq!(
                     res.get("reason").unwrap().as_str().unwrap(),
@@ -1848,7 +1848,7 @@ fn mempool_errors() {
                 );
                 assert_eq!(
                     res.get("error").unwrap().as_str().unwrap(),
-                    "transaction rejected"
+                    "transaction rejected, MemPoolRejection"
                 );
                 assert_eq!(
                     res.get("reason").unwrap().as_str().unwrap(),
