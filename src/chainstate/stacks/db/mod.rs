@@ -89,7 +89,6 @@ pub mod accounts;
 pub mod blocks;
 pub mod contracts;
 pub mod headers;
-pub mod queryable_logging;
 pub mod transactions;
 pub mod unconfirmed;
 
