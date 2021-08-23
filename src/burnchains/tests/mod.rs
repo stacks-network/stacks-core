@@ -44,6 +44,10 @@ use deps::bitcoin::network::serialize::BitcoinHash;
 
 use burnchains::bitcoin::spv::BITCOIN_GENESIS_BLOCK_HASH_REGTEST;
 
+// all SPV headers will have this timestamp, so that multiple burnchain nodes will always have the
+// same SPV header timestamps regardless of when they are instantiated.
+pub const BURNCHAIN_TEST_BLOCK_TIME: u64 = 1629739098;
+
 impl Txid {
     pub fn from_test_data(
         block_height: u64,
@@ -580,7 +584,7 @@ impl TestBurnchainBlock {
             .read_burnchain_header(self.block_height.saturating_sub(1))
             .unwrap()
             .unwrap();
-        let now = get_epoch_time_secs();
+        let now = BURNCHAIN_TEST_BLOCK_TIME;
         let block_hash = BurnchainHeaderHash::from_bitcoin_hash(
             &BitcoinIndexer::mock_bitcoin_header(&parent_hdr.block_hash, now as u32).bitcoin_hash(),
         );
