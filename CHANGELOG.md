@@ -18,11 +18,16 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [2.0.11.2.0]
 
+NOTE: This change resets the `testnet`. Users running a testnet node will need
+to reset their chain states.
+
 ### Added
 
 - `clarity-cli` will now also print a serialized version of the resulting
   output from `eval` and `execute` commands. This serialization is in
   hexademical string format and supports integration with other tools. (#2684)
+- The creation of a Bitcoin wallet with BTC version `> 0.19` is now supported
+  on a private testnet. (#2647)
 - `lcov`-compatible coverage reporting has been added to `clarity-cli` for
   Clarity contract testing. (#2592)
 - The `README.md` file has new documentation about the release process. (#2726)
@@ -40,8 +45,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - The UTXO staleness check is re-ordered so that it occurs before the RBF-limit
   check. This way, if stale UTXOs reached the "RBF limit" a miner will recover
   by resetting the UTXO cache. (#2694)
+- Microblock events were being sent to the event observer when microblock data
+  was received by a peer, but were not emitted if the node mined the
+  microblocks itself. This made something like the private-testnet setup
+  incapable of emitting microblock events. Microblock events are now sent
+  even when self-mined. (#2653)
 - A bug is fixed in the mocknet/helium miner that would lead to a panic if a
   burn block occurred without a sortition in it. (#2711)
+- Two bugs that caused problems syncing with the bitcoin chain during a
+  bitcoin reorg have been fixed (#2771, #2780).
 - Documentation is fixed in cases where string and buffer types are allowed
   but not covered in the documentation.  (#2676)
 

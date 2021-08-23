@@ -298,7 +298,7 @@ impl HttpChunkedTransferReaderState {
             chunk_read: 0,
             max_size: max_size,
             total_size: 0,
-            last_chunk_size: u64::max_value(), // if this ever becomes 0, then we should expect chunk boundary '0\r\n\r\n' and EOF
+            last_chunk_size: u64::MAX, // if this ever becomes 0, then we should expect chunk boundary '0\r\n\r\n' and EOF
             chunk_buffer: [0u8; 18],
             i: 0,
         }

@@ -827,7 +827,7 @@ impl MemPoolDB {
             consensus_hash,
             block_hash,
             0,
-            (i64::max_value() - 1) as u64,
+            (i64::MAX - 1) as u64,
         )
         .unwrap_or(vec![])
         .into_iter()

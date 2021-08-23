@@ -4870,7 +4870,7 @@ pub mod test {
                     &all_microblocks_1[i].1,
                 ),
                 0,
-                u16::max_value(),
+                u16::MAX,
             )
             .unwrap();
             let chunk_2_opt = StacksChainState::load_descendant_staging_microblock_stream(
@@ -4880,7 +4880,7 @@ pub mod test {
                     &all_microblocks_2[i].1,
                 ),
                 0,
-                u16::max_value(),
+                u16::MAX,
             )
             .unwrap();
 

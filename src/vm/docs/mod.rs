@@ -266,7 +266,7 @@ const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(or b1 b2 ...)",
-    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
+    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `true`, the function short-circuits, and no subsequent arguments are evaluated.",
     example: "(or true false) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 3 4)) ;; Returns false
@@ -426,7 +426,7 @@ which must return the same type. In the case that the boolean input is `true`, t
 };
 
 const LET_API: SpecialAPI = SpecialAPI {
-    input_type: "((name2 AnyType) (name2 AnyType) ...), AnyType, ... A",
+    input_type: "((name1 AnyType) (name2 AnyType) ...), AnyType, ... A",
     output_type: "A",
     signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
     description: "The `let` function accepts a list of `variable name` and `expression` pairs,
@@ -1463,7 +1463,8 @@ const TOKEN_TRANSFER: SpecialAPI = SpecialAPI {
     output_type: "(response bool uint)",
     signature: "(ft-transfer? token-name amount sender recipient)",
     description: "`ft-transfer?` is used to increase the token balance for the `recipient` principal for a token
-type defined using `define-fungible-token` by debiting the `sender` principal.
+type defined using `define-fungible-token` by debiting the `sender` principal. In contrast to `stx-transfer?`, 
+any user can transfer the assets. When used, relevant guards need to be added.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
@@ -1486,7 +1487,8 @@ const ASSET_TRANSFER: SpecialAPI = SpecialAPI {
     signature: "(nft-transfer? asset-class asset-identifier sender recipient)",
     description: "`nft-transfer?` is used to change the owner of an asset identified by `asset-identifier`
 from `sender` to `recipient`. The `asset-class` must have been defined by `define-non-fungible-token` and `asset-identifier`
-must be of the type specified in that definition.
+must be of the type specified in that definition. In contrast to `stx-transfer?`, any user can transfer the asset. 
+When used, relevant guards need to be added.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:

@@ -1558,8 +1558,8 @@ impl StacksChainState {
             block.block_hash(),
             parent_consensus_hash
         );
-        assert!(commit_burn < i64::max_value() as u64);
-        assert!(sortition_burn < i64::max_value() as u64);
+        assert!(commit_burn < i64::MAX as u64);
+        assert!(sortition_burn < i64::MAX as u64);
 
         let block_hash = block.block_hash();
         let index_block_hash =
@@ -1729,7 +1729,7 @@ impl StacksChainState {
         burn_supports: &Vec<UserBurnSupportOp>,
     ) -> Result<(), Error> {
         for burn_support in burn_supports.iter() {
-            assert!(burn_support.burn_fee < i64::max_value() as u64);
+            assert!(burn_support.burn_fee < i64::MAX as u64);
         }
 
         for burn_support in burn_supports.iter() {
@@ -6541,7 +6541,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_none());
@@ -6610,7 +6610,7 @@ pub mod test {
                     &block.block_hash()
                 ),
                 0,
-                u16::max_value()
+                u16::MAX
             )
             .unwrap()
             .unwrap(),
@@ -6709,7 +6709,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_some());
@@ -6721,7 +6721,7 @@ pub mod test {
                     &block.block_hash()
                 ),
                 0,
-                u16::max_value()
+                u16::MAX
             )
             .unwrap()
             .unwrap(),
@@ -6765,7 +6765,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_none());
@@ -6835,7 +6835,7 @@ pub mod test {
                     &block.block_hash()
                 ),
                 0,
-                u16::max_value()
+                u16::MAX
             )
             .unwrap()
             .unwrap(),
@@ -6971,7 +6971,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_some());
@@ -6983,7 +6983,7 @@ pub mod test {
                     &block.block_hash()
                 ),
                 0,
-                u16::max_value()
+                u16::MAX
             )
             .unwrap()
             .unwrap(),
@@ -7027,7 +7027,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_none());
@@ -7112,7 +7112,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_none());
@@ -8289,7 +8289,7 @@ pub mod test {
                             &block.block_hash()
                         ),
                         0,
-                        u16::max_value()
+                        u16::MAX
                     )
                     .unwrap()
                     .unwrap()
@@ -8302,7 +8302,7 @@ pub mod test {
                     &chainstate.db(),
                     &StacksBlockHeader::make_index_block_hash(&consensus_hash, &block.block_hash()),
                     0,
-                    u16::max_value()
+                    u16::MAX
                 )
                 .unwrap()
                 .is_none());
