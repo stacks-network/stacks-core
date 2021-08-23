@@ -21,7 +21,7 @@ use chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
 use chainstate::stacks::events::StacksTransactionEvent;
-use chainstate::stacks::index::marf::MARF;
+use chainstate::stacks::index::marf::{MarfConnection, MARF};
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::Error as ChainstateError;
 use vm::analysis;
@@ -426,15 +426,8 @@ impl ClarityInstance {
     }
 
     pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, db_error> {
-        let datastore = self.datastore.get_marf();
-        let mut marf_tx = match datastore.begin_tx() {
-            Ok(tx) => tx,
-            Err(e) => return Err(db_error::IndexError(e)),
-        };
-        match marf_tx.has_block(bhh) {
-            Ok(res) => Ok(res),
-            Err(e) => Err(db_error::IndexError(e)),
-        }
+        let mut datastore = self.datastore.begin_read_only(None);
+        datastore.trie_exists_for_block(bhh)
     }
 
     pub fn eval_read_only(
