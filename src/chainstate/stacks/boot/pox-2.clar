@@ -724,9 +724,8 @@
       (asserts! (is-none (get-check-delegation tx-sender))
         (err ERR_STACKING_ALREADY_DELEGATED))
 
-      ;; check valid lock period
-      (asserts! (check-pox-lock-period lock-period)
-        (err ERR_STACKING_INVALID_LOCK_PERIOD))
+      ;; standard can-stack-stx checks
+      (try! (can-stack-stx pox-addr amount-ustx first-extend-cycle lock-period))
 
       ;; register the PoX address with the amount stacked
       ;;   for the new cycles
