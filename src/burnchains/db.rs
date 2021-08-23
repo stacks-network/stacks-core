@@ -483,10 +483,13 @@ impl<'a> BurnchainDBTransaction<'a> {
                 } else {
                     // this is an invalid commit -- no parent found
                     test_debug!(
-                        "No block-commit parent found for {},{},{}",
+                        "No block-commit parent {},{} found for {},{},{} (in {})",
+                        commit.parent_block_ptr,
+                        commit.parent_vtxindex,
                         &commit.txid,
                         commit.block_height,
-                        commit.vtxindex
+                        commit.vtxindex,
+                        &commit.burn_header_hash
                     );
                 }
                 self.update_block_commit_affirmation(commit, None, 0)?;
@@ -835,6 +838,13 @@ impl<'a> BurnchainDBTransaction<'a> {
             stmt.execute(args)?;
         }
 
+        test_debug!(
+            "Add {} block ops to {} height {} (parent {})",
+            block_ops.len(),
+            &block_header.block_hash,
+            &block_header.block_height,
+            &block_header.parent_block_hash
+        );
         for op in block_ops.iter() {
             if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = op {
                 let bcm = BlockCommitMetadata {
@@ -1229,6 +1239,14 @@ impl BurnchainDB {
 
         let db_tx = self.tx_begin()?;
 
+        test_debug!(
+            "Store raw block {},{} (parent {}) with {} ops",
+            &header.block_hash,
+            header.block_height,
+            &header.parent_block_hash,
+            blockstack_ops.len()
+        );
+
         db_tx.store_burnchain_db_entry(&header)?;
         db_tx.store_blockstack_ops(burnchain, indexer, &header, &blockstack_ops)?;
 
@@ -1294,6 +1312,8 @@ impl BurnchainDB {
                 return Ok(None);
             }
         };
+
+        test_debug!("Header at {}: {}", block_ptr, &header_hash);
 
         BurnchainDB::get_commit_in_block_at(conn, &header_hash, block_ptr, vtxindex)
     }
