@@ -40,6 +40,9 @@ use util::secp256k1::*;
 use util::vrf::*;
 
 use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
+use deps::bitcoin::network::serialize::BitcoinHash;
+
+use burnchains::bitcoin::spv::BITCOIN_GENESIS_BLOCK_HASH_REGTEST;
 
 impl Txid {
     pub fn from_test_data(
@@ -572,30 +575,40 @@ impl TestBurnchainBlock {
         burnchain: &Burnchain,
         coord: &mut ChainsCoordinator<'a, T, N, R>,
     ) -> BlockSnapshot {
-        let block_hash = BurnchainHeaderHash::from_test_data(
-            self.block_height,
-            &self.parent_snapshot.index_root,
-            self.fork_id,
+        let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
+        let parent_hdr = indexer
+            .read_burnchain_header(self.block_height.saturating_sub(1))
+            .unwrap()
+            .unwrap();
+        let now = get_epoch_time_secs();
+        let block_hash = BurnchainHeaderHash::from_bitcoin_hash(
+            &BitcoinIndexer::mock_bitcoin_header(&parent_hdr.block_hash, now as u32).bitcoin_hash(),
         );
         let mock_bitcoin_block = BitcoinBlock::new(
             self.block_height,
             &block_hash,
             &self.parent_snapshot.burn_header_hash,
             &vec![],
-            get_epoch_time_secs(),
+            now,
         );
         let block = BurnchainBlock::Bitcoin(mock_bitcoin_block);
+        let header = BurnchainBlockHeader {
+            block_height: block.block_height(),
+            block_hash: block_hash.clone(),
+            parent_block_hash: parent_hdr.block_hash.clone(),
+            num_txs: block.header().num_txs,
+            timestamp: block.header().timestamp,
+        };
 
         test_debug!(
-            "Process PoX block {} {}",
+            "Process PoX block {} {}: {:?}",
             block.block_height(),
-            &block.block_hash()
+            &block.block_hash(),
+            &header
         );
 
-        let header = block.header();
-        let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
-
         let mut burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap();
+        indexer.raw_store_header(header.clone()).unwrap();
         burnchain_db
             .raw_store_burnchain_block(burnchain, &indexer, header.clone(), self.txs.clone())
             .unwrap();
@@ -603,6 +616,9 @@ impl TestBurnchainBlock {
         coord.handle_new_burnchain_block().unwrap();
 
         let snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+
+        assert_eq!(snapshot.burn_header_hash, header.block_hash);
+        assert_eq!(snapshot.burn_header_hash, block.block_hash());
         snapshot
     }
 }
