@@ -634,7 +634,7 @@ impl TestBurnchainFork {
             start_height,
             mined: 0,
             tip_header_hash: start_header_hash.clone(),
-            tip_sortition_id: SortitionId([0x00; 32]),
+            tip_sortition_id: SortitionId::stubbed(&start_header_hash),
             tip_index_root: start_index_root.clone(),
             blocks: vec![],
             pending_blocks: vec![],
