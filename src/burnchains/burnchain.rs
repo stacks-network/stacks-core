@@ -851,8 +851,26 @@ impl Burnchain {
         );
 
         burnchain_db.store_new_burnchain_block(burnchain, indexer, &block)?;
-        let block_height = block.block_height();
+        Burnchain::process_affirmation_maps(
+            burnchain,
+            burnchain_db,
+            indexer,
+            block.block_height(),
+        )?;
 
+        let header = block.header();
+        Ok(header)
+    }
+
+    /// Update the affirmation maps for the previous reward cycle's commits.
+    /// This is a no-op unless the given burnchain block height falls on a reward cycle boundary.  In that
+    /// case, the previous reward cycle's block commits' affirmation maps are all re-calculated.
+    pub fn process_affirmation_maps<B: BurnchainHeaderReader>(
+        burnchain: &Burnchain,
+        burnchain_db: &mut BurnchainDB,
+        indexer: &B,
+        block_height: u64,
+    ) -> Result<(), burnchain_error> {
         let this_reward_cycle = burnchain
             .block_height_to_reward_cycle(block_height)
             .unwrap_or(0);
@@ -872,10 +890,7 @@ impl Burnchain {
             );
             update_pox_affirmation_maps(burnchain_db, indexer, prev_reward_cycle, burnchain)?;
         }
-
-        let header = block.header();
-
-        Ok(header)
+        Ok(())
     }
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition
