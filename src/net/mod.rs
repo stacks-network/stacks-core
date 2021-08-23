@@ -2614,10 +2614,47 @@ pub mod test {
             &self.network.local_peer
         }
 
+        // TODO: DRY up from PoxSyncWatchdog
+        pub fn infer_initial_burnchain_block_download(
+            burnchain: &Burnchain,
+            last_processed_height: u64,
+            burnchain_height: u64,
+        ) -> bool {
+            let ibd =
+                last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
+            if ibd {
+                debug!(
+                    "PoX watchdog: {} + {} < {}, so initial block download",
+                    last_processed_height, burnchain.stable_confirmations, burnchain_height
+                );
+            } else {
+                debug!(
+                    "PoX watchdog: {} + {} >= {}, so steady-state",
+                    last_processed_height, burnchain.stable_confirmations, burnchain_height
+                );
+            }
+            ibd
+        }
+
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
+
+            let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                .unwrap()
+                .block_height;
+            let stacks_tip_height = stacks_node
+                .chainstate
+                .get_stacks_chain_tip(&sortdb)
+                .unwrap()
+                .map(|blkdat| blkdat.height)
+                .unwrap_or(0);
+            let ibd = TestPeer::infer_initial_burnchain_block_download(
+                &self.config.burnchain,
+                stacks_tip_height,
+                burn_tip_height,
+            );
 
             let ret = self.network.run(
                 &mut sortdb,
@@ -2625,7 +2662,7 @@ pub mod test {
                 &mut mempool,
                 None,
                 false,
-                false,
+                ibd,
                 10,
                 &RPCHandlerArgs::default(),
                 &mut HashSet::new(),
@@ -2643,13 +2680,28 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
+            let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                .unwrap()
+                .block_height;
+            let stacks_tip_height = stacks_node
+                .chainstate
+                .get_stacks_chain_tip(&sortdb)
+                .unwrap()
+                .map(|blkdat| blkdat.height)
+                .unwrap_or(0);
+            let ibd = TestPeer::infer_initial_burnchain_block_download(
+                &self.config.burnchain,
+                stacks_tip_height,
+                burn_tip_height,
+            );
+
             let ret = self.network.run(
                 &mut sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,
                 Some(dns_client),
                 false,
-                false,
+                ibd,
                 10,
                 &RPCHandlerArgs::default(),
                 &mut HashSet::new(),
@@ -2770,7 +2822,7 @@ pub mod test {
                 test_debug!("parent hdr ({}): {:?}", &tip.block_height, &parent_hdr);
                 assert_eq!(parent_hdr.block_hash, tip.burn_header_hash);
 
-                let now = get_epoch_time_secs();
+                let now = BURNCHAIN_TEST_BLOCK_TIME;
                 let block_header_hash = BurnchainHeaderHash::from_bitcoin_hash(
                     &BitcoinIndexer::mock_bitcoin_header(&parent_hdr.block_hash, now as u32)
                         .bitcoin_hash(),
