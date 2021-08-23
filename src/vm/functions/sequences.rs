@@ -330,18 +330,18 @@ pub fn special_slice(
 
     let sliced_seq = match (seq, left_position, right_position) {
         (Value::Sequence(seq), Value::UInt(left_position), Value::UInt(right_position)) => {
-            let (left_position, right_position) = match (u32::try_from(left_position), u32::try_from(right_position)) {
-                (Ok(left_position), Ok(right_position)) => (left_position, right_position),
-                _ => return Ok(Value::none()),
-            };
+            let (left_position, right_position) =
+                match (u32::try_from(left_position), u32::try_from(right_position)) {
+                    (Ok(left_position), Ok(right_position)) => (left_position, right_position),
+                    _ => return Ok(Value::none()),
+                };
 
             // Perform bound checks. Not necessary to check if positions are less than 0 since the vars are unsigned.
             if left_position as usize >= seq.len() || right_position as usize > seq.len() {
-                return Ok(Value::none())
-
+                return Ok(Value::none());
             }
             if right_position < left_position {
-                return Ok(Value::none())
+                return Ok(Value::none());
             }
 
             let seq_value = seq.slice(left_position as usize, right_position as usize)?;

@@ -459,7 +459,8 @@ fn test_slice_list() {
     ];
 
     let expected = [
-        Value::some(Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(4)]).unwrap()).unwrap(),
+        Value::some(Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(4)]).unwrap())
+            .unwrap(),
         Value::none(),
         Value::some(Value::list_from(vec![]).unwrap()).unwrap(),
         Value::some(Value::list_from(vec![Value::UInt(5), Value::UInt(6)]).unwrap()).unwrap(),
