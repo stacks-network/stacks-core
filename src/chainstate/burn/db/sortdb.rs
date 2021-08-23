@@ -2192,7 +2192,10 @@ impl SortitionDB {
         first_burn_header_timestamp: u64,
         epochs_ref: &[StacksEpoch],
     ) -> Result<(), db_error> {
-        debug!("Instantiate SortDB");
+        debug!(
+            "Instantiate SortDB: first block is {},{}",
+            first_block_height, first_burn_header_hash
+        );
 
         sql_pragma(self.conn(), "PRAGMA journal_mode = WAL;")?;
 
@@ -3011,7 +3014,7 @@ impl SortitionDB {
         })
         .map(|x| {
             if x.is_none() {
-                test_debug!("No snapshot with burn hash {}", sortition_id);
+                test_debug!("No snapshot with sortition ID {}", sortition_id);
             }
             x
         })
