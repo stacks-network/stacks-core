@@ -640,19 +640,35 @@ impl BitcoinIndexer {
             true,
             false,
         )?;
+        spv_client.disable_check_txcount();
+
         let hdr = LoneBlockHeader {
-            header: BlockHeader {
-                bits: 0,
-                merkle_root: Sha256dHash([0u8; 32]),
-                nonce: 0,
-                prev_blockhash: header.parent_block_hash.to_bitcoin_hash(),
-                time: header.timestamp as u32,
-                version: 0x20000000,
-            },
+            header: BitcoinIndexer::mock_bitcoin_header(
+                &header.parent_block_hash,
+                header.timestamp as u32,
+            ),
             tx_count: VarInt(header.num_txs),
         };
-        spv_client.write_block_headers(header.block_height, vec![hdr])?;
+
+        assert!(header.block_height > 0);
+        let start_height = header.block_height - 1;
+        spv_client.insert_block_headers_after(start_height, vec![hdr])?;
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn mock_bitcoin_header(
+        parent_block_hash: &BurnchainHeaderHash,
+        timestamp: u32,
+    ) -> BlockHeader {
+        BlockHeader {
+            bits: 0,
+            merkle_root: Sha256dHash([0u8; 32]),
+            nonce: 0,
+            prev_blockhash: parent_block_hash.to_bitcoin_hash(),
+            time: timestamp,
+            version: 0x20000000,
+        }
     }
 }
 
@@ -1296,5 +1312,33 @@ mod test {
         let mut indexer = BitcoinIndexer::new(indexer_conf, BitcoinIndexerRuntime::new(mode));
         let last_block = indexer.sync_headers(0, None).unwrap();
         eprintln!("sync'ed to block {}", last_block);
+    }
+
+    #[test]
+    fn test_load_store_mock_bitcoin_header() {
+        let parent_block_header_hash = BurnchainHeaderHash::from_hex(
+            "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+        )
+        .unwrap();
+
+        let hdr = BurnchainBlockHeader {
+            block_height: 123,
+            block_hash: BurnchainHeaderHash::from_bitcoin_hash(
+                &BitcoinIndexer::mock_bitcoin_header(&parent_block_header_hash, 456).bitcoin_hash(),
+            ),
+            parent_block_hash: parent_block_header_hash.clone(),
+            num_txs: 1,
+            timestamp: 456,
+        };
+
+        let mut indexer = BitcoinIndexer::new_unit_test("/tmp/test_load_store_mock_bitcoin_header");
+
+        indexer.raw_store_header(hdr.clone()).unwrap();
+
+        let mut hdr_from_db = indexer.read_burnchain_header(123).unwrap().unwrap();
+
+        // only txcount will be different
+        hdr_from_db.num_txs = 1;
+        assert_eq!(hdr_from_db, hdr);
     }
 }
