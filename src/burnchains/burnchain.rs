@@ -25,7 +25,7 @@ use std::sync::{
     Arc,
 };
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::types::chainstate::StacksAddress;
 use crate::types::proof::TrieHash;
@@ -908,8 +908,8 @@ impl Burnchain {
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
-    /// Return the new chain tip
-    fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<u64, burnchain_error> {
+    /// Return the new chain tip and a boolean signaling the presence of a reorg
+    fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<(u64, bool), burnchain_error> {
         let headers_path = indexer.get_headers_path();
 
         // sanity check -- what is the height of our highest header
@@ -922,7 +922,7 @@ impl Burnchain {
         })?;
 
         if headers_height == 0 {
-            return Ok(0);
+            return Ok((0, false));
         }
 
         // did we encounter a reorg since last sync?  Find the highest common ancestor of the
@@ -938,10 +938,10 @@ impl Burnchain {
                 "Burnchain reorg detected: highest common ancestor at height {}",
                 reorg_height
             );
-            return Ok(reorg_height);
+            return Ok((reorg_height, true));
         } else {
             // no reorg
-            return Ok(headers_height);
+            return Ok((headers_height, false));
         }
     }
 
@@ -977,7 +977,7 @@ impl Burnchain {
 
         // handle reorgs
         let orig_header_height = indexer.get_headers_height()?; // 1-indexed
-        let sync_height = Burnchain::sync_reorg(indexer)?;
+        let (sync_height, _) = Burnchain::sync_reorg(indexer)?;
         if sync_height + 1 < orig_header_height {
             // a reorg happened
             warn!(
@@ -1189,9 +1189,8 @@ impl Burnchain {
         let db_height = burn_chain_tip.block_height;
 
         // handle reorgs
-        let orig_header_height = indexer.get_headers_height()?; // 1-indexed
-        let sync_height = Burnchain::sync_reorg(indexer)?;
-        if sync_height + 1 < orig_header_height {
+        let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
+        if did_reorg {
             // a reorg happened
             warn!(
                 "Dropping headers higher than {} due to burnchain reorg",
@@ -1205,6 +1204,23 @@ impl Burnchain {
 
         // fetch all headers, no matter what
         let mut end_block = indexer.sync_headers(sync_height, None)?;
+        if did_reorg && sync_height > 0 {
+            // a reorg happened, and the last header fetched
+            // is on a smaller fork than the one we just
+            // invalidated. Wait for more blocks.
+            while end_block < db_height {
+                if let Some(ref should_keep_running) = should_keep_running {
+                    if !should_keep_running.load(Ordering::SeqCst) {
+                        return Err(burnchain_error::CoordinatorClosed);
+                    }
+                }
+                let end_height = target_block_height_opt.unwrap_or(0).max(db_height);
+                info!("Burnchain reorg happened at height {} invalidating chain tip {} but only {} headers presents on canonical chain. Retry in 2s", sync_height, db_height, end_block);
+                thread::sleep(Duration::from_millis(2000));
+                end_block = indexer.sync_headers(sync_height, Some(end_height))?;
+            }
+        }
+
         let mut start_block = sync_height;
         if db_height < start_block {
             start_block = db_height;
@@ -1212,16 +1228,25 @@ impl Burnchain {
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
-            start_block, end_block, db_height
+            sync_height, end_block, db_height
         );
 
         if let Some(target_block_height) = target_block_height_opt {
-            if target_block_height < end_block {
+            // `target_block_height` is used as a hint, but could also be completely off
+            // in certain situations. This function is directly reading the
+            // headers and syncing with the bitcoin-node, and the interval of blocks
+            // to download computed here should be considered as our source of truth.
+            if target_block_height > start_block && target_block_height < end_block {
                 debug!(
                     "Will download up to max burn block height {}",
                     target_block_height
                 );
                 end_block = target_block_height;
+            } else {
+                debug!(
+                    "Ignoring target block height {} considered as irrelevant",
+                    target_block_height
+                );
             }
         }
 
@@ -1346,7 +1371,8 @@ impl Burnchain {
                     while let Ok(Some(burnchain_block)) = db_recv.recv() {
                         debug!("Try recv next parsed block");
 
-                        if burnchain_block.block_height() == 0 {
+                        let block_height = burnchain_block.block_height();
+                        if block_height == 0 {
                             continue;
                         }
 
