@@ -552,7 +552,10 @@ impl<'a> BurnchainDBTransaction<'a> {
 
         let parent_metadata =
             BurnchainDB::get_commit_metadata(&self.sql_tx, &parent.burn_header_hash, &parent.txid)?
-                .expect("BUG: no metadata found for parent block-commit");
+                .expect(&format!(
+                    "BUG: no metadata found for parent block-commit {},{},{} in {}",
+                    parent.block_height, parent.vtxindex, &parent.txid, &parent.burn_header_hash
+                ));
 
         let (am, affirmed_reward_cycle) = if let Some(anchor_block) = anchor_block {
             let anchor_am_id =
@@ -696,7 +699,10 @@ impl<'a> BurnchainDBTransaction<'a> {
 
         let parent_metadata =
             BurnchainDB::get_commit_metadata(&self.sql_tx, &parent.burn_header_hash, &parent.txid)?
-                .expect("BUG: no metadata found for existing block commit");
+                .expect(&format!(
+                    "BUG: no metadata found for existing block commit {},{},{} in {}",
+                    parent.block_height, parent.vtxindex, &parent.txid, &parent.burn_header_hash
+                ));
 
         test_debug!(
             "Reward-phase commit {},{},{} has parent {},{}, anchor block {:?}",
