@@ -672,7 +672,10 @@ fn test_pox_extend_transition_pox_2() {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
             .unwrap();
-            assert_eq!(min_ustx, total_liquid_ustx / 480);
+            assert_eq!(
+                min_ustx,
+                total_liquid_ustx / POX_TESTNET_STACKING_THRESHOLD_25
+            );
 
             // no reward addresses
             let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {

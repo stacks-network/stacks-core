@@ -37,6 +37,8 @@ use vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
+use crate::core::POX_TESTNET_CYCLE_LENGTH;
+use crate::util::boot::boot_code_addr;
 use crate::{
     burnchains::PoxConstants,
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
@@ -438,6 +440,8 @@ fn pox_2_contract_caller_units() {
     sim.epoch_bounds = vec![0, 1];
     let delegator = StacksPrivateKey::new();
 
+    let expected_unlock_height = POX_TESTNET_CYCLE_LENGTH * 4;
+
     // execute past 2.1 epoch initialization
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
@@ -517,7 +521,7 @@ fn pox_2_contract_caller_units() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(USTX_PER_HOLDER),
-                Value::UInt(600)
+                Value::UInt(expected_unlock_height)
             ))
         );
 
@@ -613,7 +617,7 @@ fn pox_2_contract_caller_units() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[1]),
                 Value::UInt(USTX_PER_HOLDER),
-                Value::UInt(600)
+                Value::UInt(expected_unlock_height)
             ))
         );
     });
@@ -657,7 +661,23 @@ fn pox_2_lock_extend_units() {
 
     sim.execute_next_block(|env| {
         env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
-            .unwrap()
+            .unwrap();
+        // set burnchain params based on old testnet settings (< 2.0.11.0)
+        env.execute_in_env(boot_code_addr(false).into(), None, |env| {
+            env.execute_contract(
+                POX_2_CONTRACT_TESTNET.deref(),
+                "set-burnchain-parameters",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                    Value::UInt(30),
+                    Value::UInt(150),
+                    Value::UInt(25),
+                    Value::UInt(0),
+                ]),
+                false,
+            )
+        })
+        .unwrap();
     });
 
     sim.execute_next_block(|env| {
@@ -853,7 +873,26 @@ fn pox_2_delegate_extend_units() {
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block_as_conn(|conn| {
-        test_deploy_smart_contract(conn, &POX_2_CONTRACT_TESTNET, &POX_2_TESTNET_CODE).unwrap()
+        test_deploy_smart_contract(conn, &POX_2_CONTRACT_TESTNET, &POX_2_TESTNET_CODE).unwrap();
+
+        // set burnchain params based on old testnet settings (< 2.0.11.0)
+        conn.as_transaction(|tx| {
+            tx.run_contract_call(
+                &boot_code_addr(false).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.deref(),
+                "set-burnchain-parameters",
+                &[
+                    Value::UInt(0),
+                    Value::UInt(30),
+                    Value::UInt(150),
+                    Value::UInt(25),
+                    Value::UInt(0),
+                ],
+                |_, _| false,
+            )
+        })
+        .unwrap();
     });
 
     sim.execute_next_block(|env| {
@@ -1295,12 +1334,12 @@ fn pox_2_delegate_extend_units() {
         );
 
         for cycle in 0..20 {
-            eprintln!("Cycle number = {}", cycle);
+            eprintln!("Cycle number = {}, MIN_THRESHOLD  = {}", cycle, MIN_THRESHOLD.deref());
             let empty_set = cycle < 1 || cycle >= 12;
             let expected = if empty_set {
-                "(u0 u0)"
+                "(u0 u0)".into()
             } else {
-                "(u104166 u1)"
+                format!("(u{} u1)", MIN_THRESHOLD.deref())
             };
             assert_eq!(
                 env.eval_read_only(
@@ -1326,7 +1365,7 @@ fn pox_2_delegate_extend_units() {
                     execute(&format!(
                         "{{ pox-addr: {}, total-ustx: u{} }}",
                         expected_pox_addr,
-                        104166
+                        MIN_THRESHOLD.deref(),
                     ))
                 );
             }
