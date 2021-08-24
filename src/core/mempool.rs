@@ -393,7 +393,7 @@ impl MemPoolDB {
         mut todo: F,
     ) -> Result<Vec<TransactionResult>, E>
     where
-        F: FnMut(MemPoolTxInfo) -> Result<TransactionResult, E>,
+        F: FnMut(MemPoolTxInfo) -> TransactionResult,
         E: From<db_error> + From<ChainstateError>,
     {
         // Want to consider transactions with
@@ -422,7 +422,7 @@ impl MemPoolDB {
 
             if available_txs.len() > 0 {
                 for txinfo in available_txs.into_iter() {
-                    let tx_result = todo(txinfo)?;
+                    let tx_result = todo(txinfo);
                     results.push(tx_result);
                 }
                 curr_page += 1;
@@ -441,7 +441,6 @@ impl MemPoolDB {
                 };
             }
         }
-
     }
 
     pub fn conn(&self) -> &DBConn {

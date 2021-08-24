@@ -109,7 +109,7 @@ impl TransactionResult {
     pub fn error(transaction: &StacksTransaction, error: Error) -> TransactionResult {
         // Log here.
         log_transaction_error(transaction, &error);
-        TransactionResult::Error (TransactionError {
+        TransactionResult::Error(TransactionError {
             tx: transaction.clone(),
             error: error,
         })
@@ -118,7 +118,7 @@ impl TransactionResult {
     pub fn skipped(transaction: &StacksTransaction, reason: String) -> TransactionResult {
         // Log here.
         log_transaction_skipped(transaction, reason.clone());
-        TransactionResult::Skipped (TransactionSkipped {
+        TransactionResult::Skipped(TransactionSkipped {
             tx: transaction.clone(),
             reason: reason,
         })
