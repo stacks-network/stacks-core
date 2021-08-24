@@ -806,6 +806,9 @@
                       true)
                   (err ERR_DELEGATION_EXPIRES_DURING_LOCK)))
 
+      ;; delegate stacking does minimal-can-stack-stx
+      (try! (minimal-can-stack-stx pox-addr amount-ustx first-extend-cycle lock-period))
+
       ;; register the PoX address with the amount stacked via partial stacking
       ;;   before it can be included in the reward set, this must be committed!
       (add-pox-partial-stacked pox-addr first-extend-cycle extend-count amount-ustx)

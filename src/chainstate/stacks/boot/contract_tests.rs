@@ -663,6 +663,9 @@ fn pox_2_lock_extend_units() {
     sim.epoch_bounds = vec![0, 1];
     let delegator = StacksPrivateKey::new();
 
+    let reward_cycle_len = 5;
+    let expected_user_1_unlock = 4 * reward_cycle_len + 9 * reward_cycle_len;
+
     // execute past 2.1 epoch initialization
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
@@ -671,15 +674,14 @@ fn pox_2_lock_extend_units() {
     sim.execute_next_block(|env| {
         env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
             .unwrap();
-        // set burnchain params based on old testnet settings (< 2.0.11.0)
         env.execute_in_env(boot_code_addr(false).into(), None, |env| {
             env.execute_contract(
                 POX_2_CONTRACT_TESTNET.deref(),
                 "set-burnchain-parameters",
                 &symbols_from_values(vec![
                     Value::UInt(0),
-                    Value::UInt(30),
-                    Value::UInt(150),
+                    Value::UInt(1),
+                    Value::UInt(reward_cycle_len),
                     Value::UInt(25),
                     Value::UInt(0),
                 ]),
@@ -704,7 +706,8 @@ fn pox_2_lock_extend_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 26)".to_string()
+            "(err 26)".to_string(),
+            "Should not be able to call stack-extend before locked",
         );
 
         assert_eq!(
@@ -722,7 +725,8 @@ fn pox_2_lock_extend_units() {
             )
             .unwrap()
             .0,
-            Value::okay_true()
+            Value::okay_true(),
+            "Should be able to delegate",
         );
 
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
@@ -746,8 +750,9 @@ fn pox_2_lock_extend_units() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(*MIN_THRESHOLD - 1),
-                Value::UInt(450)
-            ))
+                Value::UInt(3 * reward_cycle_len)
+            )),
+            "delegate-stack-stx should work okay",
         );
 
         assert_eq!(
@@ -764,7 +769,8 @@ fn pox_2_lock_extend_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 20)".to_string()
+            "(err 20)".to_string(),
+            "Cannot stack-extend while delegating",
         );
 
         assert_eq!(
@@ -786,8 +792,9 @@ fn pox_2_lock_extend_units() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[1]),
                 Value::UInt(USTX_PER_HOLDER),
-                Value::UInt(600)
-            ))
+                Value::UInt(4 * reward_cycle_len)
+            )),
+            "User1 should be able to stack-stx",
         );
 
         assert_eq!(
@@ -804,7 +811,8 @@ fn pox_2_lock_extend_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 2)".to_string()
+            "(err 2)".to_string(),
+            "Should not be able to stack-extend to over 12 cycles in the future",
         );
 
         assert_eq!(
@@ -823,10 +831,12 @@ fn pox_2_lock_extend_units() {
             execute(&format!(
                 "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[1]),
-                Value::UInt(600 + 9 * 150),
-            ))
+                Value::UInt(expected_user_1_unlock),
+            )),
+            "Should be able to stack-extend to exactly 12 cycles in the future",
         );
 
+        // check that entries exist for each cycle stacked
         for cycle in 0..20 {
             eprintln!("Cycle number = {}", cycle);
             let empty_set = cycle < 1 || cycle >= 13;
@@ -867,6 +877,28 @@ fn pox_2_lock_extend_units() {
                 );
             }
         }
+    });
+
+    // now, advance the chain until User1 is unlocked, and try to stack-extend
+    for _i in 0..expected_user_1_unlock {
+        sim.execute_next_block(|_| {});
+    }
+
+    sim.execute_next_block(|env| {
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![Value::UInt(3), POX_ADDRS[0].clone(),])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 26)".to_string(),
+            "Should not be able to call stack-extend after lock expired",
+        );
     });
 }
 
