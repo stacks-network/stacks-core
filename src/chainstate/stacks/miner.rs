@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use chainstate::stacks::events::StacksTransactionResult;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::From;
@@ -344,7 +345,12 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 };
                 StacksTransactionResult::Error(tx, e)
             }
-            _ => _,
+            StacksTransactionResult::Success(tx, fee, receipt) => {
+                StacksTransactionResult::Success(tx, fee, receipt)
+            }
+            StacksTransactionResult::Skipped(tx, reason) => {
+                StacksTransactionResult::Skipped(tx, reason)
+            }
         }
     }
 
@@ -452,7 +458,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 &mut considered,
                 bytes_so_far,
             ) {
-                StacksTransactionResult::Success(tx, error) => {
+                StacksTransactionResult::Success { tx, fee, receipt } => {
                     bytes_so_far += mempool_tx.metadata.len;
 
                     debug!(
@@ -462,14 +468,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     );
                     txs_included.push(mempool_tx.tx);
                     num_txs += 1;
-                    StacksTransactionResult::Success(tx, error)
+                    StacksTransactionResult::Success { tx, fee, receipt }
                 }
-                StacksTransactionResult::Skipped(tx, reason) => {
-                    StacksTransactionResult::Skipped(tx, reason)
+                StacksTransactionResult::Error { tx, error } => {
+                    StacksTransactionResult::Error(tx, error)
                 }
-                Err(e) => {
-                    result = Err(e);
-                    break;
+                StacksTransactionResult::Skipped { tx, error } => {
+                    StacksTransactionResult::Skipped { tx, error }
                 }
             }
         });
@@ -1484,7 +1489,7 @@ impl StacksBlockBuilder {
                     }
                     StacksTransactionResult::Success(tx, fee, receipt)
                 }
-                StacksTransactionResult::Error(e) => {
+                StacksTransactionResult::Error(tx, e) => {
                     match e {
                         Error::BlockTooBigError => {
                             // done mining -- our execution budget is exceeded.
@@ -1500,7 +1505,8 @@ impl StacksBlockBuilder {
                             invalidated_txs.push(txinfo.metadata.txid);
                             if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
                                 block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                continue;
+                                // TODO: This was continue
+                                // continue;
                             } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
                                 block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                             }
