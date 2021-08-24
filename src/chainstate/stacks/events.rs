@@ -17,6 +17,8 @@
 use crate::types::chainstate::StacksAddress;
 use crate::{codec::StacksMessageCodec, types::chainstate::StacksMicroblockHeader};
 use burnchains::Txid;
+use chainstate::stacks::db::queryable_logging::*;
+use chainstate::stacks::Error;
 use chainstate::stacks::StacksTransaction;
 use vm::analysis::ContractAnalysis;
 use vm::costs::ExecutionCost;
@@ -61,6 +63,62 @@ pub struct StacksTransactionReceipt {
     pub contract_analysis: Option<ContractAnalysis>,
     pub execution_cost: ExecutionCost,
     pub microblock_header: Option<StacksMicroblockHeader>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StacksTransactionReceiptAndFee {
+    pub transaction: StacksTransaction,
+    pub receipt: StacksTransactionReceipt,
+    pub fee: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct StacksTransactionError {
+    pub transaction: StacksTransaction,
+    // Note: This should be an `Error` when checked in.
+    pub error: Error,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StacksTransactionSkipped {
+    pub transaction: StacksTransaction,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum StacksTransactionResult {
+    Success(StacksTransactionReceiptAndFee),
+    Error(StacksTransactionError),
+    Skipped(StacksTransactionSkipped),
+}
+
+impl StacksTransactionResult {
+    pub fn success(transaction: &StacksTransaction, fee: u64, receipt: StacksTransactionReceipt) -> StacksTransactionResult {
+        // Log here.
+        // TODO: Log something here.
+        StacksTransactionResult::Success(StacksTransactionReceiptAndFee {
+            transaction: transaction.clone(),
+            fee: fee,
+            receipt: receipt,
+        })
+    }
+    pub fn error(transaction: &StacksTransaction, error: Error) -> StacksTransactionResult {
+        // Log here.
+        log_transaction_error(transaction, error);
+        StacksTransactionResult::Error(StacksTransactionError {
+            transaction: transaction.clone(),
+            error: error,
+        })
+    }
+
+    pub fn skipped(transaction: &StacksTransaction, reason: String) -> StacksTransactionResult {
+        // Log here.
+        log_transaction_skipped(transaction, reason.clone());
+        StacksTransactionResult::Skipped(StacksTransactionSkipped {
+            transaction: transaction.clone(),
+            reason: reason,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
