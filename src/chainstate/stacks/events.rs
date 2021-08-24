@@ -65,73 +65,63 @@ pub struct StacksTransactionReceipt {
     pub microblock_header: Option<StacksMicroblockHeader>,
 }
 
-//#[derive(Debug, Clone, PartialEq)]
-//pub struct StacksTransactionSuccess {
-//    pub transaction: StacksTransaction,
-//    pub receipt: StacksTransactionReceipt,
-//    pub fee: u64,
-//}
-//
-//#[derive(Debug, Clone)]
-//pub struct StacksTransactionError {
-//    pub transaction: StacksTransaction,
-//    // Note: This should be an `Error` when checked in.
-//    pub error: Error,
-//}
-//
-//#[derive(Debug, Clone, PartialEq)]
-//pub struct StacksTransactionSkipped {
-//    pub transaction: StacksTransaction,
-//    pub reason: String,
-//}
-
-#[derive(Debug, Clone)]
-pub enum StacksTransactionResult {
-    Success {
-        tx: StacksTransaction,
-        fee: u64,
-        receipt: StacksTransactionReceipt,
-    },
-    Error {
-        tx: StacksTransaction,
-        error: Error,
-    },
-    Skipped {
-        tx: StacksTransaction,
-        reason: String,
-    },
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransactionSuccess {
+    pub tx: StacksTransaction,
+    pub fee: u64,
+    pub receipt: StacksTransactionReceipt,
 }
 
-impl StacksTransactionResult {
+#[derive(Debug)]
+pub struct TransactionError {
+    pub tx: StacksTransaction,
+    // Note: This should be an `Error` when checked in.
+    pub error: Error,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransactionSkipped {
+    pub tx: StacksTransaction,
+    pub reason: String,
+}
+
+#[derive(Debug)]
+pub enum TransactionResult {
+    Success(TransactionSuccess),
+    Error(TransactionError),
+    Skipped(TransactionSkipped),
+}
+
+impl TransactionResult {
     pub fn success(
         transaction: &StacksTransaction,
         fee: u64,
         receipt: StacksTransactionReceipt,
-    ) -> StacksTransactionResult {
+    ) -> TransactionResult {
         // Log here.
         // TODO: Log something here.
-        StacksTransactionResult::Success {
-            transaction: transaction.clone(),
+        TransactionResult::Success(TransactionSuccess {
+            tx: transaction.clone(),
             fee: fee,
             receipt: receipt,
-        }
+        })
     }
-    pub fn error(transaction: &StacksTransaction, error: Error) -> StacksTransactionResult {
+    pub fn error(transaction: &StacksTransaction, error: Error) -> TransactionResult {
         // Log here.
-        log_transaction_error(transaction, error);
-        StacksTransactionResult::Error {
-            transaction: transaction.clone(),
+        log_transaction_error(transaction, &error);
+        TransactionResult::Error (TransactionError {
+            tx: transaction.clone(),
             error: error,
-        }
+        })
     }
 
-    pub fn skipped(transaction: &StacksTransaction, reason: String) -> StacksTransactionResult {
+    pub fn skipped(transaction: &StacksTransaction, reason: String) -> TransactionResult {
         // Log here.
         log_transaction_skipped(transaction, reason.clone());
-        StacksTransactionResult::Skipped {
-            transaction: transaction.clone(),
+        TransactionResult::Skipped (TransactionSkipped {
+            tx: transaction.clone(),
             reason: reason,
-        }
+        })
     }
 }
 

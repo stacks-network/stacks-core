@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use chainstate::burn::db::sortdb::*;
 
 use chainstate::stacks::db::*;
-use chainstate::stacks::events::StacksTransactionResult;
+use chainstate::stacks::events::TransactionResult;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use clarity_vm::clarity::{
@@ -1179,11 +1179,11 @@ impl StacksChainState {
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
         quiet: bool,
-    ) -> StacksTransactionResult {
+    ) -> TransactionResult {
         let result = StacksChainState::process_transaction_internal(clarity_block, tx, quiet);
         match result {
-            Ok((fee, receipt)) => StacksTransactionResult::success(fee, receipt),
-            Err(err) => StacksTransactionResult::error(tx, &err),
+            Ok((fee, receipt)) => TransactionResult::success(tx, fee, receipt),
+            Err(err) => TransactionResult::error(tx, err),
         }
     }
 }

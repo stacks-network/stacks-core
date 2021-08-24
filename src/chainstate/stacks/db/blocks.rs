@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::stacks::events::StacksTransactionResult;
+use chainstate::stacks::events::*;
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::convert::From;
@@ -3877,23 +3877,24 @@ impl StacksChainState {
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
             for tx in microblock.txs.iter() {
-                // let (tx_fee, mut tx_receipt) =
                 match StacksChainState::process_transaction(clarity_tx, tx, false) {
-                    StacksTransactionResult::Success {
+                    TransactionResult::Success(TransactionSuccess{
                         tx,
-                        tx_fee,
-                        tx_receipt,
-                    } => {
-                        tx_receipt.microblock_header = Some(microblock.header.clone());
-                        fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
+                        fee,
+                        receipt,
+                    }) => {
+                        receipt.microblock_header = Some(microblock.header.clone());
+                        fees = fees.checked_add(fee as u128).expect("Fee overflow");
                         burns = burns
-                            .checked_add(tx_receipt.stx_burned as u128)
+                            .checked_add(receipt.stx_burned as u128)
                             .expect("Burns overflow");
-                        receipts.push(tx_receipt);
+                        receipts.push(receipt);
                     }
-                    StacksTransactionResult::Skipped { tx, reason } => {}
-                    StacksTransactionResult::Error { tx, error } => {
-                        return (error, microblock.block_hash());
+                    TransactionResult::Skipped(TransactionSkipped { tx, reason }) => {
+                        continue;
+                    }
+                    TransactionResult::Error(TransactionError{ tx, error }) => {
+                        return Err((error, microblock.block_hash()));
                     }
                 }
             }
@@ -4041,22 +4042,22 @@ impl StacksChainState {
         for tx in block.txs.iter() {
             //            let (tx_fee, tx_receipt) =
             match StacksChainState::process_transaction(clarity_tx, tx, false) {
-                StacksTransactionResult::Success {
+                TransactionResult::Success(TransactionSuccess {
                     tx,
-                    tx_fee,
-                    tx_receipt,
-                } => {
-                    fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
+                    fee,
+                    receipt,
+                }) => {
+                    fees = fees.checked_add(fee as u128).expect("Fee overflow");
                     burns = burns
-                        .checked_add(tx_receipt.stx_burned as u128)
+                        .checked_add(receipt.stx_burned as u128)
                         .expect("Burns overflow");
-                    receipts.push(tx_receipt);
+                    receipts.push(receipt);
                 }
-                StacksTransactionResult::Skipped { tx, reason } => {
+                TransactionResult::Skipped(TransactionSkipped{ tx, reason }) => {
                     continue;
                 }
-                StacksTransactionResult::Error { tx, error } => {
-                    return error;
+                TransactionResult::Error(TransactionError{ tx, error }) => {
+                    return Err(error);
                 }
             }
         }

@@ -21,7 +21,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 
-use chainstate::stacks::events::StacksTransactionResult;
+use chainstate::stacks::events::TransactionResult;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::Error as SqliteError;
@@ -391,9 +391,9 @@ impl MemPoolDB {
         &self,
         tip_height: u64,
         mut todo: F,
-    ) -> Result<Vec<StacksTransactionResult>, E>
+    ) -> Result<Vec<TransactionResult>, E>
     where
-        F: FnMut(MemPoolTxInfo) -> Result<StacksTransactionResult, E>,
+        F: FnMut(MemPoolTxInfo) -> Result<TransactionResult, E>,
         E: From<db_error> + From<ChainstateError>,
     {
         // Want to consider transactions with
@@ -442,7 +442,6 @@ impl MemPoolDB {
             }
         }
 
-        Ok(results)
     }
 
     pub fn conn(&self) -> &DBConn {
