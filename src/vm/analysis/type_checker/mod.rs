@@ -19,7 +19,7 @@ pub mod contexts;
 pub mod natives;
 
 use std::collections::{BTreeMap, HashMap};
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
@@ -940,6 +940,65 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     self.contract_context
                         .add_implemented_trait(trait_identifier.clone())?;
                 }
+            };
+            Ok(Some(()))
+        } else {
+            // not a define.
+            Ok(None)
+        }
+    }
+
+    pub fn bench_try_type_check_define(
+        &mut self,
+        expression: &SymbolicExpression,
+        context: &mut TypingContext,
+    ) -> CheckResult<Option<()>> {
+        // setup
+        let mut rng = rand::thread_rng();
+        let char_name = (0..15)
+            .map(|_| rng.gen_range(b'a', b'z') as char)
+            .collect::<String>();
+        let clar_name = ClarityName::try_from(char_name.clone()).unwrap();
+
+        if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
+            match define_type {
+                DefineFunctionsParsed::Constant { name, value } => {
+                    let (_, v_type) = self.type_check_define_variable(name, value, context)?;
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
+                        self,
+                        v_type.type_size()?,
+                    )?;
+                    self.contract_context.add_variable_type(clar_name, v_type)?;
+                }
+                DefineFunctionsParsed::PersistedVariable {
+                    name,
+                    data_type,
+                    initial,
+                } => {
+                    let (_, v_type) = self
+                        .type_check_define_persisted_variable(name, data_type, initial, context)?;
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
+                        self,
+                        v_type.type_size()?,
+                    )?;
+
+                    self.contract_context
+                        .add_persisted_variable_type(clar_name, v_type)?;
+                }
+
+                DefineFunctionsParsed::NonFungibleToken { name, nft_type } => {
+                    let (_, token_type) = self.type_check_define_nft(name, nft_type, context)?;
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
+                        self,
+                        token_type.type_size()?,
+                    )?;
+
+                    self.contract_context.add_nft(clar_name, token_type)?;
+                }
+                _ => panic!("unexpected define type for benchmark."),
             };
             Ok(Some(()))
         } else {
