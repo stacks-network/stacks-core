@@ -1502,7 +1502,7 @@ TransactionResult::Success(TransactionSuccess{tx, fee, receipt})
                     {
                         mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
                     }
-                    TransactionResult::Success(tx, fee, receipt)
+                    TransactionResult::Success(TransactionSuccess{ tx, fee, receipt})
                 }
                 TransactionResult::Error(TransactionError{tx, error}) => {
                     match error {
