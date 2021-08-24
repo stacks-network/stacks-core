@@ -1774,7 +1774,10 @@ This function returns a tuple with the canonical account representation for an S
 This includes the current amount of unlocked STX, the current amount of locked STX, and the
 unlock height for any locked STX.
 ",
-    example: "",
+    example: r#"
+(stx-account 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (tuple (locked u0) (unlock-height u0) (unlocked u0))
+(stx-account (as-contract tx-sender)) ;; Returns (tuple (locked u0) (unlock-height u0) (unlocked u1000))
+"#,
 };
 
 const STX_TRANSFER: SpecialAPI = SpecialAPI {

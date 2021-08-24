@@ -482,7 +482,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 9)".to_string()
+            "(err 9)".to_string(),
+            "The stack-through contract isn't an allowed caller for POX_ADDR[1] in the PoX2 contract",
         );
 
         assert_eq!(
@@ -499,7 +500,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(ok true)".to_string()
+            "(ok true)".to_string(),
+            "USER[0] should be able to add stack-through as a contract caller in the PoX2 contract",
         );
 
         assert_eq!(
@@ -522,7 +524,8 @@ fn pox_2_contract_caller_units() {
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(USTX_PER_HOLDER),
                 Value::UInt(expected_unlock_height)
-            ))
+            )),
+            "The stack-through contract should be an allowed caller for POX_ADDR[0] in the PoX2 contract",
         );
 
         assert_eq!(
@@ -538,7 +541,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(ok true)".to_string()
+            "(ok true)".to_string(),
+            "USER[0] should be able to remove stack-through as a contract caller in the PoX2 contract",
         );
 
         assert_eq!(
@@ -557,7 +561,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 9)".to_string()
+            "(err 9)".to_string(),
+            "After revocation, stack-through shouldn't be an allowed caller for POX_ADDR[0] in the PoX2 contract",
         );
 
         assert_eq!(
@@ -576,7 +581,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 9)".to_string()
+            "(err 9)".to_string(),
+            "After revocation, stack-through still shouldn't be an allowed caller for POX_ADDR[1] in the PoX2 contract",
         );
 
         let until_height = Value::UInt(burn_height.clone().expect_u128() + 1);
@@ -595,7 +601,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(ok true)".to_string()
+            "(ok true)".to_string(),
+            "User1 should be able to set an 'until-height' on a contract-caller allowance",
         );
 
         assert_eq!(
@@ -618,7 +625,8 @@ fn pox_2_contract_caller_units() {
                 Value::from(&USER_KEYS[1]),
                 Value::UInt(USTX_PER_HOLDER),
                 Value::UInt(expected_unlock_height)
-            ))
+            )),
+            "The stack-through contract should be an allowed caller for User1 in the PoX2 contract",
         );
     });
 
@@ -643,7 +651,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 9)".to_string()
+            "(err 9)".to_string(),
+            "After the `until-height` is reached, stack-through shouldn't be an allowed caller for User1",
         );
     });
 }

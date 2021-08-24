@@ -834,6 +834,7 @@ pub mod test {
     ) -> StacksTransaction {
         // (define-public (stack-stx (amount-ustx uint)
         //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+        //                           (burn-height uint)
         //                           (lock-period uint))
         make_pox_contract_call(
             key,
@@ -859,6 +860,7 @@ pub mod test {
     ) -> StacksTransaction {
         // (define-public (stack-stx (amount-ustx uint)
         //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+        //                           (burn-height uint)
         //                           (lock-period uint))
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
@@ -883,9 +885,6 @@ pub mod test {
         addr_bytes: Hash160,
         lock_period: u128,
     ) -> StacksTransaction {
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
-        //                           (lock-period uint))
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             "pox-2",
