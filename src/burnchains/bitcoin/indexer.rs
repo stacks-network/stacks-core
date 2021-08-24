@@ -1313,32 +1313,4 @@ mod test {
         let last_block = indexer.sync_headers(0, None).unwrap();
         eprintln!("sync'ed to block {}", last_block);
     }
-
-    #[test]
-    fn test_load_store_mock_bitcoin_header() {
-        let parent_block_header_hash = BurnchainHeaderHash::from_hex(
-            "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
-        )
-        .unwrap();
-
-        let hdr = BurnchainBlockHeader {
-            block_height: 123,
-            block_hash: BurnchainHeaderHash::from_bitcoin_hash(
-                &BitcoinIndexer::mock_bitcoin_header(&parent_block_header_hash, 456).bitcoin_hash(),
-            ),
-            parent_block_hash: parent_block_header_hash.clone(),
-            num_txs: 1,
-            timestamp: 456,
-        };
-
-        let mut indexer = BitcoinIndexer::new_unit_test("/tmp/test_load_store_mock_bitcoin_header");
-
-        indexer.raw_store_header(hdr.clone()).unwrap();
-
-        let mut hdr_from_db = indexer.read_burnchain_header(123).unwrap().unwrap();
-
-        // only txcount will be different
-        hdr_from_db.num_txs = 1;
-        assert_eq!(hdr_from_db, hdr);
-    }
 }
