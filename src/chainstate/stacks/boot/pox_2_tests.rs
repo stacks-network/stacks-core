@@ -114,7 +114,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     let bob = keys.pop().unwrap();
     let charlie = keys.pop().unwrap();
 
-    let EXPECTED_ALICE_REWARD_CYCLE = 6;
+    let EXPECTED_ALICE_FIRST_REWARD_CYCLE = 6;
 
     let mut coinbase_nonce = 0;
 
@@ -140,7 +140,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
             cur_reward_cycle, min_ustx, &reward_addrs, total_stacked
         );
 
-        if cur_reward_cycle < EXPECTED_ALICE_REWARD_CYCLE {
+        if cur_reward_cycle < EXPECTED_ALICE_FIRST_REWARD_CYCLE {
             // no reward addresses yet
             assert_eq!(reward_addrs.len(), 0);
         } else if cur_reward_cycle < EXPECTED_FIRST_V2_CYCLE as u128 {
@@ -233,11 +233,11 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     // check the first reward cycle when Alice's tokens get stacked
     let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
-    let alice_reward_cycle = 1 + burnchain
+    let alice_first_reward_cycle = 1 + burnchain
         .block_height_to_reward_cycle(tip_burn_block_height)
         .unwrap() as u128;
 
-    assert_eq!(alice_reward_cycle, EXPECTED_ALICE_REWARD_CYCLE);
+    assert_eq!(alice_first_reward_cycle, EXPECTED_ALICE_FIRST_REWARD_CYCLE);
 
     // alice locked, so balance should be 0
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -544,7 +544,7 @@ fn test_pox_extend_transition_pox_2() {
     let bob = keys.pop().unwrap();
     let charlie = keys.pop().unwrap();
 
-    let EXPECTED_ALICE_REWARD_CYCLE = 6;
+    let EXPECTED_ALICE_FIRST_REWARD_CYCLE = 6;
     let mut coinbase_nonce = 0;
 
     // these checks should pass between Alice's first reward cycle,
@@ -564,7 +564,7 @@ fn test_pox_extend_transition_pox_2() {
         });
 
         assert!(
-            cur_reward_cycle >= EXPECTED_ALICE_REWARD_CYCLE
+            cur_reward_cycle >= EXPECTED_ALICE_FIRST_REWARD_CYCLE
                 && cur_reward_cycle < first_v2_cycle as u128
         );
         //  Alice is the only Stacker, so check that.
@@ -681,11 +681,11 @@ fn test_pox_extend_transition_pox_2() {
 
     // check the first reward cycle when Alice's tokens get stacked
     let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
-    let alice_reward_cycle = 1 + burnchain
+    let alice_first_reward_cycle = 1 + burnchain
         .block_height_to_reward_cycle(tip_burn_block_height)
         .unwrap() as u128;
 
-    assert_eq!(alice_reward_cycle, EXPECTED_ALICE_REWARD_CYCLE);
+    assert_eq!(alice_first_reward_cycle, EXPECTED_ALICE_FIRST_REWARD_CYCLE);
 
     // alice locked, so balance should be 0
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -925,7 +925,7 @@ fn test_delegate_extend_transition_pox_2() {
     let bob_address = key_to_stacks_addr(&bob);
     let charlie_address = key_to_stacks_addr(&charlie);
 
-    let EXPECTED_ALICE_REWARD_CYCLE = 6;
+    let EXPECTED_ALICE_FIRST_REWARD_CYCLE = 6;
     let mut coinbase_nonce = 0;
 
     // these checks should pass between Alice's first reward cycle,
@@ -945,7 +945,7 @@ fn test_delegate_extend_transition_pox_2() {
         });
 
         assert!(
-            cur_reward_cycle >= EXPECTED_ALICE_REWARD_CYCLE
+            cur_reward_cycle >= EXPECTED_ALICE_FIRST_REWARD_CYCLE
                 && cur_reward_cycle < first_v2_cycle as u128
         );
         // one reward address, and it's Charlies's
@@ -1050,7 +1050,7 @@ fn test_delegate_extend_transition_pox_2() {
                 AddressHashMode::SerializeP2PKH,
                 charlie_address.bytes.clone(),
             ),
-            Value::UInt(EXPECTED_ALICE_REWARD_CYCLE),
+            Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE),
         ],
     );
 
@@ -1063,7 +1063,7 @@ fn test_delegate_extend_transition_pox_2() {
                 AddressHashMode::SerializeP2PKH,
                 charlie_address.bytes.clone(),
             ),
-            Value::UInt(EXPECTED_ALICE_REWARD_CYCLE + 1),
+            Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 1),
         ],
     );
 
@@ -1076,7 +1076,7 @@ fn test_delegate_extend_transition_pox_2() {
                 AddressHashMode::SerializeP2PKH,
                 charlie_address.bytes.clone(),
             ),
-            Value::UInt(EXPECTED_ALICE_REWARD_CYCLE + 2),
+            Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 2),
         ],
     );
 
@@ -1089,7 +1089,7 @@ fn test_delegate_extend_transition_pox_2() {
                 AddressHashMode::SerializeP2PKH,
                 charlie_address.bytes.clone(),
             ),
-            Value::UInt(EXPECTED_ALICE_REWARD_CYCLE + 3),
+            Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 3),
         ],
     );
 
@@ -1128,11 +1128,11 @@ fn test_delegate_extend_transition_pox_2() {
 
     // check the first reward cycle when Alice's tokens get stacked
     let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
-    let alice_reward_cycle = 1 + burnchain
+    let alice_first_reward_cycle = 1 + burnchain
         .block_height_to_reward_cycle(tip_burn_block_height)
         .unwrap() as u128;
 
-    assert_eq!(alice_reward_cycle, EXPECTED_ALICE_REWARD_CYCLE);
+    assert_eq!(alice_first_reward_cycle, EXPECTED_ALICE_FIRST_REWARD_CYCLE);
 
     // alice locked, so balance should be 0
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
