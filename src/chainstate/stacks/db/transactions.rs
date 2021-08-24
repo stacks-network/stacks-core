@@ -1124,8 +1124,9 @@ impl StacksChainState {
         }
     }
 
-    /// This method implements the contract of `process_transaction`, and exists so that
-    /// its output can be captured and logged.
+		/// This method implements the contract of `process_transaction`, and
+		/// exists as an intermediate step so that its output can be captured and
+		/// logged.
     fn process_transaction_internal(
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
@@ -1167,20 +1168,20 @@ impl StacksChainState {
 
     /// Process the transaction `tx`, and add it to the underlying connection in `clarity_block`.
     ///
-    /// On success, returns the fee and the transaction receipt, and mutates the
-    /// underlying connection in mutable input `clarity_block`.
-    ///
-    /// # Logging
-    ///
-    /// - This method will log success or failure in "queryable form" (see queryable_logging).
-    ///
-    /// What happens to the fee if there is an error?
+		/// Steps include:
+		/// - check nonces
+		/// - process payload
+		/// - update nonces
+		/// - commit the transaction to `clarity_block`
     pub fn process_transaction(
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
         quiet: bool,
     ) -> TransactionResult {
         let result = StacksChainState::process_transaction_internal(clarity_block, tx, quiet);
+
+				// Note: `process_transaction_internal` does not have the option to
+				// "skip", only succeed for fail.
         match result {
             Ok((fee, receipt)) => TransactionResult::success(tx, fee, receipt),
             Err(err) => TransactionResult::error(tx, err),

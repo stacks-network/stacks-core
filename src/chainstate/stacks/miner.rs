@@ -304,7 +304,17 @@ impl<'a> StacksMicroblockBuilder<'a> {
     }
 
     /// Mine the next transaction into a microblock.
-    /// Returns true/false if the transaction was/was not mined into this microblock.
+    ///
+    /// This is a wrapper around `StacksChainState::process_transaction` that also checks certain
+    /// pre-conditions and handles errors.
+    ///
+    /// # Pre-Checks
+    /// - skip if the `anchor_mode` rules out micro-blocks
+    /// - skip if 'tx.txid()` is already in `considered`
+    /// - fail if adding the block would result in a block size bigger than `MAX_EPOCH_SIZE`
+    ///
+    /// # Error Handling
+    /// - If the error is `CostOverflowError`, reset the cost of the block.
     fn mine_next_transaction(
         clarity_tx: &mut ClarityTx<'a>,
         tx: StacksTransaction,

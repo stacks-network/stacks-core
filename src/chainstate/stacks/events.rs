@@ -65,13 +65,16 @@ pub struct StacksTransactionReceipt {
     pub microblock_header: Option<StacksMicroblockHeader>,
 }
 
+/// Represents a successful transaction. This transaction should be added to the block.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransactionSuccess {
     pub tx: StacksTransaction,
+    // The fee that was charged to the user for doing this transaction.
     pub fee: u64,
     pub receipt: StacksTransactionReceipt,
 }
 
+/// Represents a failed transaction. Something concreteley went wrong.
 #[derive(Debug)]
 pub struct TransactionError {
     pub tx: StacksTransaction,
@@ -79,20 +82,33 @@ pub struct TransactionError {
     pub error: Error,
 }
 
+/// Represents a transaction that was skipped, but might succeed later.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransactionSkipped {
     pub tx: StacksTransaction,
     pub reason: String,
 }
 
+/// `TransactionResult` represents the outcome of transaction processing.
+/// We use this enum to involve the compiler in forcing us to always clearly
+/// indicate the outcome of a transaction.
+///
+/// There are currently three outcomes for a transaction:
+/// 1) succeed
+/// 2) fail
+/// 3) be skipped for now, to be tried again later
 #[derive(Debug)]
 pub enum TransactionResult {
+    // Transaction has already succeeded.
     Success(TransactionSuccess),
+    // Transaction failed. It is inherently flawed and will not succeed later either.
     Error(TransactionError),
+    // Transaction wasn't ready to be be processed, but might succeed later.
     Skipped(TransactionSkipped),
 }
 
 impl TransactionResult {
+    // Returns a `TransactionResult` backed by `TransactionSuccess`.
     pub fn success(
         transaction: &StacksTransaction,
         fee: u64,
@@ -106,6 +122,7 @@ impl TransactionResult {
             receipt: receipt,
         })
     }
+    // Returns a `TransactionResult` backed by `TransactionError`.
     pub fn error(transaction: &StacksTransaction, error: Error) -> TransactionResult {
         // Log here.
         log_transaction_error(transaction, &error);
@@ -115,6 +132,7 @@ impl TransactionResult {
         })
     }
 
+    // Returns a `TransactionResult` backed by `TransactionSkipped`.
     pub fn skipped(transaction: &StacksTransaction, reason: String) -> TransactionResult {
         // Log here.
         log_transaction_skipped(transaction, reason.clone());
