@@ -2323,10 +2323,7 @@ pub mod test {
             TestPeer::new_with_observer(config, None)
         }
 
-        pub fn new_with_observer(
-            mut config: TestPeerConfig,
-            observer: Option<&'a TestEventObserver>,
-        ) -> TestPeer<'a> {
+        pub fn make_test_path(config: &TestPeerConfig) -> String {
             let test_path = format!(
                 "/tmp/blockstack-test-peer-{}-{}",
                 &config.test_name, config.server_port
@@ -2339,7 +2336,14 @@ pub mod test {
             };
 
             fs::create_dir_all(&test_path).unwrap();
+            test_path
+        }
 
+        pub fn new_with_observer(
+            mut config: TestPeerConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> TestPeer<'a> {
+            let test_path = TestPeer::make_test_path(&config);
             let mut miner_factory = TestMinerFactory::new();
             let mut miner =
                 miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
