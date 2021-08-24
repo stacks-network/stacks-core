@@ -75,7 +75,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///
     /// # Errors
     /// - `CheckErrors::WriteAttemptedInReadOnly`
-    /// - contract parsing errors
+    /// - Contract parsing errors
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
         // Iterate over all the top-level statements in a contract.
         for exp in contract_analysis.expressions.iter() {
@@ -99,7 +99,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///
     /// # Errors
     /// - CheckErrors::WriteAttemptedInReadOnly
-    /// - contract parsing errors
+    /// - Contract parsing errors
     fn check_top_level_expression(&mut self, expression: &SymbolicExpression) -> CheckResult<()> {
         use vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
@@ -153,7 +153,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// is read-only.
     ///
     /// # Errors
-    /// - Parsing errors.
+    /// - Contract parsing errors
     fn check_define_function(
         &mut self,
         signature: &[SymbolicExpression],
@@ -176,7 +176,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns `true` iff the expression is read-only.
     ///
     /// # Errors
-    /// - Parsing errors.
+    /// - Contract parsing errors
     fn check_atomic_expression_is_read_only(
         &mut self,
         expression: &SymbolicExpression,
@@ -193,7 +193,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns `true` iff all expressions are read-only.
     ///
     /// # Errors
-    /// - Parsing errors.
+    /// - Contract parsing errors
     fn check_each_expression_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
@@ -216,7 +216,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// read-only.
     ///
     /// # Errors
-    /// - contract parsing errors
+    /// - Contract parsing errors
     fn try_check_native_function_is_read_only(
         &mut self,
         function: &str,
@@ -229,7 +229,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns `true` iff this function application is read-only.
     ///
     /// # Errors
-    /// - contract parsing errors
+    /// - Contract parsing errors
     fn check_native_function_is_read_only(
         &mut self,
         function: &NativeFunctions,
