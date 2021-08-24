@@ -304,16 +304,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
         if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
             && tx.anchor_mode != TransactionAnchorMode::Any
         {
-            return StacksTransactionResult::Skipped(
+            return StacksTransactionResult::Skipped{
                 &tx,
                 format!(
                     "tx.anchor_mode does not support microblocks, anchor_mode={}.",
                     tx.anchor_mode
                 ),
-            );
+            };
         }
         if considered.contains(&tx.txid()) {
-            return StacksTransactionResult::Skipped(&tx, "Already considered.");
+            return StacksTransactionResult::Skipped{&tx, "Already considered."};
         } else {
             considered.insert(tx.txid());
         }
@@ -322,7 +322,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 "Adding microblock tx {} would exceed epoch data size",
                 &tx.txid()
             );
-            return StacksTransactionResult::Error(&tx, Error::BlockTooBigError);
+            return StacksTransactionResult::Error{&tx, Error::BlockTooBigError};
         }
         let quiet = !cfg!(test);
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet) {
