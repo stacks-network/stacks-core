@@ -400,7 +400,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 TransactionResult::Skipped(_) => {
                     continue;
                 }
-                TransactionResult::Error(TransactionError { tx, error }) => {
+                TransactionResult::Error(TransactionError { tx: _, error }) => {
                     result = Err(error);
                     break;
                 }
@@ -711,7 +711,7 @@ impl StacksBlockBuilder {
         match self.try_mine_tx_with_len(clarity_tx, tx, tx_len, &BlockLimitFunction::NO_LIMIT_HIT) {
             TransactionResult::Success(_) => Ok(()),
             TransactionResult::Skipped(_) => Ok(()),
-            TransactionResult::Error(TransactionError { tx, error }) => Err(error),
+            TransactionResult::Error(TransactionError { tx: _, error }) => Err(error),
         }
     }
 

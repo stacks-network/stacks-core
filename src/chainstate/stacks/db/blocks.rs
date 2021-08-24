@@ -3879,7 +3879,7 @@ impl StacksChainState {
             for tx in microblock.txs.iter() {
                 match StacksChainState::process_transaction(clarity_tx, tx, false) {
                     TransactionResult::Success(TransactionSuccess {
-                        tx,
+                        tx: _,
                         fee,
                         mut receipt,
                     }) => {
@@ -3890,10 +3890,10 @@ impl StacksChainState {
                             .expect("Burns overflow");
                         receipts.push(receipt);
                     }
-                    TransactionResult::Skipped(TransactionSkipped { tx, reason }) => {
+                    TransactionResult::Skipped(TransactionSkipped { tx: _, reason: _ }) => {
                         continue;
                     }
-                    TransactionResult::Error(TransactionError { tx, error }) => {
+                    TransactionResult::Error(TransactionError { tx: _, error }) => {
                         return Err((error, microblock.block_hash()));
                     }
                 }
@@ -4042,17 +4042,21 @@ impl StacksChainState {
         for tx in block.txs.iter() {
             //            let (tx_fee, tx_receipt) =
             match StacksChainState::process_transaction(clarity_tx, tx, false) {
-                TransactionResult::Success(TransactionSuccess { tx, fee, receipt }) => {
+                TransactionResult::Success(TransactionSuccess {
+                    tx: _,
+                    fee,
+                    receipt,
+                }) => {
                     fees = fees.checked_add(fee as u128).expect("Fee overflow");
                     burns = burns
                         .checked_add(receipt.stx_burned as u128)
                         .expect("Burns overflow");
                     receipts.push(receipt);
                 }
-                TransactionResult::Skipped(TransactionSkipped { tx, reason }) => {
+                TransactionResult::Skipped(TransactionSkipped { tx: _, reason: _ }) => {
                     continue;
                 }
-                TransactionResult::Error(TransactionError { tx, error }) => {
+                TransactionResult::Error(TransactionError { tx: _, error }) => {
                     return Err(error);
                 }
             }
