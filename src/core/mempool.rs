@@ -380,7 +380,7 @@ impl MemPoolDB {
 
     ///
     /// Iterate over candidates in the mempool
-    ///  todo will be called once for each bundle of transactions at
+    ///  `todo` will be called once for each transaction in each bundle of transactions at
     ///  each nonce, starting with the smallest nonce and going higher until there are
     ///  no more transactions to consider. Each batch of transactions
     ///  passed to todo will be sorted by sponsor_nonce.
