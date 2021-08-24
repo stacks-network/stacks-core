@@ -583,7 +583,11 @@ impl TestBurnchainBlock {
         let parent_hdr = indexer
             .read_burnchain_header(self.block_height.saturating_sub(1))
             .unwrap()
-            .unwrap();
+            .expect(&format!(
+                "BUG: could not read block at height {}",
+                self.block_height.saturating_sub(1)
+            ));
+
         let now = BURNCHAIN_TEST_BLOCK_TIME;
         let block_hash = BurnchainHeaderHash::from_bitcoin_hash(
             &BitcoinIndexer::mock_bitcoin_header(&parent_hdr.block_hash, now as u32).bitcoin_hash(),
