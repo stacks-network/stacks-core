@@ -23,7 +23,9 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use chainstate::burn::db::sortdb::*;
+
 use chainstate::stacks::db::*;
+use chainstate::stacks::events::StacksTransactionResult;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use clarity_vm::clarity::{
@@ -1122,8 +1124,9 @@ impl StacksChainState {
         }
     }
 
-    /// Process a transaction.  Return the fee and the transaction receipt
-    pub fn process_transaction(
+    /// This method implements the contract of `process_transaction`, and exists so that
+    /// its output can be captured and logged.
+    fn process_transaction_internal(
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
         quiet: bool,
@@ -1160,6 +1163,28 @@ impl StacksChainState {
         transaction.commit();
 
         Ok((fee, tx_receipt))
+    }
+
+    /// Process the transaction `tx`, and add it to the underlying connection in `clarity_block`.
+    ///
+    /// On success, returns the fee and the transaction receipt, and mutates the
+    /// underlying connection in mutable input `clarity_block`.
+    ///
+    /// # Logging
+    ///
+    /// - This method will log success or failure in "queryable form" (see queryable_logging).
+    ///
+    /// What happens to the fee if there is an error?
+    pub fn process_transaction(
+        clarity_block: &mut ClarityTx,
+        tx: &StacksTransaction,
+        quiet: bool,
+    ) -> StacksTransactionResult {
+        let result = StacksChainState::process_transaction_internal(clarity_block, tx, quiet);
+        match result {
+            Ok((fee, receipt)) => StacksTransactionResult::success(fee, receipt),
+            Err(err) => StacksTransactionResult::error(tx, &err),
+        }
     }
 }
 
