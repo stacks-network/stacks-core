@@ -1400,63 +1400,24 @@ TransactionResult::Success(TransactionSuccess{tx, fee, receipt})
         Ok(builder)
     }
 
-    /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
-    ///   returns the assembled block, and the consumed execution budget.
-    pub fn build_anchored_block(
-        chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
-        burn_dbconn: &SortitionDBConn,
-        mempool: &mut MemPoolDB,
-        parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
-        total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
-        proof: VRFProof, // proof over the burnchain's last seed
-        pubkey_hash: Hash160,
-        coinbase_tx: &StacksTransaction,
-        execution_budget: ExecutionCost,
-        event_observer: Option<&dyn MemPoolEventDispatcher>,
-    ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
-        if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
-        } else {
-            return Err(Error::MemPoolError(
-                "Not a coinbase transaction".to_string(),
-            ));
-        }
+//        let mut considered = HashSet::new(); // txids of all transactions we looked at
+//        let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
+//        let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
+//
+//        let mut invalidated_txs = vec![];
+//
+//        let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
-        let (tip_consensus_hash, tip_block_hash, tip_height) = (
-            parent_stacks_header.consensus_hash.clone(),
-            parent_stacks_header.anchored_header.block_hash(),
-            parent_stacks_header.block_height,
-        );
-
-        debug!(
-            "Build anchored block off of {}/{} height {} budget {:?}",
-            &tip_consensus_hash, &tip_block_hash, tip_height, execution_budget
-        );
-
-        let (mut chainstate, _) = chainstate_handle.reopen_limited(execution_budget)?; // used for processing a block up to the given limit
-
-        let mut builder = StacksBlockBuilder::make_block_builder(
-            chainstate.mainnet,
-            parent_stacks_header,
-            proof,
-            total_burn,
-            pubkey_hash,
-        )?;
-
-        let ts_start = get_epoch_time_ms();
-
-        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
-        builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
-
-        let mut considered = HashSet::new(); // txids of all transactions we looked at
-        let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
-        let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
-
-        let mut invalidated_txs = vec![];
-
-        let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
-
-        let result = mempool.iterate_candidates(tip_height, |txinfo| {
-            // Note: Can this go here?
+    fn process_candidate_for_anchored_block<'a>(
+        txinfo: MemPoolTxInfo,
+        epoch_tx: &mut ClarityTx<'a>
+        builder: &mut StacksBlockBuilder,
+        considered: &mut HashSet<TxId>,
+mined_origin_nonces: &mut HashMap<StacksAddress, u64>,
+mined_sponsor_nonces:&mut HashMap<StacksAddress, u64>,
+invalidated_txs:&mut Vec<Txid>,
+block_limit_hit: &mut BlockLimitFunction,
+        ) -> TransactionResult {
             if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
                 return TransactionResult::skipped(
                     &txinfo.tx,
@@ -1536,6 +1497,67 @@ TransactionResult::Success(TransactionSuccess{tx, fee, receipt})
                     TransactionResult::Error(TransactionError{ tx, error});
                 }
             }
+    }
+
+    /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
+    ///   returns the assembled block, and the consumed execution budget.
+    pub fn build_anchored_block(
+        chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
+        burn_dbconn: &SortitionDBConn,
+        mempool: &mut MemPoolDB,
+        parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
+        total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
+        proof: VRFProof, // proof over the burnchain's last seed
+        pubkey_hash: Hash160,
+        coinbase_tx: &StacksTransaction,
+        execution_budget: ExecutionCost,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
+    ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
+        if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
+        } else {
+            return Err(Error::MemPoolError(
+                "Not a coinbase transaction".to_string(),
+            ));
+        }
+
+        let (tip_consensus_hash, tip_block_hash, tip_height) = (
+            parent_stacks_header.consensus_hash.clone(),
+            parent_stacks_header.anchored_header.block_hash(),
+            parent_stacks_header.block_height,
+        );
+
+        debug!(
+            "Build anchored block off of {}/{} height {} budget {:?}",
+            &tip_consensus_hash, &tip_block_hash, tip_height, execution_budget
+        );
+
+        let (mut chainstate, _) = chainstate_handle.reopen_limited(execution_budget)?; // used for processing a block up to the given limit
+
+        let mut builder = StacksBlockBuilder::make_block_builder(
+            chainstate.mainnet,
+            parent_stacks_header,
+            proof,
+            total_burn,
+            pubkey_hash,
+        )?;
+
+        let ts_start = get_epoch_time_ms();
+
+        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
+        builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
+
+        let mut considered = HashSet::new(); // txids of all transactions we looked at
+        let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
+        let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
+
+        let mut invalidated_txs = vec![];
+
+        let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
+
+        let result = mempool.iterate_candidates(tip_height, |txinfo| {
+process_candidate_for_anchored_block(txinfo,
+                                     & mut epoch_tx, & mut builder,
+                                     & mut considered, & mut mined_origin_nonces, & mut mined_sponsor_nonces, & mut invalidated_txs, & mut block_limit_hit)
         });
 
         mempool.drop_txs(&invalidated_txs)?;
