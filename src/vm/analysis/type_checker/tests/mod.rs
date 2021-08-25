@@ -233,14 +233,20 @@ fn test_stx_ops() {
         "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
     ];
     let bad_expected = [
-        CheckErrors::TypeError(PrincipalType, SequenceType(BufferType(BufferLength(2)))),
+        CheckErrors::TypeError(
+            PrincipalType,
+            SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
+        ),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::IncorrectArgumentCount(3, 5),
         CheckErrors::TypeError(PrincipalType, UIntType),
         CheckErrors::TypeError(PrincipalType, BoolType),
         CheckErrors::TypeError(PrincipalType, OptionalType(Box::from(PrincipalType))),
         CheckErrors::IncorrectArgumentCount(3, 4),
-        CheckErrors::TypeError(PrincipalType, SequenceType(BufferType(BufferLength(2)))),
+        CheckErrors::TypeError(
+            PrincipalType,
+            SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
+        ),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::IncorrectArgumentCount(4, 5),
         CheckErrors::TypeError(PrincipalType, UIntType),
@@ -1339,12 +1345,12 @@ fn test_buffer_to_ints() {
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::TypeError(
-            SequenceType(BufferType(BufferLength(16))),
-            SequenceType(BufferType(BufferLength(17))),
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
+            SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::TypeError(
-            SequenceType(BufferType(BufferLength(16))),
-            SequenceType(StringType(ASCII(BufferLength(1)))),
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
+            SequenceType(StringType(ASCII(BufferLength::try_from(1_u32).unwrap()))),
         ),
     ];
 
@@ -1406,21 +1412,21 @@ fn test_string_to_ints() {
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::UnionTypeError(
             vec![IntType, UIntType],
-            SequenceType(BufferType(BufferLength(17))),
+            SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::UnionTypeError(
             vec![IntType, UIntType],
-            SequenceType(StringType(ASCII(BufferLength(1)))),
+            SequenceType(StringType(ASCII(BufferLength::try_from(1_u32).unwrap()))),
         ),
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::UnionTypeError(
             vec![IntType, UIntType],
-            SequenceType(BufferType(BufferLength(17))),
+            SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::UnionTypeError(
             vec![IntType, UIntType],
-            SequenceType(StringType(ASCII(BufferLength(1)))),
+            SequenceType(StringType(ASCII(BufferLength::try_from(1_u32).unwrap()))),
         ),
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::IncorrectArgumentCount(1, 0),
@@ -1429,7 +1435,7 @@ fn test_string_to_ints() {
                 TypeSignature::max_string_ascii(),
                 TypeSignature::max_string_utf8(),
             ],
-            SequenceType(BufferType(BufferLength(17))),
+            SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::UnionTypeError(
             vec![
@@ -1445,7 +1451,7 @@ fn test_string_to_ints() {
                 TypeSignature::max_string_ascii(),
                 TypeSignature::max_string_utf8(),
             ],
-            SequenceType(BufferType(BufferLength(17))),
+            SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::UnionTypeError(
             vec![
@@ -2505,11 +2511,13 @@ fn test_comparison_types() {
             vec![
                 IntType,
                 UIntType,
-                SequenceType(StringType(ASCII(BufferLength(1048576)))),
+                SequenceType(StringType(ASCII(
+                    BufferLength::try_from(1048576_u32).unwrap(),
+                ))),
                 SequenceType(StringType(UTF8(
                     StringUTF8Length::try_from(262144_u32).unwrap(),
                 ))),
-                SequenceType(BufferType(BufferLength(1048576))),
+                SequenceType(BufferType(BufferLength::try_from(1048576_u32).unwrap())),
             ],
             PrincipalType,
         ),
@@ -2517,29 +2525,31 @@ fn test_comparison_types() {
             vec![
                 IntType,
                 UIntType,
-                SequenceType(StringType(ASCII(BufferLength(1048576)))),
+                SequenceType(StringType(ASCII(
+                    BufferLength::try_from(1048576_u32).unwrap(),
+                ))),
                 SequenceType(StringType(UTF8(
                     StringUTF8Length::try_from(262144_u32).unwrap(),
                 ))),
-                SequenceType(BufferType(BufferLength(1048576))),
+                SequenceType(BufferType(BufferLength::try_from(1048576_u32).unwrap())),
             ],
             SequenceType(ListType(ListTypeData::new_list(IntType, 3).unwrap())),
         ),
         CheckErrors::TypeError(
             SequenceType(StringType(UTF8(StringUTF8Length::try_from(3u32).unwrap()))),
-            SequenceType(StringType(ASCII(BufferLength(2)))),
+            SequenceType(StringType(ASCII(BufferLength::try_from(2_u32).unwrap()))),
         ),
         CheckErrors::TypeError(
-            SequenceType(StringType(ASCII(BufferLength(3)))),
-            SequenceType(BufferType(BufferLength(2))),
+            SequenceType(StringType(ASCII(BufferLength::try_from(3_u32).unwrap()))),
+            SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
         ),
         CheckErrors::TypeError(
-            SequenceType(BufferType(BufferLength(2))),
+            SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
             SequenceType(StringType(UTF8(StringUTF8Length::try_from(3u32).unwrap()))),
         ),
         CheckErrors::TypeError(
-            SequenceType(BufferType(BufferLength(2))),
-            SequenceType(StringType(ASCII(BufferLength(3)))),
+            SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
+            SequenceType(StringType(ASCII(BufferLength::try_from(3_u32).unwrap()))),
         ),
         CheckErrors::IncorrectArgumentCount(2, 0),
         CheckErrors::IncorrectArgumentCount(2, 1),
