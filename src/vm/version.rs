@@ -1,5 +1,7 @@
 use core::StacksEpochId;
 use std::fmt;
+use std::str::FromStr;
+use vm::errors::{Error, RuntimeErrorType};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum ClarityVersion {
@@ -28,6 +30,24 @@ impl ClarityVersion {
             }
             StacksEpochId::Epoch20 => ClarityVersion::Clarity1,
             StacksEpochId::Epoch21 => ClarityVersion::Clarity2,
+        }
+    }
+}
+
+impl FromStr for ClarityVersion {
+    type Err = Error;
+
+    fn from_str(version: &str) -> Result<ClarityVersion, Error> {
+        let s = version.to_string().to_lowercase();
+        if s == "clarity1" {
+            Ok(ClarityVersion::Clarity1)
+        } else if s == "clarity2" {
+            Ok(ClarityVersion::Clarity1)
+        } else {
+            Err(RuntimeErrorType::ParseError(
+                "Invalid clarity version. Valid versions are: Clarity1, Clarity2.".to_string(),
+            )
+            .into())
         }
     }
 }

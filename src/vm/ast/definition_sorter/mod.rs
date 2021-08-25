@@ -50,6 +50,7 @@ impl<'a> DefinitionSorter {
     pub fn run_pass<T: CostTracker>(
         contract_ast: &mut ContractAST,
         accounting: &mut T,
+        _version: ClarityVersion,
     ) -> ParseResult<()> {
         let mut pass = DefinitionSorter::new();
         pass.run(contract_ast, accounting)?;

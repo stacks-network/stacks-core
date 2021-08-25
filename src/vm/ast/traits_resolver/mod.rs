@@ -28,11 +28,12 @@ use vm::representations::{
     ClarityName, PreSymbolicExpression, SymbolicExpression, TraitDefinition,
 };
 use vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
+use vm::ClarityVersion;
 
 pub struct TraitsResolver {}
 
 impl BuildASTPass for TraitsResolver {
-    fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()> {
+    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()> {
         let mut command = TraitsResolver::new();
         command.run(contract_ast)?;
         Ok(())

@@ -36,14 +36,14 @@ use vm::variables::NativeVariables;
 #[rstest]
 #[case(ClarityVersion::Clarity1)]
 #[case(ClarityVersion::Clarity2)]
-fn template_test_clarity_versions(#[case] version: ClarityVersion) {}
+fn test_clarity_versions_arith_checker(#[case] version: ClarityVersion) {}
 
 /// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
 /// map would not pass this check).
 /// This check is useful in determining the validity of new potential cost functions.
 fn arithmetic_check(contract: &str, version: ClarityVersion) -> Result<(), Error> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let expressions = parse(&contract_identifier, contract).unwrap();
+    let expressions = parse(&contract_identifier, contract, version).unwrap();
 
     let analysis = ContractAnalysis::new(
         contract_identifier,
@@ -65,7 +65,7 @@ fn test_boot_definitions() {
     check_good(BOOT_CODE_COSTS);
 }
 
-#[apply(template_test_clarity_versions)]
+#[apply(test_clarity_versions_arith_checker)]
 fn test_bad_defines(#[case] version: ClarityVersion) {
     let tests = [
         ("(define-public (foo) (ok 1))", DefineTypeForbidden(DefineFunctions::PublicFunction)),
