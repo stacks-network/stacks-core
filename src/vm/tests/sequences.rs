@@ -14,6 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 use vm::types::signatures::{ListTypeData, SequenceSubtype};
 use vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
 use vm::types::{TypeSignature, Value};
@@ -21,7 +25,13 @@ use vm::types::{TypeSignature, Value};
 use std::convert::TryInto;
 use vm::analysis::errors::CheckError;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::execute;
+use vm::{execute, ClarityVersion};
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn test_clarity_versions_sequences(#[case] version: ClarityVersion) {}
 
 #[test]
 fn test_simple_list_admission() {
@@ -719,8 +729,8 @@ fn test_buff_len() {
     assert_eq!(expected, execute(test2).unwrap().unwrap());
 }
 
-#[test]
-fn test_construct_bad_list() {
+#[apply(test_clarity_versions_sequences)]
+fn test_construct_bad_list(#[case] version: ClarityVersion) {
     let test1 = "(list 1 2 3 true)";
     assert_eq!(
         execute(test1).unwrap_err(),
@@ -743,7 +753,7 @@ fn test_construct_bad_list() {
     );
     assert_eq!(
         execute(bad_high_order_list).unwrap_err(),
-        CheckErrors::TypeError(IntType, TypeSignature::from("(list 3 int)")).into()
+        CheckErrors::TypeError(IntType, TypeSignature::from_string("(list 3 int)", version)).into()
     );
 }
 

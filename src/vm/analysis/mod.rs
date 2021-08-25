@@ -46,7 +46,7 @@ pub fn mem_type_check(
     use crate::clarity_vm::database::MemoryBackingStore;
     use vm::ast::parse;
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let mut contract = parse(&contract_identifier, snippet).unwrap();
+    let mut contract = parse(&contract_identifier, snippet, version).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
     match run_analysis(
