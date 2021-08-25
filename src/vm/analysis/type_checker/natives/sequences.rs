@@ -397,3 +397,27 @@ pub fn check_special_index_of(
 
     TypeSignature::new_option(TypeSignature::UIntType).map_err(|e| e.into())
 }
+
+/// This function type checks the Clarity2 function `slice`.
+pub fn check_special_slice(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_argument_count(3, args)?;
+
+    runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
+    // Check sequence
+    let seq_type = checker.type_check(&args[0], context)?;
+    let seq = match seq_type {
+        TypeSignature::SequenceType(seq) => TypeSignature::SequenceType(seq),
+        _ => return Err(CheckErrors::ExpectedSequence(seq_type).into()),
+    };
+
+    // Check left position argument
+    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
+    // Check right position argument
+    checker.type_check_expects(&args[2], context, &TypeSignature::UIntType)?;
+
+    Ok(seq)
+}

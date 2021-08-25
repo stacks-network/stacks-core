@@ -815,6 +815,25 @@ supplied), this function returns `none`.
 "#,
 };
 
+const SLICE_API: SpecialAPI = SpecialAPI {
+    input_type: "sequence_A, uint, uint",
+    output_type: "(optional sequence_A)",
+    signature: "(slice sequence left-position right-position)",
+    description:
+        "The `slice` function attempts to return a sub-sequence of that starts at `left-position` (inclusive), and
+ends at `right-position` (non-inclusive).
+If `left_position`==`right_position`, the function returns an empty sequence.
+If either `left_position` or `right_position` are out of bounds OR if `right_position` is less than
+`left_position`, the function returns `none`.",
+    example: "(slice \"blockstack\" u5 u10) ;; Returns (some \"stack\")
+(slice (list 1 2 3 4 5) u5 u9) ;; Returns none
+(slice (list 1 2 3 4 5) u3 u4) ;; Returns (some (4))
+(slice \"abcd\" u1 u3) ;; Returns (some \"bc\")
+(slice \"abcd\" u2 u2) ;; Returns (some \"\")
+(slice \"abcd\" u3 u1) ;; Returns none
+",
+};
+
 const LIST_API: SpecialAPI = SpecialAPI {
     input_type: "A, ...",
     output_type: "(list A)",
@@ -1870,6 +1889,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Len => make_for_special(&LEN_API, name),
         ElementAt => make_for_special(&ELEMENT_AT_API, name),
         IndexOf => make_for_special(&INDEX_OF_API, name),
+        Slice => make_for_special(&SLICE_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
         SetEntry => make_for_special(&SET_ENTRY_API, name),
