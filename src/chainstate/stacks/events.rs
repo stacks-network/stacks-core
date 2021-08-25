@@ -108,23 +108,26 @@ pub enum TransactionResult {
 }
 
 impl TransactionResult {
-    // Returns a `TransactionResult` backed by `TransactionSuccess`.
+    // Creates a `TransactionResult` backed by `TransactionSuccess`.
+    //
+    // This method logs "transaction success" as a side effect.
     pub fn success(
         transaction: &StacksTransaction,
         fee: u64,
         receipt: StacksTransactionReceipt,
     ) -> TransactionResult {
-        // Log here.
-        // TODO: Log something here.
+        log_transaction_success(transaction);
         TransactionResult::Success(TransactionSuccess {
             tx: transaction.clone(),
             fee: fee,
             receipt: receipt,
         })
     }
-    // Returns a `TransactionResult` backed by `TransactionError`.
+
+    // Creates a `TransactionResult` backed by `TransactionError`.
+    //
+    // This method logs "transaction error" as a side effect.
     pub fn error(transaction: &StacksTransaction, error: Error) -> TransactionResult {
-        // Log here.
         log_transaction_error(transaction, &error);
         TransactionResult::Error(TransactionError {
             tx: transaction.clone(),
@@ -132,9 +135,10 @@ impl TransactionResult {
         })
     }
 
-    // Returns a `TransactionResult` backed by `TransactionSkipped`.
+    // Creates a `TransactionResult` backed by `TransactionSkipped`.
+    //
+    // This method logs "transaction skipped" as a side effect.
     pub fn skipped(transaction: &StacksTransaction, reason: String) -> TransactionResult {
-        // Log here.
         log_transaction_skipped(transaction, reason.clone());
         TransactionResult::Skipped(TransactionSkipped {
             tx: transaction.clone(),
