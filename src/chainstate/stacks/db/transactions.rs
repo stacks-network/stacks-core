@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 
 use chainstate::burn::db::sortdb::*;
 use chainstate::stacks::db::*;
+use chainstate::stacks::events::TransactionResult;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use clarity_vm::clarity::{
@@ -1122,8 +1123,10 @@ impl StacksChainState {
         }
     }
 
-    /// Process a transaction.  Return the fee and the transaction receipt
-    pub fn process_transaction(
+		/// This method implements the contract of `process_transaction`, and
+		/// exists as an intermediate step so that its output can be captured and
+		/// logged.
+    fn process_transaction_internal(
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
         quiet: bool,
@@ -1160,6 +1163,28 @@ impl StacksChainState {
         transaction.commit();
 
         Ok((fee, tx_receipt))
+    }
+
+    /// Process the transaction `tx`, and add it to the underlying connection in `clarity_block`.
+    ///
+		/// Steps include:
+		/// - check nonces
+		/// - process payload
+		/// - update nonces
+		/// - commit the transaction to `clarity_block`
+    pub fn process_transaction(
+        clarity_block: &mut ClarityTx,
+        tx: &StacksTransaction,
+        quiet: bool,
+    ) -> TransactionResult {
+        let result = StacksChainState::process_transaction_internal(clarity_block, tx, quiet);
+
+				// Note: `process_transaction_internal` does not have the option to
+				// "skip", only succeed for fail.
+        match result {
+            Ok((fee, receipt)) => TransactionResult::success(tx, fee, receipt),
+            Err(err) => TransactionResult::error(tx, err),
+        }
     }
 }
 

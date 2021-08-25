@@ -21,6 +21,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 
+use chainstate::stacks::events::TransactionResult;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::Error as SqliteError;
@@ -379,16 +380,20 @@ impl MemPoolDB {
 
     ///
     /// Iterate over candidates in the mempool
-    ///  todo will be called once for each bundle of transactions at
+    ///  `todo` will be called once for each transaction in each bundle of transactions at
     ///  each nonce, starting with the smallest nonce and going higher until there are
     ///  no more transactions to consider. Each batch of transactions
     ///  passed to todo will be sorted by sponsor_nonce.
     ///
     /// Consider transactions across all forks where the transactions have
     /// height >= max(0, tip_height - MEMPOOL_MAX_TRANSACTION_AGE) and height <= tip_height.
-    pub fn iterate_candidates<F, E>(&self, tip_height: u64, mut todo: F) -> Result<(), E>
+    pub fn iterate_candidates<F, E>(
+        &self,
+        tip_height: u64,
+        mut todo: F,
+    ) -> Result<Vec<TransactionResult>, E>
     where
-        F: FnMut(Vec<MemPoolTxInfo>) -> Result<(), E>,
+        F: FnMut(MemPoolTxInfo) -> TransactionResult,
         E: From<db_error> + From<ChainstateError>,
     {
         // Want to consider transactions with
@@ -399,11 +404,12 @@ impl MemPoolDB {
         let mut next_nonce =
             match MemPoolDB::get_next_nonce(&self.db, min_height, tip_height, None)? {
                 None => {
-                    return Ok(());
+                    return Ok(vec![]);
                 }
                 Some(nonce) => nonce,
             };
 
+        let mut results = vec![];
         loop {
             let available_txs = MemPoolDB::get_txs_at_nonce_and_offset(
                 &self.db, min_height, tip_height, next_nonce, curr_page,
@@ -415,7 +421,10 @@ impl MemPoolDB {
             );
 
             if available_txs.len() > 0 {
-                todo(available_txs)?;
+                for txinfo in available_txs.into_iter() {
+                    let tx_result = todo(txinfo);
+                    results.push(tx_result);
+                }
                 curr_page += 1;
             } else {
                 curr_page = 0;
@@ -426,7 +435,7 @@ impl MemPoolDB {
                     Some(next_nonce),
                 )? {
                     None => {
-                        return Ok(());
+                        return Ok(vec![]);
                     }
                     Some(nonce) => nonce,
                 };
