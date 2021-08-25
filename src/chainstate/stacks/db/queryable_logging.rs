@@ -10,8 +10,14 @@ use chainstate::stacks::Error;
 /// Logs a queryable message for the case where `txid` has succeeded.
 use chainstate::stacks::StacksTransaction;
 
+/// Returns a prefix for a "queryable logging" statement. This is the "queryable" part, which is to
+/// say that the prefix will be the same no matter what the outcome is, so that a fixed regex will
+/// match this part for any transaction.
+///
+/// Format looks like this:
+/// "Transaction outcome for tx=491493d01fc8c0f21f0891ad7c378bfb9c7b83142524f3320ea609e6b5cffa90: "
 fn create_transaction_key(tx: &StacksTransaction) -> String {
-    format!("Transaction outcome {}:", &tx.txid())
+    format!("Transaction outcome for tx={}:", &tx.txid())
 }
 
 /// Logs a queryable message for the case where `txid` has succeeded.
