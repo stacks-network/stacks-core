@@ -1063,6 +1063,7 @@ impl TypeSignature {
         Ok(trait_signature)
     }
 
+    #[cfg(test)]
     pub fn from_string(val: &str, version: ClarityVersion) -> Self {
         use vm::ast::parse;
         let expr = &parse(&QualifiedContractIdentifier::transient(), val, version).unwrap()[0];
