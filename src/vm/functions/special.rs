@@ -232,6 +232,9 @@ fn handle_pox_v2_api_contract_call(
             }
         }
     } else if function_name == "stack-extend" || function_name == "delegate-stack-extend" {
+        // in this branch case, the PoX-2 contract has stored the extension information
+        //  and performed the extension checks. Now, the VM needs to update the account locks
+        //  (because the locks cannot be applied directly from the Clarity code itself)
         // applying a pox lock at this point is equivalent to evaluating a transfer
         debug!(
             "Handle special-case contract-call to {:?} {} (which returned {:?})",
@@ -267,6 +270,9 @@ fn handle_pox_v2_api_contract_call(
                     return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None))
                 }
                 Err(e) => {
+                    // Error results *other* than a DefunctPoxContract panic, because
+                    //  those errors should have been caught by the PoX contract before
+                    //  getting to this code path.
                     panic!(
                         "FATAL: failed to extend lock from {} until {}: '{:?}'",
                         stacker, unlock_height, &e
@@ -276,7 +282,9 @@ fn handle_pox_v2_api_contract_call(
 
             return Ok(());
         } else {
-            // nothing to do -- the function failed
+            // The stack-extend function returned an error: we do not need to apply a lock
+            //  in this case, and can just return and let the normal VM codepath surface the
+            //  error response type.
             return Ok(());
         }
     }

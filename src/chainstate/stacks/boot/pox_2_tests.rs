@@ -542,10 +542,13 @@ fn test_pox_extend_transition_pox_2() {
 
     let alice = keys.pop().unwrap();
     let bob = keys.pop().unwrap();
-    let charlie = keys.pop().unwrap();
 
     let EXPECTED_ALICE_FIRST_REWARD_CYCLE = 6;
     let mut coinbase_nonce = 0;
+
+    let INITIAL_BALANCE = 1024 * POX_THRESHOLD_STEPS_USTX;
+    let ALICE_LOCKUP = 1024 * POX_THRESHOLD_STEPS_USTX;
+    let BOB_LOCKUP = 512 * POX_THRESHOLD_STEPS_USTX;
 
     // these checks should pass between Alice's first reward cycle,
     //  and the start of V2 reward cycles
@@ -583,7 +586,7 @@ fn test_pox_extend_transition_pox_2() {
             AddressHashMode::SerializeP2PKH.to_version_testnet()
         );
         assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
-        assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
+        assert_eq!(reward_addrs[0].1, ALICE_LOCKUP);
     };
 
     // these checks should pass after the start of V2 reward cycles
@@ -616,14 +619,14 @@ fn test_pox_extend_transition_pox_2() {
             AddressHashMode::SerializeP2PKH.to_version_testnet()
         );
         assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&bob).bytes);
-        assert_eq!(reward_addrs[0].1, 512 * POX_THRESHOLD_STEPS_USTX);
+        assert_eq!(reward_addrs[0].1, BOB_LOCKUP);
 
         assert_eq!(
             (reward_addrs[1].0).version,
             AddressHashMode::SerializeP2PKH.to_version_testnet()
         );
         assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&alice).bytes);
-        assert_eq!(reward_addrs[1].1, 1024 * POX_THRESHOLD_STEPS_USTX);
+        assert_eq!(reward_addrs[1].1, ALICE_LOCKUP);
     };
 
     // our "tenure counter" is now at 0
@@ -634,13 +637,10 @@ fn test_pox_extend_transition_pox_2() {
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-    assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
+    assert_eq!(alice_balance, INITIAL_BALANCE);
 
     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
-    assert_eq!(
-        alice_account.stx_balance.amount_unlocked(),
-        1024 * POX_THRESHOLD_STEPS_USTX
-    );
+    assert_eq!(alice_account.stx_balance.amount_unlocked(), INITIAL_BALANCE);
     assert_eq!(alice_account.stx_balance.amount_locked(), 0);
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
@@ -649,7 +649,7 @@ fn test_pox_extend_transition_pox_2() {
     let alice_lockup = make_pox_lockup(
         &alice,
         0,
-        1024 * POX_THRESHOLD_STEPS_USTX,
+        ALICE_LOCKUP,
         AddressHashMode::SerializeP2PKH,
         key_to_stacks_addr(&alice).bytes,
         4,
@@ -716,14 +716,14 @@ fn test_pox_extend_transition_pox_2() {
     let bob_lockup = make_pox_2_lockup(
         &bob,
         0,
-        512 * POX_THRESHOLD_STEPS_USTX,
+        BOB_LOCKUP,
         AddressHashMode::SerializeP2PKH,
         key_to_stacks_addr(&bob).bytes,
         3,
         tip.block_height,
     );
 
-    // Alice _will_ auto-unlock, so stack in PoX v2
+    // Alice _will_ auto-unlock: she can stack-extend in PoX v2
     let alice_lockup = make_pox_2_extend(
         &alice,
         1,
@@ -928,6 +928,9 @@ fn test_delegate_extend_transition_pox_2() {
     let EXPECTED_ALICE_FIRST_REWARD_CYCLE = 6;
     let mut coinbase_nonce = 0;
 
+    let INITIAL_BALANCE = 1024 * POX_THRESHOLD_STEPS_USTX;
+    let LOCKUP_AMT = 1024 * POX_THRESHOLD_STEPS_USTX;
+
     // these checks should pass between Alice's first reward cycle,
     //  and the start of V2 reward cycles
     let alice_rewards_to_v2_start_checks = |tip_index_block, peer: &mut TestPeer| {
@@ -956,7 +959,8 @@ fn test_delegate_extend_transition_pox_2() {
             AddressHashMode::SerializeP2PKH.to_version_testnet()
         );
         assert_eq!(&(reward_addrs[0].0).bytes, &charlie_address.bytes);
-        assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
+        // 1 lockup was done between alice's first cycle and the start of v2 cycles
+        assert_eq!(reward_addrs[0].1, 1 * LOCKUP_AMT);
     };
 
     // these checks should pass after the start of V2 reward cycles
@@ -989,7 +993,8 @@ fn test_delegate_extend_transition_pox_2() {
             AddressHashMode::SerializeP2PKH.to_version_testnet()
         );
         assert_eq!(&(reward_addrs[0].0).bytes, &charlie_address.bytes);
-        assert_eq!(reward_addrs[0].1, 2048 * POX_THRESHOLD_STEPS_USTX);
+        // 2 lockups were performed in v2 cycles
+        assert_eq!(reward_addrs[0].1, 2 * LOCKUP_AMT);
     };
 
     // our "tenure counter" is now at 0
@@ -1000,13 +1005,10 @@ fn test_delegate_extend_transition_pox_2() {
     peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-    assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
+    assert_eq!(alice_balance, INITIAL_BALANCE);
 
     let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
-    assert_eq!(
-        alice_account.stx_balance.amount_unlocked(),
-        1024 * POX_THRESHOLD_STEPS_USTX
-    );
+    assert_eq!(alice_account.stx_balance.amount_unlocked(), INITIAL_BALANCE,);
     assert_eq!(alice_account.stx_balance.amount_locked(), 0);
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
@@ -1017,7 +1019,7 @@ fn test_delegate_extend_transition_pox_2() {
         0,
         "delegate-stx",
         vec![
-            Value::UInt(2048 * POX_THRESHOLD_STEPS_USTX),
+            Value::UInt(LOCKUP_AMT),
             PrincipalData::from(charlie_address.clone()).into(),
             Value::none(),
             Value::none(),
@@ -1030,7 +1032,7 @@ fn test_delegate_extend_transition_pox_2() {
         "delegate-stack-stx",
         vec![
             PrincipalData::from(alice_address.clone()).into(),
-            Value::UInt(1024 * POX_THRESHOLD_STEPS_USTX),
+            Value::UInt(LOCKUP_AMT),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
                 charlie_address.bytes.clone(),
@@ -1190,7 +1192,7 @@ fn test_delegate_extend_transition_pox_2() {
         "delegate-stack-stx",
         vec![
             PrincipalData::from(bob_address.clone()).into(),
-            Value::UInt(1024 * POX_THRESHOLD_STEPS_USTX),
+            Value::UInt(LOCKUP_AMT),
             make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
                 charlie_address.bytes.clone(),
@@ -1200,7 +1202,7 @@ fn test_delegate_extend_transition_pox_2() {
         ],
     );
 
-    // Alice _will_ auto-unlock, so delegate-extend stack in PoX v2
+    // Alice _will_ auto-unlock: she can be delegate-stack-extend'ed in PoX v2
     let delegate_extend_tx = make_pox_2_contract_call(
         &charlie,
         6,
