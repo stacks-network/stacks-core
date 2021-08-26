@@ -5,10 +5,10 @@ use rand::RngCore;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::events::{STXEventType, StacksTransactionEvent};
 use stacks::chainstate::stacks::{
-    db::StacksChainState, miner::StacksMicroblockBuilder, CoinbasePayload, StacksBlock,
-    StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
-    StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-    TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    db::StacksChainState, miner::BlockBuilderSettings, miner::StacksMicroblockBuilder,
+    CoinbasePayload, StacksBlock, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
+    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
     TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
@@ -377,6 +377,7 @@ fn make_microblock(
         consensus_hash.clone(),
         chainstate,
         burn_dbconn,
+        BlockBuilderSettings::max_value(),
     )
     .unwrap();
     let mempool_txs: Vec<_> = txs
