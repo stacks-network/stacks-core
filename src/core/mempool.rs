@@ -34,12 +34,13 @@ use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::TransactionPayload;
 use chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::StacksChainState, index::Error as MarfError,
+    db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, index::Error as MarfError,
     Error as ChainstateError, StacksTransaction,
 };
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use monitoring::increment_stx_mempool_gc;
+use util::db::query_row_columns;
 use util::db::query_rows;
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
@@ -50,6 +51,8 @@ use util::db::{query_row, Error};
 use util::db::{sql_pragma, DBConn, DBTx, FromRow};
 use util::get_epoch_time_secs;
 use vm::types::PrincipalData;
+
+use clarity_vm::clarity::ClarityConnection;
 
 use crate::codec::StacksMessageCodec;
 use crate::monitoring;
@@ -133,6 +136,27 @@ pub struct MemPoolTxMetadata {
     pub sponsor_address: StacksAddress,
     pub sponsor_nonce: u64,
     pub accept_time: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemPoolWalkSettings {
+    pub min_tx_fee: u64,
+    pub min_cumulative_fee: u64,
+}
+
+impl MemPoolWalkSettings {
+    pub fn default() -> MemPoolWalkSettings {
+        MemPoolWalkSettings {
+            min_tx_fee: 1,
+            min_cumulative_fee: 1,
+        }
+    }
+    pub fn zero() -> MemPoolWalkSettings {
+        MemPoolWalkSettings {
+            min_tx_fee: 0,
+            min_cumulative_fee: 0,
+        }
+    }
 }
 
 impl FromRow<Txid> for Txid {
@@ -377,6 +401,27 @@ impl MemPoolDB {
         })
     }
 
+    /// Find all origin addresses within a height range, ordered by the sum of their tx fees in
+    /// that range.
+    fn find_origin_addresses_by_descending_fees(
+        &self,
+        start_height: i64,
+        end_height: i64,
+        min_cumulative_fees: u64,
+        offset: u32,
+        count: u32,
+    ) -> Result<Vec<StacksAddress>, db_error> {
+        let sql = "SELECT origin_address FROM (SELECT origin_address,SUM(tx_fee) as total_tx_fees FROM mempool WHERE height > ?1 AND height <= ?2 GROUP BY origin_address) WHERE total_tx_fees >= ?3 ORDER BY total_tx_fees DESC LIMIT ?4 OFFSET ?5";
+        let args: &[&dyn ToSql] = &[
+            &start_height,
+            &end_height,
+            &u64_to_sql(min_cumulative_fees)?,
+            &count,
+            &offset,
+        ];
+        query_row_columns(self.conn(), sql, args, "origin_address")
+    }
+
     ///
     /// Iterate over candidates in the mempool
     ///  todo will be called once for each bundle of transactions at
@@ -386,52 +431,94 @@ impl MemPoolDB {
     ///
     /// Consider transactions across all forks where the transactions have
     /// height >= max(0, tip_height - MEMPOOL_MAX_TRANSACTION_AGE) and height <= tip_height.
-    pub fn iterate_candidates<F, E>(&self, tip_height: u64, mut todo: F) -> Result<(), E>
+    pub fn iterate_candidates<F, E, C>(
+        &self,
+        clarity_tx: &mut C,
+        tip_height: u64,
+        settings: MemPoolWalkSettings,
+        mut todo: F,
+    ) -> Result<(), E>
     where
-        F: FnMut(Vec<MemPoolTxInfo>) -> Result<(), E>,
+        C: ClarityConnection,
+        F: FnMut(&mut C, Vec<MemPoolTxInfo>) -> Result<bool, E>,
         E: From<db_error> + From<ChainstateError>,
     {
-        // Want to consider transactions with
-        // height > max(-1, tip_height - (MEMPOOL_MAX_TRANSACTION_AGE + 1))
-        let min_height = tip_height.checked_sub(MEMPOOL_MAX_TRANSACTION_AGE + 1);
-        let mut curr_page = 0;
+        let min_height = (tip_height as i64)
+            .checked_sub((MEMPOOL_MAX_TRANSACTION_AGE + 1) as i64)
+            .unwrap_or(-1);
+        let max_height = tip_height as i64;
 
-        let mut next_nonce =
-            match MemPoolDB::get_next_nonce(&self.db, min_height, tip_height, None)? {
-                None => {
-                    return Ok(());
-                }
-                Some(nonce) => nonce,
-            };
+        let page_size = 1000;
+        let mut offset = 0;
 
-        loop {
-            let available_txs = MemPoolDB::get_txs_at_nonce_and_offset(
-                &self.db, min_height, tip_height, next_nonce, curr_page,
+        let min_cumulative_fees = settings.min_cumulative_fee;
+        let min_tx_fee = settings.min_tx_fee;
+
+        let mut done = false;
+        while !done {
+            let origin_addresses = self.find_origin_addresses_by_descending_fees(
+                min_height,
+                max_height,
+                min_cumulative_fees,
+                offset * page_size,
+                page_size,
             )?;
             debug!(
-                "Have {} transactions at nonce={}",
-                available_txs.len(),
-                next_nonce,
+                "Consider {} origin addresses between {},{} with min_fee {}, min_cumulative_fee {}",
+                origin_addresses.len(),
+                min_height,
+                max_height,
+                min_tx_fee,
+                min_cumulative_fees
             );
 
-            if available_txs.len() > 0 {
-                todo(available_txs)?;
-                curr_page += 1;
-            } else {
-                curr_page = 0;
-                next_nonce = match MemPoolDB::get_next_nonce(
-                    &self.db,
-                    min_height,
-                    tip_height,
-                    Some(next_nonce),
-                )? {
-                    None => {
-                        return Ok(());
-                    }
-                    Some(nonce) => nonce,
-                };
+            if origin_addresses.len() == 0 {
+                debug!("No more origin addresses to consider");
+                break;
             }
+
+            let origin_page_size = 1000;
+            let mut origin_offset = 0;
+
+            for origin_address in origin_addresses.iter() {
+                let min_nonce = StacksChainState::get_account(
+                    clarity_tx,
+                    &PrincipalData::Standard(origin_address.to_owned().into()),
+                )
+                .nonce;
+
+                let sql = "SELECT * FROM mempool WHERE height > ?1 AND height <= ?2 AND origin_nonce >= ?3 AND tx_fee >= ?4 ORDER BY tx_fee DESC, origin_nonce ASC, sponsor_nonce ASC LIMIT ?5 OFFSET ?6";
+                let args: &[&dyn ToSql] = &[
+                    &min_height,
+                    &max_height,
+                    &u64_to_sql(min_nonce)?,
+                    &u64_to_sql(min_tx_fee)?,
+                    &origin_page_size,
+                    &(origin_offset * origin_page_size),
+                ];
+
+                let txs = query_rows::<MemPoolTxInfo, _>(self.conn(), sql, args)?;
+
+                debug!(
+                    "Consider {} transactions from {} with nonce >= {}",
+                    txs.len(),
+                    &origin_address,
+                    min_nonce
+                );
+                if txs.len() == 0 {
+                    break;
+                }
+
+                if !todo(clarity_tx, txs)? {
+                    done = true;
+                    break;
+                }
+
+                origin_offset += 1;
+            }
+            offset += 1;
         }
+        Ok(())
     }
 
     pub fn conn(&self) -> &DBConn {
@@ -479,57 +566,6 @@ impl MemPoolDB {
         let args: &[&dyn ToSql] = &[consensus_hash, block_header_hash];
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
         Ok(rows.len())
-    }
-
-    /// Get the next nonce/timestamp after this nonce that occurs in the height range.
-    pub fn get_next_nonce(
-        conn: &DBConn,
-        min_height: Option<u64>,
-        max_height: u64,
-        nonce: Option<u64>,
-    ) -> Result<Option<u64>, db_error> {
-        let nonce = match nonce {
-            None => -1,
-            Some(n) => u64_to_sql(n)?,
-        };
-        let min_height_sql_arg = match min_height {
-            None => -1,
-            Some(h) => u64_to_sql(h)?,
-        };
-        let sql = "SELECT origin_nonce FROM mempool WHERE origin_nonce > ?1 AND \
-        height > ?2 AND height <= ?3 ORDER BY origin_nonce, accept_time ASC LIMIT 1";
-
-        let args: &[&dyn ToSql] = &[&nonce, &min_height_sql_arg, &u64_to_sql(max_height)?];
-        query_row(conn, sql, args)
-    }
-
-    /// Get all transactions at a particular nonce and timestamp on a given chain tip.
-    /// Order them by sponsor nonce.
-    pub fn get_txs_at_nonce_and_offset(
-        conn: &DBConn,
-        min_height: Option<u64>,
-        max_height: u64,
-        nonce: u64,
-        curr_page: u32,
-    ) -> Result<Vec<MemPoolTxInfo>, db_error> {
-        let min_height_sql_arg = match min_height {
-            None => -1,
-            Some(h) => u64_to_sql(h)?,
-        };
-        let limit = 200;
-        let offset = limit * curr_page;
-
-        let sql = "SELECT * FROM mempool WHERE origin_nonce = ?1 AND \
-        height > ?2 AND height <= ?3 ORDER BY sponsor_nonce ASC LIMIT ?4 OFFSET ?5";
-        let args: &[&dyn ToSql] = &[
-            &u64_to_sql(nonce)?,
-            &min_height_sql_arg,
-            &u64_to_sql(max_height)?,
-            &limit,
-            &offset,
-        ];
-        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, args)?;
-        Ok(rows)
     }
 
     /// Get all transactions at a particular timestamp on a given chain tip.
@@ -599,31 +635,6 @@ impl MemPoolDB {
         );
         let args: &[&dyn ToSql] = &[&addr.to_string(), &u64_to_sql(nonce)?];
         query_row(conn, &sql, args)
-    }
-
-    fn get_next_nonce_as_participant_type(
-        conn: &DBConn,
-        addr: &StacksAddress,
-        as_origin: bool,
-    ) -> Result<u64, db_error> {
-        let sql = format!(
-            "SELECT ifnull(max({0}_nonce + 1), 0) FROM mempool WHERE {0}_address = ?1",
-            if as_origin { "origin" } else { "sponsor" }
-        );
-        match conn.query_row_and_then(&sql, &[addr.to_string()], |row| u64::from_row(row)) {
-            Ok(max) => Ok(max),
-            Err(db_error::SqliteError(SqliteError::QueryReturnedNoRows)) => Ok(0),
-            otherwise => otherwise,
-        }
-    }
-
-    pub fn get_next_nonce_for_address(
-        conn: &DBConn,
-        address: &StacksAddress,
-    ) -> Result<u64, db_error> {
-        let as_origin = MemPoolDB::get_next_nonce_as_participant_type(conn, address, true)?;
-        let as_sponsor = MemPoolDB::get_next_nonce_as_participant_type(conn, address, false)?;
-        Ok(cmp::max(as_origin, as_sponsor))
     }
 
     fn are_blocks_in_same_fork(
@@ -699,6 +710,15 @@ impl MemPoolDB {
         let add_tx = if let Some(ref prior_tx) = prior_tx {
             if tx_fee > prior_tx.tx_fee {
                 // is this a replace-by-fee ?
+                test_debug!(
+                    "Can replace {} with {} for {},{} by fee ({} < {})",
+                    &prior_tx.txid,
+                    &txid,
+                    origin_address,
+                    origin_nonce,
+                    &prior_tx.tx_fee,
+                    &tx_fee
+                );
                 replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
                 true
             } else if !MemPoolDB::are_blocks_in_same_fork(
@@ -709,6 +729,13 @@ impl MemPoolDB {
                 block_header_hash,
             )? {
                 // is this a replace-across-fork ?
+                test_debug!(
+                    "Can replace {} with {} for {},{} across fork",
+                    &prior_tx.txid,
+                    &txid,
+                    origin_address,
+                    origin_nonce
+                );
                 replace_reason = MemPoolDropReason::REPLACE_ACROSS_FORK;
                 true
             } else {
@@ -1019,6 +1046,7 @@ mod tests {
     use chainstate::stacks::{
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     };
+    use core::mempool::MemPoolWalkSettings;
     use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
     use core::FIRST_STACKS_BLOCK_HASH;
     use net::Error as NetError;
@@ -1164,7 +1192,7 @@ mod tests {
         let chainstate_path = chainstate_path("mempool_walk_over_fork");
         let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
 
-        let mut txs = codec_all_transactions(
+        let mut all_txs = codec_all_transactions(
             &TransactionVersion::Testnet,
             0x80000000,
             &TransactionAnchorMode::Any,
@@ -1172,16 +1200,30 @@ mod tests {
         );
 
         let blocks_to_broadcast_in = [&b_1, &b_2, &b_4];
-        let mut txs = [txs.pop().unwrap(), txs.pop().unwrap(), txs.pop().unwrap()];
+        let mut txs = [
+            all_txs.pop().unwrap(),
+            all_txs.pop().unwrap(),
+            all_txs.pop().unwrap(),
+        ];
         for tx in txs.iter_mut() {
             tx.set_tx_fee(123);
+        }
+
+        let mut underfunded_txs = [
+            all_txs.pop().unwrap(),
+            all_txs.pop().unwrap(),
+            all_txs.pop().unwrap(),
+        ];
+        for tx in underfunded_txs.iter_mut() {
+            tx.set_tx_fee(0);
         }
 
         for ix in 0..3 {
             let mut mempool_tx = mempool.tx_begin().unwrap();
 
             let block = &blocks_to_broadcast_in[ix];
-            let tx = &txs[ix];
+            let good_tx = &txs[ix];
+            let underfunded_tx = &underfunded_txs[ix];
 
             let origin_address = StacksAddress {
                 version: 22,
@@ -1192,35 +1234,37 @@ mod tests {
                 bytes: Hash160::from_data(&[1; 32]),
             };
 
-            let txid = tx.txid();
-            let tx_bytes = tx.serialize_to_vec();
-            let tx_fee = tx.get_tx_fee();
+            for (i, tx) in [good_tx, underfunded_tx].iter().enumerate() {
+                let txid = tx.txid();
+                let tx_bytes = tx.serialize_to_vec();
+                let tx_fee = tx.get_tx_fee();
 
-            let height = 1 + ix as u64;
+                let height = 1 + ix as u64;
 
-            let origin_nonce = ix as u64;
-            let sponsor_nonce = ix as u64;
+                let origin_nonce = (2 * ix + i) as u64;
+                let sponsor_nonce = (2 * ix + i) as u64;
 
-            assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+                assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
-            MemPoolDB::try_add_tx(
-                &mut mempool_tx,
-                &mut chainstate,
-                &block.0,
-                &block.1,
-                txid,
-                tx_bytes,
-                tx_fee,
-                height,
-                &origin_address,
-                origin_nonce,
-                &sponsor_address,
-                sponsor_nonce,
-                None,
-            )
-            .unwrap();
+                MemPoolDB::try_add_tx(
+                    &mut mempool_tx,
+                    &mut chainstate,
+                    &block.0,
+                    &block.1,
+                    txid,
+                    tx_bytes,
+                    tx_fee,
+                    height,
+                    &origin_address,
+                    origin_nonce,
+                    &sponsor_address,
+                    sponsor_nonce,
+                    None,
+                )
+                .unwrap();
 
-            assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+                assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+            }
 
             mempool_tx.commit().unwrap();
         }
@@ -1230,54 +1274,102 @@ mod tests {
         //
         // *'d blocks accept transactions,
         //   try to walk at b_4, we should be able to find
-        //   the transaction at b_1
+        //   the transaction at b_1, and we should skip all underfunded transactions.
 
-        let mut count_txs = 0;
-        mempool
-            .iterate_candidates::<_, ChainstateError>(2, |available_txs| {
-                count_txs += available_txs.len();
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(
-            count_txs, 2,
-            "Mempool should find two transactions from b_2"
+        let mut mempool_settings = MemPoolWalkSettings::default();
+        mempool_settings.min_tx_fee = 10;
+        mempool_settings.min_cumulative_fee = 10;
+
+        chainstate.with_read_only_clarity_tx(
+            &NULL_BURN_STATE_DB,
+            &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
+            |clarity_conn| {
+                let mut count_txs = 0;
+                mempool
+                    .iterate_candidates::<_, ChainstateError, _>(
+                        clarity_conn,
+                        2,
+                        mempool_settings.clone(),
+                        |_, available_txs| {
+                            count_txs += available_txs.len();
+                            Ok(true)
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(
+                    count_txs, 2,
+                    "Mempool should find two transactions from b_2"
+                );
+            },
         );
 
-        let mut count_txs = 0;
-        mempool
-            .iterate_candidates::<_, ChainstateError>(3, |available_txs| {
-                count_txs += available_txs.len();
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(
-            count_txs, 3,
-            "Mempool should find three transactions from b_5"
+        chainstate.with_read_only_clarity_tx(
+            &NULL_BURN_STATE_DB,
+            &StacksBlockHeader::make_index_block_hash(&b_5.0, &b_5.1),
+            |clarity_conn| {
+                let mut count_txs = 0;
+                mempool
+                    .iterate_candidates::<_, ChainstateError, _>(
+                        clarity_conn,
+                        3,
+                        mempool_settings.clone(),
+                        |_, available_txs| {
+                            count_txs += available_txs.len();
+                            Ok(true)
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(
+                    count_txs, 3,
+                    "Mempool should find three transactions from b_5"
+                );
+            },
         );
 
-        let mut count_txs = 0;
-        mempool
-            .iterate_candidates::<_, ChainstateError>(2, |available_txs| {
-                count_txs += available_txs.len();
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(
-            count_txs, 2,
-            "Mempool should find two transactions from b_3"
+        chainstate.with_read_only_clarity_tx(
+            &NULL_BURN_STATE_DB,
+            &StacksBlockHeader::make_index_block_hash(&b_3.0, &b_3.1),
+            |clarity_conn| {
+                let mut count_txs = 0;
+                mempool
+                    .iterate_candidates::<_, ChainstateError, _>(
+                        clarity_conn,
+                        2,
+                        mempool_settings.clone(),
+                        |_, available_txs| {
+                            count_txs += available_txs.len();
+                            Ok(true)
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(
+                    count_txs, 2,
+                    "Mempool should find two transactions from b_3"
+                );
+            },
         );
 
-        let mut count_txs = 0;
-        mempool
-            .iterate_candidates::<_, ChainstateError>(3, |available_txs| {
-                count_txs += available_txs.len();
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(
-            count_txs, 3,
-            "Mempool should find three transactions from b_4"
+        chainstate.with_read_only_clarity_tx(
+            &NULL_BURN_STATE_DB,
+            &StacksBlockHeader::make_index_block_hash(&b_4.0, &b_4.1),
+            |clarity_conn| {
+                let mut count_txs = 0;
+                mempool
+                    .iterate_candidates::<_, ChainstateError, _>(
+                        clarity_conn,
+                        3,
+                        mempool_settings.clone(),
+                        |_, available_txs| {
+                            count_txs += available_txs.len();
+                            Ok(true)
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(
+                    count_txs, 3,
+                    "Mempool should find three transactions from b_4"
+                );
+            },
         );
 
         // let's test replace-across-fork while we're here.
@@ -1299,8 +1391,8 @@ mod tests {
         let tx_fee = tx.get_tx_fee();
 
         let height = 3;
-        let origin_nonce = 1;
-        let sponsor_nonce = 1;
+        let origin_nonce = 2;
+        let sponsor_nonce = 2;
 
         // make sure that we already have the transaction we're testing for replace-across-fork
         assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
@@ -1329,11 +1421,11 @@ mod tests {
         // check that the number of transactions at b_2 and b_4 starts at 1 each
         assert_eq!(
             MemPoolDB::get_num_tx_at_block(&mempool.db, &b_4.0, &b_4.1).unwrap(),
-            1
+            2
         );
         assert_eq!(
             MemPoolDB::get_num_tx_at_block(&mempool.db, &b_2.0, &b_2.1).unwrap(),
-            1
+            2
         );
         let mut mempool_tx = mempool.tx_begin().unwrap();
         let block = &b_4;
@@ -1382,11 +1474,11 @@ mod tests {
         // after replace-across-fork, tx[1] should have moved from the b_2->b_5 fork to b_4
         assert_eq!(
             MemPoolDB::get_num_tx_at_block(&mempool.db, &b_4.0, &b_4.1).unwrap(),
-            2
+            3
         );
         assert_eq!(
             MemPoolDB::get_num_tx_at_block(&mempool.db, &b_2.0, &b_2.1).unwrap(),
-            0
+            1
         );
     }
 
