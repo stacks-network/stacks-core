@@ -3097,6 +3097,7 @@ mod test {
                     consensus_hash.clone(),
                     peer_1.chainstate(),
                     &sort_iconn,
+                    BlockBuilderSettings::max_value(),
                 )
                 .unwrap();
                 let microblock = microblock_builder
