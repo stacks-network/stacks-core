@@ -49,6 +49,7 @@ use util::db::Error as db_error;
 use util::db::FromColumn;
 use util::db::{query_row, Error};
 use util::db::{sql_pragma, DBConn, DBTx, FromRow};
+use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use vm::types::PrincipalData;
 
@@ -142,6 +143,7 @@ pub struct MemPoolTxMetadata {
 pub struct MemPoolWalkSettings {
     pub min_tx_fee: u64,
     pub min_cumulative_fee: u64,
+    pub deadline: u64,
 }
 
 impl MemPoolWalkSettings {
@@ -149,12 +151,20 @@ impl MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 1,
             min_cumulative_fee: 1,
+            deadline: u64::max_value(),
         }
     }
     pub fn zero() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 0,
             min_cumulative_fee: 0,
+            deadline: u64::max_value(),
+        }
+    }
+    pub fn with_deadline(self, deadline: u64) -> MemPoolWalkSettings {
+        MemPoolWalkSettings {
+            deadline: deadline,
+            ..self
         }
     }
 }
@@ -456,6 +466,10 @@ impl MemPoolDB {
 
         let mut done = false;
         while !done {
+            if (settings.deadline as u128) <= get_epoch_time_ms() {
+                break;
+            }
+
             let origin_addresses = self.find_origin_addresses_by_descending_fees(
                 min_height,
                 max_height,
@@ -481,6 +495,11 @@ impl MemPoolDB {
             let mut origin_offset = 0;
 
             for origin_address in origin_addresses.iter() {
+                if (settings.deadline as u128) <= get_epoch_time_ms() {
+                    done = true;
+                    break;
+                }
+
                 let min_nonce = StacksChainState::get_account(
                     clarity_tx,
                     &PrincipalData::Standard(origin_address.to_owned().into()),
