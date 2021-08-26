@@ -900,7 +900,10 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Value> {
-        let parsed = ast::build_ast(contract_identifier, program, self)?.expressions;
+        let clarity_version = self.contract_context.clarity_version.clone();
+
+        let parsed =
+            ast::build_ast(contract_identifier, program, self, clarity_version)?.expressions;
 
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError(
@@ -936,8 +939,9 @@ impl<'a, 'b> Environment<'a, 'b> {
 
     pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
         let contract_id = QualifiedContractIdentifier::transient();
+        let clarity_version = self.contract_context.clarity_version.clone();
 
-        let parsed = ast::build_ast(&contract_id, program, self)?.expressions;
+        let parsed = ast::build_ast(&contract_id, program, self, clarity_version)?.expressions;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError(
                 "Expected a program of at least length 1".to_string(),
@@ -1091,7 +1095,14 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
     ) -> Result<()> {
-        let contract_ast = ast::build_ast(&contract_identifier, contract_content, self)?;
+        let clarity_version = self.contract_context.clarity_version.clone();
+
+        let contract_ast = ast::build_ast(
+            &contract_identifier,
+            contract_content,
+            self,
+            clarity_version,
+        )?;
         self.initialize_contract_from_ast(contract_identifier, &contract_ast, &contract_content)
     }
 

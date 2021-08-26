@@ -815,6 +815,25 @@ supplied), this function returns `none`.
 "#,
 };
 
+const SLICE_API: SpecialAPI = SpecialAPI {
+    input_type: "sequence_A, uint, uint",
+    output_type: "(optional sequence_A)",
+    signature: "(slice sequence left-position right-position)",
+    description:
+        "The `slice` function attempts to return a sub-sequence of that starts at `left-position` (inclusive), and
+ends at `right-position` (non-inclusive).
+If `left_position`==`right_position`, the function returns an empty sequence.
+If either `left_position` or `right_position` are out of bounds OR if `right_position` is less than
+`left_position`, the function returns `none`.",
+    example: "(slice \"blockstack\" u5 u10) ;; Returns (some \"stack\")
+(slice (list 1 2 3 4 5) u5 u9) ;; Returns none
+(slice (list 1 2 3 4 5) u3 u4) ;; Returns (some (4))
+(slice \"abcd\" u1 u3) ;; Returns (some \"bc\")
+(slice \"abcd\" u2 u2) ;; Returns (some \"\")
+(slice \"abcd\" u3 u1) ;; Returns none
+",
+};
+
 const LIST_API: SpecialAPI = SpecialAPI {
     input_type: "A, ...",
     output_type: "(list A)",
@@ -1885,6 +1904,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Len => make_for_special(&LEN_API, name),
         ElementAt => make_for_special(&ELEMENT_AT_API, name),
         IndexOf => make_for_special(&INDEX_OF_API, name),
+        Slice => make_for_special(&SLICE_API, name),
         ListCons => make_for_special(&LIST_API, name),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
         SetEntry => make_for_special(&SET_ENTRY_API, name),
@@ -2036,8 +2056,8 @@ mod test {
         database::{BurnStateDB, HeadersDB, STXBalance},
         eval_all, execute,
         types::PrincipalData,
-        ContractContext, Error, GlobalContext, LimitedCostTracker, QualifiedContractIdentifier,
-        Value,
+        ClarityVersion, ContractContext, Error, GlobalContext, LimitedCostTracker,
+        QualifiedContractIdentifier, Value,
     };
 
     use crate::types::chainstate::VRFSeed;
@@ -2142,6 +2162,7 @@ mod test {
         }
     }
 
+    /// Execute docs against the latest version of Clarity.
     fn docs_execute(marf: &mut MarfedKV, program: &str) {
         // start the next block,
         //  we never commit it so that we can reuse the initialization
@@ -2169,9 +2190,14 @@ mod test {
             let mut analysis_db = store.as_analysis_db();
             let whole_contract = segments.join("\n");
             eprintln!("{}", whole_contract);
-            let mut parsed = ast::build_ast(&contract_id, &whole_contract, &mut ())
-                .unwrap()
-                .expressions;
+            let mut parsed = ast::build_ast(
+                &contract_id,
+                &whole_contract,
+                &mut (),
+                ClarityVersion::latest(),
+            )
+            .unwrap()
+            .expressions;
 
             type_check(&contract_id, &mut parsed, &mut analysis_db, false)
                 .expect("Failed to type check");
@@ -2195,9 +2221,14 @@ mod test {
                     eprintln!("{}", segment);
 
                     let result = {
-                        let parsed = ast::build_ast(&contract_id, segment, &mut ())
-                            .unwrap()
-                            .expressions;
+                        let parsed = ast::build_ast(
+                            &contract_id,
+                            segment,
+                            &mut (),
+                            ClarityVersion::latest(),
+                        )
+                        .unwrap()
+                        .expressions;
                         eval_all(&parsed, &mut contract_context, g, None).unwrap()
                     };
 
@@ -2221,6 +2252,7 @@ mod test {
 
     #[test]
     fn test_examples() {
+        // Execute test examples against the latest version of Clarity
         let apis = make_all_api_reference();
         let mut marf = MarfedKV::temporary();
         // first, load the samples for contract-call
@@ -2237,9 +2269,14 @@ mod test {
                 let mut analysis_db = store.as_analysis_db();
                 let whole_contract =
                     std::fs::read_to_string("sample-contracts/tokens.clar").unwrap();
-                let mut parsed = ast::build_ast(&contract_id, &whole_contract, &mut ())
-                    .unwrap()
-                    .expressions;
+                let mut parsed = ast::build_ast(
+                    &contract_id,
+                    &whole_contract,
+                    &mut (),
+                    ClarityVersion::latest(),
+                )
+                .unwrap()
+                .expressions;
 
                 type_check(&contract_id, &mut parsed, &mut analysis_db, true)
                     .expect("Failed to type check sample-contracts/tokens");
@@ -2247,10 +2284,14 @@ mod test {
 
             {
                 let mut analysis_db = store.as_analysis_db();
-                let mut parsed =
-                    ast::build_ast(&trait_def_id, super::DEFINE_TRAIT_API.example, &mut ())
-                        .unwrap()
-                        .expressions;
+                let mut parsed = ast::build_ast(
+                    &trait_def_id,
+                    super::DEFINE_TRAIT_API.example,
+                    &mut (),
+                    ClarityVersion::latest(),
+                )
+                .unwrap()
+                .expressions;
 
                 type_check(&trait_def_id, &mut parsed, &mut analysis_db, true)
                     .expect("Failed to type check sample-contracts/tokens");
