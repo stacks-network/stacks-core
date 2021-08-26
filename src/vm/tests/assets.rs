@@ -185,7 +185,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
         .initialize_contract(second_contract_id.clone(), contract_second, None)
         .unwrap();
 
-    owned_env.stx_faucet(&(p1_principal), u128::max_value() - 1500);
+    owned_env.stx_faucet(&(p1_principal), u128::MAX - 1500);
     owned_env.stx_faucet(&p2_principal, 1000);
 
     // test 1: send 0

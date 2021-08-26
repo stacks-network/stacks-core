@@ -27,6 +27,7 @@ use vm::representations::{
 use vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
+use vm::ClarityVersion;
 
 pub struct SugarExpander {
     issuer: StandardPrincipalData,
@@ -35,7 +36,7 @@ pub struct SugarExpander {
 }
 
 impl BuildASTPass for SugarExpander {
-    fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()> {
+    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()> {
         let pass = SugarExpander::new(contract_ast.contract_identifier.issuer.clone());
         pass.run(contract_ast)?;
         Ok(())

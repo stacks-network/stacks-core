@@ -37,6 +37,8 @@ use vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
+use crate::core::POX_TESTNET_CYCLE_LENGTH;
+use crate::util::boot::boot_code_addr;
 use crate::{
     burnchains::PoxConstants,
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
@@ -83,8 +85,8 @@ lazy_static! {
         &vec![StacksPublicKey::from_private(&MINER_KEY.clone())],
     )
     .unwrap();
-    pub static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
-    pub static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / 480;
+    static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
+    static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25;
 }
 
 impl From<&StacksPrivateKey> for StandardPrincipalData {
@@ -438,6 +440,8 @@ fn pox_2_contract_caller_units() {
     sim.epoch_bounds = vec![0, 1];
     let delegator = StacksPrivateKey::new();
 
+    let expected_unlock_height = POX_TESTNET_CYCLE_LENGTH * 4;
+
     // execute past 2.1 epoch initialization
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
@@ -478,7 +482,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 9)".to_string()
+            "(err 9)".to_string(),
+            "The stack-through contract isn't an allowed caller for POX_ADDR[1] in the PoX2 contract",
         );
 
         assert_eq!(
@@ -495,7 +500,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(ok true)".to_string()
+            "(ok true)".to_string(),
+            "USER[0] should be able to add stack-through as a contract caller in the PoX2 contract",
         );
 
         assert_eq!(
@@ -517,8 +523,9 @@ fn pox_2_contract_caller_units() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(USTX_PER_HOLDER),
-                Value::UInt(600)
-            ))
+                Value::UInt(expected_unlock_height)
+            )),
+            "The stack-through contract should be an allowed caller for POX_ADDR[0] in the PoX2 contract",
         );
 
         assert_eq!(
@@ -534,7 +541,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(ok true)".to_string()
+            "(ok true)".to_string(),
+            "USER[0] should be able to remove stack-through as a contract caller in the PoX2 contract",
         );
 
         assert_eq!(
@@ -553,7 +561,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 9)".to_string()
+            "(err 9)".to_string(),
+            "After revocation, stack-through shouldn't be an allowed caller for POX_ADDR[0] in the PoX2 contract",
         );
 
         assert_eq!(
@@ -572,7 +581,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 9)".to_string()
+            "(err 9)".to_string(),
+            "After revocation, stack-through still shouldn't be an allowed caller for POX_ADDR[1] in the PoX2 contract",
         );
 
         let until_height = Value::UInt(burn_height.clone().expect_u128() + 1);
@@ -591,7 +601,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(ok true)".to_string()
+            "(ok true)".to_string(),
+            "User1 should be able to set an 'until-height' on a contract-caller allowance",
         );
 
         assert_eq!(
@@ -613,8 +624,9 @@ fn pox_2_contract_caller_units() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[1]),
                 Value::UInt(USTX_PER_HOLDER),
-                Value::UInt(600)
-            ))
+                Value::UInt(expected_unlock_height)
+            )),
+            "The stack-through contract should be an allowed caller for User1 in the PoX2 contract",
         );
     });
 
@@ -639,7 +651,8 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 9)".to_string()
+            "(err 9)".to_string(),
+            "After the `until-height` is reached, stack-through shouldn't be an allowed caller for User1",
         );
     });
 }
@@ -650,6 +663,9 @@ fn pox_2_lock_extend_units() {
     sim.epoch_bounds = vec![0, 1];
     let delegator = StacksPrivateKey::new();
 
+    let reward_cycle_len = 5;
+    let expected_user_1_unlock = 4 * reward_cycle_len + 9 * reward_cycle_len;
+
     // execute past 2.1 epoch initialization
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
@@ -657,7 +673,22 @@ fn pox_2_lock_extend_units() {
 
     sim.execute_next_block(|env| {
         env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
-            .unwrap()
+            .unwrap();
+        env.execute_in_env(boot_code_addr(false).into(), None, |env| {
+            env.execute_contract(
+                POX_2_CONTRACT_TESTNET.deref(),
+                "set-burnchain-parameters",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                    Value::UInt(1),
+                    Value::UInt(reward_cycle_len),
+                    Value::UInt(25),
+                    Value::UInt(0),
+                ]),
+                false,
+            )
+        })
+        .unwrap();
     });
 
     sim.execute_next_block(|env| {
@@ -675,7 +706,8 @@ fn pox_2_lock_extend_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 26)".to_string()
+            "(err 26)".to_string(),
+            "Should not be able to call stack-extend before locked",
         );
 
         assert_eq!(
@@ -693,7 +725,8 @@ fn pox_2_lock_extend_units() {
             )
             .unwrap()
             .0,
-            Value::okay_true()
+            Value::okay_true(),
+            "Should be able to delegate",
         );
 
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
@@ -717,8 +750,9 @@ fn pox_2_lock_extend_units() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(*MIN_THRESHOLD - 1),
-                Value::UInt(450)
-            ))
+                Value::UInt(3 * reward_cycle_len)
+            )),
+            "delegate-stack-stx should work okay",
         );
 
         assert_eq!(
@@ -735,7 +769,8 @@ fn pox_2_lock_extend_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 20)".to_string()
+            "(err 20)".to_string(),
+            "Cannot stack-extend while delegating",
         );
 
         assert_eq!(
@@ -757,8 +792,9 @@ fn pox_2_lock_extend_units() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[1]),
                 Value::UInt(USTX_PER_HOLDER),
-                Value::UInt(600)
-            ))
+                Value::UInt(4 * reward_cycle_len)
+            )),
+            "User1 should be able to stack-stx",
         );
 
         assert_eq!(
@@ -775,7 +811,8 @@ fn pox_2_lock_extend_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 2)".to_string()
+            "(err 2)".to_string(),
+            "Should not be able to stack-extend to over 12 cycles in the future",
         );
 
         assert_eq!(
@@ -794,10 +831,12 @@ fn pox_2_lock_extend_units() {
             execute(&format!(
                 "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[1]),
-                Value::UInt(600 + 9 * 150),
-            ))
+                Value::UInt(expected_user_1_unlock),
+            )),
+            "Should be able to stack-extend to exactly 12 cycles in the future",
         );
 
+        // check that entries exist for each cycle stacked
         for cycle in 0..20 {
             eprintln!("Cycle number = {}", cycle);
             let empty_set = cycle < 1 || cycle >= 13;
@@ -823,6 +862,7 @@ fn pox_2_lock_extend_units() {
                 } else {
                     &POX_ADDRS[1]
                 };
+                let expected_stacker = Value::from(&USER_KEYS[1]);
                 assert_eq!(
                     env.eval_read_only(
                         &POX_2_CONTRACT_TESTNET,
@@ -831,13 +871,36 @@ fn pox_2_lock_extend_units() {
                         .unwrap()
                         .0,
                     execute(&format!(
-                        "{{ pox-addr: {}, total-ustx: u{} }}",
+                        "{{ pox-addr: {}, total-ustx: u{}, stacker: (some '{}) }}",
                         expected_pox_addr,
-                        1_000_000
+                        1_000_000,
+                        expected_stacker,
                     ))
                 );
             }
         }
+    });
+
+    // now, advance the chain until User1 is unlocked, and try to stack-extend
+    for _i in 0..expected_user_1_unlock {
+        sim.execute_next_block(|_| {});
+    }
+
+    sim.execute_next_block(|env| {
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![Value::UInt(3), POX_ADDRS[0].clone(),])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 26)".to_string(),
+            "Should not be able to call stack-extend after lock expired",
+        );
     });
 }
 
@@ -853,7 +916,26 @@ fn pox_2_delegate_extend_units() {
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block_as_conn(|conn| {
-        test_deploy_smart_contract(conn, &POX_2_CONTRACT_TESTNET, &POX_2_TESTNET_CODE).unwrap()
+        test_deploy_smart_contract(conn, &POX_2_CONTRACT_TESTNET, &POX_2_TESTNET_CODE).unwrap();
+
+        // set burnchain params based on old testnet settings (< 2.0.11.0)
+        conn.as_transaction(|tx| {
+            tx.run_contract_call(
+                &boot_code_addr(false).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.deref(),
+                "set-burnchain-parameters",
+                &[
+                    Value::UInt(0),
+                    Value::UInt(30),
+                    Value::UInt(150),
+                    Value::UInt(25),
+                    Value::UInt(0),
+                ],
+                |_, _| false,
+            )
+        })
+        .unwrap();
     });
 
     sim.execute_next_block(|env| {
@@ -1295,12 +1377,12 @@ fn pox_2_delegate_extend_units() {
         );
 
         for cycle in 0..20 {
-            eprintln!("Cycle number = {}", cycle);
+            eprintln!("Cycle number = {}, MIN_THRESHOLD  = {}", cycle, MIN_THRESHOLD.deref());
             let empty_set = cycle < 1 || cycle >= 12;
             let expected = if empty_set {
-                "(u0 u0)"
+                "(u0 u0)".into()
             } else {
-                "(u104166 u1)"
+                format!("(u{} u1)", MIN_THRESHOLD.deref())
             };
             assert_eq!(
                 env.eval_read_only(
@@ -1323,10 +1405,12 @@ fn pox_2_delegate_extend_units() {
                                  cycle))
                         .unwrap()
                         .0,
+                    // PoX 2 contract doesn't record the "stacker" for a delegated reward slot,
+                    //   because it could be composed of arbitrarily large numbers of delegators
                     execute(&format!(
-                        "{{ pox-addr: {}, total-ustx: u{} }}",
+                        "{{ pox-addr: {}, total-ustx: u{}, stacker: none }}",
                         expected_pox_addr,
-                        104166
+                        MIN_THRESHOLD.deref(),
                     ))
                 );
             }
@@ -1494,6 +1578,7 @@ fn recency_tests() {
 fn delegation_tests() {
     let mut sim = ClarityTestSim::new();
     let delegator = StacksPrivateKey::new();
+    const REWARD_CYCLE_LENGTH: u128 = 1050;
 
     sim.execute_next_block(|env| {
         env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET, None)
@@ -1563,7 +1648,7 @@ fn delegation_tests() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     (&delegator).into(),
-                    Value::some(Value::UInt(300)).unwrap(),
+                    Value::some(Value::UInt(REWARD_CYCLE_LENGTH * 2)).unwrap(),
                     Value::none()
                 ])
             )
@@ -1674,7 +1759,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(*MIN_THRESHOLD - 1),
-                Value::UInt(450)
+                Value::UInt(REWARD_CYCLE_LENGTH * 3)
             ))
         );
 
@@ -1787,7 +1872,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[2]),
                 Value::UInt(*MIN_THRESHOLD - 1),
-                Value::UInt(300)
+                Value::UInt(REWARD_CYCLE_LENGTH * 2)
             ))
         );
 
@@ -1894,7 +1979,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[3]),
                 Value::UInt(*MIN_THRESHOLD),
-                Value::UInt(450)
+                Value::UInt(REWARD_CYCLE_LENGTH * 3)
             ))
         );
 
@@ -2008,7 +2093,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[1]),
                 Value::UInt(*MIN_THRESHOLD),
-                Value::UInt(450)
+                Value::UInt(REWARD_CYCLE_LENGTH * 3)
             ))
         );
 

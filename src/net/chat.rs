@@ -1335,7 +1335,7 @@ impl ConversationP2P {
             );
             match res {
                 Ok(hashes) => Ok(hashes),
-                Err(db_error::NotFoundError) => {
+                Err(db_error::NotFoundError) | Err(db_error::InvalidPoxSortition) => {
                     debug!(
                         "{:?}: Failed to load ancestor hashes from {}",
                         &_local_peer, &tip_snapshot.consensus_hash

@@ -915,7 +915,12 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
 
         using!(self.cost_track, "cost tracker", |mut cost_track| {
             self.inner_with_analysis_db(|db| {
-                let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
+                let ast_result = ast::build_ast(
+                    identifier,
+                    contract_content,
+                    &mut cost_track,
+                    clarity_version,
+                );
 
                 let mut contract_ast = match ast_result {
                     Ok(x) => x,
@@ -1953,10 +1958,10 @@ mod tests {
         }
 
         clarity_instance.block_limit = ExecutionCost {
-            write_length: u64::max_value(),
-            write_count: u64::max_value(),
-            read_count: u64::max_value(),
-            read_length: u64::max_value(),
+            write_length: u64::MAX,
+            write_count: u64::MAX,
+            read_count: u64::MAX,
+            read_length: u64::MAX,
             runtime: 100,
         };
 

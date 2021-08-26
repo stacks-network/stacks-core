@@ -270,6 +270,11 @@ impl StacksChainState {
 
     /// Extend a STX lock up for PoX for a time.  Does NOT touch the account nonce.
     /// Returns Ok(lock_amount) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v2 contract,
+    ///     so this should surface in a panic.
     pub fn pox_lock_extend_v2(
         db: &mut ClarityDatabase,
         principal: &PrincipalData,
@@ -375,9 +380,9 @@ impl StacksChainState {
         block_reward: &MinerPaymentSchedule,
         user_burns: &Vec<StagingUserBurnSupport>,
     ) -> Result<(), Error> {
-        assert!(block_reward.burnchain_commit_burn < i64::max_value() as u64);
-        assert!(block_reward.burnchain_sortition_burn < i64::max_value() as u64);
-        assert!(block_reward.stacks_block_height < i64::max_value() as u64);
+        assert!(block_reward.burnchain_commit_burn < i64::MAX as u64);
+        assert!(block_reward.burnchain_sortition_burn < i64::MAX as u64);
+        assert!(block_reward.stacks_block_height < i64::MAX as u64);
 
         let index_block_hash = StacksBlockHeader::make_index_block_hash(
             &block_reward.consensus_hash,
@@ -425,7 +430,7 @@ impl StacksChainState {
         .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         for user_support in user_burns.iter() {
-            assert!(user_support.burn_amount < i64::max_value() as u64);
+            assert!(user_support.burn_amount < i64::MAX as u64);
 
             let args: &[&dyn ToSql] = &[
                 &user_support.address.to_string(),

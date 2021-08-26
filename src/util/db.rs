@@ -204,7 +204,7 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
 }
 
 pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
-    if x > (i64::max_value() as u64) {
+    if x > (i64::MAX as u64) {
         return Err(Error::ParseError);
     }
     Ok(x as i64)
@@ -518,7 +518,7 @@ pub fn get_ancestor_block_hash<T: MarfTrieId>(
     block_height: u64,
     tip_block_hash: &T,
 ) -> Result<Option<T>, Error> {
-    assert!(block_height < u32::max_value() as u64);
+    assert!(block_height < u32::MAX as u64);
     let mut read_only = index.reopen_readonly()?;
     let bh = read_only.get_block_at_height(block_height as u32, tip_block_hash)?;
     Ok(bh)

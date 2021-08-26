@@ -20,6 +20,10 @@ use address::c32;
 use address::AddressHashMode;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 use util::hash::{hex_bytes, to_hex};
 use vm::ast::parse;
 use vm::callables::DefinedFunction;
@@ -27,7 +31,7 @@ use vm::contexts::OwnedEnvironment;
 use vm::costs::LimitedCostTracker;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use vm::tests::execute;
-use vm::types::signatures::{BufferLength, StringUTF8Length};
+use vm::types::signatures::*;
 use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
 use vm::{
@@ -40,6 +44,12 @@ use crate::{clarity_vm::database::MemoryBackingStore, vm::ClarityVersion};
 use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn test_clarity_versions_simple_apply_eval(#[case] version: ClarityVersion) {}
 
 #[test]
 fn test_doubly_defined_persisted_vars() {
@@ -56,8 +66,8 @@ fn test_doubly_defined_persisted_vars() {
     }
 }
 
-#[test]
-fn test_simple_let() {
+#[apply(test_clarity_versions_simple_apply_eval)]
+fn test_simple_let(#[case] version: ClarityVersion) {
     /*
       test program:
       (let ((x 1) (y 2))
@@ -73,7 +83,7 @@ fn test_simple_let() {
                              (+ z y))
                         x))";
     let contract_id = QualifiedContractIdentifier::transient();
-    if let Ok(parsed_program) = parse(&contract_id, &program) {
+    if let Ok(parsed_program) = parse(&contract_id, &program, version) {
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db());
@@ -350,14 +360,14 @@ fn test_secp256k1_errors() {
     ];
 
     let expectations: &[Error] = &[
-        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(32))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() }))).into(),
-        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(65))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() }))).into(),
+        CheckErrors::TypeValueError(BUFF_32.clone(), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() }))).into(),
+        CheckErrors::TypeValueError(BUFF_65.clone(), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() }))).into(),
         CheckErrors::IncorrectArgumentCount(2, 1).into(),
         CheckErrors::IncorrectArgumentCount(2, 3).into(),
 
-        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(32))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() }))).into(),
-        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(65))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() }))).into(),
-        CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(33))), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() }))).into(),
+        CheckErrors::TypeValueError(BUFF_32.clone(), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() }))).into(),
+        CheckErrors::TypeValueError(BUFF_65.clone(), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() }))).into(),
+        CheckErrors::TypeValueError(BUFF_33.clone(), Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() }))).into(),
         CheckErrors::IncorrectArgumentCount(3, 2).into(),
 
         CheckErrors::IncorrectArgumentCount(1, 2).into(),
@@ -400,8 +410,8 @@ fn test_principal_equality() {
         .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
-#[test]
-fn test_simple_if_functions() {
+#[apply(test_clarity_versions_simple_apply_eval)]
+fn test_simple_if_functions(#[case] version: ClarityVersion) {
     //
     //  test program:
     //  (define (with_else x) (if (is-eq 5 x) 1 0)
@@ -419,6 +429,7 @@ fn test_simple_if_functions() {
         &"(with_else 5)
          (without_else 3)
          (with_else 3)",
+        version,
     );
 
     let contract_id = QualifiedContractIdentifier::transient();
@@ -427,6 +438,7 @@ fn test_simple_if_functions() {
         &contract_id,
         &"(if (is-eq 5 x) 1 0)
                                   (if (is-eq 5 x) 1 3)",
+        version,
     );
 
     if let Ok(parsed_bodies) = function_bodies {
@@ -580,7 +592,7 @@ fn test_simple_arithmetic_functions() {
         Value::Bool(true),
         Value::Bool(true),
         Value::Int(65536),
-        Value::Int(u32::max_value() as i128 + 1),
+        Value::Int(u32::MAX as i128 + 1),
         Value::Int(1),
         Value::Int(170_141_183_460_469_231_731_687_303_715_884_105_727),
         Value::UInt(340_282_366_920_938_463_463_374_607_431_768_211_455),
@@ -598,10 +610,10 @@ fn test_simple_arithmetic_functions() {
         Value::Int(3),
         Value::Int(126),
         Value::UInt(127),
-        Value::UInt(u128::max_value()),
+        Value::UInt(u128::MAX),
         Value::UInt(137),
-        Value::Int(i128::max_value()),
-        Value::Int(-1 * (u32::max_value() as i128 + 1)),
+        Value::Int(i128::MAX),
+        Value::Int(-1 * (u32::MAX as i128 + 1)),
     ];
 
     tests
@@ -835,8 +847,8 @@ fn test_sequence_comparisons_mismatched_types() {
         });
 }
 
-#[test]
-fn test_simple_arithmetic_errors() {
+#[apply(test_clarity_versions_simple_apply_eval)]
+fn test_simple_arithmetic_errors(#[case] version: ClarityVersion) {
     let tests = [
         "(>= 1)",
         "(+ 1 true)",
@@ -890,7 +902,11 @@ fn test_simple_arithmetic_errors() {
             "Power argument to (pow ...) must be a u32 integer".to_string(),
         )
         .into(),
-        CheckErrors::TypeError(TypeSignature::from("bool"), TypeSignature::from("int")).into(),
+        CheckErrors::TypeError(
+            TypeSignature::from_string("bool", version),
+            TypeSignature::from_string("int", version),
+        )
+        .into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
