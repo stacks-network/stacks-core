@@ -27,13 +27,16 @@ use stacks::chainstate::stacks::db::{
 };
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
-use stacks::chainstate::stacks::{miner::StacksMicroblockBuilder, StacksBlockBuilder};
+use stacks::chainstate::stacks::{
+    miner::BlockBuilderSettings, miner::StacksMicroblockBuilder, StacksBlockBuilder,
+};
 use stacks::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
+use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
 use stacks::net::{
@@ -83,6 +86,7 @@ struct MicroblockMinerState {
     last_mined: u128,
     quantity: u64,
     cost_so_far: ExecutionCost,
+    settings: BlockBuilderSettings,
 }
 
 enum RelayerDirective {
@@ -153,6 +157,18 @@ struct MiningTenureInformation {
     parent_block_total_burn: u64,
     parent_winning_vtxindex: u16,
     coinbase_nonce: u64,
+}
+
+/// Generate the block-builder settings from the node config
+fn get_block_builder_settings(config: &Config) -> BlockBuilderSettings {
+    BlockBuilderSettings {
+        execution_cost: config.block_limit.clone(),
+        max_miner_time_ms: config.miner.max_miner_time_ms,
+        mempool_settings: MemPoolWalkSettings {
+            min_tx_fee: config.miner.min_tx_fee,
+            min_cumulative_fee: config.miner.min_cumulative_tx_fee,
+        },
+    }
 }
 
 /// Process artifacts from the tenure.
@@ -346,6 +362,7 @@ fn mine_one_microblock(
             chainstate,
             &ic,
             &microblock_state.cost_so_far,
+            microblock_state.settings.clone(),
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -432,6 +449,7 @@ fn try_mine_microblock(
                     last_mined: 0,
                     quantity: 0,
                     cost_so_far: cost_so_far,
+                    settings: get_block_builder_settings(config),
                 });
             }
             Ok(None) => {
@@ -1003,13 +1021,6 @@ fn spawn_miner_relayer(
                     let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                         .expect("FATAL: failed to query sortition DB for canonical burn chain tip")
                         .burn_header_hash;
-                    if config.node.mock_mining && failed_to_mine_in_block.as_ref() == Some(&burn_chain_tip) {
-                        debug!(
-                            "Previously mock-mined in block, not attempting again until burnchain advances";
-                            "burn_header_hash" => %burn_chain_tip
-                        );
-                        continue;
-                    }
 
                     let mut last_mined_blocks_vec = last_mined_blocks
                         .remove(&burn_header_hash)
@@ -1796,7 +1807,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            config.block_limit.clone(),
+            get_block_builder_settings(&config),
             Some(event_observer),
         ) {
             Ok(block) => block,
@@ -1836,7 +1847,7 @@ impl InitializedNeonNode {
                     vrf_proof.clone(),
                     mblock_pubkey_hash,
                     &coinbase_tx,
-                    config.block_limit.clone(),
+                    get_block_builder_settings(&config),
                     Some(event_observer),
                 ) {
                     Ok(block) => block,
