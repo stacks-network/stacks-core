@@ -1336,7 +1336,7 @@ fn should_fix_2771() {
         return;
     }
 
-    let (conf, miner_account) = neon_integration_test_conf();
+    let (conf, _) = neon_integration_test_conf();
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1912,6 +1912,190 @@ fn microblock_integration_test() {
     }
 
     test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn filter_low_fee_tx_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sks: Vec<_> = (0..10)
+        .into_iter()
+        .map(|_| StacksPrivateKey::new())
+        .collect();
+    let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
+
+    let txs: Vec<_> = spender_sks
+        .iter()
+        .enumerate()
+        .map(|(ix, spender_sk)| {
+            let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+
+            if ix < 5 {
+                // low-fee
+                make_stacks_transfer(&spender_sk, 0, 1000 + (ix as u64), &recipient.into(), 1000)
+            } else {
+                // high-fee
+                make_stacks_transfer(&spender_sk, 0, 2000 + (ix as u64), &recipient.into(), 1000)
+            }
+        })
+        .collect();
+
+    let (mut conf, _) = neon_integration_test_conf();
+    for spender_addr in spender_addrs.iter() {
+        conf.initial_balances.push(InitialBalance {
+            address: spender_addr.clone(),
+            amount: 1049230,
+        });
+    }
+
+    // exclude the first 5 transactions from miner consideration
+    conf.miner.min_tx_fee = 1500;
+    conf.miner.min_cumulative_tx_fee = 1500;
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    for tx in txs.iter() {
+        submit_tx(&http_origin, tx);
+    }
+
+    // mine a couple more blocks
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first five accounts are blank
+    for i in 0..5 {
+        let account = get_account(&http_origin, &spender_addrs[i]);
+        assert_eq!(account.nonce, 0);
+    }
+
+    // last five accounts have traction
+    for i in 5..10 {
+        let account = get_account(&http_origin, &spender_addrs[i]);
+        assert_eq!(account.nonce, 1);
+    }
+
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn filter_long_runtime_tx_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sks: Vec<_> = (0..10)
+        .into_iter()
+        .map(|_| StacksPrivateKey::new())
+        .collect();
+    let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
+
+    let txs: Vec<_> = spender_sks
+        .iter()
+        .enumerate()
+        .map(|(ix, spender_sk)| {
+            let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+            make_stacks_transfer(&spender_sk, 0, 1000 + (ix as u64), &recipient.into(), 1000)
+        })
+        .collect();
+
+    let (mut conf, _) = neon_integration_test_conf();
+    for spender_addr in spender_addrs.iter() {
+        conf.initial_balances.push(InitialBalance {
+            address: spender_addr.clone(),
+            amount: 1049230,
+        });
+    }
+
+    // all transactions have high-enough fees...
+    conf.miner.min_tx_fee = 1;
+    conf.miner.min_cumulative_tx_fee = 1;
+
+    // ...but none of them will be mined since we allot zero ms to do so
+    conf.miner.max_miner_time_ms = 0;
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    for tx in txs.iter() {
+        submit_tx(&http_origin, tx);
+    }
+
+    // mine a couple more blocks
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // no transactions mined
+    for i in 0..10 {
+        let account = get_account(&http_origin, &spender_addrs[i]);
+        assert_eq!(account.nonce, 0);
+    }
+
     channel.stop_chains_coordinator();
 }
 
