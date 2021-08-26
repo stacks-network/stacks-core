@@ -467,10 +467,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let mut num_txs = self.runtime.num_mined;
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
 
+        let mempool_settings = self
+            .settings
+            .mempool_settings
+            .clone()
+            .with_deadline(deadline as u64);
+
         let result = mem_pool.iterate_candidates(
             &mut clarity_tx,
             self.anchor_block_height,
-            self.settings.mempool_settings.clone(),
+            mempool_settings,
             |clarity_tx, micro_txs| {
                 let mut result = Ok(true);
                 for mempool_tx in micro_txs.into_iter() {
@@ -1411,7 +1417,6 @@ impl StacksBlockBuilder {
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         let execution_budget = settings.execution_cost;
         let max_miner_time_ms = settings.max_miner_time_ms;
-        let mempool_settings = settings.mempool_settings;
 
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
         } else {
@@ -1454,6 +1459,11 @@ impl StacksBlockBuilder {
 
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
         let deadline = ts_start + (max_miner_time_ms as u128);
+
+        let mempool_settings = settings
+            .mempool_settings
+            .clone()
+            .with_deadline(deadline as u64);
 
         let result = mempool.iterate_candidates(
             &mut epoch_tx,
