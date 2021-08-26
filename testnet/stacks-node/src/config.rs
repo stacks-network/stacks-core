@@ -34,6 +34,7 @@ pub struct ConfigFile {
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
+    pub miner: Option<MinerConfigFile>,
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -277,6 +278,7 @@ pub struct Config {
     pub initial_balances: Vec<InitialBalance>,
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
+    pub miner: MinerConfig,
     pub block_limit: ExecutionCost,
 }
 
@@ -478,6 +480,20 @@ impl Config {
                 }
             }
             None => default_burnchain_config,
+        };
+
+        let miner_default_config = MinerConfig::default();
+        let miner = match config_file.miner {
+            Some(ref miner) => MinerConfig {
+                max_miner_time_ms: miner
+                    .max_miner_time_ms
+                    .unwrap_or(miner_default_config.max_miner_time_ms),
+                min_tx_fee: miner.min_tx_fee.unwrap_or(miner_default_config.min_tx_fee),
+                min_cumulative_tx_fee: miner
+                    .min_cumulative_tx_fee
+                    .unwrap_or(miner_default_config.min_cumulative_tx_fee),
+            },
+            None => miner_default_config,
         };
 
         let supported_modes = vec![
@@ -721,6 +737,7 @@ impl Config {
             events_observers,
             connection_options,
             block_limit,
+            miner,
         }
     }
 
@@ -834,6 +851,7 @@ impl std::default::Default for Config {
             events_observers: vec![],
             connection_options,
             block_limit,
+            miner: MinerConfig::default(),
         }
     }
 }
@@ -1085,6 +1103,23 @@ impl NodeConfig {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct MinerConfig {
+    pub max_miner_time_ms: u64,
+    pub min_tx_fee: u64,
+    pub min_cumulative_tx_fee: u64,
+}
+
+impl MinerConfig {
+    pub fn default() -> MinerConfig {
+        MinerConfig {
+            max_miner_time_ms: 10_000,
+            min_tx_fee: 1,
+            min_cumulative_tx_fee: 1,
+        }
+    }
+}
+
 #[derive(Clone, Default, Deserialize)]
 pub struct ConnectionOptionsFile {
     pub inbox_maxlen: Option<usize>,
@@ -1149,6 +1184,13 @@ pub struct NodeConfigFile {
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
+}
+
+#[derive(Clone, Deserialize, Default)]
+pub struct MinerConfigFile {
+    pub max_miner_time_ms: Option<u64>,
+    pub min_tx_fee: Option<u64>,
+    pub min_cumulative_tx_fee: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default)]
