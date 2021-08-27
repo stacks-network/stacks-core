@@ -143,7 +143,7 @@ pub struct MemPoolTxMetadata {
 pub struct MemPoolWalkSettings {
     pub min_tx_fee: u64,
     pub min_cumulative_fee: u64,
-    pub deadline: u64,
+    pub max_walk_time_ms: u64
 }
 
 impl MemPoolWalkSettings {
@@ -151,20 +151,14 @@ impl MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 1,
             min_cumulative_fee: 1,
-            deadline: u64::max_value(),
+            max_walk_time_ms: u64::max_value(),
         }
     }
     pub fn zero() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 0,
             min_cumulative_fee: 0,
-            deadline: u64::max_value(),
-        }
-    }
-    pub fn with_deadline(self, deadline: u64) -> MemPoolWalkSettings {
-        MemPoolWalkSettings {
-            deadline: deadline,
-            ..self
+            max_walk_time_ms: u64::max_value(),
         }
     }
 }
@@ -465,8 +459,9 @@ impl MemPoolDB {
         let min_tx_fee = settings.min_tx_fee;
 
         let mut done = false;
+        let deadline = get_epoch_time_ms() + (settings.max_walk_time_ms as u128);
         while !done {
-            if (settings.deadline as u128) <= get_epoch_time_ms() {
+            if deadline <= get_epoch_time_ms() {
                 break;
             }
 
@@ -495,7 +490,7 @@ impl MemPoolDB {
             let mut origin_offset = 0;
 
             for origin_address in origin_addresses.iter() {
-                if (settings.deadline as u128) <= get_epoch_time_ms() {
+                if deadline <= get_epoch_time_ms() {
                     done = true;
                     break;
                 }
