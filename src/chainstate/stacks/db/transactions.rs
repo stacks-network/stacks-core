@@ -1496,13 +1496,14 @@ pub mod test {
 
             let res = StacksChainState::process_transaction(&mut conn, &signed_tx, false);
             assert!(res.is_err());
+            let error = res.unwrap_err();
 
-            match res {
-                Err(Error::InvalidStacksTransaction(msg, false)) => {
+            match error {
+                Error::InvalidStacksTransaction(msg, false) => {
                     assert!(msg.contains(&err_frag), "{}", err_frag);
                 }
                 _ => {
-                    eprintln!("bad error: {:?}", &res);
+                    eprintln!("bad error: {:?}", &error);
                     eprintln!("Expected '{}'", &err_frag);
                     assert!(false);
                 }

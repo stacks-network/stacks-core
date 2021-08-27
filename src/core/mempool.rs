@@ -21,7 +21,6 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 
-use chainstate::stacks::events::TransactionResult;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::Error as SqliteError;
@@ -33,6 +32,7 @@ use rusqlite::NO_PARAMS;
 
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
+use chainstate::stacks::events::TransactionResult;
 use chainstate::stacks::TransactionPayload;
 use chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, index::Error as MarfError,
@@ -1055,6 +1055,8 @@ mod tests {
         chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
     };
 
+    use chainstate::stacks::events::TransactionResult;
+
     use super::MemPoolDB;
 
     const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
@@ -1243,9 +1245,12 @@ mod tests {
 
         let mut count_txs = 0;
         mempool
-            .iterate_candidates::<_, ChainstateError>(2, |available_txs| {
-                count_txs += available_txs.len();
-                Ok(())
+            .iterate_candidates::<_, ChainstateError>(2, |available_tx| {
+                count_txs += 1;
+                TransactionResult::skipped(
+                    &available_tx.tx,
+                    "No StacksTransactionReceipt available".to_string(),
+                )
             })
             .unwrap();
         assert_eq!(
@@ -1255,9 +1260,12 @@ mod tests {
 
         let mut count_txs = 0;
         mempool
-            .iterate_candidates::<_, ChainstateError>(3, |available_txs| {
-                count_txs += available_txs.len();
-                Ok(())
+            .iterate_candidates::<_, ChainstateError>(3, |available_tx| {
+                count_txs += 1;
+                TransactionResult::skipped(
+                    &available_tx.tx,
+                    "No StacksTransactionReceipt available".to_string(),
+                )
             })
             .unwrap();
         assert_eq!(
@@ -1267,9 +1275,12 @@ mod tests {
 
         let mut count_txs = 0;
         mempool
-            .iterate_candidates::<_, ChainstateError>(2, |available_txs| {
-                count_txs += available_txs.len();
-                Ok(())
+            .iterate_candidates::<_, ChainstateError>(2, |available_tx| {
+                count_txs += 1;
+                TransactionResult::skipped(
+                    &available_tx.tx,
+                    "No StacksTransactionReceipt available".to_string(),
+                )
             })
             .unwrap();
         assert_eq!(
@@ -1279,9 +1290,12 @@ mod tests {
 
         let mut count_txs = 0;
         mempool
-            .iterate_candidates::<_, ChainstateError>(3, |available_txs| {
-                count_txs += available_txs.len();
-                Ok(())
+            .iterate_candidates::<_, ChainstateError>(3, |available_tx| {
+                count_txs += 1;
+                TransactionResult::skipped(
+                    &available_tx.tx,
+                    "No StacksTransactionReceipt available".to_string(),
+                )
             })
             .unwrap();
         assert_eq!(

@@ -911,27 +911,37 @@ impl StacksBlockBuilder {
         if !self.anchored_done {
             // save
             match StacksChainState::process_transaction(clarity_tx, tx, quiet) {
-                Ok((fee, receipt)) => {
+                TransactionResult::Success(TransactionSuccess {
+                    tx: _,
+                    fee,
+                    receipt,
+                }) => {
                     self.total_anchored_fees += fee;
                 }
-                Err(e) => {
-                    warn!("Invalid transaction {} in anchored block, but forcing inclusion (error: {:?})", &tx.txid(), &e);
+                TransactionResult::Error(TransactionError { tx: _, error }) => {
+                    warn!("Invalid transaction {} in anchored block, but forcing inclusion (error: {:?})", &tx.txid(), &error);
                 }
+                _ => {}
             }
 
             self.txs.push(tx.clone());
         } else {
             match StacksChainState::process_transaction(clarity_tx, tx, quiet) {
-                Ok((fee, receipt)) => {
+                TransactionResult::Success(TransactionSuccess {
+                    tx: _,
+                    fee,
+                    receipt,
+                }) => {
                     self.total_streamed_fees += fee;
                 }
-                Err(e) => {
+                TransactionResult::Error(TransactionError { tx: _, error }) => {
                     warn!(
                         "Invalid transaction {} in microblock, but forcing inclusion (error: {:?})",
                         &tx.txid(),
-                        &e
+                        &error
                     );
                 }
+                _ => {}
             }
 
             self.micro_txs.push(tx.clone());
