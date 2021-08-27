@@ -263,12 +263,12 @@
 (define-read-only (get-reward-set-pox-address (reward-cycle uint) (index uint))
     (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: index }))
 
-;; Add a PoX address to the ith reward cycle, if i is between 0 and the given num-cycles (exclusive).
-;; Arguments are given as a tuple, so this function can be (map ..)'ed onto a list of its arguments.
+;; Add a PoX address to the `cycle-index`-th reward cycle, if `cycle-index` is between 0 and the given num-cycles (exclusive).
+;; Arguments are given as a tuple, so this function can be (folded ..)'ed onto a list of its arguments.
 ;; Used by add-pox-addr-to-reward-cycles.
 ;; No checking is done.
-;; Returns 1 if added.
-;; Returns 0 if not added.
+;; The returned tuple is the same as inputted `params`, but the `i` field is incremented if
+;;  the pox-addr was added to the given cycle. 
 (define-private (add-pox-addr-to-ith-reward-cycle (cycle-index uint) (params (tuple 
                                                             (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                                             (first-reward-cycle uint)
