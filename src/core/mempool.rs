@@ -385,6 +385,9 @@ impl MemPoolDB {
     ///  no more transactions to consider. Each batch of transactions
     ///  passed to todo will be sorted by sponsor_nonce.
     ///
+    ///  `todo` must return a result of type StacksTransactionResult, indicating the outcome of the
+    ///  transaction.
+    ///
     /// Consider transactions across all forks where the transactions have
     /// height >= max(0, tip_height - MEMPOOL_MAX_TRANSACTION_AGE) and height <= tip_height.
     pub fn iterate_candidates<F, E>(
