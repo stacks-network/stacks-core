@@ -562,7 +562,7 @@ fn pox_2_contract_caller_units() {
             .0
             .to_string(),
             "(err 9)".to_string(),
-            "After revocation, stack-through shouldn't be an allowed caller for POX_ADDR[0] in the PoX2 contract",
+            "After revocation, stack-through shouldn't be an allowed caller for User 0 in the PoX2 contract",
         );
 
         assert_eq!(
@@ -582,7 +582,7 @@ fn pox_2_contract_caller_units() {
             .0
             .to_string(),
             "(err 9)".to_string(),
-            "After revocation, stack-through still shouldn't be an allowed caller for POX_ADDR[1] in the PoX2 contract",
+            "After revocation, stack-through still shouldn't be an allowed caller for User 1 in the PoX2 contract",
         );
 
         let until_height = Value::UInt(burn_height.clone().expect_u128() + 1);
@@ -942,23 +942,6 @@ fn pox_2_delegate_extend_units() {
                 (&USER_KEYS[0]).into(),
                 None,
                 POX_2_CONTRACT_TESTNET.clone(),
-                "stack-extend",
-                &symbols_from_values(vec![
-                    Value::UInt(3),
-                    POX_ADDRS[0].clone(),
-                ])
-            )
-            .unwrap()
-            .0
-            .to_string(),
-            "(err 26)".to_string()
-        );
-
-        assert_eq!(
-            env.execute_transaction(
-                (&USER_KEYS[0]).into(),
-                None,
-                POX_2_CONTRACT_TESTNET.clone(),
                 "delegate-stx",
                 &symbols_from_values(vec![
                     Value::UInt(2 * USTX_PER_HOLDER),
@@ -969,7 +952,8 @@ fn pox_2_delegate_extend_units() {
             )
             .unwrap()
             .0,
-            Value::okay_true()
+            Value::okay_true(),
+            "Successfully setup delegate relationship between User0 and delegate",
         );
 
         assert_eq!(
@@ -987,7 +971,8 @@ fn pox_2_delegate_extend_units() {
             )
             .unwrap()
             .0,
-            Value::okay_true()
+            Value::okay_true(),
+            "Successfully setup delegate relationship between User1 and delegate",
         );
 
         assert_eq!(
@@ -1005,6 +990,7 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0.to_string(),
             "(err 26)".to_string(),
+            "Should not be able to delegate-stack-extend before locking",
         );
 
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
@@ -1029,7 +1015,8 @@ fn pox_2_delegate_extend_units() {
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(*MIN_THRESHOLD - 1),
                 Value::UInt(450)
-            ))
+            )),
+            "Delegate should successfully stack through delegation from User0",
         );
 
         assert_eq!(
@@ -1053,7 +1040,8 @@ fn pox_2_delegate_extend_units() {
                 Value::from(&USER_KEYS[1]),
                 Value::UInt(1),
                 Value::UInt(450)
-            ))
+            )),
+            "Delegate should successfully stack through delegation from User1",
         );
 
         assert_eq!(
@@ -1067,7 +1055,8 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0
             .to_string(),
-            "(ok true)".to_string()
+            "(ok true)".to_string(),
+            "Delegate should successfully aggregate commits for cycle 1",
         );
 
         assert_eq!(
@@ -1081,7 +1070,8 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0
             .to_string(),
-            "(ok true)".to_string()
+            "(ok true)".to_string(),
+            "Delegate should successfully aggregate commits for cycle 2",
         );
 
         assert_eq!(
@@ -1095,7 +1085,8 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 4)".to_string()
+            "(err 4)".to_string(),
+            "Delegate does not have enough aggregate locked up for cycle 3",
         );
 
         assert_eq!(
@@ -1113,7 +1104,8 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 2)"
+            "(err 2)",
+            "Delegate should not be able to extend over 12 cycles into future (current cycle is 0, previously stacked to 2, extend by 11 disallowed)",
         );
 
         assert_eq!(
@@ -1135,7 +1127,8 @@ fn pox_2_delegate_extend_units() {
                 Value::from(&USER_KEYS[1]),
                 // unlock-burn-height should be 10 reward cycles greater than prior unlock height
                 Value::UInt(450 + 10 * 150),
-            ))
+            )),
+            "Delegate should be able to extend 12 cycles into future (current cycle is 0, previously stacked to 2, extend by 10 allowed).",
         );
 
         assert_eq!(
@@ -1149,7 +1142,8 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0
             .to_string(),
-            "(err 11)".to_string()
+            "(err 11)".to_string(),
+            "Delegate still does not have enough aggregate locked up for cycle 3",
         );
 
 
@@ -1163,7 +1157,8 @@ fn pox_2_delegate_extend_units() {
             )
             .unwrap()
             .0,
-            Value::okay_true()
+            Value::okay_true(),
+            "User0 successfully revokes delegation relationship",
         );
 
         assert_eq!(
@@ -1179,7 +1174,10 @@ fn pox_2_delegate_extend_units() {
                 ])
             )
             .unwrap()
-            .0.to_string(), "(err 9)".to_string());
+            .0.to_string(),
+            "(err 9)".to_string(),
+            "Delegate cannot stack-extend for User0 after revocation",
+        );
 
         assert_eq!(
             env.execute_transaction(
@@ -1196,7 +1194,8 @@ fn pox_2_delegate_extend_units() {
             )
             .unwrap()
             .0,
-            Value::okay_true()
+            Value::okay_true(),
+            "User0 successfully re-inits delegation relationship with a `amount-ustx` = 1",
         );
 
         assert_eq!(
@@ -1212,7 +1211,10 @@ fn pox_2_delegate_extend_units() {
                 ])
             )
             .unwrap()
-            .0.to_string(), "(err 22)".to_string());
+            .0.to_string(),
+            "(err 22)".to_string(),
+            "Delegate cannot stack-extend for User0 because it would require more than User0's allowed amount (1)",
+        );
 
         assert_eq!(
             env.execute_transaction(
@@ -1224,7 +1226,8 @@ fn pox_2_delegate_extend_units() {
             )
             .unwrap()
             .0,
-            Value::okay_true()
+            Value::okay_true(),
+            "User0 successfully revokes delegation relationship",
         );
 
         assert_eq!(
@@ -1242,7 +1245,8 @@ fn pox_2_delegate_extend_units() {
             )
             .unwrap()
             .0,
-            Value::okay_true()
+            Value::okay_true(),
+            "User0 successfully re-inits delegation relationship with a `pox-addr` = POX_ADDR[2]",
         );
 
         assert_eq!(
@@ -1258,7 +1262,9 @@ fn pox_2_delegate_extend_units() {
                 ])
             )
             .unwrap()
-            .0.to_string(), "(err 23)".to_string());
+            .0.to_string(), "(err 23)".to_string(),
+            "Delegate cannot stack-extend for User0 at POX_ADDR[1] because User0 specified to use POX_ADDR[2]",
+        );
 
         assert_eq!(
             env.execute_transaction(
@@ -1270,7 +1276,8 @@ fn pox_2_delegate_extend_units() {
             )
             .unwrap()
             .0,
-            Value::okay_true()
+            Value::okay_true(),
+            "User0 successfully revokes delegation relationship",
         );
 
         assert_eq!(
@@ -1288,7 +1295,8 @@ fn pox_2_delegate_extend_units() {
             )
             .unwrap()
             .0,
-            Value::okay_true()
+            Value::okay_true(),
+            "User0 successfully re-inits delegation relationship with a `until-ht` one less than necessary for an extend-by-10",
         );
 
         assert_eq!(
@@ -1304,7 +1312,9 @@ fn pox_2_delegate_extend_units() {
                 ])
             )
             .unwrap()
-            .0.to_string(), "(err 21)".to_string());
+            .0.to_string(), "(err 21)".to_string(),
+            "Delegate cannot stack-extend for User0 for 10 cycles",
+);
 
         assert_eq!(
             env.execute_transaction(
@@ -1325,7 +1335,8 @@ fn pox_2_delegate_extend_units() {
                 Value::from(&USER_KEYS[0]),
                 // unlock-burn-height should be 9 reward cycles greater than prior unlock height
                 Value::UInt(450 + 9 * 150),
-            ))
+            )),
+            "Delegate successfully stack extends for User0 for 9 cycles",
         );
 
         for cycle in 3..12 {
@@ -1340,7 +1351,8 @@ fn pox_2_delegate_extend_units() {
                     .unwrap()
                     .0
                     .to_string(),
-                "(ok true)".to_string()
+                "(ok true)".to_string(),
+                "For cycles in [3, 12), delegate has enough to successfully aggregate commit",
             );
 
             // call a second time to make sure that the partial map reset.
@@ -1355,7 +1367,8 @@ fn pox_2_delegate_extend_units() {
                     .unwrap()
                     .0
                     .to_string(),
-                "(err 4)".to_string()
+                "(err 4)".to_string(),
+                "Delegate cannot aggregate commit a second time",
             );
 
         }
@@ -1371,9 +1384,13 @@ fn pox_2_delegate_extend_units() {
                 .unwrap()
                 .0
                 .to_string(),
-            "(err 11)".to_string()
+            "(err 11)".to_string(),
+            "At cycle 12, delegate cannot aggregate commit because only one stacker was extended by 10"
         );
 
+        // check reward cycles [0, 20) for coherence
+        // for cycles [1, 11] ==> delegate successfully committed the minimum threshold and should appear in the reward set
+        // for all other cycles, reward set should be empty
         for cycle in 0..20 {
             eprintln!("Cycle number = {}, MIN_THRESHOLD  = {}", cycle, MIN_THRESHOLD.deref());
             let empty_set = cycle < 1 || cycle >= 12;
