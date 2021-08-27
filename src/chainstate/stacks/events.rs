@@ -146,17 +146,44 @@ impl TransactionResult {
         })
     }
 
-    pub fn unwrap(&self) -> (u64, StacksTransactionReceipt) {
-        panic!("hi");
-    }
-    pub fn unwrap_err(&self) -> Error {
-        panic!("hi");
-    }
-    pub fn is_err(&self) -> bool {
-        panic!("hi");
-    }
+    /// Returns true iff this enum is backed by `TransactionSuccess`.
     pub fn is_ok(&self) -> bool {
-        panic!("hi");
+        match &self {
+            TransactionResult::Success(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Returns a TransactionSuccess result as a pair of 1) fee and 2) receipt.
+    ///
+    /// Otherwise crashes.
+    pub fn unwrap(self) -> (u64, StacksTransactionReceipt) {
+        match self {
+            TransactionResult::Success(TransactionSuccess {
+                tx: _,
+                fee,
+                receipt,
+            }) => (fee, receipt),
+            _ => panic!("Tried to `unwrap` a non-success result."),
+        }
+    }
+
+    /// Returns true iff this enum is backed by `Error`.
+    pub fn is_err(&self) -> bool {
+        match &self {
+            TransactionResult::Error(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Returns an Error result as an Error.
+    ///
+    /// Otherwise crashes.
+    pub fn unwrap_err(self) -> Error {
+        match self {
+            TransactionResult::Error(TransactionError { tx: _, error }) => error,
+            _ => panic!("Tried to `unwrap_error` a non-error result."),
+        }
     }
 }
 
