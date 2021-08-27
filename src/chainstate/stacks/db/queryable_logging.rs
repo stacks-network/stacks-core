@@ -15,9 +15,9 @@ use chainstate::stacks::StacksTransaction;
 /// match this part for any transaction.
 ///
 /// Format looks like this:
-/// "Transaction outcome for tx=491493d01fc8c0f21f0891ad7c378bfb9c7b83142524f3320ea609e6b5cffa90: "
+/// "Transaction outcome 491493d01fc8c0f21f0891ad7c378bfb9c7b83142524f3320ea609e6b5cffa90: "
 fn create_transaction_key(tx: &StacksTransaction) -> String {
-    format!("Transaction outcome for tx={}:", &tx.txid())
+    format!("Transaction outcome {}:", &tx.txid())
 }
 
 /// Logs a queryable message for the case where `txid` has succeeded.
