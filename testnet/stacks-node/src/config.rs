@@ -497,7 +497,7 @@ impl Config {
                     .unwrap_or(miner_default_config.first_attempt_time_ms),
                 subsequent_attempt_time_ms: miner
                     .subsequent_attempt_time_ms
-                    .unwrap_or(miner_default_config.subsequent_attempt_time_ms)
+                    .unwrap_or(miner_default_config.subsequent_attempt_time_ms),
             },
             None => miner_default_config,
         };
@@ -677,9 +677,9 @@ impl Config {
                     walk_interval: opts
                         .walk_interval
                         .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval.clone()),
-                    dns_timeout: opts
-                        .dns_timeout
-                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone()),
+                    dns_timeout: opts.dns_timeout.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone() as u64
+                    }) as u128,
                     max_inflight_blocks: opts.max_inflight_blocks.unwrap_or_else(|| {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS
                             .max_inflight_blocks
@@ -1115,7 +1115,7 @@ pub struct MinerConfig {
     pub min_tx_fee: u64,
     pub min_cumulative_tx_fee: u64,
     pub first_attempt_time_ms: u64,
-    pub subsequent_attempt_time_ms: u64
+    pub subsequent_attempt_time_ms: u64,
 }
 
 impl MinerConfig {
@@ -1125,7 +1125,7 @@ impl MinerConfig {
             min_tx_fee: 1,
             min_cumulative_tx_fee: 1,
             first_attempt_time_ms: 1_000,
-            subsequent_attempt_time_ms: 60_000
+            subsequent_attempt_time_ms: 60_000,
         }
     }
 }
@@ -1152,7 +1152,7 @@ pub struct ConnectionOptionsFile {
     pub soft_max_clients_per_host: Option<u64>,
     pub max_sockets: Option<u64>,
     pub walk_interval: Option<u64>,
-    pub dns_timeout: Option<u128>,
+    pub dns_timeout: Option<u64>,
     pub max_inflight_blocks: Option<u64>,
     pub max_inflight_attachments: Option<u64>,
     pub read_only_call_limit_write_length: Option<u64>,
@@ -1202,7 +1202,7 @@ pub struct MinerConfigFile {
     pub min_tx_fee: Option<u64>,
     pub min_cumulative_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
-    pub subsequent_attempt_time_ms: Option<u64>
+    pub subsequent_attempt_time_ms: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default)]
