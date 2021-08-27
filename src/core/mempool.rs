@@ -143,7 +143,7 @@ pub struct MemPoolTxMetadata {
 pub struct MemPoolWalkSettings {
     pub min_tx_fee: u64,
     pub min_cumulative_fee: u64,
-    pub max_walk_time_ms: u64
+    pub max_walk_time_ms: u64,
 }
 
 impl MemPoolWalkSettings {
