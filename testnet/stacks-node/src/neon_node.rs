@@ -162,27 +162,23 @@ struct MiningTenureInformation {
 fn make_block_builder_settings(config: &Config, attempt: u64) -> BlockBuilderSettings {
     BlockBuilderSettings {
         execution_cost: config.block_limit.clone(),
-        max_miner_time_ms: 
-            if attempt <= 1 {
-                // first attempt to mine a block -- do so right away
-                config.miner.first_attempt_time_ms
-            }
-            else {
-                // second or later attempt to mine a block -- give it some time
-                config.miner.subsequent_attempt_time_ms
-            },
+        max_miner_time_ms: if attempt <= 1 {
+            // first attempt to mine a block -- do so right away
+            config.miner.first_attempt_time_ms
+        } else {
+            // second or later attempt to mine a block -- give it some time
+            config.miner.subsequent_attempt_time_ms
+        },
         mempool_settings: MemPoolWalkSettings {
             min_tx_fee: config.miner.min_tx_fee,
             min_cumulative_fee: config.miner.min_cumulative_tx_fee,
-            max_walk_time_ms:
-                if attempt <= 1 {
-                    // first attempt to mine a block -- do so right away
-                    config.miner.first_attempt_time_ms
-                }
-                else {
-                    // second or later attempt to mine a block -- give it some time
-                    config.miner.subsequent_attempt_time_ms
-                }
+            max_walk_time_ms: if attempt <= 1 {
+                // first attempt to mine a block -- do so right away
+                config.miner.first_attempt_time_ms
+            } else {
+                // second or later attempt to mine a block -- give it some time
+                config.miner.subsequent_attempt_time_ms
+            },
         },
     }
 }
@@ -1022,23 +1018,37 @@ fn spawn_miner_relayer(
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
                     if last_tenure_issue_time > issue_timestamp_ms {
-                        // coalesce
+                        // coalesce -- stale
                         continue;
                     }
 
                     let burn_header_hash = last_burn_block.burn_header_hash.clone();
-                    let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-                        .expect("FATAL: failed to query sortition DB for canonical burn chain tip")
-                        .burn_header_hash;
+                    let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                        .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
+                    let burn_chain_tip = burn_chain_sn
+                        .burn_header_hash
+                        .clone();
+
+                    let mut burn_tenure_snapshot = last_burn_block.clone();
                     if burn_chain_tip == burn_header_hash {
                         // no burnchain change, so only re-run block tenure every so often in order
                         // to give microblocks a chance to collect
-                        if issue_timestamp_ms + (config.node.wait_time_for_microblocks as u128) < last_tenure_issue_time {
+                        if issue_timestamp_ms < last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128) {
+                            debug!("Relayer: will NOT run tenure since issuance is too fresh");
                             continue;
                         }
                     }
-                    
+                    else {
+                        // burnchain has changed since this directive was sent, so mine immediately
+                        burn_tenure_snapshot = burn_chain_sn;
+                        if issue_timestamp_ms + (config.node.wait_time_for_microblocks as u128) < get_epoch_time_ms() {
+                            // still waiting for microblocks to arrive
+                            continue;
+                        }
+                        debug!("Relayer: burnchain has advanced from {} to {}", &burn_header_hash, &burn_chain_tip);
+                    }
+
                     debug!(
                         "Relayer: Run tenure";
                         "height" => last_burn_block.block_height,
@@ -1056,7 +1066,7 @@ fn spawn_miner_relayer(
                         &mut chainstate,
                         &mut sortdb,
                         &burnchain,
-                        last_burn_block,
+                        burn_tenure_snapshot,
                         &mut keychain,
                         &mut mem_pool,
                         burn_fee_cap,
@@ -1620,11 +1630,28 @@ impl InitializedNeonNode {
             );
             for prev_block in last_mined_blocks.iter() {
                 debug!(
-                    "Consider in-flight Stacks tip {}/{} in {}",
+                    "Consider in-flight block {} on Stacks tip {}/{} in {} with {} txs",
+                    &prev_block.anchored_block.block_hash(),
                     &prev_block.parent_consensus_hash,
                     &prev_block.anchored_block.header.parent_block,
-                    &prev_block.my_burn_hash
+                    &prev_block.my_burn_hash,
+                    &prev_block.anchored_block.txs.len()
                 );
+                if prev_block.anchored_block.txs.len() == 1 {
+                    if last_mined_blocks.len() == 1 {
+                        // this is an empty block, and we've only tried once before. We should always
+                        // try again, with the `subsequent_miner_time_ms` allotment, in order to see if
+                        // we can make a bigger block
+                        debug!("Have only mined one empty block off of {}/{} height {}; unconditionally trying again", &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work);
+                        best_attempt = 1;
+                        break;
+                    } else if prev_block.attempt == 1 {
+                        // Don't let the fact that we've built an empty block during this sortition
+                        // prevent us from trying again.
+                        best_attempt = 1;
+                        continue;
+                    }
+                }
                 if prev_block.parent_consensus_hash == parent_consensus_hash
                     && prev_block.my_burn_hash == burn_block.burn_header_hash
                     && prev_block.anchored_block.header.parent_block
@@ -1655,8 +1682,8 @@ impl InitializedNeonNode {
                         {
                             // the chain tip hasn't changed since we attempted to build a block.  Use what we
                             // already have.
-                            debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {}), and no new microblocks ({} <= {})",
-                                   &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
+                            debug!("Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no new microblocks ({} <= {})",
+                                   &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                    prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
                             return None;
@@ -1665,24 +1692,30 @@ impl InitializedNeonNode {
                             // TODO: only consider rebuilding our anchored block if we (a) have
                             // time, and (b) the new microblocks are worth more than the new BTC
                             // fee minus the old BTC fee
-                            debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {}), but there are new microblocks ({} > {})",
-                                   &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
+                            debug!("Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, but there are new microblocks ({} > {})",
+                                   &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                    prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
                             best_attempt = cmp::max(best_attempt, prev_block.attempt);
                         }
                     } else {
                         // no microblock stream to confirm, and the stacks tip hasn't changed
-                        debug!("Stacks tip is unchanged since we last tried to mine a block ({}/{} at height {} with {} txs, in {} at burn height {}), and no microblocks present",
-                               &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work,
+                        debug!("Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no microblocks present",
+                               &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height);
 
                         return None;
                     }
                 } else {
-                    debug!("Stacks tip has changed since we last tried to mine a block in {} at burn height {}; attempt was {} (for {}/{})",
-                           prev_block.my_burn_hash, parent_block_burn_height, prev_block.attempt, &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block);
-                    best_attempt = cmp::max(best_attempt, prev_block.attempt);
+                    if burn_block.burn_header_hash == prev_block.my_burn_hash {
+                        // only try and re-mine if there was no sortition since the last chain tip
+                        debug!("Stacks tip has changed to {}/{} since we last tried to mine a block in {} at burn height {}; attempt was {} (for Stacks tip {}/{})",
+                               parent_consensus_hash, stacks_parent_header.anchored_header.block_hash(), prev_block.my_burn_hash, parent_block_burn_height, prev_block.attempt, &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block);
+                        best_attempt = cmp::max(best_attempt, prev_block.attempt);
+                    } else {
+                        debug!("Burn tip has changed to {} ({}) since we last tried to mine a block in {}",
+                               &burn_block.burn_header_hash, burn_block.block_height, &prev_block.my_burn_hash);
+                    }
                 }
             }
             best_attempt + 1
@@ -1830,7 +1863,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            make_block_builder_settings(&config, attempt),
+            make_block_builder_settings(&config, (last_mined_blocks.len() + 1) as u64),
             Some(event_observer),
         ) {
             Ok(block) => block,
@@ -1870,7 +1903,7 @@ impl InitializedNeonNode {
                     vrf_proof.clone(),
                     mblock_pubkey_hash,
                     &coinbase_tx,
-                    make_block_builder_settings(&config, attempt),
+                    make_block_builder_settings(&config, (last_mined_blocks.len() + 1) as u64),
                     Some(event_observer),
                 ) {
                     Ok(block) => block,
@@ -1942,19 +1975,27 @@ impl InitializedNeonNode {
         );
         let mut op_signer = keychain.generate_op_signer();
         debug!(
-            "Submit block-commit for block {} height {} off of {}/{} with microblock parent {} (seq {})",
+            "Submit block-commit for block {} tx-count {} height {} off of {}/{} with microblock parent {} (seq {}) in burn block {} ({}); attempt {}",
             &anchored_block.block_hash(),
+            anchored_block.txs.len(),
             anchored_block.header.total_work.work,
             &parent_consensus_hash,
             &anchored_block.header.parent_block,
             &anchored_block.header.parent_microblock,
-            &anchored_block.header.parent_microblock_sequence
+            &anchored_block.header.parent_microblock_sequence,
+            &burn_block.burn_header_hash,
+            burn_block.block_height,
+            attempt
         );
 
         let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
         if !res {
-            warn!("Failed to submit Bitcoin transaction");
-            return None;
+            if !config.node.mock_mining {
+                warn!("Failed to submit Bitcoin transaction");
+                return None;
+            } else {
+                debug!("Mock-mining enabled; not sending Bitcoin transaction");
+            }
         }
 
         Some((
