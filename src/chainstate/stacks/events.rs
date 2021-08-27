@@ -145,6 +145,19 @@ impl TransactionResult {
             reason: reason,
         })
     }
+
+    pub fn unwrap(&self) -> (u64, StacksTransactionReceipt) {
+        panic!("hi");
+    }
+    pub fn unwrap_err(&self) -> Error {
+        panic!("hi");
+    }
+    pub fn is_err(&self) -> bool {
+        panic!("hi");
+    }
+    pub fn is_ok(&self) -> bool {
+        panic!("hi");
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
