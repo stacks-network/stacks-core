@@ -502,7 +502,7 @@ simulating a miner.
         let stop = get_epoch_time_ms();
 
         println!(
-            "{} mined block @ height = {} off of {} ({}/{}) in {}ms",
+            "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
             if result.is_ok() {
                 "Successfully"
             } else {
@@ -515,7 +515,9 @@ simulating a miner.
             ),
             &parent_header.consensus_hash,
             &parent_header.anchored_header.block_hash(),
-            stop.saturating_sub(start)
+            stop.saturating_sub(start),
+            min_fee,
+            max_time
         );
 
         if let Ok((block, execution_cost, size)) = result {
