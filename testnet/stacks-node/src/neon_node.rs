@@ -55,7 +55,6 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::sleep_ms;
 use stacks::util::strings::{UrlString, VecDisplay};
 use stacks::util::vrf::VRFPublicKey;
 use stacks::vm::costs::ExecutionCost;
@@ -160,13 +159,30 @@ struct MiningTenureInformation {
 }
 
 /// Generate the block-builder settings from the node config
-fn get_block_builder_settings(config: &Config) -> BlockBuilderSettings {
+fn make_block_builder_settings(config: &Config, attempt: u64) -> BlockBuilderSettings {
     BlockBuilderSettings {
         execution_cost: config.block_limit.clone(),
-        max_miner_time_ms: config.miner.max_miner_time_ms,
+        max_miner_time_ms: 
+            if attempt <= 1 {
+                // first attempt to mine a block -- do so right away
+                config.miner.first_attempt_time_ms
+            }
+            else {
+                // second or later attempt to mine a block -- give it some time
+                config.miner.subsequent_attempt_time_ms
+            },
         mempool_settings: MemPoolWalkSettings {
             min_tx_fee: config.miner.min_tx_fee,
             min_cumulative_fee: config.miner.min_cumulative_tx_fee,
+            max_walk_time_ms:
+                if attempt <= 1 {
+                    // first attempt to mine a block -- do so right away
+                    config.miner.first_attempt_time_ms
+                }
+                else {
+                    // second or later attempt to mine a block -- give it some time
+                    config.miner.subsequent_attempt_time_ms
+                }
         },
     }
 }
@@ -449,7 +465,7 @@ fn try_mine_microblock(
                     last_mined: 0,
                     quantity: 0,
                     cost_so_far: cost_so_far,
-                    settings: get_block_builder_settings(config),
+                    settings: make_block_builder_settings(config, 2),
                 });
             }
             Ok(None) => {
@@ -847,8 +863,6 @@ fn spawn_miner_relayer(
     > = HashMap::new();
     let burn_fee_cap = config.burnchain.burn_fee_cap;
 
-    let mut failed_to_mine_in_block: Option<BurnchainHeaderHash> = None;
-
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
     let mut miner_tip = None;
@@ -1008,19 +1022,29 @@ fn spawn_miner_relayer(
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
                     if last_tenure_issue_time > issue_timestamp_ms {
+                        // coalesce
                         continue;
                     }
 
                     let burn_header_hash = last_burn_block.burn_header_hash.clone();
-                    debug!(
-                        "Relayer: Run tenure";
-                        "height" => last_burn_block.block_height,
-                        "burn_header_hash" => %burn_header_hash
-                    );
-
                     let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                         .expect("FATAL: failed to query sortition DB for canonical burn chain tip")
                         .burn_header_hash;
+
+                    if burn_chain_tip == burn_header_hash {
+                        // no burnchain change, so only re-run block tenure every so often in order
+                        // to give microblocks a chance to collect
+                        if issue_timestamp_ms + (config.node.wait_time_for_microblocks as u128) < last_tenure_issue_time {
+                            continue;
+                        }
+                    }
+                    
+                    debug!(
+                        "Relayer: Run tenure";
+                        "height" => last_burn_block.block_height,
+                        "burn_header_hash" => %burn_chain_tip,
+                        "last_burn_header_hash" => %burn_header_hash
+                    );
 
                     let mut last_mined_blocks_vec = last_mined_blocks
                         .remove(&burn_header_hash)
@@ -1046,8 +1070,6 @@ fn spawn_miner_relayer(
                             bump_processed_counter(&blocks_processed);
                         }
                         last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
-                    } else {
-                        failed_to_mine_in_block = Some(burn_chain_tip);
                     }
                     last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
 
@@ -1367,12 +1389,14 @@ impl InitializedNeonNode {
         if let Some(burnchain_tip) = self.last_burn_block.clone() {
             match self.leader_key_registration_state {
                 LeaderKeyRegistrationState::Active(ref key) => {
+                    /*
                     debug!(
                         "Tenure: will wait for {}s before running tenure off of {}",
                         self.sleep_before_tenure / 1000,
                         &burnchain_tip.burn_header_hash
                     );
                     sleep_ms(self.sleep_before_tenure);
+                    */
                     debug!(
                         "Tenure: Using key {:?} off of {}",
                         &key.vrf_public_key, &burnchain_tip.burn_header_hash
@@ -1530,9 +1554,8 @@ impl InitializedNeonNode {
         })
     }
 
-    // return stack's parent's burn header hash,
-    //        the anchored block,
-    //        the burn header hash of the burnchain tip
+    /// Return the assembled anchor block info and microblock private key on success.
+    /// Return None if we couldn't build a block for whatever reason
     fn relayer_run_tenure(
         config: &Config,
         registered_key: RegisteredKey,
@@ -1807,7 +1830,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            get_block_builder_settings(&config),
+            make_block_builder_settings(&config, attempt),
             Some(event_observer),
         ) {
             Ok(block) => block,
@@ -1847,7 +1870,7 @@ impl InitializedNeonNode {
                     vrf_proof.clone(),
                     mblock_pubkey_hash,
                     &coinbase_tx,
-                    get_block_builder_settings(&config),
+                    make_block_builder_settings(&config, attempt),
                     Some(event_observer),
                 ) {
                     Ok(block) => block,
