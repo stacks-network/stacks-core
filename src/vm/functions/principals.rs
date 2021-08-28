@@ -8,7 +8,7 @@ use vm::errors::{
 use vm::representations::ClarityName;
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    BuffData, BufferLength, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    BuffData, BufferLength, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
     SequenceSubtype, StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 use vm::{eval, Environment, LocalContext};
@@ -75,9 +75,9 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
         }
     };
 
-    if !version_matches_mainnet(version_byte) && !version_matches_testnet(version_byte) {
-        return Err(CheckErrors::InvalidVersionByte.into());
-    }
+    // `version_byte_is_valid` determines whether the returned `Response` is through the success
+    // channel or the error channel.
+    let version_byte_is_valid = version_matches_mainnet(version_byte) || version_matches_testnet(version_byte) ;
 
     let buffer_data = match Value::buff_from(hash_bytes.to_vec()) {
         Ok(data) => data,
@@ -95,7 +95,10 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
         ),
     ])?;
 
-    Ok(Value::Tuple(tuple_data))
+    Ok(Value::Response(ResponseData{
+        committed: version_byte_is_valid,
+        data: Box::new(Value::Tuple(tuple_data)),
+    }))
 }
 
 pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<Value> {
