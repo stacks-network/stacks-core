@@ -460,8 +460,19 @@ impl MemPoolDB {
 
         let mut done = false;
         let deadline = get_epoch_time_ms() + (settings.max_walk_time_ms as u128);
+        let mut total_considered = 0;
+        let mut total_origins = 0;
+
+        test_debug!(
+            "Mempool walk for {}ms, min tx fee {}, min cumulative tx fees {}",
+            settings.max_walk_time_ms,
+            min_tx_fee,
+            min_cumulative_fees
+        );
+
         while !done {
             if deadline <= get_epoch_time_ms() {
+                test_debug!("Mempool iteration deadline exceeded");
                 break;
             }
 
@@ -486,11 +497,9 @@ impl MemPoolDB {
                 break;
             }
 
-            let origin_page_size = 1000;
-            let mut origin_offset = 0;
-
             for origin_address in origin_addresses.iter() {
                 if deadline <= get_epoch_time_ms() {
+                    test_debug!("Mempool iteration deadline exceeded");
                     done = true;
                     break;
                 }
@@ -501,37 +510,60 @@ impl MemPoolDB {
                 )
                 .nonce;
 
-                let sql = "SELECT * FROM mempool WHERE height > ?1 AND height <= ?2 AND origin_nonce >= ?3 AND tx_fee >= ?4 ORDER BY tx_fee DESC, origin_nonce ASC, sponsor_nonce ASC LIMIT ?5 OFFSET ?6";
-                let args: &[&dyn ToSql] = &[
-                    &min_height,
-                    &max_height,
-                    &u64_to_sql(min_nonce)?,
-                    &u64_to_sql(min_tx_fee)?,
-                    &origin_page_size,
-                    &(origin_offset * origin_page_size),
-                ];
+                total_origins += 1;
 
-                let txs = query_rows::<MemPoolTxInfo, _>(self.conn(), sql, args)?;
-
-                debug!(
-                    "Consider {} transactions from {} with nonce >= {}",
-                    txs.len(),
+                test_debug!(
+                    "Consider mempool transactions from origin address {} nonce {} and higher",
                     &origin_address,
                     min_nonce
                 );
-                if txs.len() == 0 {
-                    break;
-                }
 
-                if !todo(clarity_tx, txs)? {
-                    done = true;
-                    break;
-                }
+                let origin_page_size = 1000;
+                let mut origin_offset = 0;
+                while !done {
+                    let sql = "SELECT * FROM mempool WHERE origin_address = ?1 AND height > ?2 AND height <= ?3 AND origin_nonce >= ?4 AND tx_fee >= ?5 ORDER BY origin_nonce ASC, sponsor_nonce ASC LIMIT ?6 OFFSET ?7";
+                    let args: &[&dyn ToSql] = &[
+                        &origin_address.to_string(),
+                        &min_height,
+                        &max_height,
+                        &u64_to_sql(min_nonce)?,
+                        &u64_to_sql(min_tx_fee)?,
+                        &origin_page_size,
+                        &(origin_offset * origin_page_size),
+                    ];
 
-                origin_offset += 1;
+                    let txs = query_rows::<MemPoolTxInfo, _>(self.conn(), sql, args)?;
+                    if txs.len() == 0 {
+                        break;
+                    }
+                    total_considered += txs.len();
+
+                    debug!(
+                        "Consider {} transactions from {} between heights {},{} with nonce >= {} and tx_fee >= {} (page {})",
+                        txs.len(),
+                        &origin_address,
+                        min_height,
+                        max_height,
+                        min_nonce,
+                        min_tx_fee,
+                        origin_offset
+                    );
+
+                    if !todo(clarity_tx, txs)? {
+                        test_debug!("Mempool early return from iteration");
+                        done = true;
+                        break;
+                    }
+
+                    origin_offset += 1;
+                }
             }
             offset += 1;
         }
+        debug!(
+            "Mempool iteration finished; considered {} transactions across {} origin addresses",
+            total_considered, total_origins
+        );
         Ok(())
     }
 
