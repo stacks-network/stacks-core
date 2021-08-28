@@ -77,7 +77,8 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
 
     // `version_byte_is_valid` determines whether the returned `Response` is through the success
     // channel or the error channel.
-    let version_byte_is_valid = version_matches_mainnet(version_byte) || version_matches_testnet(version_byte) ;
+    let version_byte_is_valid =
+        version_matches_mainnet(version_byte) || version_matches_testnet(version_byte);
 
     let buffer_data = match Value::buff_from(hash_bytes.to_vec()) {
         Ok(data) => data,
@@ -95,7 +96,7 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
         ),
     ])?;
 
-    Ok(Value::Response(ResponseData{
+    Ok(Value::Response(ResponseData {
         committed: version_byte_is_valid,
         data: Box::new(Value::Tuple(tuple_data)),
     }))
@@ -116,11 +117,14 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         .into());
     }
 
+    //
     // Assume: verified_version.len() == 1
     let version_byte = (*verified_version)[0];
-    if !version_matches_mainnet(version_byte) && !version_matches_testnet(version_byte) {
-        return Err(CheckErrors::InvalidVersionByte.into());
-    }
+
+    // `version_byte_is_valid` determines whether the returned `Response` is through the success
+    // channel or the error channel.
+    let version_byte_is_valid =
+        version_matches_mainnet(version_byte) || version_matches_testnet(version_byte);
 
     // Check the hash bytes.
     let verified_hash_bytes = match hash_bytes {
@@ -148,5 +152,8 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         transfer_buffer[i] = verified_hash_bytes[i];
     }
     let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
-    Ok(Value::Principal(PrincipalData::Standard(principal_data)))
+    Ok(Value::Response(ResponseData {
+        committed: version_byte_is_valid,
+        data: Box::new(Value::Principal(PrincipalData::Standard(principal_data))),
+    }))
 }

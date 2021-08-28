@@ -705,7 +705,10 @@ impl TypedNativeFunction {
                         TypeSignature::PrincipalType,
                         TupleTypeSignature::try_from(vec![
                             ("error_code".into(), TypeSignature::UIntType),
-                            ("principal".into(), TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType))),
+                            (
+                                "principal".into(),
+                                TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+                            ),
                         ])
                         .expect("FAIL: PrincipalConstruct failed to initialize type signature")
                         .into(),

@@ -2571,7 +2571,8 @@ fn test_principal_parse() {
 #[test]
 fn test_principal_construct() {
     // This is the type we expect on success.
-    let expected_type = "(response principal (tuple (error_code uint) (principal (optional principal))))";
+    let expected_type =
+        "(response principal (tuple (error_code uint) (principal (optional principal))))";
     let good_pairs = [
         // Standard good example.
         (
