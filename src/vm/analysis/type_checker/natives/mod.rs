@@ -707,12 +707,20 @@ impl TypedNativeFunction {
                     ClarityName::try_from("principal".to_owned())
                         .expect("FAIL: ClarityName failed to accept default arg name"),
                 )],
-                returns: TupleTypeSignature::try_from(vec![
-                    ("version".into(), BUFF_1),
-                    ("hash-bytes".into(), BUFF_20),
-                ])
-                .expect("FAIL: PrincipalParse failed to initialize type signature")
-                .into(),
+                returns: TypeSignature::ResponseType(Box::new((
+                    TupleTypeSignature::try_from(vec![
+                        ("version".into(), BUFF_1),
+                        ("hash-bytes".into(), BUFF_20),
+                    ])
+                    .expect("FAIL: PrincipalParse failed to initialize type signature")
+                    .into(),
+                    TupleTypeSignature::try_from(vec![
+                        ("version".into(), BUFF_1),
+                        ("hash-bytes".into(), BUFF_20),
+                    ])
+                    .expect("FAIL: PrincipalParse failed to initialize type signature")
+                    .into(),
+                ))),
             }))),
             StxGetAccount => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
