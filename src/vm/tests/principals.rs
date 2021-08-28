@@ -5,7 +5,9 @@ use vm::types::BufferLength;
 use vm::types::SequenceSubtype::{BufferType, StringType};
 use vm::types::StringSubtype::ASCII;
 use vm::types::TypeSignature::{PrincipalType, SequenceType};
-use vm::types::{BuffData, PrincipalData, SequenceData, StandardPrincipalData, TupleData, Value};
+use vm::types::{
+    BuffData, PrincipalData, ResponseData, SequenceData, StandardPrincipalData, TupleData, Value,
+};
 use vm::ClarityVersion;
 
 use crate::clarity_vm::database::MemoryBackingStore;
@@ -257,7 +259,7 @@ fn test_principal_parse_bad_version_byte() {
 // Standard case where construction should work.  We compare the output of the
 // Clarity function to hand-built principals.
 fn test_principal_construct_good() {
-    // Assmble the common bytes buffer.
+    // We always use the the same bytes buffer.
     let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
     let mut transfer_buffer = [0u8; 20];
     for i in 0..bytes.len() {
@@ -267,10 +269,12 @@ fn test_principal_construct_good() {
     // Mainnet single-sig.
     let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
-            22,
-            transfer_buffer
-        ))),
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(Value::Principal(PrincipalData::Standard(
+                StandardPrincipalData(22, transfer_buffer)
+            )))
+        }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
