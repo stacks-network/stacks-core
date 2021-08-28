@@ -2047,7 +2047,8 @@ fn filter_long_runtime_tx_integration_test() {
     conf.miner.min_cumulative_tx_fee = 1;
 
     // ...but none of them will be mined since we allot zero ms to do so
-    conf.miner.max_miner_time_ms = 0;
+    conf.miner.first_attempt_time_ms = 0;
+    conf.miner.subsequent_attempt_time_ms = 0;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -4992,6 +4993,9 @@ fn atlas_stress_integration_test() {
         .initial_balances
         .append(&mut initial_balances.clone());
 
+    conf_bootstrap_node.miner.first_attempt_time_ms = u64::max_value();
+    conf_bootstrap_node.miner.subsequent_attempt_time_ms = u64::max_value();
+
     let user_1 = users.pop().unwrap();
     let initial_balance_user_1 = initial_balances.pop().unwrap();
 
@@ -5049,7 +5053,7 @@ fn atlas_stress_integration_test() {
     let tx_1 = make_contract_call(
         &user_1,
         0,
-        260,
+        1000,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "bns",
         "namespace-preorder",
@@ -5196,7 +5200,7 @@ fn atlas_stress_integration_test() {
             let tx_3 = make_contract_call(
                 &user_1,
                 2 + (batch_size * i + j) as u64,
-                500,
+                1000,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-import",
@@ -5265,7 +5269,7 @@ fn atlas_stress_integration_test() {
     let tx_4 = make_contract_call(
         &user_1,
         2 + (batch_size as u64) * (batches as u64),
-        260,
+        1000,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "bns",
         "namespace-ready",
@@ -5325,7 +5329,7 @@ fn atlas_stress_integration_test() {
             let tx_5 = make_contract_call(
                 &users[batches * batch_size + j],
                 0,
-                500,
+                1000,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-preorder",
@@ -5384,7 +5388,7 @@ fn atlas_stress_integration_test() {
             let tx_6 = make_contract_call(
                 &users[batches * batch_size + j],
                 1,
-                500,
+                1000,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-register",
@@ -5447,7 +5451,7 @@ fn atlas_stress_integration_test() {
             let tx_7 = make_contract_call(
                 &users[batches * batch_size + j],
                 2,
-                500,
+                1000,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-update",
@@ -5509,7 +5513,7 @@ fn atlas_stress_integration_test() {
             let tx_8 = make_contract_call(
                 &users[batches * batch_size + j],
                 3,
-                500,
+                1000,
                 &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
                 "bns",
                 "name-renewal",
