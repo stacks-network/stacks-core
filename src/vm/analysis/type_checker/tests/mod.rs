@@ -2570,14 +2570,16 @@ fn test_principal_parse() {
 
 #[test]
 fn test_principal_construct() {
+    // This is the type we expect on success.
+    let expected_type = "(response principal (tuple (error_code uint) (principal (optional principal))))";
     let good_pairs = [
         // Standard good example.
         (
             r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            "(response principal (tuple (err uint) (principal (optional principal))))",
+            expected_type,
         ),
         // Note: This following buffer is too short. It's not legal but is to be caught at compute stage.
-        (r#"(principal-construct 0x22 0x00)"#, "(response principal (tuple (err uint) (principal (optional principal))))"),
+        (r#"(principal-construct 0x22 0x00)"#, expected_type),
     ];
 
     for (good_test, expected) in good_pairs.iter() {
