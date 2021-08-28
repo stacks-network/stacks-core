@@ -2537,7 +2537,7 @@ fn test_principal_parse() {
         // Standard good example.
         r#"(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
     ];
-    let expected = ["(tuple (hash-bytes (buff 20)) (version (buff 1)))"];
+    let expected = ["(response (tuple (hash-bytes (buff 20)) (version (buff 1))) (tuple (hash-bytes (buff 20)) (version (buff 1))))"];
 
     let bad = [
         // Too many arguments.
@@ -2574,10 +2574,10 @@ fn test_principal_construct() {
         // Standard good example.
         (
             r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            "principal",
+            "(response principal (tuple (err uint) (principal (optional principal))))",
         ),
         // Note: This following buffer is too short. It's not legal but is to be caught at compute stage.
-        (r#"(principal-construct 0x22 0x00)"#, "principal"),
+        (r#"(principal-construct 0x22 0x00)"#, "(response principal (tuple (err uint) (principal (optional principal))))"),
     ];
 
     for (good_test, expected) in good_pairs.iter() {
