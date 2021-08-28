@@ -1399,14 +1399,6 @@ impl InitializedNeonNode {
         if let Some(burnchain_tip) = self.last_burn_block.clone() {
             match self.leader_key_registration_state {
                 LeaderKeyRegistrationState::Active(ref key) => {
-                    /*
-                    debug!(
-                        "Tenure: will wait for {}s before running tenure off of {}",
-                        self.sleep_before_tenure / 1000,
-                        &burnchain_tip.burn_header_hash
-                    );
-                    sleep_ms(self.sleep_before_tenure);
-                    */
                     debug!(
                         "Tenure: Using key {:?} off of {}",
                         &key.vrf_public_key, &burnchain_tip.burn_header_hash
