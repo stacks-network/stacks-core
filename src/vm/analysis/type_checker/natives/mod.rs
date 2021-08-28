@@ -698,7 +698,18 @@ impl TypedNativeFunction {
                                 .expect("FAIL: ClarityName failed to accept default arg name"),
                         ),
                     ],
-                    returns: TypeSignature::PrincipalType,
+                    // On success, return a Principal.
+                    // On failure, return a pair of 1) uint-valued error code, 2) optionally a
+                    // principal.
+                    returns: TypeSignature::ResponseType(Box::new((
+                        TypeSignature::PrincipalType,
+                        TupleTypeSignature::try_from(vec![
+                            ("err".into(), TypeSignature::UIntType),
+                            ("principal".into(), TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType))),
+                        ])
+                        .expect("FAIL: PrincipalConstruct failed to initialize type signature")
+                        .into(),
+                    ))),
                 })))
             }
             PrincipalParse => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
@@ -707,20 +718,22 @@ impl TypedNativeFunction {
                     ClarityName::try_from("principal".to_owned())
                         .expect("FAIL: ClarityName failed to accept default arg name"),
                 )],
-                returns: TypeSignature::ResponseType(Box::new((
-                    TupleTypeSignature::try_from(vec![
-                        ("version".into(), BUFF_1),
-                        ("hash-bytes".into(), BUFF_20),
-                    ])
-                    .expect("FAIL: PrincipalParse failed to initialize type signature")
-                    .into(),
-                    TupleTypeSignature::try_from(vec![
-                        ("version".into(), BUFF_1),
-                        ("hash-bytes".into(), BUFF_20),
-                    ])
-                    .expect("FAIL: PrincipalParse failed to initialize type signature")
-                    .into(),
-                ))),
+                returns: {
+                    /// The return type of `principal-parse` is a Response, in which the success
+                    /// and error types are the same.
+                    fn parse_principal_basic_type() -> TypeSignature {
+                        TupleTypeSignature::try_from(vec![
+                            ("version".into(), BUFF_1),
+                            ("hash-bytes".into(), BUFF_20),
+                        ])
+                        .expect("FAIL: PrincipalParse failed to initialize type signature")
+                        .into()
+                    }
+                    TypeSignature::ResponseType(Box::new((
+                        parse_principal_basic_type(),
+                        parse_principal_basic_type(),
+                    )))
+                },
             }))),
             StxGetAccount => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
