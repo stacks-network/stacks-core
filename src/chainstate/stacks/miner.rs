@@ -7303,7 +7303,7 @@ pub mod test {
                         let contract_tx = make_user_contract_publish(
                             &privks[tenure_id],
                             0,
-                            (2 * contract.len()) as u64,
+                            2000,
                             &format!("hello-world-{}", tenure_id),
                             &contract,
                         );
