@@ -366,6 +366,11 @@ pub fn eval_all(
     })
 }
 
+/// Run provided program in a brand new environment, with a transient, empty
+/// database. Only used by CLI and unit tests.
+///
+/// Returns a `Some` result representing the last line of execution, if `program` contains any
+/// executable lines. Returns `None` if there are no such executable lines.
 pub fn execute_against_version_and_network(
     program: &str,
     version: ClarityVersion,
@@ -382,29 +387,19 @@ pub fn execute_against_version_and_network(
     })
 }
 
-/* Run provided program in a brand new environment, with a transient, empty
- *  database. Only used by CLI and unit tests.
- */
+/// See `execute_against_version_and_network`.
 pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
     execute_against_version_and_network(program, version, false)
 }
 
-/* Run provided program in a brand new environment, with a transient, empty
- *  database. Only used by CLI and unit tests.
- *
- * This version of the function assumes that the ClarityVersion is Clarity1.
- */
+/// See `execute_against_version_and_network`.
 pub fn execute(program: &str) -> Result<Option<Value>> {
-    execute_against_version(program, ClarityVersion::Clarity1)
+    execute_against_version_and_network(program, ClarityVersion::Clarity1, false)
 }
 
-/* Run provided program in a brand new environment, with a transient, empty
- *  database. Only used by CLI and unit tests.
- *
- * This version of the function assumes that the ClarityVersion is Clarity2.
- */
+/// See `execute_against_version_and_network`.
 pub fn execute_v2(program: &str) -> Result<Option<Value>> {
-    execute_against_version(program, ClarityVersion::Clarity2)
+    execute_against_version_and_network(program, ClarityVersion::Clarity2, false)
 }
 
 #[cfg(test)]
