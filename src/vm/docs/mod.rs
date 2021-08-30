@@ -279,8 +279,8 @@ const PRINCIPAL_PARSE_API: SimpleFunctionAPI = SimpleFunctionAPI {
 and a 20-byte *public key hash* (indicating the principal's unique identity).
 `principal-parse` will decompose a principal into its component parts, returning the pair as a tuple.
 
-This method will return an `InvalidVersionByte` error if the input `principal-address` does
-not begin with a prefix that corresponds to a valid version byte (see `principal-construct`).
+If the version byte of `principal-address` matches one of the valid version bytes for the network, then
+this returns a successful result.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
@@ -302,8 +302,17 @@ for a multi-signature account on mainnet, `0x1a` for a single-signature account 
 a testnet, `0x15` for a multi-signature account on a testnet. The public key hash
 should be a 20-byte buffer containing the hash of a public key.
 
-This method will return an `InvalidVersionByte` error if the input `version-byte` does
-not represent a valid version byte.
+The error return type is a tuple `{err_int,principal_opt}`, where `err_int` is a `uint` and
+`principal` is an Option<Principal>.
+
+If the length of the version byte buffer (which should be `(buff 1)` is `<1`, 
+or if the single version byte, interpreted as an unsigned integer is `>= 32`, this returns error `(err u1)`, and then `principal_opt` is `None`.
+If the public key hash buffer (which should be `(buff 20)`) has length `<20`, this returns error `(err 2)`, and then `principal_opt` is `None`.
+
+If the `0 <= version-byte < 32`, but the version byte is not one of the four types currently representing
+a recognized network, then we return `(err 3)`, and `principal_opt` is `Some<Principal>`. In other words, in this case
+even though it is flagged as an \"error\", the user *can* still construct a principal with a potential future version byte, if
+they choose to do so.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"

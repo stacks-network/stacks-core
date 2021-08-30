@@ -276,7 +276,7 @@ fn test_principal_parse_bad_version_byte() {
     // SZ is not a valid prefix for any Stacks network.
     let testnet_addr_test = r#"(principal-parse 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
     assert_eq!(
-        create_principal_parse_response("20", "a46ff88886c2ef9762d970b4d2c63678835bd39d", true),
+        create_principal_parse_response("20", "a46ff88886c2ef9762d970b4d2c63678835bd39d", false),
         execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false).unwrap().unwrap()
     );
 }

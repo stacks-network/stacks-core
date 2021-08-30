@@ -5,6 +5,7 @@ use vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
+use util::hash::hex_bytes;
 use vm::representations::ClarityName;
 use vm::representations::SymbolicExpression;
 use vm::types::{
@@ -62,6 +63,43 @@ pub fn special_is_standard(
     ))
 }
 
+fn create_principal_parse_tuple(version: &str, hash_bytes: &str) -> Value {
+    Value::Tuple(
+        TupleData::from_data(vec![
+            (
+                "version".into(),
+                Value::Sequence(SequenceData::Buffer(BuffData {
+                    data: hex_bytes(version).unwrap(),
+                })),
+            ),
+            (
+                "hash-bytes".into(),
+                Value::Sequence(SequenceData::Buffer(BuffData {
+                    data: hex_bytes(hash_bytes).unwrap(),
+                })),
+            ),
+        ])
+        .expect("FAIL: Failed to initialize tuple."),
+    )
+}
+
+fn create_principal_parse_response(version: &str, hash_bytes: &str, success: bool) -> Value {
+    if success {
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(create_principal_parse_tuple(version, hash_bytes)),
+        })
+    } else {
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::Tuple(TupleData::from_data(vec![
+                ("error_int".into(), Value::UInt(209)), // TODO: what is the error number?
+                ("parse_tuple".into(), create_principal_parse_tuple(version, hash_bytes)),
+            ]).expect("Failed to create TupleData"))),
+        })
+    }
+}
+
 pub fn native_principal_parse(principal: Value) -> Result<Value> {
     let (version_byte, hash_bytes) = match principal {
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
@@ -106,10 +144,14 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
     // Check the version byte.
     let verified_version = match version {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
-        _ => return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, version).into()),
+        _ => return {
+    // This is an aborting error because this should have been caught in analysis pass.
+            Err(CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))), version).into())
+        }
     };
 
-    if verified_version.len() != 1 {
+    // This is an aborting error because this should have been caught in analysis pass.
+    if verified_version.len() >= 1 {
         return Err(CheckErrors::TypeValueError(
             TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
             version,
@@ -117,9 +159,21 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         .into());
     }
 
+    // If the version byte buffer has 0 bytes, or if the byte is >= 32, this is a recoverable
+    // error.
     //
+    // TODO: ask what to do about this case.
+    if verified_version.len() == 0 {
+        // do some kind of error
+    }
+
     // Assume: verified_version.len() == 1
     let version_byte = (*verified_version)[0];
+
+    if version_byte >= 32 {
+        // do some kind of error
+    }
+
 
     // `version_byte_is_valid` determines whether the returned `Response` is through the success
     // channel or the error channel.
@@ -152,8 +206,17 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         transfer_buffer[i] = verified_hash_bytes[i];
     }
     let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
-    Ok(Value::Response(ResponseData {
-        committed: version_byte_is_valid,
-        data: Box::new(Value::Principal(PrincipalData::Standard(principal_data))),
-    }))
+    warn!("principal_data {:?}", principal_data);
+
+    if version_byte_is_valid {
+        Ok(Value::Response(ResponseData {
+            committed: version_byte_is_valid,
+            data: Box::new(Value::Principal(PrincipalData::Standard(principal_data))),
+        }))
+    } else {
+        Ok(Value::Response(ResponseData {
+            committed: version_byte_is_valid,
+            data: Box::new(Value::Principal(PrincipalData::Standard(principal_data))),
+        }))
+    }
 }
