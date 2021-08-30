@@ -274,9 +274,9 @@ Note: This function is only available starting with Stacks 2.1.",
 const PRINCIPAL_PARSE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(principal-parse principal-address)",
-    description: "A principal value is a concatenation of two components: a `(buff 1)` *version byte*
-(indicating the type of account and the type of network that this principal can spend tokens on),
-and a `(buff 20)` *public key hash* (indicating the principal's unique identity).
+    description: "A principal value is a concatenation of two components: a `(buff 1)` *version byte*,
+indicating the type of account and the type of network that this principal can spend tokens on,
+and a `(buff 20)` *public key hash*, indicating the principal's unique identity.
 `principal-parse` will decompose a principal into its component parts, returning a `Response` that
 wraps this pair as a tuple.
 
@@ -302,10 +302,6 @@ and a `(buff 20)` *public key hash*, characterizing the principal's unique ident
 `principal-construct` takes such a `(buff 1)` `version-byte` and a `(buff 20)` `hash-bytes`,
 and returns a principal.
 
-The currently recognized `version-byte` values are:  `0x16` (single-signature mainnet), `0x14`
-(multi-signature mainnet), `0x1a` (single-signature testnet), `0x15` (multi-signature testnet).
-The other values between `0x00` and `0x1f` (inclusive) are reserved for future use.
-
 This function returns a `Response`. On success, the unwrapped value is a `Principal`.
 The failure channel is a value tuple with the form
 `{err_int:UInt,principal_opt:Option<Principal>}`.
@@ -316,8 +312,8 @@ less than 20, then `err_int` will be `u1` and `principal_opt` will be `None`.
 If the single-byte `version-byte` is a value greater than `0x1f`, then `err_int` will be `u2` and
 `principal_opt` will be `None`.
 
-If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not one of the
-four currently recognized version bytes, then the error will be `u3`, and `principal_opt` will contain
+If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not an appropriate
+version byte for the current network, then the error will be `u3`, and `principal_opt` will contain
 `Some<Principal>`, where the wrapped value is the principal.
 
 Note: This function is only available starting with Stacks 2.1.",
