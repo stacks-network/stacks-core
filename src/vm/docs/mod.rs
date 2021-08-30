@@ -274,13 +274,17 @@ Note: This function is only available starting with Stacks 2.1.",
 const PRINCIPAL_PARSE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(principal-parse principal-address)",
-    description: "A principal value is a concatenation of two components: a single *version byte*
+    description: "A principal value is a concatenation of two components: a `(buff 1)` *version byte*
 (indicating the type of account and the type of network that this principal can spend tokens on),
-and a 20-byte *public key hash* (indicating the principal's unique identity).
-`principal-parse` will decompose a principal into its component parts, returning the pair as a tuple.
+and a `(buff 20)` *public key hash* (indicating the principal's unique identity).
+`principal-parse` will decompose a principal into its component parts, returning a `Response` that
+wraps this pair as a tuple.
 
 If the version byte of `principal-address` matches one of the valid version bytes for the network, then
 this returns a successful result.
+
+If the version byte of `principal-address` is not a valid version byte for the current network,
+then the error channel for the response is used to return this tuple.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
@@ -291,32 +295,34 @@ Note: This function is only available starting with Stacks 2.1.",
 const PRINCIPAL_CONSTRUCT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(principal-construct version-byte hash-bytes)",
-    description: "A principal value is a concatenation of two things: a 1-byte *version byte*,
+    description: "A principal value is a concatenation of two things: a `(buff 1)` *version byte*,
 indicating the type of account and the type of network that this principal can spend tokens on,
-and a 20-byte *public key hash*, characterizing the principal's unique identity.
-`principal-construct` takes such a `version-byte`, of type `(buff 1)`, 
-and `hash-bytes`, of type `(buff 20)`, and creates a corresponding object of type `principal`.
+and a `(buff 20)` *public key hash*, characterizing the principal's unique identity.
 
-The version byte should be `0x16` for a single-signature account on mainnet, `0x14`
-for a multi-signature account on mainnet, `0x1a` for a single-signature account on
-a testnet, `0x15` for a multi-signature account on a testnet. The public key hash
-should be a 20-byte buffer containing the hash of a public key.
+`principal-construct` takes such a `(buff 1)` `version-byte` and a `(buff 20)` `hash-bytes`,
+and returns a principal.
 
-The error return type is a tuple `{err_int,principal_opt}`, where `err_int` is a `uint` and
-`principal` is an Option<Principal>.
+The currently recognized `version-byte` values are:  `0x16` (single-signature mainnet), `0x14`
+(multi-signature mainnet), `0x1a` (single-signature testnet), `0x15` (multi-signature testnet).
+The other values between `0x00` and `0x1f` (inclusive) are reserved for future use.
 
-If the length of the version byte buffer (which should be `(buff 1)` is `<1`, 
-or if the single version byte, interpreted as an unsigned integer is `>= 32`, this returns error `(err u1)`, and then `principal_opt` is `None`.
-If the public key hash buffer (which should be `(buff 20)`) has length `<20`, this returns error `(err 2)`, and then `principal_opt` is `None`.
+This function returns a `Response`. On success, the unwrapped value is a `Principal`.
+The failure channel is a value tuple with the form
+`{err_int:UInt,principal_opt:Option<Principal>}`.
 
-If the `0 <= version-byte < 32`, but the version byte is not one of the four types currently representing
-a recognized network, then we return `(err 3)`, and `principal_opt` is `Some<Principal>`. In other words, in this case
-even though it is flagged as an \"error\", the user *can* still construct a principal with a potential future version byte, if
-they choose to do so.
+If the `version-byte` is a `buff` of length less than 1, or the `hash-bytes` is a `buff` of length
+less than 20, then `err_int` will be `u1` and `principal_opt` will be `None`.
+
+If the single-byte `version-byte` is a value greater than `0x1f`, then `err_int` will be `u2` and
+`principal_opt` will be `None`.
+
+If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not one of the
+four currently recognized version bytes, then the error will be `u3`, and `principal_opt` will contain
+`Some<Principal>`, where the wrapped value is the principal.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY
+(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)
 "#,
 };
 
