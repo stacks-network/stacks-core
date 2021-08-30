@@ -1954,7 +1954,6 @@ fn filter_low_fee_tx_integration_test() {
 
     // exclude the first 5 transactions from miner consideration
     conf.miner.min_tx_fee = 1500;
-    conf.miner.min_cumulative_tx_fee = 1500;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -2044,7 +2043,6 @@ fn filter_long_runtime_tx_integration_test() {
 
     // all transactions have high-enough fees...
     conf.miner.min_tx_fee = 1;
-    conf.miner.min_cumulative_tx_fee = 1;
 
     // ...but none of them will be mined since we allot zero ms to do so
     conf.miner.first_attempt_time_ms = 0;
