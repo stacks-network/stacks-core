@@ -141,8 +141,10 @@ pub struct MemPoolTxMetadata {
 
 #[derive(Debug, Clone)]
 pub struct MemPoolWalkSettings {
+    /// Minimum transaction fee that will be considered
     pub min_tx_fee: u64,
-    pub min_cumulative_fee: u64,
+    /// Maximum amount of time a miner will spend walking through mempool transactions, in
+    /// milliseconds.  This is a soft deadline.
     pub max_walk_time_ms: u64,
 }
 
@@ -150,14 +152,12 @@ impl MemPoolWalkSettings {
     pub fn default() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 1,
-            min_cumulative_fee: 1,
             max_walk_time_ms: u64::max_value(),
         }
     }
     pub fn zero() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 0,
-            min_cumulative_fee: 0,
             max_walk_time_ms: u64::max_value(),
         }
     }
@@ -405,21 +405,20 @@ impl MemPoolDB {
         })
     }
 
-    /// Find all origin addresses within a height range, ordered by the sum of their tx fees in
-    /// that range.
+    /// Find the origin addresses who have sent the highest-fee transactions
     fn find_origin_addresses_by_descending_fees(
         &self,
         start_height: i64,
         end_height: i64,
-        min_cumulative_fees: u64,
+        min_fees: u64,
         offset: u32,
         count: u32,
     ) -> Result<Vec<StacksAddress>, db_error> {
-        let sql = "SELECT origin_address FROM (SELECT origin_address,SUM(tx_fee) as total_tx_fees FROM mempool WHERE height > ?1 AND height <= ?2 GROUP BY origin_address) WHERE total_tx_fees >= ?3 ORDER BY total_tx_fees DESC LIMIT ?4 OFFSET ?5";
+        let sql = "SELECT DISTINCT origin_address FROM mempool WHERE height > ?1 AND height <= ?2 AND tx_fee >= ?3 ORDER BY tx_fee DESC LIMIT ?4 OFFSET ?5";
         let args: &[&dyn ToSql] = &[
             &start_height,
             &end_height,
-            &u64_to_sql(min_cumulative_fees)?,
+            &u64_to_sql(min_fees)?,
             &count,
             &offset,
         ];
@@ -455,7 +454,6 @@ impl MemPoolDB {
         let page_size = 1000;
         let mut offset = 0;
 
-        let min_cumulative_fees = settings.min_cumulative_fee;
         let min_tx_fee = settings.min_tx_fee;
 
         let mut done = false;
@@ -464,32 +462,30 @@ impl MemPoolDB {
         let mut total_origins = 0;
 
         test_debug!(
-            "Mempool walk for {}ms, min tx fee {}, min cumulative tx fees {}",
+            "Mempool walk for {}ms, min tx fee {}",
             settings.max_walk_time_ms,
             min_tx_fee,
-            min_cumulative_fees
         );
 
         while !done {
             if deadline <= get_epoch_time_ms() {
-                test_debug!("Mempool iteration deadline exceeded");
+                debug!("Mempool iteration deadline exceeded");
                 break;
             }
 
             let origin_addresses = self.find_origin_addresses_by_descending_fees(
                 min_height,
                 max_height,
-                min_cumulative_fees,
+                min_tx_fee,
                 offset * page_size,
                 page_size,
             )?;
             debug!(
-                "Consider {} origin addresses between {},{} with min_fee {}, min_cumulative_fee {}",
+                "Consider {} origin addresses between {},{} with min_fee {}",
                 origin_addresses.len(),
                 min_height,
                 max_height,
                 min_tx_fee,
-                min_cumulative_fees
             );
 
             if origin_addresses.len() == 0 {
@@ -499,7 +495,7 @@ impl MemPoolDB {
 
             for origin_address in origin_addresses.iter() {
                 if deadline <= get_epoch_time_ms() {
-                    test_debug!("Mempool iteration deadline exceeded");
+                    debug!("Mempool iteration deadline exceeded");
                     done = true;
                     break;
                 }
@@ -756,14 +752,9 @@ impl MemPoolDB {
         let add_tx = if let Some(ref prior_tx) = prior_tx {
             if tx_fee > prior_tx.tx_fee {
                 // is this a replace-by-fee ?
-                test_debug!(
+                debug!(
                     "Can replace {} with {} for {},{} by fee ({} < {})",
-                    &prior_tx.txid,
-                    &txid,
-                    origin_address,
-                    origin_nonce,
-                    &prior_tx.tx_fee,
-                    &tx_fee
+                    &prior_tx.txid, &txid, origin_address, origin_nonce, &prior_tx.tx_fee, &tx_fee
                 );
                 replace_reason = MemPoolDropReason::REPLACE_BY_FEE;
                 true
@@ -775,12 +766,9 @@ impl MemPoolDB {
                 block_header_hash,
             )? {
                 // is this a replace-across-fork ?
-                test_debug!(
+                debug!(
                     "Can replace {} with {} for {},{} across fork",
-                    &prior_tx.txid,
-                    &txid,
-                    origin_address,
-                    origin_nonce
+                    &prior_tx.txid, &txid, origin_address, origin_nonce
                 );
                 replace_reason = MemPoolDropReason::REPLACE_ACROSS_FORK;
                 true
@@ -1324,7 +1312,6 @@ mod tests {
 
         let mut mempool_settings = MemPoolWalkSettings::default();
         mempool_settings.min_tx_fee = 10;
-        mempool_settings.min_cumulative_fee = 10;
 
         chainstate.with_read_only_clarity_tx(
             &NULL_BURN_STATE_DB,
