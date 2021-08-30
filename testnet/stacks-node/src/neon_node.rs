@@ -102,7 +102,6 @@ pub struct InitializedNeonNode {
     relay_channel: SyncSender<RelayerDirective>,
     burnchain_signer: BurnchainSigner,
     last_burn_block: Option<BlockSnapshot>,
-    sleep_before_tenure: u64,
     is_miner: bool,
     pub atlas_config: AtlasConfig,
     leader_key_registration_state: LeaderKeyRegistrationState,
@@ -171,7 +170,6 @@ fn make_block_builder_settings(config: &Config, attempt: u64) -> BlockBuilderSet
         },
         mempool_settings: MemPoolWalkSettings {
             min_tx_fee: config.miner.min_tx_fee,
-            min_cumulative_fee: config.miner.min_cumulative_tx_fee,
             max_walk_time_ms: if attempt <= 1 {
                 // first attempt to mine a block -- do so right away
                 config.miner.first_attempt_time_ms
@@ -1330,7 +1328,6 @@ impl InitializedNeonNode {
             LeaderKeyRegistrationState::Inactive
         };
 
-        let sleep_before_tenure = config.node.wait_time_for_microblocks;
         let relayer_thread_handle = spawn_miner_relayer(
             config.is_mainnet(),
             config.burnchain.chain_id,
@@ -1380,7 +1377,6 @@ impl InitializedNeonNode {
             last_burn_block,
             burnchain_signer,
             is_miner,
-            sleep_before_tenure,
             atlas_config,
             leader_key_registration_state,
             p2p_thread_handle,
