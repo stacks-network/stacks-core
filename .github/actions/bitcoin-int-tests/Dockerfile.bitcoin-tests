@@ -30,3 +30,4 @@ RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::size_over
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::antientropy_integration_test
+RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::transaction_validation_integration_test
