@@ -509,49 +509,39 @@ impl MemPoolDB {
                 total_origins += 1;
 
                 test_debug!(
-                    "Consider mempool transactions from origin address {} nonce {} and higher",
+                    "Consider mempool transactions from origin address {} nonce {}",
                     &origin_address,
                     min_nonce
                 );
 
-                let origin_page_size = 1000;
-                let mut origin_offset = 0;
-                while !done {
-                    let sql = "SELECT * FROM mempool WHERE origin_address = ?1 AND height > ?2 AND height <= ?3 AND origin_nonce >= ?4 AND tx_fee >= ?5 ORDER BY origin_nonce ASC, sponsor_nonce ASC LIMIT ?6 OFFSET ?7";
-                    let args: &[&dyn ToSql] = &[
-                        &origin_address.to_string(),
-                        &min_height,
-                        &max_height,
-                        &u64_to_sql(min_nonce)?,
-                        &u64_to_sql(min_tx_fee)?,
-                        &origin_page_size,
-                        &(origin_offset * origin_page_size),
-                    ];
+                let sql = "SELECT * FROM mempool WHERE origin_address = ?1 AND height > ?2 AND height <= ?3 AND origin_nonce = ?4 AND tx_fee >= ?5 ORDER BY sponsor_nonce ASC LIMIT 1";
+                let args: &[&dyn ToSql] = &[
+                    &origin_address.to_string(),
+                    &min_height,
+                    &max_height,
+                    &u64_to_sql(min_nonce)?,
+                    &u64_to_sql(min_tx_fee)?,
+                ];
 
-                    let txs = query_rows::<MemPoolTxInfo, _>(self.conn(), sql, args)?;
-                    if txs.len() == 0 {
-                        break;
-                    }
-                    total_considered += txs.len();
-
+                let tx_opt = query_row::<MemPoolTxInfo, _>(self.conn(), sql, args)?;
+                if let Some(tx) = tx_opt {
+                    total_considered += 1;
                     debug!(
-                        "Consider {} transactions from {} between heights {},{} with nonce >= {} and tx_fee >= {} (page {})",
-                        txs.len(),
+                        "Consider transaction {} from {} between heights {},{} with nonce = {} and tx_fee = {} and size = {}",
+                        &tx.metadata.txid,
                         &origin_address,
                         min_height,
                         max_height,
                         min_nonce,
-                        min_tx_fee,
-                        origin_offset
+                        tx.metadata.tx_fee,
+                        tx.metadata.len
                     );
 
-                    if !todo(clarity_tx, txs)? {
+                    if !todo(clarity_tx, vec![tx])? {
                         test_debug!("Mempool early return from iteration");
                         done = true;
                         break;
                     }
-
-                    origin_offset += 1;
                 }
             }
             offset += 1;
@@ -1261,22 +1251,40 @@ mod tests {
 
             let origin_address = StacksAddress {
                 version: 22,
-                bytes: Hash160::from_data(&[0; 32]),
+                bytes: Hash160::from_data(&[ix as u8; 32]),
+            };
+            let underfunded_origin_address = StacksAddress {
+                version: 26,
+                bytes: Hash160::from_data(&[ix as u8; 32]),
             };
             let sponsor_address = StacksAddress {
                 version: 22,
-                bytes: Hash160::from_data(&[1; 32]),
+                bytes: Hash160::from_data(&[0x80 | (ix as u8); 32]),
+            };
+            let underfunded_sponsor_address = StacksAddress {
+                version: 26,
+                bytes: Hash160::from_data(&[0x80 | (ix as u8); 32]),
             };
 
-            for (i, tx) in [good_tx, underfunded_tx].iter().enumerate() {
+            for (i, (tx, (origin, sponsor))) in [good_tx, underfunded_tx]
+                .iter()
+                .zip(
+                    [
+                        (origin_address, sponsor_address),
+                        (underfunded_origin_address, underfunded_sponsor_address),
+                    ]
+                    .iter(),
+                )
+                .enumerate()
+            {
                 let txid = tx.txid();
                 let tx_bytes = tx.serialize_to_vec();
                 let tx_fee = tx.get_tx_fee();
 
                 let height = 1 + ix as u64;
 
-                let origin_nonce = (2 * ix + i) as u64;
-                let sponsor_nonce = (2 * ix + i) as u64;
+                let origin_nonce = 0; // (2 * ix + i) as u64;
+                let sponsor_nonce = 0; // (2 * ix + i) as u64;
 
                 assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
@@ -1289,9 +1297,9 @@ mod tests {
                     tx_bytes,
                     tx_fee,
                     height,
-                    &origin_address,
+                    &origin,
                     origin_nonce,
-                    &sponsor_address,
+                    &sponsor,
                     sponsor_nonce,
                     None,
                 )
@@ -1412,11 +1420,11 @@ mod tests {
         let tx = &txs[1];
         let origin_address = StacksAddress {
             version: 22,
-            bytes: Hash160::from_data(&[0; 32]),
+            bytes: Hash160::from_data(&[1; 32]),
         };
         let sponsor_address = StacksAddress {
             version: 22,
-            bytes: Hash160::from_data(&[1; 32]),
+            bytes: Hash160::from_data(&[0x81; 32]),
         };
 
         let txid = tx.txid();
@@ -1424,8 +1432,8 @@ mod tests {
         let tx_fee = tx.get_tx_fee();
 
         let height = 3;
-        let origin_nonce = 2;
-        let sponsor_nonce = 2;
+        let origin_nonce = 0;
+        let sponsor_nonce = 0;
 
         // make sure that we already have the transaction we're testing for replace-across-fork
         assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
