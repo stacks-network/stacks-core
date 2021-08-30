@@ -440,7 +440,7 @@ impl MemPoolDB {
         tip_height: u64,
         settings: MemPoolWalkSettings,
         mut todo: F,
-    ) -> Result<(), E>
+    ) -> Result<u64, E>
     where
         C: ClarityConnection,
         F: FnMut(&mut C, Vec<MemPoolTxInfo>) -> Result<bool, E>,
@@ -456,7 +456,6 @@ impl MemPoolDB {
 
         let min_tx_fee = settings.min_tx_fee;
 
-        let mut done = false;
         let deadline = get_epoch_time_ms() + (settings.max_walk_time_ms as u128);
         let mut total_considered = 0;
         let mut total_origins = 0;
@@ -467,7 +466,7 @@ impl MemPoolDB {
             min_tx_fee,
         );
 
-        while !done {
+        loop {
             if deadline <= get_epoch_time_ms() {
                 debug!("Mempool iteration deadline exceeded");
                 break;
@@ -493,10 +492,10 @@ impl MemPoolDB {
                 break;
             }
 
+            let mut total_added = 0;
             for origin_address in origin_addresses.iter() {
                 if deadline <= get_epoch_time_ms() {
                     debug!("Mempool iteration deadline exceeded");
-                    done = true;
                     break;
                 }
 
@@ -526,6 +525,7 @@ impl MemPoolDB {
                 let tx_opt = query_row::<MemPoolTxInfo, _>(self.conn(), sql, args)?;
                 if let Some(tx) = tx_opt {
                     total_considered += 1;
+                    total_added += 1;
                     debug!(
                         "Consider transaction {} from {} between heights {},{} with nonce = {} and tx_fee = {} and size = {}",
                         &tx.metadata.txid,
@@ -539,18 +539,22 @@ impl MemPoolDB {
 
                     if !todo(clarity_tx, vec![tx])? {
                         test_debug!("Mempool early return from iteration");
-                        done = true;
                         break;
                     }
                 }
             }
             offset += 1;
+
+            if total_added == 0 {
+                debug!("No origin address had a minable transaction");
+                break;
+            }
         }
         debug!(
             "Mempool iteration finished; considered {} transactions across {} origin addresses",
             total_considered, total_origins
         );
-        Ok(())
+        Ok(total_considered)
     }
 
     pub fn conn(&self) -> &DBConn {
