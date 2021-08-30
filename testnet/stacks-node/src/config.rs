@@ -486,9 +486,6 @@ impl Config {
         let miner = match config_file.miner {
             Some(ref miner) => MinerConfig {
                 min_tx_fee: miner.min_tx_fee.unwrap_or(miner_default_config.min_tx_fee),
-                min_cumulative_tx_fee: miner
-                    .min_cumulative_tx_fee
-                    .unwrap_or(miner_default_config.min_cumulative_tx_fee),
                 first_attempt_time_ms: miner
                     .first_attempt_time_ms
                     .unwrap_or(miner_default_config.first_attempt_time_ms),
@@ -1109,7 +1106,6 @@ impl NodeConfig {
 #[derive(Clone, Debug, Default)]
 pub struct MinerConfig {
     pub min_tx_fee: u64,
-    pub min_cumulative_tx_fee: u64,
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
 }
@@ -1118,7 +1114,6 @@ impl MinerConfig {
     pub fn default() -> MinerConfig {
         MinerConfig {
             min_tx_fee: 1,
-            min_cumulative_tx_fee: 1,
             first_attempt_time_ms: 1_000,
             subsequent_attempt_time_ms: 60_000,
         }
@@ -1194,7 +1189,6 @@ pub struct NodeConfigFile {
 #[derive(Clone, Deserialize, Default)]
 pub struct MinerConfigFile {
     pub min_tx_fee: Option<u64>,
-    pub min_cumulative_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
 }
