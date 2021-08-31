@@ -36,7 +36,6 @@ use stacks::chainstate::stacks::{
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
 use stacks::net::{
@@ -155,30 +154,6 @@ struct MiningTenureInformation {
     parent_block_total_burn: u64,
     parent_winning_vtxindex: u16,
     coinbase_nonce: u64,
-}
-
-/// Generate the block-builder settings from the node config
-fn make_block_builder_settings(config: &Config, attempt: u64) -> BlockBuilderSettings {
-    BlockBuilderSettings {
-        execution_cost: config.block_limit.clone(),
-        max_miner_time_ms: if attempt <= 1 {
-            // first attempt to mine a block -- do so right away
-            config.miner.first_attempt_time_ms
-        } else {
-            // second or later attempt to mine a block -- give it some time
-            config.miner.subsequent_attempt_time_ms
-        },
-        mempool_settings: MemPoolWalkSettings {
-            min_tx_fee: config.miner.min_tx_fee,
-            max_walk_time_ms: if attempt <= 1 {
-                // first attempt to mine a block -- do so right away
-                config.miner.first_attempt_time_ms
-            } else {
-                // second or later attempt to mine a block -- give it some time
-                config.miner.subsequent_attempt_time_ms
-            },
-        },
-    }
 }
 
 /// Process artifacts from the tenure.
@@ -459,7 +434,7 @@ fn try_mine_microblock(
                     last_mined: 0,
                     quantity: 0,
                     cost_so_far: cost_so_far,
-                    settings: make_block_builder_settings(config, 2),
+                    settings: config.make_block_builder_settings(2),
                 });
             }
             Ok(None) => {
@@ -1851,7 +1826,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            make_block_builder_settings(&config, (last_mined_blocks.len() + 1) as u64),
+            config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
             Some(event_observer),
         ) {
             Ok(block) => block,
@@ -1891,7 +1866,7 @@ impl InitializedNeonNode {
                     vrf_proof.clone(),
                     mblock_pubkey_hash,
                     &coinbase_tx,
-                    make_block_builder_settings(&config, (last_mined_blocks.len() + 1) as u64),
+                    config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
                     Some(event_observer),
                 ) {
                     Ok(block) => block,

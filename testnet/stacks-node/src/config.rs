@@ -7,6 +7,8 @@ use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::chainstate::stacks::miner::BlockBuilderSettings;
+use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::{
     BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT,
     PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
@@ -827,6 +829,29 @@ impl Config {
 
     pub fn is_node_event_driven(&self) -> bool {
         self.events_observers.len() > 0
+    }
+
+    pub fn make_block_builder_settings(&self, attempt: u64) -> BlockBuilderSettings {
+        BlockBuilderSettings {
+            execution_cost: self.block_limit.clone(),
+            max_miner_time_ms: if attempt <= 1 {
+                // first attempt to mine a block -- do so right away
+                self.miner.first_attempt_time_ms
+            } else {
+                // second or later attempt to mine a block -- give it some time
+                self.miner.subsequent_attempt_time_ms
+            },
+            mempool_settings: MemPoolWalkSettings {
+                min_tx_fee: self.miner.min_tx_fee,
+                max_walk_time_ms: if attempt <= 1 {
+                    // first attempt to mine a block -- do so right away
+                    self.miner.first_attempt_time_ms
+                } else {
+                    // second or later attempt to mine a block -- give it some time
+                    self.miner.subsequent_attempt_time_ms
+                },
+            },
+        }
     }
 }
 
