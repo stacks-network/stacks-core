@@ -389,12 +389,10 @@ fn create_principal_from_strings(version_string: &str, principal_string: &str) -
     version_array.copy_from_slice(&hex_bytes(version_string).expect("hex_arrays failed"));
     let mut principal_array = [0u8; 20];
     principal_array.copy_from_slice(&hex_bytes(principal_string).expect("hex_bytes failed"));
-    let ret = Value::Principal(PrincipalData::Standard(StandardPrincipalData(
+    Value::Principal(PrincipalData::Standard(StandardPrincipalData(
         version_array[0],
         principal_array,
-    )));
-    warn!("ret {:?}", ret);
-    ret
+    )))
 }
 
 #[test]
@@ -450,7 +448,8 @@ fn test_principal_construct_version_byte_future() {
 // Test cases where the wrong type should be a `CheckErrors` error, because it should have been
 // caught by the type checker.
 fn test_principal_construct_version_byte_type_error() {
-    // The version bytes 0x5904934 are invalid.
+    // The version bytes 0x5904934 are invalid. Should have been caught by type checker so use
+    // `CheckErrors`.
     let input = r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
@@ -463,7 +462,8 @@ fn test_principal_construct_version_byte_type_error() {
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
     );
 
-    // u22 is not a byte buffer, so is invalid.
+    // u22 is not a byte buffer, so is invalid. Should have been caught by type checker so use
+    // `CheckErrors`.
     let input = r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
@@ -479,27 +479,8 @@ fn test_principal_construct_version_byte_type_error() {
 // Tests cases in which the input buffers are too small. This cannot be caught
 // by the type checker, because `(buff N)` is a sub-type of `(buff M)` if `N < M`.
 fn test_principal_construct_buffer_wrong_size() {
-    // Version byte is too small, should have length 1. This error is signaled in the returned
-    // Response.
-    let input = r#"(principal-construct 0x 0x0102030405060708091011121314151617181920)"#;
-    assert_eq!(
-        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-            .unwrap()
-            .unwrap(),
-        Value::Response(ResponseData {
-            committed: false,
-            data: Box::new(Value::Tuple(
-                TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(1 as u128)),
-                    ("value".into(), Value::none()),
-                ])
-                .expect("FAIL: Failed to initialize tuple."),
-            )),
-        }),
-    );
-
-    // Hash key part is too small, should have length 20. This error is signaled in the returned
-    // Response.
+    // Hash key part is too small, should have length 20. This wasn't for the type checker, so the
+    // error is signaled in the returned Response.
     let input = r#"(principal-construct 0x16 0x01020304050607080910111213141516171819)"#;
     assert_eq!(
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
@@ -530,4 +511,24 @@ fn test_principal_construct_buffer_wrong_size() {
         )
         .into()
     );
+
+    // Version byte is too small, should have length 1. This error is signaled in the returned
+    // Response.
+    let input = r#"(principal-construct 0x 0x0102030405060708091011121314151617181920)"#;
+    assert_eq!(
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap(),
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::Tuple(
+                TupleData::from_data(vec![
+                    ("error_int".into(), Value::UInt(1 as u128)),
+                    ("value".into(), Value::none()),
+                ])
+                .expect("FAIL: Failed to initialize tuple."),
+            )),
+        }),
+    );
+
 }
