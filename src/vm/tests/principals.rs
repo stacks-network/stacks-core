@@ -288,10 +288,10 @@ fn test_principal_construct_good() {
     // Mainnet single-sig.
     let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
-        Value::Principal(PrincipalData::Standard(
-                StandardPrincipalData(22, transfer_buffer)
-            ))
-        ,
+        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
+            22,
+            transfer_buffer
+        ))),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
@@ -335,14 +335,17 @@ fn test_principal_construct_good() {
 }
 
 /// Creates a `Principal`-type `Value` from string-based byte representations.
-fn create_principal_from_strings(version_string:&str, principal_string:&str) -> Value {
+fn create_principal_from_strings(version_string: &str, principal_string: &str) -> Value {
     let mut version_array = [0u8; 1];
     version_array.copy_from_slice(&hex_bytes(version_string).expect("hex_arrays failed"));
     let mut principal_array = [0u8; 20];
     principal_array.copy_from_slice(&hex_bytes(principal_string).expect("hex_bytes failed"));
-    let ret = Value::Principal(PrincipalData::Standard(StandardPrincipalData(version_array[0], principal_array)));
-        warn!("ret {:?}", ret);
-        ret
+    let ret = Value::Principal(PrincipalData::Standard(StandardPrincipalData(
+        version_array[0],
+        principal_array,
+    )));
+    warn!("ret {:?}", ret);
+    ret
 }
 
 #[test]
@@ -360,7 +363,10 @@ fn test_principal_construct_version_byte_future() {
                     ("error_int".into(), Value::UInt(2 as u128)),
                     (
                         "value".into(),
-                        Value::some(create_principal_from_strings("1f", "0102030405060708091011121314151617181920"))
+                        Value::some(create_principal_from_strings(
+                            "1f",
+                            "0102030405060708091011121314151617181920"
+                        ))
                         .expect("Value::some failed.")
                     ),
                 ])
@@ -373,68 +379,80 @@ fn test_principal_construct_version_byte_future() {
     );
 }
 
-//// Test cases in which the version byte is not of the right type `(buff 1)`, and so isn't valid,
-//// even in the future.
-//fn test_principal_construct_version_byte_inadmissible() {
-//    // The version bytes 0x5904934 are invalid.
-//    let input = r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
-//    assert_eq!(
-//        Err(CheckErrors::TypeValueError(
-//            SequenceType(BufferType(BufferLength(1))),
-//            Value::Sequence(SequenceData::Buffer(BuffData {
-//                data: hex_bytes("590493").unwrap()
-//            }))
-//        )
-//        .into()),
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-//    );
-//
-//    // u22 is not a byte buffer, so is invalid.
-//    let input = r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
-//    assert_eq!(
-//        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::UInt(22)).into()),
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-//    );
-//}
-//
-//#[test]
-//// Tests cases in which the input buffers are too small. This cannot be caught
-//// by the type checker, because `(buff N)` is a sub-type of `(buff M)` if `N < M`.
-//fn test_principal_construct_buffer_wrong_size() {
-//    // Version byte is too small, should have length 1.
-//    let input = r#"(principal-construct 0x 0x0102030405060708091011121314151617181920)"#;
-//    assert_eq!(
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
-//        CheckErrors::TypeValueError(
-//            SequenceType(BufferType(BufferLength(1))),
-//            Value::Sequence(SequenceData::Buffer(BuffData { data: vec![] }))
-//        )
-//        .into()
-//    );
-//
-//    // Hash key part is too small, should have length 20.
-//    let input = r#"(principal-construct 0x16 0x01020304050607080910111213141516171819)"#;
-//    assert_eq!(
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
-//        CheckErrors::TypeValueError(
-//            SequenceType(BufferType(BufferLength(20))),
-//            Value::Sequence(SequenceData::Buffer(BuffData {
-//                data: hex_bytes("01020304050607080910111213141516171819").unwrap()
-//            }))
-//        )
-//        .into()
-//    );
-//
-//    // Hash key part is too large, should have length 20.
-//    let input = r#"(principal-construct 0x16 0x010203040506070809101112131415161718192021)"#;
-//    assert_eq!(
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
-//        CheckErrors::TypeValueError(
-//            SequenceType(BufferType(BufferLength(20))),
-//            Value::Sequence(SequenceData::Buffer(BuffData {
-//                data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
-//            }))
-//        )
-//        .into()
-//    );
-//}
+// Test cases in which the version byte is not of the right type `(buff 1)`, and so isn't valid,
+// even in the future.
+fn test_principal_construct_version_byte_inadmissible() {
+    // The version bytes 0x5904934 are invalid.
+    let input = r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
+    assert_eq!(
+        Err(CheckErrors::TypeValueError(
+            SequenceType(BufferType(BufferLength(1))),
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: hex_bytes("590493").unwrap()
+            }))
+        )
+        .into()),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+    );
+
+    // u22 is not a byte buffer, so is invalid.
+    let input = r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
+    assert_eq!(
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::UInt(22)).into()),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+    );
+}
+
+#[test]
+// Tests cases in which the input buffers are too small. This cannot be caught
+// by the type checker, because `(buff N)` is a sub-type of `(buff M)` if `N < M`.
+fn test_principal_construct_buffer_wrong_size() {
+    // Version byte is too small, should have length 1.
+    let input = r#"(principal-construct 0x 0x0102030405060708091011121314151617181920)"#;
+    assert_eq!(
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap(),
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::Tuple(
+                TupleData::from_data(vec![
+                    ("error_int".into(), Value::UInt(1 as u128)),
+                    ("value".into(), Value::none()),
+                ])
+                .expect("FAIL: Failed to initialize tuple."),
+            )),
+        }),
+    );
+
+    // Hash key part is too small, should have length 20.
+    let input = r#"(principal-construct 0x16 0x01020304050607080910111213141516171819)"#;
+    assert_eq!(
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap(),
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::Tuple(
+                TupleData::from_data(vec![
+                    ("error_int".into(), Value::UInt(1 as u128)),
+                    ("value".into(), Value::none()),
+                ])
+                .expect("FAIL: Failed to initialize tuple."),
+            )),
+        }),
+    );
+
+    // Hash key part is too large, should have length 20.
+    let input = r#"(principal-construct 0x16 0x010203040506070809101112131415161718192021)"#;
+    assert_eq!(
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
+        CheckErrors::TypeValueError(
+            SequenceType(BufferType(BufferLength(20))),
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
+            }))
+        )
+        .into()
+    );
+}

@@ -243,7 +243,7 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
     warn!("check");
     // Construct the principal.
     let mut transfer_buffer = [0u8; 20];
-//verified_hash_bytes.copy_from_slice(transfer_buffer);
+    //verified_hash_bytes.copy_from_slice(transfer_buffer);
     for i in 0..verified_hash_bytes.len() {
         transfer_buffer[i] = verified_hash_bytes[i];
     }
