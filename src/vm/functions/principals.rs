@@ -152,7 +152,6 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
 }
 
 pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<Value> {
-    warn!("check");
     // Check the version byte.
     let verified_version = match version {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
@@ -167,7 +166,6 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
             };
         }
     };
-    warn!("check");
 
     // This is an aborting error because this should have been caught in analysis pass.
     if verified_version.len() > 1 {
@@ -177,7 +175,6 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         )
         .into());
     }
-    warn!("check");
 
     // If the version byte buffer has 0 bytes, this is a recoverable error, because it wasn't the
     // job of the type system.
@@ -185,11 +182,9 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         // do some kind of error
         return Ok(create_principal_true_error_response(1));
     }
-    warn!("check");
 
     // Assume: verified_version.len() == 1
     let version_byte = (*verified_version)[0];
-    warn!("check");
 
     // If the version byte is >= 32, this is a recoverable error, because it wasn't the job of the
     // type system.
@@ -197,14 +192,11 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         return Ok(create_principal_true_error_response(1));
     }
 
-    warn!("check");
-
     // `version_byte_is_valid` determines whether the returned `Response` is through the success
     // channel or the error channel.
     let version_byte_is_valid =
         version_matches_mainnet(version_byte) || version_matches_testnet(version_byte);
 
-    warn!("check");
     // Check the hash bytes.
     // This is an aborting error because this should have been caught in analysis pass.
     let verified_hash_bytes = match hash_bytes {
@@ -218,7 +210,6 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         }
     };
 
-    warn!("check");
     // This is an aborting error because this should have been caught in analysis pass.
     if verified_hash_bytes.len() > 20 {
         return Err(CheckErrors::TypeValueError(
@@ -234,19 +225,12 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         return Ok(create_principal_true_error_response(1));
     }
 
-    warn!("check");
     // Construct the principal.
     let mut transfer_buffer = [0u8; 20];
     transfer_buffer.copy_from_slice(&verified_hash_bytes);
-    //verified_hash_bytes.copy_from_slice(transfer_buffer);
-//    for i in 0..verified_hash_bytes.len() {
-//        transfer_buffer[i] = verified_hash_bytes[i];
-//    }
     let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
-    warn!("principal_data {:?}", principal_data);
 
     let principal = Value::Principal(PrincipalData::Standard(principal_data));
-    warn!("principal {:?}", principal);
     if version_byte_is_valid {
         Ok(principal)
     } else {
