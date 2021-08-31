@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 use util::hash::hex_bytes;
+use vm::contexts::GlobalContext;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost, CostTracker};
 use vm::errors::{
@@ -34,6 +35,17 @@ fn version_matches_testnet(version: u8) -> bool {
         || version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG
 }
 
+/// Returns true if `version` indicates an address type that matches the network we are "currently
+/// operating in", as indicated by the GlobalContext.
+fn version_matches_current_network(version: u8, global_context: &GlobalContext) -> bool {
+    let context_is_mainnet = global_context.mainnet;
+    let context_is_testnet = !global_context.mainnet;
+
+    // Note: It is possible for the version to match neither mainnet or testnet.
+    (version_matches_mainnet(version) && context_is_mainnet)
+        || (version_matches_testnet(version) && context_is_testnet)
+}
+
 pub fn special_is_standard(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -54,13 +66,10 @@ pub fn special_is_standard(
         _ => return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into()),
     };
 
-    let address_is_mainnet = version_matches_mainnet(version);
-    let address_is_testnet = version_matches_testnet(version);
-    let context_is_mainnet = env.global_context.mainnet;
-
-    Ok(Value::Bool(
-        (address_is_mainnet && context_is_mainnet) || (address_is_testnet && !context_is_mainnet),
-    ))
+    Ok(Value::Bool(version_matches_current_network(
+        version,
+        env.global_context,
+    )))
 }
 
 /// Creates a Tuple which is the result of parsing a Principal tuple into a Tuple of its `version`
