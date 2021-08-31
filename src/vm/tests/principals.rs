@@ -214,20 +214,10 @@ fn create_principal_parse_tuple(version: &str, hash_bytes: &str) -> Value {
 /// * failure: the `error` is a `{error_int,parse_tuple}`. `error_int` is of type `uint`. `parse_tuple` is
 /// the type as described in `create_principal_parse_tuple`.
 fn create_principal_parse_response(version: &str, hash_bytes: &str, success: bool) -> Value {
-    if success {
-        Value::Response(ResponseData {
-            committed: true,
-            data: Box::new(create_principal_parse_tuple(version, hash_bytes)),
-        })
-    } else {
-        Value::Response(ResponseData {
-            committed: false,
-            data: Box::new(Value::Tuple(TupleData::from_data(vec![
-                ("error_int".into(), Value::UInt(209)), // TODO: what is the error number?
-                ("parse_tuple".into(), create_principal_parse_tuple(version, hash_bytes)),
-            ]).expect("Failed to create TupleData"))),
-        })
-    }
+    Value::Response(ResponseData {
+        committed: success,
+        data: Box::new(create_principal_parse_tuple(version, hash_bytes)),
+    })
 }
 
 #[test]
@@ -276,8 +266,10 @@ fn test_principal_parse_bad_version_byte() {
     // SZ is not a valid prefix for any Stacks network.
     let testnet_addr_test = r#"(principal-parse 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
     assert_eq!(
-        create_principal_parse_response("20", "a46ff88886c2ef9762d970b4d2c63678835bd39d", false),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false).unwrap().unwrap()
+        create_principal_parse_response("1f", "a46ff88886c2ef9762d970b4d2c63678835bd39d", false),
+        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
     );
 }
 
@@ -352,7 +344,9 @@ fn test_principal_construct_version_byte_future() {
     let input = r#"(principal-construct 0xef 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         create_principal_parse_response("ef", "0102030405060708091011121314151617181920", false),
-        execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap().unwrap()
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
     );
 }
 

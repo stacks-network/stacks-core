@@ -1,11 +1,11 @@
 use std::convert::TryFrom;
+use util::hash::hex_bytes;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost, CostTracker};
 use vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use util::hash::hex_bytes;
 use vm::representations::ClarityName;
 use vm::representations::SymbolicExpression;
 use vm::types::{
@@ -63,19 +63,21 @@ pub fn special_is_standard(
     ))
 }
 
-fn create_principal_parse_tuple(version: &str, hash_bytes: &str) -> Value {
+/// Creates the result of parsing a Principal tuple into a Tuple of its
+/// `version` and `hash-bytes`.
+fn create_principal_parse_tuple(version: u8, hash_bytes: &[u8; 20]) -> Value {
     Value::Tuple(
         TupleData::from_data(vec![
             (
                 "version".into(),
                 Value::Sequence(SequenceData::Buffer(BuffData {
-                    data: hex_bytes(version).unwrap(),
+                    data: vec![version],
                 })),
             ),
             (
                 "hash-bytes".into(),
                 Value::Sequence(SequenceData::Buffer(BuffData {
-                    data: hex_bytes(hash_bytes).unwrap(),
+                    data: hash_bytes.to_vec(),
                 })),
             ),
         ])
@@ -83,21 +85,43 @@ fn create_principal_parse_tuple(version: &str, hash_bytes: &str) -> Value {
     )
 }
 
-fn create_principal_parse_response(version: &str, hash_bytes: &str, success: bool) -> Value {
-    if success {
-        Value::Response(ResponseData {
-            committed: true,
-            data: Box::new(create_principal_parse_tuple(version, hash_bytes)),
-        })
-    } else {
-        Value::Response(ResponseData {
-            committed: false,
-            data: Box::new(Value::Tuple(TupleData::from_data(vec![
-                ("error_int".into(), Value::UInt(209)), // TODO: what is the error number?
-                ("parse_tuple".into(), create_principal_parse_tuple(version, hash_bytes)),
-            ]).expect("Failed to create TupleData"))),
-        })
-    }
+/// Creates Response return type, to wrap an *actual error* result of a `principal-construct` or
+/// `principal-parse`.
+///
+/// The response is an error Response, where the `err` value is a tuple `{error_int,parse_tuple}`.
+/// `error_int` is of type `UInt`, `parse_tuple` is None.
+fn create_principal_true_error_response(error_int: u32) -> Value {
+    Value::Response(ResponseData {
+        committed: false,
+        data: Box::new(Value::Tuple(
+            TupleData::from_data(vec![
+                ("error_int".into(), Value::UInt(error_int.into())),
+                ("value".into(), Value::none()),
+            ])
+            .expect("FAIL: Failed to initialize tuple."),
+        )),
+    })
+}
+
+/// Creates Response return type, to wrap a *return value returned as an error* result of a
+/// `principal-construct` or `principal-parse`.
+///
+/// The response is an error Response, where the `err` value is a tuple `{error_int,value}`.
+/// `error_int` is of type `UInt`, `value` is of type `Some(Value)`.
+fn create_principal_value_error_response(error_int: u32, value: Value) -> Value {
+    Value::Response(ResponseData {
+        committed: false,
+        data: Box::new(Value::Tuple(
+            TupleData::from_data(vec![
+                ("error_int".into(), Value::UInt(error_int.into())),
+                (
+                    "value".into(),
+                    Value::some(value).expect("Unexpected problem creating Value."),
+                ),
+            ])
+            .expect("FAIL: Failed to initialize tuple."),
+        )),
+    })
 }
 
 pub fn native_principal_parse(principal: Value) -> Result<Value> {
@@ -115,40 +139,40 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
 
     // `version_byte_is_valid` determines whether the returned `Response` is through the success
     // channel or the error channel.
+    // DO NOT SUBMIT: Should this be "version byte matches network"?
     let version_byte_is_valid =
         version_matches_mainnet(version_byte) || version_matches_testnet(version_byte);
 
-    let buffer_data = match Value::buff_from(hash_bytes.to_vec()) {
-        Ok(data) => data,
-        Err(err) => return Err(err),
-    };
+    //    let buffer_data = match Value::buff_from(hash_bytes.to_vec()) {
+    //        Ok(data) => data,
+    //        Err(err) => return Err(err),
+    //    };
 
-    let tuple_data = TupleData::from_data(vec![
-        (
-            ClarityName::try_from("version".to_owned()).unwrap(),
-            Value::buff_from_byte(version_byte),
-        ),
-        (
-            ClarityName::try_from("hash-bytes".to_owned()).unwrap(),
-            buffer_data,
-        ),
-    ])?;
-
-    Ok(Value::Response(ResponseData {
-        committed: version_byte_is_valid,
-        data: Box::new(Value::Tuple(tuple_data)),
-    }))
+    let tuple = create_principal_parse_tuple(version_byte, &hash_bytes);
+    if version_byte_is_valid {
+        Ok(tuple)
+    } else {
+        Ok(create_principal_value_error_response(2, tuple))
+    }
 }
 
 pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<Value> {
+    warn!("check");
     // Check the version byte.
     let verified_version = match version {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
-        _ => return {
-    // This is an aborting error because this should have been caught in analysis pass.
-            Err(CheckErrors::TypeValueError(TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))), version).into())
+        _ => {
+            return {
+                // This is an aborting error because this should have been caught in analysis pass.
+                Err(CheckErrors::TypeValueError(
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
+                    version,
+                )
+                .into())
+            };
         }
     };
+    warn!("check");
 
     // This is an aborting error because this should have been caught in analysis pass.
     if verified_version.len() >= 1 {
@@ -158,29 +182,36 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         )
         .into());
     }
+    warn!("check");
 
-    // If the version byte buffer has 0 bytes, or if the byte is >= 32, this is a recoverable
-    // error.
-    //
-    // TODO: ask what to do about this case.
-    if verified_version.len() == 0 {
+    // If the version byte buffer has 0 bytes, this is a recoverable error, because it wasn't the
+    // job of the type system.
+    if verified_version.len() < 1 {
         // do some kind of error
+        return Ok(create_principal_true_error_response(1));
     }
+    warn!("check");
 
     // Assume: verified_version.len() == 1
     let version_byte = (*verified_version)[0];
+    warn!("check");
 
+    // If the version byte is >= 32, this is a recoverable error, because it wasn't the job of the
+    // type system.
     if version_byte >= 32 {
-        // do some kind of error
+        return Ok(create_principal_true_error_response(1));
     }
 
+    warn!("check");
 
     // `version_byte_is_valid` determines whether the returned `Response` is through the success
     // channel or the error channel.
     let version_byte_is_valid =
         version_matches_mainnet(version_byte) || version_matches_testnet(version_byte);
 
+    warn!("check");
     // Check the hash bytes.
+    // This is an aborting error because this should have been caught in analysis pass.
     let verified_hash_bytes = match hash_bytes {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
         _ => {
@@ -192,7 +223,9 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         }
     };
 
-    if verified_hash_bytes.len() != 20 {
+    warn!("check");
+    // This is an aborting error because this should have been caught in analysis pass.
+    if verified_hash_bytes.len() > 20 {
         return Err(CheckErrors::TypeValueError(
             TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
             hash_bytes,
@@ -200,6 +233,14 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
         .into());
     }
 
+    // If the hash-bytes buffer has less than 20 bytes, this is a recoverable error, because it
+    // wasn't the job of the type system.
+    if verified_hash_bytes.len() < 20 {
+        // do some kind of error
+        return Ok(create_principal_true_error_response(1));
+    }
+
+    warn!("check");
     // Construct the principal.
     let mut transfer_buffer = [0u8; 20];
     for i in 0..verified_hash_bytes.len() {
@@ -208,15 +249,10 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
     let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
     warn!("principal_data {:?}", principal_data);
 
+    let principal = Value::Principal(PrincipalData::Standard(principal_data));
     if version_byte_is_valid {
-        Ok(Value::Response(ResponseData {
-            committed: version_byte_is_valid,
-            data: Box::new(Value::Principal(PrincipalData::Standard(principal_data))),
-        }))
+        Ok(principal)
     } else {
-        Ok(Value::Response(ResponseData {
-            committed: version_byte_is_valid,
-            data: Box::new(Value::Principal(PrincipalData::Standard(principal_data))),
-        }))
+        Ok(create_principal_value_error_response(2, principal))
     }
 }
