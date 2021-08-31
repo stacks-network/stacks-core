@@ -997,6 +997,21 @@ impl ExecutionCost {
         .clone()
     }
 
+    /// Returns the dot product of this execution cost with 1/block_limit
+    /// This provides a scalar value representing the cumulative consumption
+    /// of a given
+    pub fn proportion_dot_product(&self, block_limit: &ExecutionCost) -> u64 {
+        [
+            self.runtime / cmp::max(1, block_limit.runtime / 1000),
+            self.write_length / cmp::max(1, block_limit.write_length / 1000),
+            self.write_count / cmp::max(1, block_limit.write_count / 1000),
+            self.read_length / cmp::max(1, block_limit.read_length / 1000),
+            self.read_count / cmp::max(1, block_limit.read_count / 1000),
+        ]
+        .iter()
+        .fold(0, |acc, dim| acc.checked_add(*dim).unwrap_or(u64::MAX))
+    }
+
     pub fn max_value() -> ExecutionCost {
         Self {
             runtime: u64::MAX,

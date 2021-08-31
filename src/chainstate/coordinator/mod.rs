@@ -16,6 +16,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
+use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
@@ -51,6 +52,7 @@ use vm::{
     Value,
 };
 
+use crate::cost_estimates::{CostEstimator, PessimisticEstimator};
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockHeader,
     StacksBlockId,
@@ -156,6 +158,7 @@ pub struct ChainsCoordinator<
     burnchain: Burnchain,
     attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     dispatcher: Option<&'a T>,
+    estimator: Option<PessimisticEstimator>,
     reward_set_provider: R,
     notifier: N,
     atlas_config: AtlasConfig,
@@ -278,6 +281,10 @@ impl<'a, T: BlockEventDispatcher>
             sortitions_processed,
         };
 
+        let mut estimator_path = PathBuf::from(&chain_state_db.root_path);
+        estimator_path.push("cost_estimator.sqlite");
+        let estimator = PessimisticEstimator::open(&estimator_path).expect("SQLite Failure");
+
         let mut inst = ChainsCoordinator {
             canonical_chain_tip: None,
             canonical_sortition_tip: Some(canonical_sortition_tip),
@@ -290,6 +297,7 @@ impl<'a, T: BlockEventDispatcher>
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
             reward_set_provider: OnChainRewardSetProvider(),
+            estimator: Some(estimator),
             atlas_config,
         };
 
@@ -354,6 +362,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             sortition_db,
             burnchain,
             dispatcher: None,
+            estimator: None,
             reward_set_provider,
             notifier: (),
             attachments_tx,
@@ -728,6 +737,20 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         };
                     }
 
+                    if let Some(ref mut estimator) = self.estimator {
+                        let metadata = &block_receipt.header;
+                        let block: StacksBlock = {
+                            let block_path = StacksChainState::get_block_path(
+                                &self.chain_state_db.blocks_path,
+                                &metadata.consensus_hash,
+                                &block_hash,
+                            )
+                            .unwrap();
+                            StacksChainState::consensus_load(&block_path).unwrap()
+                        };
+                        estimator.notify_block(&block, &block_receipt.tx_receipts);
+                    }
+
                     if let Some(dispatcher) = self.dispatcher {
                         let metadata = &block_receipt.header;
                         let winner_txid = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -755,6 +778,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             .chain_state_db
                             .get_parent(&stacks_block)
                             .expect("BUG: failed to get parent for processed block");
+
                         dispatcher.announce_block(
                             block,
                             block_receipt.header,
