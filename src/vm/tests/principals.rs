@@ -398,9 +398,9 @@ fn test_principal_construct_version_byte_future() {
 }
 
 #[test]
-// Test cases in which the version byte is not of the right type `(buff 1)`, and so isn't valid,
-// even in the future.
-fn test_principal_construct_version_byte_inadmissible() {
+// Test cases where the wrong type should be a `CheckErrors` error, because it should have been
+// caught by the type checker.
+fn test_principal_construct_version_byte_type_error() {
     // The version bytes 0x5904934 are invalid.
     let input = r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
@@ -417,7 +417,11 @@ fn test_principal_construct_version_byte_inadmissible() {
     // u22 is not a byte buffer, so is invalid.
     let input = r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::UInt(22)).into()),
+        Err(CheckErrors::TypeValueError(
+            SequenceType(BufferType(BufferLength(1))),
+            Value::UInt(22)
+        )
+        .into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
     );
 }

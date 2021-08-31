@@ -236,7 +236,6 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
     // If the hash-bytes buffer has less than 20 bytes, this is a recoverable error, because it
     // wasn't the job of the type system.
     if verified_hash_bytes.len() < 20 {
-        // do some kind of error
         return Ok(create_principal_true_error_response(1));
     }
 
