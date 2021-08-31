@@ -297,41 +297,41 @@ fn test_principal_construct_good() {
             .unwrap()
     );
 
-//    // Mainnet multi-sig.
-//    let input = r#"(principal-construct 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
-//    assert_eq!(
-//        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
-//            20,
-//            transfer_buffer
-//        ))),
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-//            .unwrap()
-//            .unwrap()
-//    );
-//
-//    // Testnet single-sig.
-//    let input = r#"(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
-//    assert_eq!(
-//        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
-//            26,
-//            transfer_buffer
-//        ))),
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-//            .unwrap()
-//            .unwrap()
-//    );
-//
-//    // Testnet multi-sig.
-//    let input = r#"(principal-construct 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
-//    assert_eq!(
-//        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
-//            21,
-//            transfer_buffer
-//        ))),
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-//            .unwrap()
-//            .unwrap()
-//    );
+    // Mainnet multi-sig.
+    let input = r#"(principal-construct 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    assert_eq!(
+        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
+            20,
+            transfer_buffer
+        ))),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Testnet single-sig.
+    let input = r#"(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    assert_eq!(
+        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
+            26,
+            transfer_buffer
+        ))),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // Testnet multi-sig.
+    let input = r#"(principal-construct 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    assert_eq!(
+        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
+            21,
+            transfer_buffer
+        ))),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
 }
 //
 //#[test]
