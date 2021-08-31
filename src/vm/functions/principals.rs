@@ -143,11 +143,6 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
     let version_byte_is_valid =
         version_matches_mainnet(version_byte) || version_matches_testnet(version_byte);
 
-    //    let buffer_data = match Value::buff_from(hash_bytes.to_vec()) {
-    //        Ok(data) => data,
-    //        Err(err) => return Err(err),
-    //    };
-
     let tuple = create_principal_parse_tuple(version_byte, &hash_bytes);
     if version_byte_is_valid {
         Ok(tuple)
@@ -242,10 +237,11 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
     warn!("check");
     // Construct the principal.
     let mut transfer_buffer = [0u8; 20];
+    transfer_buffer.copy_from_slice(&verified_hash_bytes);
     //verified_hash_bytes.copy_from_slice(transfer_buffer);
-    for i in 0..verified_hash_bytes.len() {
-        transfer_buffer[i] = verified_hash_bytes[i];
-    }
+//    for i in 0..verified_hash_bytes.len() {
+//        transfer_buffer[i] = verified_hash_bytes[i];
+//    }
     let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
     warn!("principal_data {:?}", principal_data);
 
