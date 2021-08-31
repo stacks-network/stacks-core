@@ -274,31 +274,29 @@ fn test_principal_parse_bad_version_byte() {
     );
 }
 
-//#[test]
-//// Standard case where construction should work.  We compare the output of the
-//// Clarity function to hand-built principals.
-//fn test_principal_construct_good() {
-//    // We always use the the same bytes buffer.
-//    let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
-//    let mut transfer_buffer = [0u8; 20];
-//    for i in 0..bytes.len() {
-//        transfer_buffer[i] = bytes[i];
-//    }
-//
-//    // Mainnet single-sig.
-//    let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
-//    assert_eq!(
-//        Value::Response(ResponseData {
-//            committed: true,
-//            data: Box::new(Value::Principal(PrincipalData::Standard(
-//                StandardPrincipalData(22, transfer_buffer)
-//            )))
-//        }),
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-//            .unwrap()
-//            .unwrap()
-//    );
-//
+#[test]
+// Standard case where construction should work.  We compare the output of the
+// Clarity function to hand-built principals.
+fn test_principal_construct_good() {
+    // We always use the the same bytes buffer.
+    let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
+    let mut transfer_buffer = [0u8; 20];
+    for i in 0..bytes.len() {
+        transfer_buffer[i] = bytes[i];
+    }
+
+    // Mainnet single-sig.
+    let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    assert_eq!(
+        Value::Principal(PrincipalData::Standard(
+                StandardPrincipalData(22, transfer_buffer)
+            ))
+        ,
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
 //    // Mainnet multi-sig.
 //    let input = r#"(principal-construct 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
 //    assert_eq!(
@@ -334,7 +332,7 @@ fn test_principal_parse_bad_version_byte() {
 //            .unwrap()
 //            .unwrap()
 //    );
-//}
+}
 //
 //#[test]
 //// Test cases where the version byte is of the right type `(buff 1)`, but where the byte doesn't

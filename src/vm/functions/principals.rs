@@ -175,7 +175,7 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
     warn!("check");
 
     // This is an aborting error because this should have been caught in analysis pass.
-    if verified_version.len() >= 1 {
+    if verified_version.len() > 1 {
         return Err(CheckErrors::TypeValueError(
             TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
             version,
