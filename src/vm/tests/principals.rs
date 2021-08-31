@@ -244,20 +244,36 @@ fn test_principal_parse_good() {
             .unwrap()
     );
 }
-//
-//#[test]
-//// Test that we fail on principals that do not correspond to valid version bytes.
-//fn test_principal_parse_bad_version_byte() {
-//    // SZ is not a valid prefix for any Stacks network.
-//    let testnet_addr_test = r#"(principal-parse 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
-//    assert_eq!(
-//        create_principal_parse_response("1f", "a46ff88886c2ef9762d970b4d2c63678835bd39d", false),
-//        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
-//            .unwrap()
-//            .unwrap()
-//    );
-//}
-//
+
+#[test]
+// Test that we fail on principals that do not correspond to valid version bytes.
+fn test_principal_parse_bad_version_byte() {
+    // SZ is not a valid prefix for any Stacks network.
+    let testnet_addr_test = r#"(principal-parse 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
+    assert_eq!(
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::Tuple(
+                TupleData::from_data(vec![
+                    ("error_int".into(), Value::UInt(2 as u128)),
+                    (
+                        "value".into(),
+                        Value::some(create_principal_parse_tuple_from_strings(
+                            "1f",
+                            "a46ff88886c2ef9762d970b4d2c63678835bd39d"
+                        ))
+                        .expect("Value::some failed.")
+                    ),
+                ])
+                .expect("FAIL: Failed to initialize tuple."),
+            )),
+        }),
+        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+}
+
 //#[test]
 //// Standard case where construction should work.  We compare the output of the
 //// Clarity function to hand-built principals.
