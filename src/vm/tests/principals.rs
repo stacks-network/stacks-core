@@ -401,13 +401,39 @@ fn test_principal_construct_version_byte_inadmissible() {
         Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::UInt(22)).into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
     );
+
+    // The version byte 0x20 is too big, even for the future.
+    let input = r#"(principal-construct 0x20 0x0102030405060708091011121314151617181920)"#;
+    assert_eq!(
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::Tuple(
+                TupleData::from_data(vec![
+                    ("error_int".into(), Value::UInt(2 as u128)),
+                    (
+                        "value".into(),
+                        Value::some(create_principal_from_strings(
+                            "1f",
+                            "0102030405060708091011121314151617181920"
+                        ))
+                        .expect("Value::some failed.")
+                    ),
+                ])
+                .expect("FAIL: Failed to initialize tuple."),
+            )),
+        }),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
 }
 
 #[test]
 // Tests cases in which the input buffers are too small. This cannot be caught
 // by the type checker, because `(buff N)` is a sub-type of `(buff M)` if `N < M`.
 fn test_principal_construct_buffer_wrong_size() {
-    // Version byte is too small, should have length 1.
+    // Version byte is too small, should have length 1. This error is signaled in the returned
+    // Response.
     let input = r#"(principal-construct 0x 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
@@ -425,7 +451,8 @@ fn test_principal_construct_buffer_wrong_size() {
         }),
     );
 
-    // Hash key part is too small, should have length 20.
+    // Hash key part is too small, should have length 20. This error is signaled in the returned
+    // Response.
     let input = r#"(principal-construct 0x16 0x01020304050607080910111213141516171819)"#;
     assert_eq!(
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
@@ -443,7 +470,8 @@ fn test_principal_construct_buffer_wrong_size() {
         }),
     );
 
-    // Hash key part is too large, should have length 20.
+    // Hash key part is too large, should have length 20. This is a `CheckErrors` error because it
+    // should have been caught by the type checker.
     let input = r#"(principal-construct 0x16 0x010203040506070809101112131415161718192021)"#;
     assert_eq!(
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
