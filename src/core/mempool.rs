@@ -427,13 +427,13 @@ impl MemPoolDB {
 
     ///
     /// Iterate over candidates in the mempool
-    ///  todo will be called once for each bundle of transactions at
-    ///  each nonce, starting with the smallest nonce and going higher until there are
-    ///  no more transactions to consider. Each batch of transactions
-    ///  passed to todo will be sorted by sponsor_nonce.
+    ///  `todo` will be called once for each transaction whose origin nonce is equal
+    ///  to the origin account's nonce. At most one transaction per origin will be
+    ///  considered by this method, and transactions will be considered in
+    ///  highest-fee-first order.  This method is interruptable -- in the `settings` struct, the
+    ///  caller may choose how long to spend iterating before this method stops.
     ///
-    /// Consider transactions across all forks where the transactions have
-    /// height >= max(0, tip_height - MEMPOOL_MAX_TRANSACTION_AGE) and height <= tip_height.
+    ///  Returns the number of transactions considered on success.
     pub fn iterate_candidates<F, E, C>(
         &self,
         clarity_tx: &mut C,
@@ -443,7 +443,7 @@ impl MemPoolDB {
     ) -> Result<u64, E>
     where
         C: ClarityConnection,
-        F: FnMut(&mut C, Vec<MemPoolTxInfo>) -> Result<bool, E>,
+        F: FnMut(&mut C, MemPoolTxInfo) -> Result<bool, E>,
         E: From<db_error> + From<ChainstateError>,
     {
         let min_height = (tip_height as i64)
@@ -492,14 +492,13 @@ impl MemPoolDB {
                 break;
             }
 
-            let mut total_added = 0;
             for origin_address in origin_addresses.iter() {
                 if deadline <= get_epoch_time_ms() {
                     debug!("Mempool iteration deadline exceeded");
                     break;
                 }
 
-                let min_nonce = StacksChainState::get_account(
+                let min_origin_nonce = StacksChainState::get_account(
                     clarity_tx,
                     &PrincipalData::Standard(origin_address.to_owned().into()),
                 )
@@ -507,10 +506,9 @@ impl MemPoolDB {
 
                 total_origins += 1;
 
-                test_debug!(
+                debug!(
                     "Consider mempool transactions from origin address {} nonce {}",
-                    &origin_address,
-                    min_nonce
+                    &origin_address, min_origin_nonce
                 );
 
                 let sql = "SELECT * FROM mempool WHERE origin_address = ?1 AND height > ?2 AND height <= ?3 AND origin_nonce = ?4 AND tx_fee >= ?5 ORDER BY sponsor_nonce ASC LIMIT 1";
@@ -518,37 +516,31 @@ impl MemPoolDB {
                     &origin_address.to_string(),
                     &min_height,
                     &max_height,
-                    &u64_to_sql(min_nonce)?,
+                    &u64_to_sql(min_origin_nonce)?,
                     &u64_to_sql(min_tx_fee)?,
                 ];
 
                 let tx_opt = query_row::<MemPoolTxInfo, _>(self.conn(), sql, args)?;
                 if let Some(tx) = tx_opt {
                     total_considered += 1;
-                    total_added += 1;
                     debug!(
                         "Consider transaction {} from {} between heights {},{} with nonce = {} and tx_fee = {} and size = {}",
                         &tx.metadata.txid,
                         &origin_address,
                         min_height,
                         max_height,
-                        min_nonce,
+                        min_origin_nonce,
                         tx.metadata.tx_fee,
                         tx.metadata.len
                     );
 
-                    if !todo(clarity_tx, vec![tx])? {
+                    if !todo(clarity_tx, tx)? {
                         test_debug!("Mempool early return from iteration");
                         break;
                     }
                 }
             }
             offset += 1;
-
-            if total_added == 0 {
-                debug!("No origin address had a minable transaction");
-                break;
-            }
         }
         debug!(
             "Mempool iteration finished; considered {} transactions across {} origin addresses",
@@ -1335,8 +1327,8 @@ mod tests {
                         clarity_conn,
                         2,
                         mempool_settings.clone(),
-                        |_, available_txs| {
-                            count_txs += available_txs.len();
+                        |_, available_tx| {
+                            count_txs += 1;
                             Ok(true)
                         },
                     )
@@ -1358,8 +1350,8 @@ mod tests {
                         clarity_conn,
                         3,
                         mempool_settings.clone(),
-                        |_, available_txs| {
-                            count_txs += available_txs.len();
+                        |_, available_tx| {
+                            count_txs += 1;
                             Ok(true)
                         },
                     )
@@ -1381,8 +1373,8 @@ mod tests {
                         clarity_conn,
                         2,
                         mempool_settings.clone(),
-                        |_, available_txs| {
-                            count_txs += available_txs.len();
+                        |_, available_tx| {
+                            count_txs += 1;
                             Ok(true)
                         },
                     )
@@ -1404,8 +1396,8 @@ mod tests {
                         clarity_conn,
                         3,
                         mempool_settings.clone(),
-                        |_, available_txs| {
-                            count_txs += available_txs.len();
+                        |_, available_tx| {
+                            count_txs += 1;
                             Ok(true)
                         },
                     )
@@ -1463,7 +1455,7 @@ mod tests {
         mempool_tx.commit().unwrap();
 
         // now try replace-across-fork from b_2 to b_4
-        // check that the number of transactions at b_2 and b_4 starts at 1 each
+        // check that the number of transactions at b_2 and b_4 starts at 2 each
         assert_eq!(
             MemPoolDB::get_num_tx_at_block(&mempool.db, &b_4.0, &b_4.1).unwrap(),
             2
