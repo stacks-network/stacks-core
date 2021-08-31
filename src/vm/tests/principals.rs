@@ -377,8 +377,27 @@ fn test_principal_construct_version_byte_future() {
             .unwrap()
             .unwrap()
     );
+
+    // The version byte 0x20 is too big, even for the future.
+    let input = r#"(principal-construct 0x20 0x0102030405060708091011121314151617181920)"#;
+    assert_eq!(
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::Tuple(
+                TupleData::from_data(vec![
+                    ("error_int".into(), Value::UInt(1 as u128)),
+                    ("value".into(), Value::none()),
+                ])
+                .expect("FAIL: Failed to initialize tuple."),
+            )),
+        }),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
 }
 
+#[test]
 // Test cases in which the version byte is not of the right type `(buff 1)`, and so isn't valid,
 // even in the future.
 fn test_principal_construct_version_byte_inadmissible() {
@@ -400,31 +419,6 @@ fn test_principal_construct_version_byte_inadmissible() {
     assert_eq!(
         Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::UInt(22)).into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-    );
-
-    // The version byte 0x20 is too big, even for the future.
-    let input = r#"(principal-construct 0x20 0x0102030405060708091011121314151617181920)"#;
-    assert_eq!(
-        Value::Response(ResponseData {
-            committed: false,
-            data: Box::new(Value::Tuple(
-                TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(2 as u128)),
-                    (
-                        "value".into(),
-                        Value::some(create_principal_from_strings(
-                            "1f",
-                            "0102030405060708091011121314151617181920"
-                        ))
-                        .expect("Value::some failed.")
-                    ),
-                ])
-                .expect("FAIL: Failed to initialize tuple."),
-            )),
-        }),
-        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-            .unwrap()
-            .unwrap()
     );
 }
 
