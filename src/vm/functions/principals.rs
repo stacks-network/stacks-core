@@ -133,7 +133,15 @@ fn create_principal_value_error_response(error_int: u32, value: Value) -> Value 
     })
 }
 
-pub fn native_principal_parse(principal: Value) -> Result<Value> {
+pub fn special_principal_parse(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+    let principal = eval(&args[0], env, context)?;
+
     let (version_byte, hash_bytes) = match principal {
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
             (version, bytes)
@@ -148,9 +156,7 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
 
     // `version_byte_is_valid` determines whether the returned `Response` is through the success
     // channel or the error channel.
-    // DO NOT SUBMIT: Should this be "version byte matches network"?
-    let version_byte_is_valid =
-        version_matches_mainnet(version_byte) || version_matches_testnet(version_byte);
+    let version_byte_is_valid = version_matches_current_network(version_byte, env.global_context);
 
     let tuple = create_principal_parse_tuple(version_byte, &hash_bytes);
     if version_byte_is_valid {
@@ -160,7 +166,16 @@ pub fn native_principal_parse(principal: Value) -> Result<Value> {
     }
 }
 
-pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<Value> {
+pub fn special_principal_construct(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(2, args)?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+    let version = eval(&args[0], env, context)?;
+    let hash_bytes = eval(&args[1], env, context)?;
+
     // Check the version byte.
     let verified_version = match version {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
@@ -203,8 +218,7 @@ pub fn native_principal_construct(version: Value, hash_bytes: Value) -> Result<V
 
     // `version_byte_is_valid` determines whether the returned `Response` is through the success
     // channel or the error channel.
-    let version_byte_is_valid =
-        version_matches_mainnet(version_byte) || version_matches_testnet(version_byte);
+    let version_byte_is_valid = version_matches_current_network(version_byte, env.global_context);
 
     // Check the hash bytes.
     // This is an aborting error because this should have been caught in analysis pass.
