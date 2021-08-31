@@ -466,11 +466,17 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let mut bytes_so_far = self.runtime.bytes_so_far;
         let mut num_txs = self.runtime.num_mined;
+        let mut num_selected = 0;
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
 
+        debug!(
+            "Microblock transaction selection begins (child of {})",
+            &self.anchor_block
+        );
         let result = {
             let mut intermediate_result;
             loop {
+                let mut num_added = 0;
                 intermediate_result = mem_pool.iterate_candidates(
                     &mut clarity_tx,
                     self.anchor_block_height,
@@ -504,6 +510,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                     );
                                     txs_included.push(mempool_tx.tx);
                                     num_txs += 1;
+                                    num_added += 1;
+                                    num_selected += 1;
                                 }
                                 Ok(false) => {
                                     continue;
@@ -518,25 +526,22 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     },
                 );
 
-                // try again?
-                match &intermediate_result {
-                    Ok(0) => {
-                        // no transactions considered -- we're either out of time, or out of
-                        // transactions
-                        break;
-                    }
-                    Ok(_) => {
-                        // can do more
-                        continue;
-                    }
-                    Err(_) => {
-                        // something else
-                        break;
-                    }
+                if intermediate_result.is_err() {
+                    break;
+                }
+
+                if num_added > 0 {
+                    continue;
+                } else {
+                    break;
                 }
             }
             intermediate_result
         };
+        debug!(
+            "Microblock transaction selection finished (child of {}); {} transactions selected",
+            &self.anchor_block, num_selected
+        );
 
         // do fault injection
         if self.runtime.disable_bytes_check {
@@ -1478,10 +1483,16 @@ impl StacksBlockBuilder {
 
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
         let deadline = ts_start + (max_miner_time_ms as u128);
+        let mut num_txs = 0;
 
+        debug!(
+            "Anchored block transaction selection begins (child of {})",
+            &parent_stacks_header.anchored_header.block_hash()
+        );
         let result = {
-            let mut intermediate_result;
-            loop {
+            let mut intermediate_result = Ok(0);
+            while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
+                let mut num_new = 0;
                 intermediate_result = mempool.iterate_candidates(
                     &mut epoch_tx,
                     tip_height,
@@ -1518,6 +1529,7 @@ impl StacksBlockBuilder {
                             }
 
                             considered.insert(txinfo.tx.txid());
+                            num_new += 1;
 
                             match builder.try_mine_tx_with_len(
                                 epoch_tx,
@@ -1525,17 +1537,21 @@ impl StacksBlockBuilder {
                                 txinfo.metadata.len,
                                 &block_limit_hit,
                             ) {
-                                Ok(_) => {}
+                                Ok(_) => {
+                                    num_txs += 1;
+                                }
                                 Err(Error::BlockTooBigError) => {
                                     // done mining -- our execution budget is exceeded.
                                     // Make the block from the transactions we did manage to get
                                     debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
                                     if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                                        debug!("Switch to mining stx-transfers only");
                                         block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
                                         continue;
                                     } else if block_limit_hit
                                         == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                     {
+                                        debug!("Stop mining anchored block due to limit exceeded");
                                         block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                                     }
                                 }
@@ -1543,10 +1559,12 @@ impl StacksBlockBuilder {
                                     invalidated_txs.push(txinfo.metadata.txid);
                                     if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
                                         block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                        debug!("Switch to mining stx-transfers only");
                                         continue;
                                     } else if block_limit_hit
                                         == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                     {
+                                        debug!("Stop mining anchored block due to limit exceeded");
                                         block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                                     }
                                 }
@@ -1572,23 +1590,17 @@ impl StacksBlockBuilder {
                     },
                 );
 
-                // try again?
-                match &intermediate_result {
-                    Ok(0) => {
-                        // no transactions considered -- we're either out of time, or out of
-                        // transactions
-                        break;
-                    }
-                    Ok(_) => {
-                        // can do more
-                        continue;
-                    }
-                    Err(_) => {
-                        // something else
-                        break;
-                    }
+                if intermediate_result.is_err() {
+                    break;
+                }
+
+                if num_new > 0 {
+                    continue;
+                } else {
+                    break;
                 }
             }
+            debug!("Anchored block transaction selection finished (child of {}): {} transactions selected", &parent_stacks_header.anchored_header.block_hash(), num_txs);
             intermediate_result
         };
 
