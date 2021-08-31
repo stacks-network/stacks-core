@@ -212,7 +212,7 @@ fn test_principal_parse_good() {
     let input = r#"(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
     assert_eq!(
         create_principal_parse_tuple_from_strings("16", "fa6bf38ed557fe417333710d6033e9419391a320"),
-        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
     );
@@ -221,7 +221,7 @@ fn test_principal_parse_good() {
     let input = r#"(principal-parse 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
     assert_eq!(
         create_principal_parse_tuple_from_strings("14", "fa6bf38ed557fe417333710d6033e9419391a320"),
-        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
     );
@@ -279,11 +279,8 @@ fn test_principal_parse_bad_version_byte() {
 // Clarity function to hand-built principals.
 fn test_principal_construct_good() {
     // We always use the the same bytes buffer.
-    let bytes = hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap();
     let mut transfer_buffer = [0u8; 20];
-    for i in 0..bytes.len() {
-        transfer_buffer[i] = bytes[i];
-    }
+    transfer_buffer.copy_from_slice(&hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap());
 
     // Mainnet single-sig.
     let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
@@ -292,7 +289,7 @@ fn test_principal_construct_good() {
             22,
             transfer_buffer
         ))),
-        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
     );
@@ -304,7 +301,7 @@ fn test_principal_construct_good() {
             20,
             transfer_buffer
         ))),
-        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
     );
