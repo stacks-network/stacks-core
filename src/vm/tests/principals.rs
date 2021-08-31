@@ -217,32 +217,32 @@ fn test_principal_parse_good() {
             .unwrap()
     );
 
-//    // SM is mainnet multi-sig.
-//    let input = r#"(principal-parse 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
-//    assert_eq!(
-//        create_principal_parse_response("14", "fa6bf38ed557fe417333710d6033e9419391a320", true),
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-//            .unwrap()
-//            .unwrap()
-//    );
-//
-//    // ST is testnet single-sig.
-//    let input = r#"(principal-parse 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
-//    assert_eq!(
-//        create_principal_parse_response("1a", "fa6bf38ed557fe417333710d6033e9419391a320", true),
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-//            .unwrap()
-//            .unwrap()
-//    );
-//
-//    // SN is testnet multi-sig.
-//    let input = r#"(principal-parse 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7)"#;
-//    assert_eq!(
-//        create_principal_parse_response("15", "fa6bf38ed557fe417333710d6033e9419391a320", true),
-//        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-//            .unwrap()
-//            .unwrap()
-//    );
+    // SM is mainnet multi-sig.
+    let input = r#"(principal-parse 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
+    assert_eq!(
+        create_principal_parse_tuple_from_strings("14", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // ST is testnet single-sig.
+    let input = r#"(principal-parse 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
+    assert_eq!(
+        create_principal_parse_tuple_from_strings("1a", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // SN is testnet multi-sig.
+    let input = r#"(principal-parse 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7)"#;
+    assert_eq!(
+        create_principal_parse_tuple_from_strings("15", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
 }
 //
 //#[test]
