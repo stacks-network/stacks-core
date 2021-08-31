@@ -63,8 +63,8 @@ pub fn special_is_standard(
     ))
 }
 
-/// Creates the result of parsing a Principal tuple into a Tuple of its
-/// `version` and `hash-bytes`.
+/// Creates a Tuple which is the result of parsing a Principal tuple into a Tuple of its `version`
+/// and `hash-bytes`.
 fn create_principal_parse_tuple(version: u8, hash_bytes: &[u8; 20]) -> Value {
     Value::Tuple(
         TupleData::from_data(vec![
