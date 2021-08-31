@@ -530,5 +530,4 @@ fn test_principal_construct_buffer_wrong_size() {
             )),
         }),
     );
-
 }
