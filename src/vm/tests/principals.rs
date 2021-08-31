@@ -36,58 +36,58 @@ fn test_simple_is_standard_check_inputs() {
 
 #[test]
 fn test_simple_is_standard_testnet_cases() {
-    let testnet_addr_test = "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)";
+    let input = "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)";
     assert_eq!(
         Value::Bool(true),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, true)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
     );
 
-    let testnet_addr_test = "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.tokens)";
+    let input = "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.tokens)";
     assert_eq!(
         Value::Bool(true),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, true)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
     );
 
-    let testnet_addr_test = "(is-standard 'SN2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKP6D2ZK9)";
+    let input = "(is-standard 'SN2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKP6D2ZK9)";
     assert_eq!(
         Value::Bool(true),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, true)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
     );
 
-    let testnet_addr_test = "(is-standard 'SN2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKP6D2ZK9.tokens)";
+    let input = "(is-standard 'SN2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKP6D2ZK9.tokens)";
     assert_eq!(
         Value::Bool(true),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, true)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
     );
@@ -246,10 +246,11 @@ fn test_principal_parse_good() {
 }
 
 #[test]
-// Test that we fail on principals that do not correspond to valid version bytes.
+// Test that we notice principals that do not correspond to valid version bytes, and return them in
+// the error channel.
 fn test_principal_parse_bad_version_byte() {
     // SZ is not a valid prefix for any Stacks network.
-    let testnet_addr_test = r#"(principal-parse 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
+    let input = r#"(principal-parse 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
@@ -268,7 +269,57 @@ fn test_principal_parse_bad_version_byte() {
                 .expect("FAIL: Failed to initialize tuple."),
             )),
         }),
-        execute_against_version_and_network(testnet_addr_test, ClarityVersion::Clarity2, false)
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // SP is mainnet, but we run on testnet.
+    let input = r#"(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
+    assert_eq!(
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::Tuple(
+                TupleData::from_data(vec![
+                    ("error_int".into(), Value::UInt(2 as u128)),
+                    (
+                        "value".into(),
+                        Value::some(create_principal_parse_tuple_from_strings(
+                            "16",
+                            "fa6bf38ed557fe417333710d6033e9419391a320"
+                        ))
+                        .expect("Value::some failed.")
+                    ),
+                ])
+                .expect("FAIL: Failed to initialize tuple."),
+            )),
+        }),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
+    );
+
+    // ST is testet, but we run on mainnet.
+    let input = r#"(principal-parse 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
+    assert_eq!(
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::Tuple(
+                TupleData::from_data(vec![
+                    ("error_int".into(), Value::UInt(2 as u128)),
+                    (
+                        "value".into(),
+                        Value::some(create_principal_parse_tuple_from_strings(
+                            "1a",
+                            "fa6bf38ed557fe417333710d6033e9419391a320"
+                        ))
+                        .expect("Value::some failed.")
+                    ),
+                ])
+                .expect("FAIL: Failed to initialize tuple."),
+            )),
+        }),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
     );
@@ -280,7 +331,8 @@ fn test_principal_parse_bad_version_byte() {
 fn test_principal_construct_good() {
     // We always use the the same bytes buffer.
     let mut transfer_buffer = [0u8; 20];
-    transfer_buffer.copy_from_slice(&hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap());
+    transfer_buffer
+        .copy_from_slice(&hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap());
 
     // Mainnet single-sig.
     let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
