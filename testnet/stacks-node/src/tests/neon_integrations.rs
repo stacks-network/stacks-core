@@ -2356,7 +2356,7 @@ fn size_check_integration_test() {
         // this one will contain the sortition from above anchor block,
         //    which *should* have also confirmed the microblock.
         sleep_ms(10_000 * i);
-    
+
         micro_block_txs = 0;
         anchor_block_txs = 0;
 
@@ -2463,7 +2463,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 5_000;
     conf.node.microblock_frequency = 5_000;
-    
+
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
