@@ -159,10 +159,10 @@ pub fn special_principal_parse(
     let version_byte_is_valid = version_matches_current_network(version_byte, env.global_context);
 
     let tuple = create_principal_parse_tuple(version_byte, &hash_bytes);
-        Ok(Value::Response(ResponseData {
-            committed: version_byte_is_valid,
-            data: Box::new(tuple),
-        }))
+    Ok(Value::Response(ResponseData {
+        committed: version_byte_is_valid,
+        data: Box::new(tuple),
+    }))
 }
 
 pub fn special_principal_construct(
