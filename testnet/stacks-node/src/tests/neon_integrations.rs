@@ -2291,8 +2291,8 @@ fn size_check_integration_test() {
     conf.node.microblock_frequency = 1000;
 
     conf.miner.min_tx_fee = 1;
-    conf.miner.first_attempt_time_ms = u64::max_value();
-    conf.miner.subsequent_attempt_time_ms = u64::max_value();
+    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -2343,8 +2343,6 @@ fn size_check_integration_test() {
         submit_tx(&http_origin, tx);
     }
 
-    sleep_ms(75_000);
-
     // now let's mine a couple blocks, and then check the sender's nonce.
     //  at the end of mining three blocks, there should be _two_ transactions from the microblock
     //  only set that got mined (since the block before this one was empty, a microblock can
@@ -2355,12 +2353,9 @@ fn size_check_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
-    sleep_ms(75_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    sleep_ms(75_000);
-
+    
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // let's figure out how many micro-only and anchor-only txs got accepted
