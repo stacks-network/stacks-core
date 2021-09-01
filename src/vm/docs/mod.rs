@@ -277,14 +277,15 @@ const PRINCIPAL_PARSE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     description: "A principal value is a concatenation of two components: a `(buff 1)` *version byte*,
 indicating the type of account and the type of network that this principal can spend tokens on,
 and a `(buff 20)` *public key hash*, indicating the principal's unique identity.
-`principal-parse` will decompose a principal into its component parts, returning a `Response` that
-wraps this pair as a tuple.
+`principal-parse` will decompose a principal into its component parts, `{version-byte,hash-bytes}`.
 
-If the version byte of `principal-address` matches one of the valid version bytes for the network, then
-this returns a successful result.
+This method returns a `Response` that wraps this pair as a tuple.
 
-If the version byte of `principal-address` is not a valid version byte for the current network,
-then the error channel for the response is used to return this tuple.
+If the version byte of `principal-address` matches the network (see `is-standard`), then this method
+returns the pair as its `ok` value.
+
+If the version byte of `principal-address` does not match the network, then this method
+returns the pair as its `err` value.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
@@ -299,22 +300,21 @@ const PRINCIPAL_CONSTRUCT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 indicating the type of account and the type of network that this principal can spend tokens on,
 and a `(buff 20)` *public key hash*, characterizing the principal's unique identity.
 
-`principal-construct` takes such a `(buff 1)` `version-byte` and a `(buff 20)` `hash-bytes`,
-and returns a principal.
+`principal-construct` takes as input such a `(buff 1)` `version-byte` and a `(buff 20)`
+`hash-bytes`, and returns a principal.
 
-This function returns a `Response`. On success, the unwrapped value is a `Principal`.
-The failure channel is a value tuple with the form
-`{err_int:UInt,principal_opt:Option<Principal>}`.
+This function returns a `Response`. On success, the `ok` value is a `Principal`.
+The `err` value is a value tuple with the form `{err_int:UInt,principal_opt:Option<Principal>}`.
+
+If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not an appropriate
+version byte for the current network, then the error will be `u0`, and `principal_opt` will contain
+`Some<Principal>`, where the wrapped value is the principal.
 
 If the `version-byte` is a `buff` of length less than 1, or the `hash-bytes` is a `buff` of length
 less than 20, then `err_int` will be `u1` and `principal_opt` will be `None`.
 
 If the single-byte `version-byte` is a value greater than `0x1f`, then `err_int` will be `u2` and
 `principal_opt` will be `None`.
-
-If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not an appropriate
-version byte for the current network, then the error will be `u3`, and `principal_opt` will contain
-`Some<Principal>`, where the wrapped value is the principal.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
