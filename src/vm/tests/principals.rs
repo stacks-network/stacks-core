@@ -254,20 +254,11 @@ fn test_principal_parse_bad_version_byte() {
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(Value::Tuple(
-                TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(2 as u128)),
-                    (
-                        "value".into(),
-                        Value::some(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_parse_tuple_from_strings(
                             "1f",
                             "a46ff88886c2ef9762d970b4d2c63678835bd39d"
-                        ))
-                        .expect("Value::some failed.")
+                        )
                     ),
-                ])
-                .expect("FAIL: Failed to initialize tuple."),
-            )),
         }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
@@ -279,20 +270,10 @@ fn test_principal_parse_bad_version_byte() {
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(Value::Tuple(
-                TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(2 as u128)),
-                    (
-                        "value".into(),
-                        Value::some(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_parse_tuple_from_strings(
                             "16",
                             "fa6bf38ed557fe417333710d6033e9419391a320"
                         ))
-                        .expect("Value::some failed.")
-                    ),
-                ])
-                .expect("FAIL: Failed to initialize tuple."),
-            )),
         }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
@@ -304,20 +285,10 @@ fn test_principal_parse_bad_version_byte() {
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(Value::Tuple(
-                TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(2 as u128)),
-                    (
-                        "value".into(),
-                        Value::some(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_parse_tuple_from_strings(
                             "1a",
                             "fa6bf38ed557fe417333710d6033e9419391a320"
                         ))
-                        .expect("Value::some failed.")
-                    ),
-                ])
-                .expect("FAIL: Failed to initialize tuple."),
-            )),
         }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()

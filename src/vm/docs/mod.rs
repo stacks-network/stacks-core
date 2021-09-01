@@ -274,7 +274,8 @@ Note: This function is only available starting with Stacks 2.1.",
 const PRINCIPAL_PARSE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(principal-parse principal-address)",
-    description: "A principal value is a concatenation of two components: a `(buff 1)` *version byte*,
+    description:
+        "A principal value is a concatenation of two components: a `(buff 1)` *version byte*,
 indicating the type of account and the type of network that this principal can spend tokens on,
 and a `(buff 20)` *public key hash*, indicating the principal's unique identity.
 `principal-parse` will decompose a principal into its component parts, `{version-byte,hash-bytes}`.

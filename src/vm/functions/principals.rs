@@ -162,7 +162,10 @@ pub fn special_principal_parse(
     if version_byte_is_valid {
         Ok(tuple)
     } else {
-        Ok(create_principal_value_error_response(2, tuple))
+        Ok(Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(tuple),
+        }))
     }
 }
 
