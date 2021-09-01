@@ -2341,48 +2341,54 @@ fn size_check_integration_test() {
         submit_tx(&http_origin, tx);
     }
 
-    // now let's mine a couple blocks, and then check the sender's nonce.
-    //  at the end of mining three blocks, there should be _at least one_ transaction from the microblock
-    //  only set that got mined (since the block before this one was empty, a microblock can
-    //  be added),
-    //  and a number of transactions from equal to the number anchor blocks will get mined.
-    //
-    // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // this one will contain the sortition from above anchor block,
-    //    which *should* have also confirmed the microblock.
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // let's figure out how many micro-only and anchor-only txs got accepted
-    //   by examining our account nonces:
     let mut micro_block_txs = 0;
     let mut anchor_block_txs = 0;
-    for (ix, spender_addr) in spender_addrs.iter().enumerate() {
-        let res = get_account(&http_origin, &spender_addr);
-        if res.nonce == 1 {
-            if ix % 2 == 0 {
-                anchor_block_txs += 1;
-            } else {
-                micro_block_txs += 1;
+
+    for i in 0..100 {
+        // now let's mine a couple blocks, and then check the sender's nonce.
+        //  at the end of mining three blocks, there should be _at least one_ transaction from the microblock
+        //  only set that got mined (since the block before this one was empty, a microblock can
+        //  be added),
+        //  and a number of transactions from equal to the number anchor blocks will get mined.
+        //
+        // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        // this one will contain the sortition from above anchor block,
+        //    which *should* have also confirmed the microblock.
+        sleep_ms(10_000 * i);
+    
+        micro_block_txs = 0;
+        anchor_block_txs = 0;
+
+        // let's figure out how many micro-only and anchor-only txs got accepted
+        //   by examining our account nonces:
+        for (ix, spender_addr) in spender_addrs.iter().enumerate() {
+            let res = get_account(&http_origin, &spender_addr);
+            if res.nonce == 1 {
+                if ix % 2 == 0 {
+                    anchor_block_txs += 1;
+                } else {
+                    micro_block_txs += 1;
+                }
+            } else if res.nonce != 0 {
+                panic!("Spender address nonce incremented past 1");
             }
-        } else if res.nonce != 0 {
-            panic!("Spender address nonce incremented past 1");
+
+            debug!("Spender {},{}: {:?}", ix, &spender_addr, &res);
         }
 
-        debug!("Spender {},{}: {:?}", ix, &spender_addr, &res);
+        eprintln!(
+            "anchor_block_txs: {}, micro_block_txs: {}",
+            anchor_block_txs, micro_block_txs
+        );
+
+        if anchor_block_txs >= 2 && micro_block_txs >= 2 {
+            break;
+        }
     }
 
-    eprintln!(
-        "anchor_block_txs: {}, micro_block_txs: {}",
-        anchor_block_txs, micro_block_txs
-    );
-
-    // cut this test some slack, since it has some non-determinism in it
     assert!(anchor_block_txs >= 2);
-    assert!(micro_block_txs >= 1);
+    assert!(micro_block_txs >= 2);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
@@ -2457,6 +2463,10 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 5_000;
     conf.node.microblock_frequency = 5_000;
+    
+    conf.miner.min_tx_fee = 1;
+    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
     conf.events_observers.push(EventObserverConfig {
