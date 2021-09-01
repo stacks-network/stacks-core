@@ -426,30 +426,12 @@ fn test_principal_construct_version_byte_future() {
             .unwrap()
             .unwrap()
     );
-
-    // The version byte 0x20 is too big, even for the future. So, we get no result.
-    let input = r#"(principal-construct 0x20 0x0102030405060708091011121314151617181920)"#;
-    assert_eq!(
-        Value::Response(ResponseData {
-            committed: false,
-            data: Box::new(Value::Tuple(
-                TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(1 as u128)),
-                    ("value".into(), Value::none()),
-                ])
-                .expect("FAIL: Failed to initialize tuple."),
-            )),
-        }),
-        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
-            .unwrap()
-            .unwrap()
-    );
 }
 
 #[test]
 // Test cases where the wrong type should be a `CheckErrors` error, because it should have been
 // caught by the type checker.
-fn test_principal_construct_version_byte_type_error() {
+fn test_principal_construct_check_errors() {
     // The version bytes 0x5904934 are invalid. Should have been caught by type checker so use
     // `CheckErrors`.
     let input = r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
@@ -475,12 +457,25 @@ fn test_principal_construct_version_byte_type_error() {
         .into()),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
     );
+
+    // Hash key part is too large, should have length 20. This is a `CheckErrors` error because it
+    // should have been caught by the type checker.
+    let input = r#"(principal-construct 0x16 0x010203040506070809101112131415161718192021)"#;
+    assert_eq!(
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
+        CheckErrors::TypeValueError(
+            SequenceType(BufferType(BufferLength(20))),
+            Value::Sequence(SequenceData::Buffer(BuffData {
+                data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
+            }))
+        )
+        .into()
+    );
 }
 
 #[test]
-// Tests cases in which the input buffers are too small. This cannot be caught
-// by the type checker, because `(buff N)` is a sub-type of `(buff M)` if `N < M`.
-fn test_principal_construct_buffer_wrong_size() {
+// Test cases where we return an "in response" error.
+fn test_principal_construct_response_errors() {
     // Hash key part is too small, should have length 20. This wasn't for the type checker, so the
     // error is signaled in the returned Response.
     let input = r#"(principal-construct 0x16 0x01020304050607080910111213141516171819)"#;
@@ -500,20 +495,6 @@ fn test_principal_construct_buffer_wrong_size() {
         }),
     );
 
-    // Hash key part is too large, should have length 20. This is a `CheckErrors` error because it
-    // should have been caught by the type checker.
-    let input = r#"(principal-construct 0x16 0x010203040506070809101112131415161718192021)"#;
-    assert_eq!(
-        execute_against_version_and_network(input, ClarityVersion::Clarity2, false).unwrap_err(),
-        CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength(20))),
-            Value::Sequence(SequenceData::Buffer(BuffData {
-                data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
-            }))
-        )
-        .into()
-    );
-
     // Version byte is too small, should have length 1. This error is signaled in the returned
     // Response.
     let input = r#"(principal-construct 0x 0x0102030405060708091011121314151617181920)"#;
@@ -531,5 +512,23 @@ fn test_principal_construct_buffer_wrong_size() {
                 .expect("FAIL: Failed to initialize tuple."),
             )),
         }),
+    );
+
+    // The version byte 0x20 is too big, even for the future. So, we get no result.
+    let input = r#"(principal-construct 0x20 0x0102030405060708091011121314151617181920)"#;
+    assert_eq!(
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::Tuple(
+                TupleData::from_data(vec![
+                    ("error_int".into(), Value::UInt(1 as u128)),
+                    ("value".into(), Value::none()),
+                ])
+                .expect("FAIL: Failed to initialize tuple."),
+            )),
+        }),
+        execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
     );
 }
