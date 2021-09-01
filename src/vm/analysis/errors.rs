@@ -173,9 +173,6 @@ pub enum CheckErrors {
     // secp256k1 signature
     InvalidSecp65k1Signature,
 
-    // The version byte is not valid for any network/signature pair.
-    InvalidVersionByte,
-
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly,
 }
@@ -407,7 +404,6 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ContractOfExpectsTrait => format!("trait reference expected"),
             CheckErrors::InvalidCharactersDetected => format!("invalid characters detected"),
             CheckErrors::InvalidSecp65k1Signature => format!("invalid seckp256k1 signature"),
-            CheckErrors::InvalidVersionByte => format!("invalid version byte, must be one of 20, 21, 22, 26"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },
