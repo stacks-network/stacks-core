@@ -290,7 +290,7 @@ returns the pair as its `err` value.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (version 0x1a))
+(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (version 0x1a)))
 "#,
 };
 
@@ -317,7 +317,8 @@ will be `u1` and `principal_opt` will be `None`.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)
+(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_int u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
+(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)
 "#,
 };
 
