@@ -2355,7 +2355,7 @@ fn size_check_integration_test() {
     //    which *should* have also confirmed the microblock.
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    
+
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // let's figure out how many micro-only and anchor-only txs got accepted
