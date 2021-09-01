@@ -311,11 +311,9 @@ If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is
 version byte for the current network, then the error will be `u0`, and `principal_opt` will contain
 `Some<Principal>`, where the wrapped value is the principal.
 
-If the `version-byte` is a `buff` of length less than 1, or the `hash-bytes` is a `buff` of length
-less than 20, then `err_int` will be `u1` and `principal_opt` will be `None`.
-
-If the single-byte `version-byte` is a value greater than `0x1f`, then `err_int` will be `u2` and
-`principal_opt` will be `None`.
+If the `version-byte` is a `buff` of length less than 1, if the single-byte `version-byte` is a
+value greater than `0x1f`, or the `hash-bytes` is a `buff` of length less than 20, then `err_int`
+will be `u1` and `principal_opt` will be `None`.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"

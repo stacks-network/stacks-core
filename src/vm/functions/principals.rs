@@ -260,6 +260,6 @@ pub fn special_principal_construct(
     if version_byte_is_valid {
         Ok(principal)
     } else {
-        Ok(create_principal_value_error_response(2, principal))
+        Ok(create_principal_value_error_response(0, principal))
     }
 }
