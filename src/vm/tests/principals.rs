@@ -211,7 +211,13 @@ fn test_principal_parse_good() {
     // SP is mainnet single-sig.
     let input = r#"(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
     assert_eq!(
-        create_principal_parse_tuple_from_strings("16", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(create_principal_parse_tuple_from_strings(
+                "16",
+                "fa6bf38ed557fe417333710d6033e9419391a320"
+            ))
+        }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
@@ -220,7 +226,13 @@ fn test_principal_parse_good() {
     // SM is mainnet multi-sig.
     let input = r#"(principal-parse 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
     assert_eq!(
-        create_principal_parse_tuple_from_strings("14", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(create_principal_parse_tuple_from_strings(
+                "14",
+                "fa6bf38ed557fe417333710d6033e9419391a320"
+            ))
+        }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
@@ -229,7 +241,13 @@ fn test_principal_parse_good() {
     // ST is testnet single-sig.
     let input = r#"(principal-parse 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
     assert_eq!(
-        create_principal_parse_tuple_from_strings("1a", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(create_principal_parse_tuple_from_strings(
+                "1a",
+                "fa6bf38ed557fe417333710d6033e9419391a320"
+            ))
+        }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
@@ -238,7 +256,13 @@ fn test_principal_parse_good() {
     // SN is testnet multi-sig.
     let input = r#"(principal-parse 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7)"#;
     assert_eq!(
-        create_principal_parse_tuple_from_strings("15", "fa6bf38ed557fe417333710d6033e9419391a320"),
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(create_principal_parse_tuple_from_strings(
+                "15",
+                "fa6bf38ed557fe417333710d6033e9419391a320"
+            ))
+        }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
@@ -307,10 +331,12 @@ fn test_principal_construct_good() {
     // Mainnet single-sig.
     let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
-            22,
-            transfer_buffer
-        ))),
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(Value::Principal(PrincipalData::Standard(
+                StandardPrincipalData(22, transfer_buffer)
+            )))
+        }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
@@ -319,10 +345,12 @@ fn test_principal_construct_good() {
     // Mainnet multi-sig.
     let input = r#"(principal-construct 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
-            20,
-            transfer_buffer
-        ))),
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(Value::Principal(PrincipalData::Standard(
+                StandardPrincipalData(20, transfer_buffer)
+            )))
+        }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, true)
             .unwrap()
             .unwrap()
@@ -331,10 +359,12 @@ fn test_principal_construct_good() {
     // Testnet single-sig.
     let input = r#"(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
-            26,
-            transfer_buffer
-        ))),
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(Value::Principal(PrincipalData::Standard(
+                StandardPrincipalData(26, transfer_buffer)
+            )))
+        }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
@@ -343,10 +373,12 @@ fn test_principal_construct_good() {
     // Testnet multi-sig.
     let input = r#"(principal-construct 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
-            21,
-            transfer_buffer
-        ))),
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(Value::Principal(PrincipalData::Standard(
+                StandardPrincipalData(21, transfer_buffer)
+            )))
+        }),
         execute_against_version_and_network(input, ClarityVersion::Clarity2, false)
             .unwrap()
             .unwrap()
