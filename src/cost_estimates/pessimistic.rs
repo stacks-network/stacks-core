@@ -36,6 +36,7 @@ iterable_enum!(CostField {
 });
 
 impl CostField {
+    /// Select `self` out of the given ExecutionCost
     fn select_key(&self, from_cost: &ExecutionCost) -> u64 {
         match self {
             CostField::RuntimeCost => from_cost.runtime,
@@ -145,6 +146,7 @@ impl Samples {
 }
 
 impl PessimisticEstimator {
+    /// Open a pessimistic estimator at the given db path. Creates if not existent.
     pub fn open(p: &Path) -> Result<PessimisticEstimator, SqliteError> {
         let db = Connection::open_with_flags(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
             .or_else(|e| {
@@ -170,7 +172,7 @@ impl PessimisticEstimator {
         let sql = "CREATE TABLE pessimistic_estimator (
            estimate_key TEXT PRIMARY KEY,
            current_value NUMBER,
-           samples TEXT,
+           samples TEXT
         )";
         c.execute(sql, rusqlite::NO_PARAMS)?;
         Ok(())
@@ -204,7 +206,10 @@ impl CostEstimator for PessimisticEstimator {
                 let actual_scalar = actual_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET);
                 info!("PessimisticEstimator received event";
                       "key" => %PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost),
-                      "error" => (estimated_scalar as i64 - actual_scalar as i64),);
+                      "estimate" => estimated_scalar,
+                      "actual" => actual_scalar,
+                      "estimate_err" => (estimated_scalar as i64 - actual_scalar as i64),
+                      "estimate_err_pct" => (estimated_scalar as i64 - actual_scalar as i64)/(cmp::max(1, actual_scalar as i64)),);
             }
         }
 

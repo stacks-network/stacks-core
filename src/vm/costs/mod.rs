@@ -997,9 +997,9 @@ impl ExecutionCost {
         .clone()
     }
 
-    /// Returns the dot product of this execution cost with 1/block_limit
+    /// Returns the dot product of this execution cost with 1000/block_limit
     /// This provides a scalar value representing the cumulative consumption
-    /// of a given
+    /// of `self` in the provided block_limit.
     pub fn proportion_dot_product(&self, block_limit: &ExecutionCost) -> u64 {
         [
             self.runtime / cmp::max(1, block_limit.runtime / 1000),
