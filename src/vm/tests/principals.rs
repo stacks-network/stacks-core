@@ -208,7 +208,7 @@ fn create_principal_parse_tuple_from_strings(version: &str, hash_bytes: &str) ->
 #[test]
 // Test that we can parse well-formed principals.
 fn test_principal_parse_good() {
-    // SP is mainnet single-sig.
+    // SP is mainnet single-sig. We run against mainnet so should get an `ok` value.
     let input = r#"(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
     assert_eq!(
         Value::Response(ResponseData {
@@ -223,7 +223,7 @@ fn test_principal_parse_good() {
             .unwrap()
     );
 
-    // SM is mainnet multi-sig.
+    // SM is mainnet multi-sig. We run against mainnet so should get an `ok` value.
     let input = r#"(principal-parse 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
     assert_eq!(
         Value::Response(ResponseData {
@@ -238,7 +238,7 @@ fn test_principal_parse_good() {
             .unwrap()
     );
 
-    // ST is testnet single-sig.
+    // ST is testnet single-sig. We run against testnet so should get an `ok` value.
     let input = r#"(principal-parse 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
     assert_eq!(
         Value::Response(ResponseData {
@@ -253,7 +253,7 @@ fn test_principal_parse_good() {
             .unwrap()
     );
 
-    // SN is testnet multi-sig.
+    // SN is testnet multi-sig. We run against testnet so should get an `ok` value.
     let input = r#"(principal-parse 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7)"#;
     assert_eq!(
         Value::Response(ResponseData {
@@ -273,7 +273,7 @@ fn test_principal_parse_good() {
 // Test that we notice principals that do not correspond to valid version bytes, and return them in
 // the error channel.
 fn test_principal_parse_bad_version_byte() {
-    // SZ is not a valid prefix for any Stacks network.
+    // SZ is not a valid prefix for any Stacks network. But it's valid for the future.
     let input = r#"(principal-parse 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
     assert_eq!(
         Value::Response(ResponseData {
@@ -328,7 +328,7 @@ fn test_principal_construct_good() {
     transfer_buffer
         .copy_from_slice(&hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap());
 
-    // Mainnet single-sig.
+    // Mainnet single-sig, on mainnet.
     let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Response(ResponseData {
@@ -342,7 +342,7 @@ fn test_principal_construct_good() {
             .unwrap()
     );
 
-    // Mainnet multi-sig.
+    // Mainnet multi-sig, on mainnet.
     let input = r#"(principal-construct 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Response(ResponseData {
@@ -356,7 +356,7 @@ fn test_principal_construct_good() {
             .unwrap()
     );
 
-    // Testnet single-sig.
+    // Testnet single-sig, run on testnet.
     let input = r#"(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Response(ResponseData {
@@ -370,7 +370,7 @@ fn test_principal_construct_good() {
             .unwrap()
     );
 
-    // Testnet multi-sig.
+    // Testnet multi-sig, run on testnet.
     let input = r#"(principal-construct 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Response(ResponseData {
@@ -427,7 +427,7 @@ fn test_principal_construct_version_byte_future() {
             .unwrap()
     );
 
-    // The version byte 0x20 is too big, even for the future.
+    // The version byte 0x20 is too big, even for the future. So, we get no result.
     let input = r#"(principal-construct 0x20 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Value::Response(ResponseData {
