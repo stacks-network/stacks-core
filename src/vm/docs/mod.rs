@@ -20,6 +20,7 @@ use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::types::{FixedFunction, FunctionType, Value};
 use vm::variables::NativeVariables;
+use chainstate::stacks::boot::contract_tests::empty_block_snapshot;
 
 pub mod contracts;
 
@@ -1374,14 +1375,15 @@ const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     signature: "(get-burn-block-info? prop-name block-height)",
     description: "The `get-burn-block-info?` function fetches data for a block of the given *burnchain* block height. The
 value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `block-height` does
-not correspond to an existing block prior to the current block, the function returns `none`. The only available property
-name so far is `header-hash`.
+not correspond to an block that is both 1) prior to the current block, and 2) since the start of
+the Stacks chain, the function returns `None`. The only available property name so far is
+`header-hash`.
 
 The `header-hash` property returns a 32-byte integer representing the header hash of the burnchain block at
 burnchain height `block-height`.
 ",
     example: "
-(get-burn-block-info? header-hash u0) ;; Returns (some 0xe67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8)
+(get-burn-block-info? header-hash u677050) ;; Returns (some 0xe67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8)
 "
 };
 
@@ -2047,6 +2049,8 @@ mod test {
         Value,
     };
 
+
+use vm::docs::empty_block_snapshot;
     use crate::types::chainstate::VRFSeed;
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
@@ -2074,7 +2078,7 @@ mod test {
             None
         }
         fn get_consensus_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<ConsensusHash> {
-            None
+            Some(ConsensusHash([0;20]))
         }
         fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
             Some(
@@ -2129,7 +2133,7 @@ mod test {
             &self,
             consensus_hash: &ConsensusHash,
         ) -> Option<BlockSnapshot> {
-            None
+            Some(empty_block_snapshot())
         }
 
         fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {

@@ -50,7 +50,8 @@ const CALL_READ_CONTRACT: &'static str = "
 ";
 
 // TODO(gregorycoppola) Add "burn-block-info" section to this test, once a way to configure the
-// Mocknet default Stacks epoch has been decided.
+// Mocknet default Stacks epoch has been decided. Verify that we get (none) for any block height
+// prior to the first burnchain block height.
 const GET_INFO_CONTRACT: &'static str = "
         (define-map block-data
           { height: uint }

@@ -82,7 +82,6 @@ fn get_miner_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<MinerPaymentS
 
 impl BurnStateDB for SortitionHandleTx<'_> {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
-        // Note: This hits the sqlite db.
         match SortitionDB::get_block_snapshot(self.tx(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),
             _ => return None,
@@ -166,7 +165,7 @@ impl BurnStateDB for SortitionDBConn<'_> {
             Some(height) => height,
         };
 
-        if height < 0 || height >= current_height {
+        if height >= current_height {
             return None;
         }
 

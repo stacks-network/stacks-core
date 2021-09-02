@@ -603,7 +603,6 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
             // at this point, we need to figure out if the sortition we are
             //  about to process is the first block in reward cycle.
             let reward_cycle_info = self.get_reward_cycle_info(&header)?;
-            // Note: we get a snapshot after `evlauate_sortition`.
             let (next_snapshot, _, reward_set_info) = self
                 .sortition_db
                 .evaluate_sortition(

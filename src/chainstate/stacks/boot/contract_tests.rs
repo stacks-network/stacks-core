@@ -300,7 +300,7 @@ fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
 
 /// Creates an "empty" (i.e. zeroed out) BlockSnapshot, to make a basis for creating
 /// `BlockSnapshot` with a few key fields filled.
-fn empty_block_snapshot() -> BlockSnapshot {
+pub fn empty_block_snapshot() -> BlockSnapshot {
     BlockSnapshot {
         block_height: 0,
         burn_header_timestamp: 0,
@@ -440,13 +440,13 @@ impl HeadersDB for TestSimHeadersDB {
     }
 
     fn get_consensus_hash_for_block(&self, bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        // Map the 2nd StacksBlockId to a ConsensusHash of all 2.
         if *bhh
             == StacksBlockId::from_hex(
                 "0200000000000000000000000000000000000000000000000000000000000000",
             )
             .unwrap()
         {
-            // Map the 2ns StacksBlockId to a ConsensusHash of all 2.
             Some(ConsensusHash([2; 20]))
         } else {
             None

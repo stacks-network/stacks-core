@@ -83,7 +83,6 @@ pub struct ClarityDatabase<'a> {
 }
 
 pub trait HeadersDB {
-    // Note: we have StacksBlockId here.
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -110,6 +109,8 @@ pub trait BurnStateDB {
     fn get_pox_reward_cycle_length(&self) -> u32;
     fn get_pox_rejection_fraction(&self) -> u64;
 
+    /// Returns the burnchain header hash for the given burn block height, as queried from the given SortitionId.
+    ///
     /// Returns Some if `self.get_burn_start_height() <= height < self.get_burn_block_height(sorition_id)`, and None otherwise.
     fn get_burn_header_hash(
         &self,
