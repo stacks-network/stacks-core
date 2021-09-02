@@ -99,13 +99,18 @@ pub trait HeadersDB {
 
 pub trait BurnStateDB {
     fn get_v1_unlock_height(&self) -> u32;
+
+    /// Returns the *burnchain block height* at that `sortition_id` is associated with.
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
+
+    /// Returns the height of the burnchain when the Stacks chain started running.
     fn get_burn_start_height(&self) -> u32;
+
     fn get_pox_prepare_length(&self) -> u32;
     fn get_pox_reward_cycle_length(&self) -> u32;
     fn get_pox_rejection_fraction(&self) -> u64;
 
-    /// Returns Some if `0 <= height < get_burn_block_height(sorition_id)`, and None otherwise.
+    /// Returns Some if `self.get_burn_start_height() <= height < self.get_burn_block_height(sorition_id)`, and None otherwise.
     fn get_burn_header_hash(
         &self,
         height: u32,
@@ -655,6 +660,9 @@ impl<'a> ClarityDatabase<'a> {
 // Get block information
 
 impl<'a> ClarityDatabase<'a> {
+    /// Returns the ID of a *Stacks* block, by a *Stacks* block height.
+    /// 
+    /// Fails if `block_height` >= the "currently" under construction Stacks block height.
     pub fn get_index_block_header_hash(&mut self, block_height: u32) -> StacksBlockId {
         self.store
             .get_block_header_hash(block_height)
@@ -663,6 +671,7 @@ impl<'a> ClarityDatabase<'a> {
             .expect("Block header hash must return for provided block height")
     }
 
+    /// This is the height we are currently constructing. It comes from the MARF.
     pub fn get_current_block_height(&mut self) -> u32 {
         self.store.get_current_block_height()
     }
@@ -720,19 +729,23 @@ impl<'a> ClarityDatabase<'a> {
     /// `StacksBlockId` to a `SortitionId` and then gets the `BurnchainHeaderHash` from the
     /// `BurnStateDB` using this `SortitionId`.
     ///
-    /// Returns Some() if `0 <= height < current_burnblock_height`, and None otherwise.
+    /// Returns Some() if `0 <= burnchain_block_height < current_burn_block_height`, and None otherwise.
     pub fn get_burnchain_block_header_hash_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,
     ) -> Option<BurnchainHeaderHash> {
         let current_stacks_height = self.get_current_block_height();
-        let id_bhh = self.get_index_block_header_hash(current_stacks_height);
+        if current_stacks_height < 1 {
+            return None;
+        }
+
+        let parent_id_bhh = self.get_index_block_header_hash(current_stacks_height - 1);
 
         // Is this block in the database?
         // Should this return an error/panic if it fails?
-        let consensus = match self.headers_db.get_consensus_hash_for_block(&id_bhh) {
+        let consensus = match self.headers_db.get_consensus_hash_for_block(&parent_id_bhh) {
             None => {
-                return None;
+                panic!("No consensus found for index_block_header_hash {:?}.", parent_id_bhh);
             }
             Some(consensus) => consensus,
         };
@@ -743,7 +756,7 @@ impl<'a> ClarityDatabase<'a> {
             .get_block_snapshot_from_consensus_hash(&consensus)
         {
             None => {
-                return None;
+                panic!("No block snapshot found for consensus_hash {:?}.", consensus);
             }
             Some(snapshot) => snapshot,
         };
