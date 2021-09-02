@@ -298,36 +298,7 @@ fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
     }
 }
 
-/// Creates an "empty" (i.e. zeroed out) BlockSnapshot, to make a basis for creating
-/// `BlockSnapshot` with a few key fields filled.
-pub fn empty_block_snapshot() -> BlockSnapshot {
-    BlockSnapshot {
-        block_height: 0,
-        burn_header_timestamp: 0,
-        burn_header_hash: BurnchainHeaderHash([0; 32]),
-        parent_burn_header_hash: BurnchainHeaderHash([0; 32]),
-        consensus_hash: ConsensusHash([0; 20]),
-        ops_hash: OpsHash([0; 32]),
-        total_burn: 0,
-        sortition: true,
-        sortition_hash: SortitionHash([0; 32]),
-        winning_block_txid: Txid([0; 32]),
-        winning_stacks_block_hash: BlockHeaderHash([0; 32]),
-        index_root: TrieHash([0; 32]),
-        num_sortitions: 0,
-        stacks_block_accepted: true,
-        stacks_block_height: 0,
-        arrival_index: 0,
-        canonical_stacks_tip_height: 0,
-        canonical_stacks_tip_hash: BlockHeaderHash([0; 32]),
-        canonical_stacks_tip_consensus_hash: ConsensusHash([0; 20]),
-        sortition_id: SortitionId([0; 32]),
-        parent_sortition_id: SortitionId([0; 32]),
-        pox_valid: true,
-        accumulated_coinbase_ustx: 0,
-    }
-}
-
+#[cfg(test)]
 impl BurnStateDB for TestSimBurnStateDB {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         panic!("Not implemented in TestSim");
@@ -357,6 +328,7 @@ impl BurnStateDB for TestSimBurnStateDB {
         &self,
         consensus_hash: &ConsensusHash,
     ) -> Option<BlockSnapshot> {
+        use chainstate::burn::empty_block_snapshot;
         if *consensus_hash == ConsensusHash([2; 20]) {
             // Map the "all 2" ConsensusHash to an "all 2" SortitionId.
             Some(BlockSnapshot {
@@ -422,6 +394,7 @@ impl BurnStateDB for TestSimBurnStateDB {
     }
 }
 
+#[cfg(test)]
 impl HeadersDB for TestSimHeadersDB {
     fn get_burn_header_hash_for_block(
         &self,

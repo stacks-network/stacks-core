@@ -20,7 +20,6 @@ use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::types::{FixedFunction, FunctionType, Value};
 use vm::variables::NativeVariables;
-use chainstate::stacks::boot::contract_tests::empty_block_snapshot;
 
 pub mod contracts;
 
@@ -2049,8 +2048,6 @@ mod test {
         Value,
     };
 
-
-use vm::docs::empty_block_snapshot;
     use crate::types::chainstate::VRFSeed;
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
@@ -2065,6 +2062,7 @@ use vm::docs::empty_block_snapshot;
     use super::make_all_api_reference;
     use super::make_json_api_reference;
 
+    use chainstate::burn::empty_block_snapshot;
     use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 
     struct DocHeadersDB {}
@@ -2078,7 +2076,7 @@ use vm::docs::empty_block_snapshot;
             None
         }
         fn get_consensus_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<ConsensusHash> {
-            Some(ConsensusHash([0;20]))
+            Some(ConsensusHash([0; 20]))
         }
         fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
             Some(
