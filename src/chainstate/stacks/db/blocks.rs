@@ -5281,24 +5281,32 @@ impl StacksChainState {
             _ => false, // unused
         };
 
-        let current_tip = if use_unconfirmed_tip
-            && self.unconfirmed_state.is_some()
-            && self.unconfirmed_state.as_ref().unwrap().is_readable()
-        {
-            // Check if underlying MARF trie exists before returning unconfirmed chain tip
-            let unconfirmed_state = self.unconfirmed_state.as_mut().unwrap();
-            let trie_exists = match unconfirmed_state
-                .clarity_inst
-                .trie_exists_for_block(&unconfirmed_state.unconfirmed_chain_tip)
-            {
-                Ok(res) => res,
-                Err(e) => {
-                    return Err(MemPoolRejection::DBError(e));
-                }
-            };
+        let current_tip = if use_unconfirmed_tip {
+            if let Some(unconfirmed_state) = self.unconfirmed_state.as_mut() {
+                if unconfirmed_state.is_readable() {
+                    // Check if underlying MARF trie exists before returning unconfirmed chain tip
+                    // let unconfirmed_state = self.unconfirmed_state.as_mut().unwrap();
+                    let trie_exists = match unconfirmed_state
+                        .clarity_inst
+                        .trie_exists_for_block(&unconfirmed_state.unconfirmed_chain_tip)
+                    {
+                        Ok(res) => res,
+                        Err(e) => {
+                            return Err(MemPoolRejection::DBError(e));
+                        }
+                    };
 
-            if trie_exists {
-                unconfirmed_state.unconfirmed_chain_tip
+                    if trie_exists {
+                        unconfirmed_state.unconfirmed_chain_tip
+                    } else {
+                        StacksChainState::get_parent_index_block(
+                            current_consensus_hash,
+                            current_block,
+                        )
+                    }
+                } else {
+                    StacksChainState::get_parent_index_block(current_consensus_hash, current_block)
+                }
             } else {
                 StacksChainState::get_parent_index_block(current_consensus_hash, current_block)
             }

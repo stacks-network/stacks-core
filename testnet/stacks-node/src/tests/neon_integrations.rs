@@ -72,7 +72,7 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
-use stacks::chainstate::stacks::{Error, TransactionAnchorMode};
+use stacks::chainstate::stacks::Error;
 
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -1930,14 +1930,14 @@ fn microblock_integration_test() {
 #[test]
 #[ignore]
 fn transaction_validation_integration_test() {
-    /// The purpose of this test is to check if the mempool admission checks for the post tx
-    /// endpoint are working as expected wrt the optional `use_unconfirmed_tip` query parameter.
-    ///
-    /// In this test, we are manually creating a microblock as well as reloading the unconfirmed
-    /// state of the chainstate, instead of relying on `next_block_and_wait` to generate
-    /// microblocks. We do this because the unconfirmed state is not automatically being initialized
-    /// on the node, so attempting to validate any transactions against the expected unconfirmed
-    /// state fails
+    // The purpose of this test is to check if the mempool admission checks for the post tx
+    // endpoint are working as expected wrt the optional `use_unconfirmed_tip` query parameter.
+    //
+    // In this test, we are manually creating a microblock as well as reloading the unconfirmed
+    // state of the chainstate, instead of relying on `next_block_and_wait` to generate
+    // microblocks. We do this because the unconfirmed state is not automatically being initialized
+    // on the node, so attempting to validate any transactions against the expected unconfirmed
+    // state fails
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -2063,7 +2063,7 @@ fn transaction_validation_integration_test() {
     sleep_ms(5_000);
     let path = format!("{}/v2/info", &http_origin);
     let mut iter_count = 0;
-    let tip_info = loop {
+    loop {
         let tip_info = client
             .get(&path)
             .send()
@@ -2080,9 +2080,9 @@ fn transaction_validation_integration_test() {
             sleep_ms(5_000);
             continue;
         } else {
-            break tip_info;
+            break;
         }
-    };
+    }
 
     // Wait at least two p2p refreshes so it can produce the microblock.
     for i in 0..30 {
@@ -2094,7 +2094,7 @@ fn transaction_validation_integration_test() {
     }
 
     // Check event observer for new microblock event (expect 1).
-    let mut microblock_events = test_observer::get_microblocks();
+    let microblock_events = test_observer::get_microblocks();
     assert_eq!(microblock_events.len(), 1);
 
     // Call the contract we just defined in a microblock, but make the mempool admission check occur against anchored state.
@@ -2136,7 +2136,7 @@ fn transaction_validation_integration_test() {
     {
         Ok(res) => res,
         Err(e) => {
-            panic!("error when determining whether or not trie exists");
+            panic!("error when determining whether or not trie exists: {:?}", e);
         }
     };
     assert!(!trie_exists);

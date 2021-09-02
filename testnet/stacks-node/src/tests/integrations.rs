@@ -7,7 +7,6 @@ use reqwest;
 use stacks::burnchains::Address;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
-    TransactionAnchorMode,
 };
 use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
