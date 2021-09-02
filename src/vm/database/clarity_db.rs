@@ -661,7 +661,7 @@ impl<'a> ClarityDatabase<'a> {
 
 impl<'a> ClarityDatabase<'a> {
     /// Returns the ID of a *Stacks* block, by a *Stacks* block height.
-    /// 
+    ///
     /// Fails if `block_height` >= the "currently" under construction Stacks block height.
     pub fn get_index_block_header_hash(&mut self, block_height: u32) -> StacksBlockId {
         self.store
@@ -725,41 +725,45 @@ impl<'a> ClarityDatabase<'a> {
             .expect("Failed to get block data.")
     }
 
-    /// Gets the `StacksBlockId` for the *current* chain tip Stacks block height, converts this
-    /// `StacksBlockId` to a `SortitionId` and then gets the `BurnchainHeaderHash` from the
-    /// `BurnStateDB` using this `SortitionId`.
+    /// The answer is computed as follows: 1) Get the `StacksBlockId` for the *parent of* the
+    /// *current* chain tip. 2) Convert this `StacksBlockId` to a `SortitionId`. 3) Get the
+    /// `BurnchainHeaderHash` from the `BurnStateDB` using this `SortitionId` and the requested
+    /// `burnchain_block_height`.
     ///
-    /// Returns Some() if `0 <= burnchain_block_height < current_burn_block_height`, and None otherwise.
+    /// Returns Some if `self.burn_state_db.get_burn_start_height() <= burnchain_block_height <
+    /// current_burn_block_height`, and None otherwise.
     pub fn get_burnchain_block_header_hash_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,
     ) -> Option<BurnchainHeaderHash> {
         let current_stacks_height = self.get_current_block_height();
+
+        // If the currently worked on height is 0, we don't have a history to look at.
         if current_stacks_height < 1 {
             return None;
         }
 
         let parent_id_bhh = self.get_index_block_header_hash(current_stacks_height - 1);
 
-        // Is this block in the database?
-        // Should this return an error/panic if it fails?
         let consensus = match self.headers_db.get_consensus_hash_for_block(&parent_id_bhh) {
-            None => {
-                panic!("No consensus found for index_block_header_hash {:?}.", parent_id_bhh);
-            }
+            None => panic!(
+                "No consensus found for index_block_header_hash {:?}.",
+                parent_id_bhh
+            ),
             Some(consensus) => consensus,
         };
 
-        // Should this return an error/panic if it fails?
         let snapshot = match self
             .burn_state_db
             .get_block_snapshot_from_consensus_hash(&consensus)
         {
-            None => {
-                panic!("No block snapshot found for consensus_hash {:?}.", consensus);
-            }
+            None => panic!(
+                "No block snapshot found for consensus_hash {:?}.",
+                consensus
+            ),
             Some(snapshot) => snapshot,
         };
+
         self.burn_state_db
             .get_burn_header_hash(burnchain_block_height, &snapshot.sortition_id)
     }

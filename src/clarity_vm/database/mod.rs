@@ -39,7 +39,7 @@ impl HeadersDB for DBConn {
         get_stacks_header_info(self, id_bhh).map(|x| x.burn_header_hash)
     }
 
-   fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
         get_stacks_header_info(self, id_bhh).map(|x| x.consensus_hash)
     }
 
@@ -160,7 +160,9 @@ impl BurnStateDB for SortitionDBConn<'_> {
         let db_handle = SortitionHandleConn::open_reader(self, &sortition_id).ok()?;
 
         let current_height = match self.get_burn_block_height(sortition_id) {
-            None => { return None; }
+            None => {
+                return None;
+            }
             Some(height) => height,
         };
 
