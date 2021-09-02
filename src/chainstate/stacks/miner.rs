@@ -511,7 +511,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                 num_selected += 1;
                                 Ok(true)
                             }
-                            Ok(false) => Ok(false),
+                            Ok(false) => Ok(true), // keep iterating
                             Err(e) => Err(e),
                         }
                     },
