@@ -3,8 +3,8 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use address::AddressHashMode;
-use chainstate::burn::BlockSnapshot;
-use chainstate::burn::ConsensusHash;
+use chainstate::burn::*;
+use types::chainstate::SortitionId;
 use chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
@@ -119,7 +119,7 @@ pub struct ClarityTestSim {
     /// first to Epoch 2.0, then to Epoch 2.1, etc. If the Epoch 2.0 transition
     /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
     /// begin in Epoch 1.0.
-    epoch_bounds: Vec<u64>,
+    pub epoch_bounds: Vec<u64>,
 }
 
 pub struct TestSimHeadersDB {
@@ -298,10 +298,38 @@ fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
     }
 }
 
+fn empty_block_snapshot() -> BlockSnapshot {
+    BlockSnapshot {
+        block_height: 0,
+        burn_header_timestamp: 0,
+        burn_header_hash: BurnchainHeaderHash([0; 32]),
+        parent_burn_header_hash: BurnchainHeaderHash([0; 32]),
+        consensus_hash: ConsensusHash([0; 20]),
+        ops_hash: OpsHash([0; 32]),
+        total_burn: 0,
+        sortition: true,
+        sortition_hash: SortitionHash([0; 32]),
+        winning_block_txid: Txid([0; 32]),
+        winning_stacks_block_hash: BlockHeaderHash([0; 32]),
+        index_root: TrieHash([0; 32]),
+        num_sortitions: 0,
+        stacks_block_accepted: true,
+        stacks_block_height: 0,
+        arrival_index: 0,
+        canonical_stacks_tip_height: 0,
+        canonical_stacks_tip_hash: BlockHeaderHash([0; 32]),
+        canonical_stacks_tip_consensus_hash: ConsensusHash([0; 20]),
+        sortition_id: SortitionId([0; 32]),
+        parent_sortition_id: SortitionId([0; 32]),
+        pox_valid: true,
+        accumulated_coinbase_ustx: 0,
+    }
+}
+
 impl BurnStateDB for TestSimBurnStateDB {
     fn get_burn_block_height(
         &self,
-        sortition_id: &crate::types::chainstate::SortitionId,
+        sortition_id: &SortitionId,
     ) -> Option<u32> {
         panic!("Not implemented in TestSim");
     }
@@ -309,15 +337,29 @@ impl BurnStateDB for TestSimBurnStateDB {
     fn get_burn_header_hash(
         &self,
         height: u32,
-        sortition_id: &crate::types::chainstate::SortitionId,
+        sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash> {
-        panic!("Not implemented in TestSim");
+        if *sortition_id == SortitionId([1; 32]) {
+            Some(BurnchainHeaderHash([1; 32]))
+        } else {
+            panic!("Sortition not found {:?}", sortition_id);
+        }
     }
     fn get_block_snapshot_from_consensus_hash(
         &self,
         consensus_hash: &ConsensusHash,
     ) -> Option<BlockSnapshot> {
-        None
+        if *consensus_hash
+            == ConsensusHash::from_hex("0800000000000000000000000000000000000000").unwrap()
+        {
+            let basis = empty_block_snapshot();
+            Some(BlockSnapshot {
+                sortition_id: SortitionId([1; 32]),
+                ..basis
+            })
+        } else {
+            None
+        }
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -391,8 +433,17 @@ impl HeadersDB for TestSimHeadersDB {
         None
     }
 
-    fn get_consensus_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        None
+    fn get_consensus_hash_for_block(&self, bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        if *bhh
+            == StacksBlockId::from_hex(
+                "0200000000000000000000000000000000000000000000000000000000000000",
+            )
+            .unwrap()
+        {
+            Some(ConsensusHash::from_hex("0800000000000000000000000000000000000000").unwrap())
+        } else {
+            None
+        }
     }
 
     fn get_stacks_block_header_hash_for_block(

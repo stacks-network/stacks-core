@@ -217,75 +217,31 @@ impl BurnStateDB for BurnBlockTestDB {
 use chainstate::stacks::boot::contract_tests::ClarityTestSim;
 
 #[test]
+// Here, we set up a basic test to see if we can recover a path from the ClarityTestSim.
 fn test_get_burn_block_info_eval() {
-//    let test_pairs = [
-//        // (get-burn-block-info? header-hash u0) should be Some(BurnchainHeaderHash::zero())
-//        // because this is the hard-coded answer in BurnBlockTestDB.
-//        (
-//            "(define-private (test-func) (get-burn-block-info? header-hash u0))",
-//            Ok(Value::Optional(OptionalData {
-//                data: Some(Box::new(Sequence(Buffer(BuffData { data: vec![0; 32] })))),
-//            })),
-//        ),
-//        // (get-burn-block-info? header-hash u1) should be None because this is
-//        // the hard-coded answer in BurnBlockTestDB.
-//        (
-//            "(define-private (test-func) (get-burn-block-info? header-hash u1))",
-//            Ok(Value::none()),
-//        ),
-//    ];
-
-        let contract = "(define-private (test-func) (get-burn-block-info? header-hash u0))";
-        let result =
-            Value::Optional(OptionalData {
-                data: Some(Box::new(Sequence(Buffer(BuffData { data: vec![0; 32] })))),
-            });
-
-    let test_burn_state_db = BurnBlockTestDB {};
     let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 3];
 
-//    sim.execute_next_block_as_conn(|block| {
-//        test_deploy_smart_contract(block, &clarity_2_0_id, clarity_2_0_content)
-//            .expect("2.0 'good' contract should deploy successfully");
-//        match test_deploy_smart_contract(block, &clarity_2_0_bad_id, clarity_2_1_content)
-//            .expect_err("2.0 'bad' contract should not deploy successfully")
-//        {
-//            ClarityError::Analysis(e) => {
-//                assert_eq!(e.err, CheckErrors::UnknownFunction("stx-account".into()));
-//            }
-//            e => panic!("Should have caused an analysis error: {:#?}", e),
-//        };
-//    });
+    // Advance at least one block because 'get-burn-block-info' only works after the first block.
     sim.execute_next_block(|_env| {});
+    // Advance another block so we get to Stacks 2.1. (Why does this require advancing two blocks?).
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|owned_env| {
-
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
+        let contract = "(define-private (test-func) (get-burn-block-info? header-hash u0))";
         owned_env
             .initialize_contract(contract_identifier.clone(), contract, None)
             .unwrap();
         let eval_result = owned_env.eval_read_only(&contract_identifier, "(test-func)");
-        warn!("contract {:?}", contract);
-        warn!("eval_result {:?}", eval_result);
+        assert_eq!(
+            Value::Optional(OptionalData {
+                data: Some(Box::new(Sequence(Buffer(BuffData {
+                    data: [1; 32].to_vec()
+                }))))
+            }),
+            eval_result.unwrap().0
+        );
     });
-
-//    for (contract, expected) in test_pairs.iter() {
-//        let mut marf = MemoryBackingStore::new();
-//        let mut clarity_db =
-//            marf.as_clarity_db_with_databases(&NULL_HEADER_DB, &test_burn_state_db);
-//        clarity_db.begin();
-//        clarity_db.set_clarity_epoch_version(crate::core::StacksEpochId::Epoch21);
-//        let mut owned_env =
-//            OwnedEnvironment::new_with_version(clarity_db, ClarityVersion::Clarity2);
-//        let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
-//        owned_env
-//            .initialize_contract(contract_identifier.clone(), contract, None)
-//            .unwrap();
-//        let mut env = owned_env.get_exec_environment(None, None);
-//        let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
-//        warn!("contract {:?}", contract);
-//        assert_eq!(*expected, eval_result);
-//    }
 }
 
 fn is_committed(v: &Value) -> bool {
