@@ -2526,7 +2526,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
-    while wait_for_microblocks(&microblocks_processed, 30) {
+    while wait_for_microblocks(&microblocks_processed, 120) {
         info!("Waiting for microblocks to no longer be processed");
     }
 
@@ -2541,11 +2541,13 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
 
-    while wait_for_microblocks(&microblocks_processed, 30) {
+    while wait_for_microblocks(&microblocks_processed, 120) {
         info!("Waiting for microblocks to no longer be processed");
     }
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    sleep_ms(30_000);
 
     let blocks = test_observer::get_blocks();
     assert_eq!(blocks.len(), 3);
