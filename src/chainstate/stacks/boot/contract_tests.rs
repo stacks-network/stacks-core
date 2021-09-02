@@ -298,6 +298,8 @@ fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
     }
 }
 
+/// Creates an "empty" (i.e. zeroed out) BlockSnapshot, to make a basis for creating
+/// `BlockSnapshot` with a few key fields filled.
 fn empty_block_snapshot() -> BlockSnapshot {
     BlockSnapshot {
         block_height: 0,
@@ -339,8 +341,17 @@ impl BurnStateDB for TestSimBurnStateDB {
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash> {
-        if *sortition_id == SortitionId([1; 32]) {
-            Some(BurnchainHeaderHash([1; 32]))
+        if *sortition_id == SortitionId([2; 32]) {
+            // Return some example hashes for the "all 2" sortition and different heights.
+            if height == 0 {
+                Some(BurnchainHeaderHash([20; 32]))
+            } else if height == 1 {
+                Some(BurnchainHeaderHash([21; 32]))
+            } else if height == 2 {
+                Some(BurnchainHeaderHash([22; 32]))
+            } else {
+                None
+            }
         } else {
             panic!("Sortition not found {:?}", sortition_id);
         }
@@ -350,12 +361,12 @@ impl BurnStateDB for TestSimBurnStateDB {
         consensus_hash: &ConsensusHash,
     ) -> Option<BlockSnapshot> {
         if *consensus_hash
-            == ConsensusHash::from_hex("0800000000000000000000000000000000000000").unwrap()
+            == ConsensusHash([2;20])
         {
-            let basis = empty_block_snapshot();
+            // Map the "all 2" ConsensusHash to an "all 2" SortitionId.
             Some(BlockSnapshot {
-                sortition_id: SortitionId([1; 32]),
-                ..basis
+                sortition_id: SortitionId([2; 32]),
+                ..empty_block_snapshot()
             })
         } else {
             None
@@ -440,7 +451,8 @@ impl HeadersDB for TestSimHeadersDB {
             )
             .unwrap()
         {
-            Some(ConsensusHash::from_hex("0800000000000000000000000000000000000000").unwrap())
+            // Map the 2ns StacksBlockId to a ConsensusHash of all 2.
+            Some(ConsensusHash([2;20]))
         } else {
             None
         }
