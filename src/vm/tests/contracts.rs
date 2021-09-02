@@ -228,18 +228,45 @@ fn test_get_burn_block_info_eval() {
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|owned_env| {
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
-        let contract = "(define-private (test-func) (get-burn-block-info? header-hash u0))";
+        let contract =
+            "(define-private (test-func (height uint)) (get-burn-block-info? header-hash height))";
         owned_env
             .initialize_contract(contract_identifier.clone(), contract, None)
             .unwrap();
-        let eval_result = owned_env.eval_read_only(&contract_identifier, "(test-func)");
+
+        // For Stacks height 2, and burnchain heights 0-2, see `TestSimBurnStateDB::get_burn_header_hash`.
         assert_eq!(
             Value::Optional(OptionalData {
                 data: Some(Box::new(Sequence(Buffer(BuffData {
-                    data: [1; 32].to_vec()
+                    data: [20; 32].to_vec()
                 }))))
             }),
-            eval_result.unwrap().0
+            owned_env
+                .eval_read_only(&contract_identifier, "(test-func u0)")
+                .unwrap()
+                .0
+        );
+        assert_eq!(
+            Value::Optional(OptionalData {
+                data: Some(Box::new(Sequence(Buffer(BuffData {
+                    data: [21; 32].to_vec()
+                }))))
+            }),
+            owned_env
+                .eval_read_only(&contract_identifier, "(test-func u1)")
+                .unwrap()
+                .0
+        );
+        assert_eq!(
+            Value::Optional(OptionalData {
+                data: Some(Box::new(Sequence(Buffer(BuffData {
+                    data: [22; 32].to_vec()
+                }))))
+            }),
+            owned_env
+                .eval_read_only(&contract_identifier, "(test-func u2)")
+                .unwrap()
+                .0
         );
     });
 }

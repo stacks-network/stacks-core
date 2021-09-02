@@ -4,7 +4,6 @@ use std::convert::TryInto;
 
 use address::AddressHashMode;
 use chainstate::burn::*;
-use types::chainstate::SortitionId;
 use chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
@@ -18,6 +17,7 @@ use core::{
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     POX_REWARD_CYCLE_LENGTH,
 };
+use types::chainstate::SortitionId;
 use util::db::{DBConn, FromRow};
 use util::hash::to_hex;
 use util::hash::{Sha256Sum, Sha512Trunc256Sum};
@@ -329,10 +329,7 @@ fn empty_block_snapshot() -> BlockSnapshot {
 }
 
 impl BurnStateDB for TestSimBurnStateDB {
-    fn get_burn_block_height(
-        &self,
-        sortition_id: &SortitionId,
-    ) -> Option<u32> {
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         panic!("Not implemented in TestSim");
     }
 
@@ -360,9 +357,7 @@ impl BurnStateDB for TestSimBurnStateDB {
         &self,
         consensus_hash: &ConsensusHash,
     ) -> Option<BlockSnapshot> {
-        if *consensus_hash
-            == ConsensusHash([2;20])
-        {
+        if *consensus_hash == ConsensusHash([2; 20]) {
             // Map the "all 2" ConsensusHash to an "all 2" SortitionId.
             Some(BlockSnapshot {
                 sortition_id: SortitionId([2; 32]),
@@ -452,7 +447,7 @@ impl HeadersDB for TestSimHeadersDB {
             .unwrap()
         {
             // Map the 2ns StacksBlockId to a ConsensusHash of all 2.
-            Some(ConsensusHash([2;20]))
+            Some(ConsensusHash([2; 20]))
         } else {
             None
         }
