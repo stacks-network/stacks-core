@@ -200,7 +200,8 @@ impl BurnStateDB for BurnBlockTestDB {
         None
     }
     fn get_v1_unlock_height(&self) -> u32 {
-        panic!("Not implemented");
+        1
+        // panic!("Not implemented");
     }
     fn get_pox_prepare_length(&self) -> u32 {
         panic!("Not implemented");
@@ -213,43 +214,78 @@ impl BurnStateDB for BurnBlockTestDB {
     }
 }
 
+use chainstate::stacks::boot::contract_tests::ClarityTestSim;
+
 #[test]
 fn test_get_burn_block_info_eval() {
-    let test_pairs = [
-        // (get-burn-block-info? header-hash u0) should be Some(BurnchainHeaderHash::zero())
-        // because this is the hard-coded answer in BurnBlockTestDB.
-        (
-            "(define-private (test-func) (get-burn-block-info? header-hash u0))",
-            Ok(Value::Optional(OptionalData {
+//    let test_pairs = [
+//        // (get-burn-block-info? header-hash u0) should be Some(BurnchainHeaderHash::zero())
+//        // because this is the hard-coded answer in BurnBlockTestDB.
+//        (
+//            "(define-private (test-func) (get-burn-block-info? header-hash u0))",
+//            Ok(Value::Optional(OptionalData {
+//                data: Some(Box::new(Sequence(Buffer(BuffData { data: vec![0; 32] })))),
+//            })),
+//        ),
+//        // (get-burn-block-info? header-hash u1) should be None because this is
+//        // the hard-coded answer in BurnBlockTestDB.
+//        (
+//            "(define-private (test-func) (get-burn-block-info? header-hash u1))",
+//            Ok(Value::none()),
+//        ),
+//    ];
+
+        let contract = "(define-private (test-func) (get-burn-block-info? header-hash u0))";
+        let result =
+            Value::Optional(OptionalData {
                 data: Some(Box::new(Sequence(Buffer(BuffData { data: vec![0; 32] })))),
-            })),
-        ),
-        // (get-burn-block-info? header-hash u1) should be None because this is
-        // the hard-coded answer in BurnBlockTestDB.
-        (
-            "(define-private (test-func) (get-burn-block-info? header-hash u1))",
-            Ok(Value::none()),
-        ),
-    ];
+            });
 
     let test_burn_state_db = BurnBlockTestDB {};
-    for (contract, expected) in test_pairs.iter() {
-        let mut marf = MemoryBackingStore::new();
-        let mut clarity_db =
-            marf.as_clarity_db_with_databases(&NULL_HEADER_DB, &test_burn_state_db);
-        clarity_db.begin();
-        clarity_db.set_clarity_epoch_version(crate::core::StacksEpochId::Epoch21);
-        let mut owned_env =
-            OwnedEnvironment::new_with_version(clarity_db, ClarityVersion::Clarity2);
+    let mut sim = ClarityTestSim::new();
+
+//    sim.execute_next_block_as_conn(|block| {
+//        test_deploy_smart_contract(block, &clarity_2_0_id, clarity_2_0_content)
+//            .expect("2.0 'good' contract should deploy successfully");
+//        match test_deploy_smart_contract(block, &clarity_2_0_bad_id, clarity_2_1_content)
+//            .expect_err("2.0 'bad' contract should not deploy successfully")
+//        {
+//            ClarityError::Analysis(e) => {
+//                assert_eq!(e.err, CheckErrors::UnknownFunction("stx-account".into()));
+//            }
+//            e => panic!("Should have caused an analysis error: {:#?}", e),
+//        };
+//    });
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|owned_env| {
+
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
         owned_env
             .initialize_contract(contract_identifier.clone(), contract, None)
             .unwrap();
-        let mut env = owned_env.get_exec_environment(None, None);
-        let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+        let eval_result = owned_env.eval_read_only(&contract_identifier, "(test-func)");
         warn!("contract {:?}", contract);
-        assert_eq!(*expected, eval_result);
-    }
+        warn!("eval_result {:?}", eval_result);
+    });
+
+//    for (contract, expected) in test_pairs.iter() {
+//        let mut marf = MemoryBackingStore::new();
+//        let mut clarity_db =
+//            marf.as_clarity_db_with_databases(&NULL_HEADER_DB, &test_burn_state_db);
+//        clarity_db.begin();
+//        clarity_db.set_clarity_epoch_version(crate::core::StacksEpochId::Epoch21);
+//        let mut owned_env =
+//            OwnedEnvironment::new_with_version(clarity_db, ClarityVersion::Clarity2);
+//        let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
+//        owned_env
+//            .initialize_contract(contract_identifier.clone(), contract, None)
+//            .unwrap();
+//        let mut env = owned_env.get_exec_environment(None, None);
+//        let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+//        warn!("contract {:?}", contract);
+//        assert_eq!(*expected, eval_result);
+//    }
 }
 
 fn is_committed(v: &Value) -> bool {
