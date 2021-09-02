@@ -50,6 +50,7 @@ impl<'a> DefinitionSorter {
     pub fn run_pass<T: CostTracker>(
         contract_ast: &mut ContractAST,
         accounting: &mut T,
+        _version: ClarityVersion,
     ) -> ParseResult<()> {
         let mut pass = DefinitionSorter::new();
         pass.run(contract_ast, accounting)?;
@@ -211,13 +212,14 @@ impl<'a> DefinitionSorter {
                                     return Ok(());
                                 }
                             }
-                        } else if let Some(native_function) =
-                            // NOTE: can use ClarityVersion::latest() here only as long as NO NEW FUNCTIONS are special cased
-                            //        in the definition sorter.
+                        } else if
+                        // NOTE: We can use ClarityVersion::latest() here only as long as NO NEW FUNCTIONS are special cased
+                        // in the definition sorter.
+                        let Some(native_function) =
                             NativeFunctions::lookup_by_name_at_version(
-                                    function_name,
-                                    &ClarityVersion::latest(),
-                                )
+                                function_name,
+                                &ClarityVersion::latest(),
+                            )
                         {
                             match native_function {
                                 NativeFunctions::ContractCall => {

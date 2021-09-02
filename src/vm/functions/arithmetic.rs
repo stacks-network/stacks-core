@@ -289,7 +289,7 @@ macro_rules! make_arithmetic_ops {
                     return Self::make_value(base);
                 }
 
-                if power < 0 || power > (u32::max_value() as $type) {
+                if power < 0 || power > (u32::MAX as $type) {
                     return Err(RuntimeErrorType::Arithmetic(
                         "Power argument to (pow ...) must be a u32 integer".to_string(),
                     )

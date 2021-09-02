@@ -478,7 +478,7 @@ impl PeerDB {
         let deny_cidrs = PeerDB::get_denied_cidrs(tx)?;
         for (prefix, mask) in deny_cidrs.into_iter() {
             debug!("Refresh deny {}/{}", &prefix, mask);
-            PeerDB::apply_cidr_filter(tx, &prefix, mask, "denied", i64::max_value())?;
+            PeerDB::apply_cidr_filter(tx, &prefix, mask, "denied", i64::MAX)?;
         }
         Ok(())
     }
@@ -488,7 +488,7 @@ impl PeerDB {
         let allow_cidrs = PeerDB::get_allowed_cidrs(tx)?;
         for (prefix, mask) in allow_cidrs.into_iter() {
             debug!("Refresh allow {}/{}", &prefix, mask);
-            PeerDB::apply_cidr_filter(tx, &prefix, mask, "allowed", i64::max_value())?;
+            PeerDB::apply_cidr_filter(tx, &prefix, mask, "allowed", i64::MAX)?;
         }
         Ok(())
     }
@@ -841,6 +841,13 @@ impl PeerDB {
         network_id: u32,
     ) -> Result<Vec<Neighbor>, db_error> {
         let sql = "SELECT * FROM frontier WHERE allowed < 0 AND network_id = ?1 ORDER BY RANDOM()";
+        let allow_rows = query_rows::<Neighbor, _>(conn, sql, &[&network_id])?;
+        Ok(allow_rows)
+    }
+
+    /// Get the bootstrap peers
+    pub fn get_bootstrap_peers(conn: &DBConn, network_id: u32) -> Result<Vec<Neighbor>, db_error> {
+        let sql = "SELECT * FROM frontier WHERE initial = 1 AND network_id = ?1 ORDER BY RANDOM()";
         let allow_rows = query_rows::<Neighbor, _>(conn, sql, &[&network_id])?;
         Ok(allow_rows)
     }
@@ -1228,7 +1235,7 @@ impl PeerDB {
         PeerDB::add_cidr_prefix(tx, "denied_prefixes", prefix, mask)?;
 
         debug!("Apply deny {}/{}", &prefix, mask);
-        PeerDB::apply_cidr_filter(tx, prefix, mask, "denied", i64::max_value())?;
+        PeerDB::apply_cidr_filter(tx, prefix, mask, "denied", i64::MAX)?;
         Ok(())
     }
 
@@ -2004,7 +2011,7 @@ mod test {
         .unwrap()
         .unwrap();
         assert_eq!(n1.allowed, 12345);
-        assert_eq!(n1.denied, i64::max_value());
+        assert_eq!(n1.denied, i64::MAX);
         assert_eq!(n2.allowed, 12345);
         assert_eq!(n2.denied, 67890);
 
@@ -2041,7 +2048,7 @@ mod test {
         .unwrap();
 
         assert_eq!(n1.allowed, -1);
-        assert_eq!(n1.denied, i64::max_value());
+        assert_eq!(n1.denied, i64::MAX);
         assert_eq!(n2.allowed, 12345);
         assert_eq!(n2.denied, 67890);
     }
@@ -2161,7 +2168,7 @@ mod test {
         .unwrap()
         .unwrap();
 
-        assert_eq!(n1.denied, i64::max_value());
+        assert_eq!(n1.denied, i64::MAX);
         assert_eq!(n2.denied, 0); // refreshed; no longer denied
 
         assert_eq!(n1.allowed, -1);

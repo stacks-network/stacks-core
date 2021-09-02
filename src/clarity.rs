@@ -80,6 +80,7 @@ use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::VRFSeed;
 use crate::types::proof::ClarityMarfTrieId;
+use std::str::FromStr;
 
 #[cfg(test)]
 macro_rules! panic_test {
@@ -142,8 +143,9 @@ struct EvalInput {
 fn parse(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
+    version: ClarityVersion,
 ) -> Result<Vec<SymbolicExpression>, Error> {
-    let ast = build_ast(contract_identifier, source_code, &mut ())
+    let ast = build_ast(contract_identifier, source_code, &mut (), version)
         .map_err(|e| RuntimeErrorType::ASTError(e))?;
     Ok(ast.expressions)
 }
@@ -697,6 +699,7 @@ fn consume_arg(
     }
 }
 
+/// This function uses Clarity1 to parse the boot code.
 fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) {
     let mainnet = header_db.is_mainnet();
     let boot_code = if mainnet {
@@ -704,6 +707,8 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     } else {
         *STACKS_BOOT_CODE_TESTNET
     };
+
+    let clarity_version = ClarityVersion::Clarity1;
 
     for (boot_code_name, boot_code_contract) in boot_code.iter() {
         let contract_identifier = QualifiedContractIdentifier::new(
@@ -719,7 +724,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         );
 
         let mut ast = friendly_expect(
-            parse(&contract_identifier, &contract_content),
+            parse(&contract_identifier, &contract_content, clarity_version),
             "Failed to parse program.",
         );
 
@@ -971,7 +976,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 )
             };
 
-            let mut ast = friendly_expect(parse(&contract_id, &content), "Failed to parse program");
+            // TODO: Add --clarity_version as command line argument
+            let mut ast = friendly_expect(
+                parse(&contract_id, &content, ClarityVersion::Clarity1),
+                "Failed to parse program",
+            );
 
             let contract_analysis_res = {
                 if argv.len() >= 3 {
@@ -1073,7 +1082,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     }
                 };
 
-                let mut ast = match parse(&contract_id, &content) {
+                // TODO: Add --clarity_version as command line argument
+                let mut ast = match parse(&contract_id, &content, ClarityVersion::Clarity1) {
                     Ok(val) => val,
                     Err(error) => {
                         println!("Parse error:\n{}", error);
@@ -1116,8 +1126,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let contract_id = QualifiedContractIdentifier::transient();
 
-            let mut ast =
-                friendly_expect(parse(&contract_id, &content), "Failed to parse program.");
+            // TODO: Add --clarity_version as command line argument
+            let mut ast = friendly_expect(
+                parse(&contract_id, &content, ClarityVersion::Clarity1),
+                "Failed to parse program.",
+            );
             match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                 Ok(_) => {
                     let result = vm_env.get_exec_environment(None, None).eval_raw(&content);
@@ -1365,8 +1378,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 &format!("Error reading file: {}", argv[2]),
             );
 
+            // TODO: Add --clarity_version as command line argument
             let mut ast = friendly_expect(
-                parse(&contract_identifier, &contract_content),
+                parse(
+                    &contract_identifier,
+                    &contract_content,
+                    ClarityVersion::Clarity1,
+                ),
                 "Failed to parse program.",
             );
             let header_db =

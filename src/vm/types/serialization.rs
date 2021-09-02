@@ -665,6 +665,9 @@ impl ClarityDeserializable<Value> for Value {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use rstest_reuse::{self, *};
+
     use std::io::Write;
 
     use vm::database::ClaritySerializable;
@@ -673,6 +676,13 @@ mod tests {
 
     use super::super::*;
     use super::SerializationError;
+    use vm::ClarityVersion;
+
+    #[template]
+    #[rstest]
+    #[case(ClarityVersion::Clarity1)]
+    #[case(ClarityVersion::Clarity2)]
+    fn test_clarity_versions_serialization(#[case] version: ClarityVersion) {}
 
     fn buff_type(size: u32) -> TypeSignature {
         TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap())).into()
@@ -698,8 +708,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_lists() {
+    #[apply(test_clarity_versions_serialization)]
+    fn test_lists(#[case] version: ClarityVersion) {
         let list_list_int = Value::list_from(vec![Value::list_from(vec![
             Value::Int(1),
             Value::Int(2),
@@ -711,17 +721,17 @@ mod tests {
         // Should be legal!
         Value::try_deserialize_hex(
             &Value::list_from(vec![]).unwrap().serialize(),
-            &TypeSignature::from("(list 2 (list 3 int))"),
+            &TypeSignature::from_string("(list 2 (list 3 int))", version),
         )
         .unwrap();
         Value::try_deserialize_hex(
             &list_list_int.serialize(),
-            &TypeSignature::from("(list 2 (list 3 int))"),
+            &TypeSignature::from_string("(list 2 (list 3 int))", version),
         )
         .unwrap();
         Value::try_deserialize_hex(
             &list_list_int.serialize(),
-            &TypeSignature::from("(list 1 (list 4 int))"),
+            &TypeSignature::from_string("(list 1 (list 4 int))", version),
         )
         .unwrap();
 
@@ -731,17 +741,17 @@ mod tests {
         // inner type isn't expected
         test_bad_expectation(
             list_list_int.clone(),
-            TypeSignature::from("(list 1 (list 4 uint))"),
+            TypeSignature::from_string("(list 1 (list 4 uint))", version),
         );
         // child list longer than expected
         test_bad_expectation(
             list_list_int.clone(),
-            TypeSignature::from("(list 1 (list 2 uint))"),
+            TypeSignature::from_string("(list 1 (list 2 uint))", version),
         );
         // parent list longer than expected
         test_bad_expectation(
             list_list_int.clone(),
-            TypeSignature::from("(list 0 (list 2 uint))"),
+            TypeSignature::from_string("(list 0 (list 2 uint))", version),
         );
 
         // make a list too large for the type itself!
@@ -785,9 +795,9 @@ mod tests {
             Err(eres) => match eres {
                 SerializationError::IOError(ioe) => match ioe.err.kind() {
                     std::io::ErrorKind::UnexpectedEof => {}
-                    _ => assert!(false, format!("Invalid I/O error: {:?}", &ioe)),
+                    _ => assert!(false, "Invalid I/O error: {:?}", &ioe),
                 },
-                _ => assert!(false, format!("Invalid deserialize error: {:?}", &eres)),
+                _ => assert!(false, "Invalid deserialize error: {:?}", &eres),
             },
         }
     }
@@ -806,8 +816,8 @@ mod tests {
         test_deser_ser(Value::Int(0));
         test_deser_ser(Value::Int(1));
         test_deser_ser(Value::Int(-1));
-        test_deser_ser(Value::Int(i128::max_value()));
-        test_deser_ser(Value::Int(i128::min_value()));
+        test_deser_ser(Value::Int(i128::MAX));
+        test_deser_ser(Value::Int(i128::MIN));
 
         test_bad_expectation(Value::Int(1), TypeSignature::UIntType);
     }
@@ -816,14 +826,14 @@ mod tests {
     fn test_uints() {
         test_deser_ser(Value::UInt(0));
         test_deser_ser(Value::UInt(1));
-        test_deser_ser(Value::UInt(u128::max_value()));
-        test_deser_ser(Value::UInt(u128::min_value()));
+        test_deser_ser(Value::UInt(u128::MAX));
+        test_deser_ser(Value::UInt(u128::MIN));
 
         test_bad_expectation(Value::UInt(1), TypeSignature::IntType);
     }
 
-    #[test]
-    fn test_opts() {
+    #[apply(test_clarity_versions_serialization)]
+    fn test_opts(#[case] version: ClarityVersion) {
         test_deser_ser(Value::none());
         test_deser_ser(Value::some(Value::Int(15)).unwrap());
 
@@ -832,12 +842,12 @@ mod tests {
         // bad expected _contained_ type
         test_bad_expectation(
             Value::some(Value::Int(15)).unwrap(),
-            TypeSignature::from("(optional uint)"),
+            TypeSignature::from_string("(optional uint)", version),
         );
     }
 
-    #[test]
-    fn test_resp() {
+    #[apply(test_clarity_versions_serialization)]
+    fn test_resp(#[case] version: ClarityVersion) {
         test_deser_ser(Value::okay(Value::Int(15)).unwrap());
         test_deser_ser(Value::error(Value::Int(15)).unwrap());
 
@@ -845,16 +855,16 @@ mod tests {
         test_bad_expectation(Value::okay(Value::Int(15)).unwrap(), TypeSignature::IntType);
         test_bad_expectation(
             Value::okay(Value::Int(15)).unwrap(),
-            TypeSignature::from("(response uint int)"),
+            TypeSignature::from_string("(response uint int)", version),
         );
         test_bad_expectation(
             Value::error(Value::Int(15)).unwrap(),
-            TypeSignature::from("(response int uint)"),
+            TypeSignature::from_string("(response int uint)", version),
         );
     }
 
-    #[test]
-    fn test_buffs() {
+    #[apply(test_clarity_versions_serialization)]
+    fn test_buffs(#[case] version: ClarityVersion) {
         test_deser_ser(Value::buff_from(vec![0, 0, 0, 0]).unwrap());
         test_deser_ser(Value::buff_from(vec![0xde, 0xad, 0xbe, 0xef]).unwrap());
         test_deser_ser(Value::buff_from(vec![0, 0xde, 0xad, 0xbe, 0xef, 0]).unwrap());
@@ -867,23 +877,23 @@ mod tests {
         // fail because we expect a shorter buffer
         test_bad_expectation(
             Value::buff_from(vec![0, 0xde, 0xad, 0xbe, 0xef, 0]).unwrap(),
-            TypeSignature::from("(buff 2)"),
+            TypeSignature::from_string("(buff 2)", version),
         );
     }
 
-    #[test]
-    fn test_string_ascii() {
+    #[apply(test_clarity_versions_serialization)]
+    fn test_string_ascii(#[case] version: ClarityVersion) {
         test_deser_ser(Value::string_ascii_from_bytes(vec![61, 62, 63, 64]).unwrap());
 
         // fail because we expect a shorter string
         test_bad_expectation(
             Value::string_ascii_from_bytes(vec![61, 62, 63, 64]).unwrap(),
-            TypeSignature::from("(string-ascii 3)"),
+            TypeSignature::from_string("(string-ascii 3)", version),
         );
     }
 
-    #[test]
-    fn test_string_utf8() {
+    #[apply(test_clarity_versions_serialization)]
+    fn test_string_utf8(#[case] version: ClarityVersion) {
         test_deser_ser(Value::string_utf8_from_bytes(vec![61, 62, 63, 64]).unwrap());
         test_deser_ser(
             Value::string_utf8_from_bytes(vec![61, 62, 63, 240, 159, 164, 151]).unwrap(),
@@ -892,12 +902,12 @@ mod tests {
         // fail because we expect a shorter string
         test_bad_expectation(
             Value::string_utf8_from_bytes(vec![61, 62, 63, 64]).unwrap(),
-            TypeSignature::from("(string-utf8 3)"),
+            TypeSignature::from_string("(string-utf8 3)", version),
         );
 
         test_bad_expectation(
             Value::string_utf8_from_bytes(vec![61, 62, 63, 240, 159, 164, 151]).unwrap(),
-            TypeSignature::from("(string-utf8 3)"),
+            TypeSignature::from_string("(string-utf8 3)", version),
         );
     }
 
