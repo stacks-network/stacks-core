@@ -298,9 +298,10 @@ Human judgment and creativity must be used to create good comments, which convey
 
 #### Don't Restate the Function Names
 
-The contracts of functions should be implemented precisely enough that tests could be written looking only at the declaration and the comments. However:
+The contracts of functions should be implemented precisely enough that tests could be written looking only at the declaration and the comments (and without looking at the definition!). However:
 
 * **the author should assume that the reader has already read and understood the function name, variable names, type names, etc.**
+* **the author should only state information that is new**
 
 So, if a function and its variables have very descriptive names, then there may be nothing to add in the comments at all!
 
@@ -311,7 +312,7 @@ So, if a function and its variables have very descriptive names, then there may 
 fn append_transaction_to_block(transaction:Transaction, &mut Block) -> Result<()>
 ```
 
-This is considered bad because the function already says "append transaction to block", so it doesn't add anything to restate it in the comments. However, *do* add anything that is not redundant, such as elaborating what it means to "append" (if there is more to say), or what conditions will lead to an error.
+This is considered bad because the function name already says "append transaction to block", so it doesn't add anything to restate it in the comments. However, *do* add anything that is not redundant, such as elaborating what it means to "append" (if there is more to say), or what conditions will lead to an error.
 
 **Good Example**
 
