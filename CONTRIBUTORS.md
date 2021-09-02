@@ -296,6 +296,25 @@ Contributors should strike a balance between commenting "too much" and commentin
 
 Human judgment and creativity must be used to create good comments, which convey important information with small amounts of text. There is no single rule which can determine what a good comment is. Longer comments are *not* always better, since needlessly long comments have a cost: they require the reader to read more, take up whitespace, and take longer to write and review.
 
+#### Don't Restate the Object Names
+
+The contracts of functions should be implemented precisely enough that tests could be written looking only at the declaration and the comments. However, the
+
+* **author should assume that the reader has already read and understood the function name, variable names, type names, etc.**
+
+So, if a function and its variables have such descriptive names, then there may be nothing to add in the comments at all!
+
+**Bad Example**
+
+```
+/// Appends a transaction to a block.
+fn append_transaction_to_block(transaction:Transaction, &mut Block) -> Result<()>
+```
+
+This is considered bad because the function already says "append transaction to block", so it doesn't add anything to restate it in the comments. However, *do* add anything that is not redundant, such as what conditions will lead to an error.
+
+#### Do's and Dont's
+
 *Don't* over-comment by documenting things that are clear from the context. E.g.:
 
 - Don't document the types of inputs or outputs, since these are parts of the type signature in `rust`.
