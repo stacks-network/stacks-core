@@ -345,7 +345,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 "Adding microblock tx {} would exceed epoch data size",
                 &tx.txid()
             );
-            return Err(Error::BlockTooBigError);
+            return Ok(false);
         }
         let quiet = !cfg!(test);
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet) {
@@ -470,8 +470,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
 
         debug!(
-            "Microblock transaction selection begins (child of {})",
-            &self.anchor_block
+            "Microblock transaction selection begins (child of {}), bytes so far: {}",
+            &self.anchor_block, bytes_so_far
         );
         let result = {
             let mut intermediate_result;
