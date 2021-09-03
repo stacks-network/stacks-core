@@ -40,6 +40,9 @@ use util::hash::Hash160;
 
 use crate::vm::costs::runtime_cost;
 
+/// Parse the returned value from PoX `stack-stx` and `delegate-stack-stx` functions
+///  into a format more readily digestible in rust.
+/// Panics if the supplied value doesn't match the expected tuple structure
 fn parse_pox_stacking_result(
     result: &Value,
 ) -> std::result::Result<(PrincipalData, u128, u64), i128> {
@@ -69,6 +72,35 @@ fn parse_pox_stacking_result(
 
             Ok((stacker, lock_amount, unlock_burn_height))
         }
+        Err(e) => Err(e.expect_i128()),
+    }
+}
+
+/// Parse the returned value from PoX2 `stack-extend` and `delegate-stack-extend` functions
+///  into a format more readily digestible in rust.
+/// Panics if the supplied value doesn't match the expected tuple structure
+fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData, u64), i128> {
+    match result.clone().expect_result() {
+        Ok(res) => {
+            // should have gotten back (ok { stacker: principal, unlock-burn-height: uint })
+            let tuple_data = res.expect_tuple();
+            let stacker = tuple_data
+                .get("stacker")
+                .expect(&format!("FATAL: no 'stacker'"))
+                .to_owned()
+                .expect_principal();
+
+            let unlock_burn_height = tuple_data
+                .get("unlock-burn-height")
+                .expect(&format!("FATAL: no 'unlock-burn-height'"))
+                .to_owned()
+                .expect_u128()
+                .try_into()
+                .expect("FATAL: 'unlock-burn-height' overflow");
+
+            Ok((stacker, unlock_burn_height))
+        }
+        // in the error case, the function should have returned `int` error code
         Err(e) => Err(e.expect_i128()),
     }
 }
@@ -155,7 +187,6 @@ fn handle_pox_v2_api_contract_call(
             function_name,
             value
         );
-
         // applying a pox lock at this point is equivalent to evaluating a transfer
         runtime_cost(
             ClarityCostFunction::StxTransfer,
@@ -199,6 +230,62 @@ fn handle_pox_v2_api_contract_call(
                 // nothing to do -- the function failed
                 return Ok(());
             }
+        }
+    } else if function_name == "stack-extend" || function_name == "delegate-stack-extend" {
+        // in this branch case, the PoX-2 contract has stored the extension information
+        //  and performed the extension checks. Now, the VM needs to update the account locks
+        //  (because the locks cannot be applied directly from the Clarity code itself)
+        // applying a pox lock at this point is equivalent to evaluating a transfer
+        debug!(
+            "Handle special-case contract-call to {:?} {} (which returned {:?})",
+            boot_code_id("pox-2", global_context.mainnet),
+            function_name,
+            value
+        );
+
+        runtime_cost(
+            ClarityCostFunction::StxTransfer,
+            &mut global_context.cost_track,
+            1,
+        )?;
+
+        if let Ok((stacker, unlock_height)) = parse_pox_extend_result(value) {
+            match StacksChainState::pox_lock_extend_v2(
+                &mut global_context.database,
+                &stacker,
+                unlock_height as u64,
+            ) {
+                Ok(locked_amount) => {
+                    if let Some(batch) = global_context.event_batches.last_mut() {
+                        batch.events.push(StacksTransactionEvent::STXEvent(
+                            STXEventType::STXLockEvent(STXLockEventData {
+                                locked_amount,
+                                unlock_height,
+                                locked_address: stacker,
+                            }),
+                        ));
+                    }
+                }
+                Err(ChainstateError::DefunctPoxContract) => {
+                    return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None))
+                }
+                Err(e) => {
+                    // Error results *other* than a DefunctPoxContract panic, because
+                    //  those errors should have been caught by the PoX contract before
+                    //  getting to this code path.
+                    panic!(
+                        "FATAL: failed to extend lock from {} until {}: '{:?}'",
+                        stacker, unlock_height, &e
+                    );
+                }
+            }
+
+            return Ok(());
+        } else {
+            // The stack-extend function returned an error: we do not need to apply a lock
+            //  in this case, and can just return and let the normal VM codepath surface the
+            //  error response type.
+            return Ok(());
         }
     }
     // nothing to do
