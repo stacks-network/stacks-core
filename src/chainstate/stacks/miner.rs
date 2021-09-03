@@ -1425,105 +1425,6 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
-    /// This function defines the body of the `iterate_candidates` call in `build_anchored_block`.
-    /// It wraps StacksBlockBuilder::try_mine_tx_with_len that also skips processing according to
-    /// some pre-conditions and reacts to certain errors.
-    ///
-    /// We skip processing if:
-    ///  - the block limit for this block has been reached
-    ///  - if `txinfo.tx` is already in `considered`
-    ///  - if either of the origin or sponsor nonces is wrong
-    ///
-    ///  On `BlockTooBigError` or `TransactionTooBigError`, we increment the value of `block_limit_hit`.
-    fn process_candidate_for_anchored_block<'a>(
-        txinfo: MemPoolTxInfo,
-        epoch_tx: &mut ClarityTx<'a>,
-        builder: &mut StacksBlockBuilder,
-        considered: &mut HashSet<Txid>,
-        mined_origin_nonces: &mut HashMap<StacksAddress, u64>,
-        mined_sponsor_nonces: &mut HashMap<StacksAddress, u64>,
-        invalidated_txs: &mut Vec<Txid>,
-        block_limit_hit: &mut BlockLimitFunction,
-    ) -> TransactionResult {
-        if *block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
-            return TransactionResult::skipped(
-                &txinfo.tx,
-                "BlockLimitFunction::LIMIT_REACHED".to_string(),
-            );
-        }
-
-        // skip transactions early if we can
-        if considered.contains(&txinfo.tx.txid()) {
-            return TransactionResult::skipped(&txinfo.tx, "Already contained.".to_string());
-        }
-        if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
-            if *nonce >= txinfo.tx.get_origin_nonce() {
-                return TransactionResult::skipped(&txinfo.tx, "Bad nonce.".to_string());
-            }
-        }
-        if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
-            if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
-                if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
-                    if *nonce >= sponsor_nonce {
-                        return TransactionResult::skipped(&txinfo.tx, "Bad nonce.".to_string());
-                    }
-                }
-            }
-        }
-
-        considered.insert(txinfo.tx.txid());
-
-        match builder.try_mine_tx_with_len(
-            epoch_tx,
-            &txinfo.tx,
-            txinfo.metadata.len,
-            &block_limit_hit,
-        ) {
-            TransactionResult::Success(TransactionSuccess { tx, fee, receipt }) => {
-                mined_origin_nonces
-                    .insert(txinfo.tx.origin_address(), txinfo.tx.get_origin_nonce());
-                if let (Some(sponsor_addr), Some(sponsor_nonce)) =
-                    (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
-                {
-                    mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
-                }
-                TransactionResult::Success(TransactionSuccess { tx, fee, receipt })
-            }
-            TransactionResult::Skipped(s) => TransactionResult::Skipped(s),
-            TransactionResult::Error(TransactionError { tx, error }) => {
-                match &error {
-                    Error::BlockTooBigError => {
-                        // done mining -- our execution budget is exceeded.
-                        // Make the block from the transactions we did manage to get
-                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
-                        if *block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                            *block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                        } else if *block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
-                            *block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                        }
-                    }
-                    Error::TransactionTooBigError => {
-                        invalidated_txs.push(txinfo.metadata.txid);
-                        if *block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                            *block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                            // TODO: This was continue
-                            // continue;
-                        } else if *block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
-                            *block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                        }
-                    }
-                    Error::InvalidStacksTransaction(_, true) => {
-                        // if we have an invalid transaction that was quietly ignored, don't warn here either
-                    }
-                    e => {
-                        warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
-                    }
-                };
-                TransactionResult::Error(TransactionError { tx, error })
-            }
-        }
-    }
-
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
@@ -1579,17 +1480,79 @@ impl StacksBlockBuilder {
 
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
-        let result = mempool.iterate_candidates(tip_height, |txinfo| {
-            StacksBlockBuilder::process_candidate_for_anchored_block(
-                txinfo,
-                &mut epoch_tx,
-                &mut builder,
-                &mut considered,
-                &mut mined_origin_nonces,
-                &mut mined_sponsor_nonces,
-                &mut invalidated_txs,
-                &mut block_limit_hit,
-            )
+        let result = mempool.iterate_candidates(tip_height, |available_txs| {
+            if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
+                return Ok(());
+            }
+
+            for txinfo in available_txs.into_iter() {
+                // skip transactions early if we can
+                if considered.contains(&txinfo.tx.txid()) {
+                    continue;
+                }
+                if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
+                    if *nonce >= txinfo.tx.get_origin_nonce() {
+                        continue;
+                    }
+                }
+                if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
+                    if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
+                        if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
+                            if *nonce >= sponsor_nonce {
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                considered.insert(txinfo.tx.txid());
+
+                match builder.try_mine_tx_with_len(
+                    &mut epoch_tx,
+                    &txinfo.tx,
+                    txinfo.metadata.len,
+                    &block_limit_hit,
+                ) {
+                    Ok(_) => {}
+                    Err(Error::BlockTooBigError) => {
+                        // done mining -- our execution budget is exceeded.
+                        // Make the block from the transactions we did manage to get
+                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                        if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                            block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                            continue;
+                        } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
+                            block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                        }
+                    }
+                    Err(Error::TransactionTooBigError) => {
+                        invalidated_txs.push(txinfo.metadata.txid);
+                        if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                            block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                            continue;
+                        } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT {
+                            block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                        }
+                    }
+                    Err(Error::InvalidStacksTransaction(_, true)) => {
+                        // if we have an invalid transaction that was quietly ignored, don't warn here either
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
+                        continue;
+                    }
+                }
+
+                mined_origin_nonces
+                    .insert(txinfo.tx.origin_address(), txinfo.tx.get_origin_nonce());
+                if let (Some(sponsor_addr), Some(sponsor_nonce)) =
+                    (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
+                {
+                    mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
+                }
+            }
+            Ok(())
         });
 
         mempool.drop_txs(&invalidated_txs)?;

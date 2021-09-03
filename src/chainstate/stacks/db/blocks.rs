@@ -3877,26 +3877,16 @@ impl StacksChainState {
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
             for tx in microblock.txs.iter() {
-                match StacksChainState::process_transaction(clarity_tx, tx, false) {
-                    TransactionResult::Success(TransactionSuccess {
-                        tx: _,
-                        fee,
-                        mut receipt,
-                    }) => {
-                        receipt.microblock_header = Some(microblock.header.clone());
-                        fees = fees.checked_add(fee as u128).expect("Fee overflow");
-                        burns = burns
-                            .checked_add(receipt.stx_burned as u128)
-                            .expect("Burns overflow");
-                        receipts.push(receipt);
-                    }
-                    TransactionResult::Skipped(TransactionSkipped { tx: _, reason: _ }) => {
-                        continue;
-                    }
-                    TransactionResult::Error(TransactionError { tx: _, error }) => {
-                        return Err((error, microblock.block_hash()));
-                    }
-                }
+                let (tx_fee, mut tx_receipt) =
+                    StacksChainState::process_transaction(clarity_tx, tx, false)
+                        .map_err(|e| (e, microblock.block_hash()))?;
+
+                tx_receipt.microblock_header = Some(microblock.header.clone());
+                fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
+                burns = burns
+                    .checked_add(tx_receipt.stx_burned as u128)
+                    .expect("Burns overflow");
+                receipts.push(tx_receipt);
             }
         }
         Ok((fees, burns, receipts))
@@ -4040,26 +4030,13 @@ impl StacksChainState {
         let mut burns = 0u128;
         let mut receipts = vec![];
         for tx in block.txs.iter() {
-            //            let (tx_fee, tx_receipt) =
-            match StacksChainState::process_transaction(clarity_tx, tx, false) {
-                TransactionResult::Success(TransactionSuccess {
-                    tx: _,
-                    fee,
-                    receipt,
-                }) => {
-                    fees = fees.checked_add(fee as u128).expect("Fee overflow");
-                    burns = burns
-                        .checked_add(receipt.stx_burned as u128)
-                        .expect("Burns overflow");
-                    receipts.push(receipt);
-                }
-                TransactionResult::Skipped(TransactionSkipped { tx: _, reason: _ }) => {
-                    continue;
-                }
-                TransactionResult::Error(TransactionError { tx: _, error }) => {
-                    return Err(error);
-                }
-            }
+            let (tx_fee, tx_receipt) =
+                StacksChainState::process_transaction(clarity_tx, tx, false)?;
+            fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
+            burns = burns
+                .checked_add(tx_receipt.stx_burned as u128)
+                .expect("Burns overflow");
+            receipts.push(tx_receipt);
         }
         Ok((fees, burns, receipts))
     }
