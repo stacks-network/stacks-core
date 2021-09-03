@@ -306,20 +306,21 @@ and a `(buff 20)` *public key hash*, characterizing the principal's unique ident
 `hash-bytes`, and returns a principal.
 
 This function returns a `Response`. On success, the `ok` value is a `Principal`.
-The `err` value is a value tuple with the form `{err_int:UInt,principal_opt:Option<Principal>}`.
+The `err` value is a value tuple with the form `{err_int:UInt,value:Option<Principal>}`.
 
 If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not an appropriate
-version byte for the current network, then the error will be `u0`, and `principal_opt` will contain
+version byte for the current network, then the error will be `u0`, and `value` will contain
 `Some<Principal>`, where the wrapped value is the principal.
 
-If the `version-byte` is a `buff` of length less than 1, if the single-byte `version-byte` is a
+If the `version-byte` is a `buff` of length 0, if the single-byte `version-byte` is a
 value greater than `0x1f`, or the `hash-bytes` is a `buff` of length less than 20, then `err_int`
-will be `u1` and `principal_opt` will be `None`.
+will be `u1` and `value` will be `None`.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_int u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
 (principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)
+(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_int u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
+(principal-construct 0x20 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_int u1) (value none)))
 "#,
 };
 
