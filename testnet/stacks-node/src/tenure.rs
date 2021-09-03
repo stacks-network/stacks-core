@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use stacks::chainstate::burn::db::sortdb::SortitionDBConn;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
-    StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction,
+    miner::BlockBuilderSettings, StacksBlock, StacksBlockBuilder, StacksMicroblock,
+    StacksPrivateKey, StacksPublicKey, StacksTransaction,
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::types::chainstate::VRFSeed;
@@ -93,7 +93,7 @@ impl<'a> Tenure {
             self.vrf_proof.clone(),
             self.microblock_pubkeyhash.clone(),
             &self.coinbase_tx,
-            self.config.block_limit.clone(),
+            BlockBuilderSettings::limited(self.config.block_limit.clone()),
             None,
         )
         .unwrap();

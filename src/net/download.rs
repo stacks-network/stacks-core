@@ -2540,6 +2540,7 @@ pub mod test {
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::*;
     use chainstate::stacks::miner::test::*;
+    use chainstate::stacks::miner::*;
     use chainstate::stacks::*;
     use net::codec::*;
     use net::inv::*;
@@ -3679,7 +3680,7 @@ pub mod test {
                                             vrf_proof,
                                             Hash160([i as u8; 20]),
                                             &coinbase_tx,
-                                            ExecutionCost::max_value(),
+                                            BlockBuilderSettings::max_value(),
                                             None,
                                         )
                                         .unwrap();
