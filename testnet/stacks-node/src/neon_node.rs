@@ -542,9 +542,9 @@ fn run_microblock_tenure(
             .map(|ref unconfirmed| unconfirmed.num_microblocks())
             .unwrap_or(0);
 
-        debug!(
-            "Relayer: mined one microblock: {} (total: {})",
-            &microblock_hash, num_mblocks
+        info!(
+            "Mined one microblock: {} seq {} (total processed: {})",
+            &microblock_hash, next_microblock.header.sequence, num_mblocks
         );
         set_processed_counter(&microblocks_processed, num_mblocks);
 
@@ -834,7 +834,7 @@ fn spawn_miner_relayer(
 
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
-    let mut miner_tip = None;
+    let mut miner_tip = None; // only set if we won the last sortition
     let mut last_microblock_tenure_time = 0;
     let mut last_tenure_issue_time = 0;
 
@@ -960,6 +960,8 @@ fn spawn_miner_relayer(
                                         &consensus_hash,
                                         &mined_block.block_hash()
                                     );
+                                    miner_tip = None;
+
                                 } else {
                                     let ch = snapshot.consensus_hash.clone();
                                     let bh = mined_block.block_hash();
