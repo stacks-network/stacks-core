@@ -24,7 +24,6 @@ use std::path::{Path, PathBuf};
 
 use chainstate::burn::db::sortdb::*;
 use chainstate::stacks::db::*;
-use chainstate::stacks::events::TransactionResult;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use clarity_vm::clarity::{
@@ -35,6 +34,7 @@ use net::Error as net_error;
 use util::db::Error as db_error;
 use util::db::{query_count, query_rows, DBConn};
 use util::hash::to_hex;
+
 use util::strings::{StacksString, VecDisplay};
 pub use vm::analysis::errors::CheckErrors;
 use vm::analysis::run_analysis;
@@ -374,12 +374,17 @@ impl StacksChainState {
         fee: u64,
         payer_account: StacksAccount,
     ) -> Result<u64, Error> {
-        let cur_burn_block_height = clarity_tx
-            .with_clarity_db_readonly(|ref mut db| db.get_current_burnchain_block_height());
+        let (cur_burn_block_height, v1_unlock_ht) =
+            clarity_tx.with_clarity_db_readonly(|ref mut db| {
+                (
+                    db.get_current_burnchain_block_height(),
+                    db.get_v1_unlock_height(),
+                )
+            });
 
         let consolidated_balance = payer_account
             .stx_balance
-            .get_available_balance_at_burn_block(cur_burn_block_height as u64);
+            .get_available_balance_at_burn_block(cur_burn_block_height as u64, v1_unlock_ht);
 
         if consolidated_balance < fee as u128 {
             return Err(Error::InvalidFee);
@@ -825,7 +830,7 @@ impl StacksChainState {
         origin_account: &StacksAccount,
     ) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
-            TransactionPayload::TokenTransfer(ref addr, ref amount, ref _memo) => {
+            TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
@@ -843,7 +848,14 @@ impl StacksChainState {
 
                 let cost_before = clarity_tx.cost_so_far();
                 let (value, _asset_map, events) = clarity_tx
-                    .run_stx_transfer(&origin_account.principal, addr, *amount as u128)
+                    .run_stx_transfer(
+                        &origin_account.principal,
+                        addr,
+                        *amount as u128,
+                        &BuffData {
+                            data: Vec::from(memo.0.clone()),
+                        },
+                    )
                     .map_err(Error::ClarityError)?;
 
                 let mut total_cost = clarity_tx.cost_so_far();
@@ -867,9 +879,11 @@ impl StacksChainState {
                 // tx fee.
                 let contract_id = contract_call.to_clarity_contract_id();
                 let cost_before = clarity_tx.cost_so_far();
+                let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
 
                 let contract_call_resp = clarity_tx.run_contract_call(
                     &origin_account.principal,
+                    sponsor,
                     &contract_id,
                     &contract_call.function_name,
                     &contract_call.function_args,
@@ -1013,6 +1027,7 @@ impl StacksChainState {
                 analysis_cost
                     .sub(&cost_before)
                     .expect("BUG: total block cost decreased");
+                let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
@@ -1020,6 +1035,7 @@ impl StacksChainState {
                     &contract_id,
                     &contract_ast,
                     &contract_code_str,
+                    sponsor,
                     |asset_map, _| {
                         !StacksChainState::check_transaction_postconditions(
                             &tx.post_conditions,
@@ -1123,10 +1139,8 @@ impl StacksChainState {
         }
     }
 
-    /// This method implements the contract of `process_transaction`, and
-    /// exists as an intermediate step so that its output can be captured and
-    /// logged.
-    fn process_transaction_internal(
+    /// Process a transaction.  Return the fee and the transaction receipt
+    pub fn process_transaction(
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
         quiet: bool,
@@ -1163,28 +1177,6 @@ impl StacksChainState {
         transaction.commit();
 
         Ok((fee, tx_receipt))
-    }
-
-    /// Process the transaction `tx`, and add it to the underlying connection in `clarity_block`.
-    ///
-    /// Steps include:
-    /// - check nonces
-    /// - process payload
-    /// - update nonces
-    /// - commit the transaction to `clarity_block`
-    pub fn process_transaction(
-        clarity_block: &mut ClarityTx,
-        tx: &StacksTransaction,
-        quiet: bool,
-    ) -> TransactionResult {
-        let result = StacksChainState::process_transaction_internal(clarity_block, tx, quiet);
-
-        // Note: `process_transaction_internal` does not have the option to
-        // "skip", only succeed for fail.
-        match result {
-            Ok((fee, receipt)) => TransactionResult::success(tx, fee, receipt),
-            Err(err) => TransactionResult::error(tx, err),
-        }
     }
 }
 
@@ -1256,7 +1248,7 @@ pub mod test {
         let recv_account =
             StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
 
-        assert_eq!(recv_account.stx_balance.amount_unlocked, 0);
+        assert_eq!(recv_account.stx_balance.amount_unlocked(), 0);
         assert_eq!(recv_account.nonce, 0);
 
         conn.connection().as_transaction(|tx| {
@@ -1267,12 +1259,12 @@ pub mod test {
 
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 1);
-        assert_eq!(account_after.stx_balance.amount_unlocked, 100);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 100);
 
         let recv_account_after =
             StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
         assert_eq!(recv_account_after.nonce, 0);
-        assert_eq!(recv_account_after.stx_balance.amount_unlocked, 123);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked(), 123);
 
         assert_eq!(fee, 0);
 
@@ -1304,18 +1296,18 @@ pub mod test {
 
         let recv_account = StacksChainState::get_account(&mut conn, &recv_addr);
 
-        assert_eq!(recv_account.stx_balance.amount_unlocked, 0);
+        assert_eq!(recv_account.stx_balance.amount_unlocked(), 0);
         assert_eq!(recv_account.nonce, 0);
 
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
 
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 2);
-        assert_eq!(account_after.stx_balance.amount_unlocked, 0);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 0);
 
         let recv_account_after = StacksChainState::get_account(&mut conn, &recv_addr);
         assert_eq!(recv_account_after.nonce, 0);
-        assert_eq!(recv_account_after.stx_balance.amount_unlocked, 100);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked(), 100);
 
         assert_eq!(fee, 0);
 
@@ -1491,19 +1483,18 @@ pub mod test {
             // give the spending account some stx
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
 
-            assert_eq!(account.stx_balance.amount_unlocked, 123);
+            assert_eq!(account.stx_balance.amount_unlocked(), 123);
             assert_eq!(account.nonce, 0);
 
             let res = StacksChainState::process_transaction(&mut conn, &signed_tx, false);
             assert!(res.is_err());
-            let error = res.unwrap_err();
 
-            match error {
-                Error::InvalidStacksTransaction(msg, false) => {
+            match res {
+                Err(Error::InvalidStacksTransaction(msg, false)) => {
                     assert!(msg.contains(&err_frag), "{}", err_frag);
                 }
                 _ => {
-                    eprintln!("bad error: {:?}", &error);
+                    eprintln!("bad error: {:?}", &res);
                     eprintln!("Expected '{}'", &err_frag);
                     assert!(false);
                 }
@@ -1511,7 +1502,7 @@ pub mod test {
 
             let account_after =
                 StacksChainState::get_account(&mut conn, &addr.to_account_principal());
-            assert_eq!(account_after.stx_balance.amount_unlocked, 123);
+            assert_eq!(account_after.stx_balance.amount_unlocked(), 123);
             assert_eq!(account_after.nonce, 0);
         }
 
@@ -1583,9 +1574,9 @@ pub mod test {
 
         assert_eq!(account.nonce, 0);
         assert_eq!(account_sponsor.nonce, 0);
-        assert_eq!(account_sponsor.stx_balance.amount_unlocked, 0);
+        assert_eq!(account_sponsor.stx_balance.amount_unlocked(), 0);
         assert_eq!(recv_account.nonce, 0);
-        assert_eq!(recv_account.stx_balance.amount_unlocked, 0);
+        assert_eq!(recv_account.stx_balance.amount_unlocked(), 0);
 
         // give the spending account some stx
         conn.connection().as_transaction(|tx| {
@@ -1596,17 +1587,17 @@ pub mod test {
 
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
         assert_eq!(account_after.nonce, 1);
-        assert_eq!(account_after.stx_balance.amount_unlocked, 0);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 0);
 
         let account_sponsor_after =
             StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
         assert_eq!(account_sponsor_after.nonce, 1);
-        assert_eq!(account_sponsor_after.stx_balance.amount_unlocked, 0);
+        assert_eq!(account_sponsor_after.stx_balance.amount_unlocked(), 0);
 
         let recv_account_after =
             StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
         assert_eq!(recv_account_after.nonce, 0);
-        assert_eq!(recv_account_after.stx_balance.amount_unlocked, 123);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked(), 123);
 
         conn.commit_block();
 
