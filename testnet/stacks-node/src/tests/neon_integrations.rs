@@ -2579,7 +2579,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
                 if tsc.name.to_string().find("large-").is_some() {
                     num_big_anchored_txs += 1;
                     total_big_txs_per_block += 1;
-                } else if tsc.name.to_string().find("small-").is_some() {
+                } else if tsc.name.to_string().find("small").is_some() {
                     num_big_microblock_txs += 1;
                     total_big_txs_per_microblock += 1;
                 }
@@ -2635,25 +2635,19 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
         .collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
-    let txs: Vec<Vec<_>> = spender_sks
+    let txs: Vec<_> = spender_sks
         .iter()
         .map(|spender_sk| {
-            let mut ret = vec![];
-            for i in 0..1 {
-                let tx = make_contract_publish_microblock_only(
-                    spender_sk,
-                    i as u64,
-                    600000,
-                    &format!("small-{}", i),
-                    &small_contract,
-                );
-                ret.push(tx);
-            }
-            ret
+            let tx = make_contract_publish_microblock_only(
+                spender_sk,
+                0,
+                600000,
+                "small",
+                &small_contract,
+            );
+            tx
         })
         .collect();
-
-    let flat_txs: Vec<_> = txs.iter().flat_map(|a| a.clone()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
@@ -2725,9 +2719,10 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
     }
 
     let mut ctr = 0;
-    while ctr < flat_txs.len() {
-        submit_tx(&http_origin, &flat_txs[ctr]);
+    while ctr < txs.len() {
+        submit_tx(&http_origin, &txs[ctr]);
         if !wait_for_microblocks(&microblocks_processed, 60) {
+            // we time out if we *can't* mine any more microblocks
             break;
         }
         ctr += 1;
@@ -2743,27 +2738,24 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
 
     microblocks_processed.store(0, Ordering::SeqCst);
 
-    while ctr < flat_txs.len() {
-        submit_tx(&http_origin, &flat_txs[ctr]);
-        if !wait_for_microblocks(&microblocks_processed, 60) {
-            break;
-        }
+    while ctr < txs.len() {
+        submit_tx(&http_origin, &txs[ctr]);
         ctr += 1;
     }
-
-    // should be able to fit 5 more transactions in, in 5 microblocks
-    assert_eq!(ctr, 10);
-    sleep_ms(5_000);
+    wait_for_microblocks(&microblocks_processed, 60);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     eprintln!("Second confirmed microblock stream!");
 
+    wait_for_microblocks(&microblocks_processed, 60);
+
     // confirm it
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let blocks = test_observer::get_blocks();
-    assert_eq!(blocks.len(), 4);
+    assert_eq!(blocks.len(), 5);
 
     let mut max_big_txs_per_microblock = 0;
     let mut total_big_txs_per_microblock = 0;
@@ -2783,7 +2775,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(tsc) = parsed.payload {
-                if tsc.name.to_string().find("small-").is_some() {
+                if tsc.name.to_string().find("small").is_some() {
                     num_big_microblock_txs += 1;
                     total_big_txs_per_microblock += 1;
                 }
@@ -2833,25 +2825,16 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     let txs: Vec<Vec<_>> = spender_sks
         .iter()
         .map(|spender_sk| {
-            let mut ret = vec![];
-            for i in 0..1 {
-                let tx = make_contract_publish_microblock_only(
-                    spender_sk,
-                    i as u64,
-                    1149230,
-                    &format!("small-{}", i),
-                    &small_contract,
-                );
-                ret.push(tx);
-            }
-            ret
+            let tx = make_contract_publish_microblock_only(
+                spender_sk,
+                0,
+                1149230,
+                "small",
+                &small_contract,
+            );
+            tx
         })
         .collect();
-
-    let flat_txs: Vec<_> = txs.iter().fold(vec![], |mut acc, a| {
-        acc.append(&mut a.clone());
-        acc
-    });
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
@@ -2925,7 +2908,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
 
     let mut ctr = 0;
     for _i in 0..6 {
-        submit_tx(&http_origin, &flat_txs[ctr]);
+        submit_tx(&http_origin, &txs[ctr]);
         if !wait_for_microblocks(&microblocks_processed, 60) {
             break;
         }
@@ -2964,7 +2947,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(tsc) = parsed.payload {
-                if tsc.name.to_string().find("small-").is_some() {
+                if tsc.name.to_string().find("small").is_some() {
                     num_big_microblock_txs += 1;
                     total_big_txs_per_microblock += 1;
                 }
@@ -3244,7 +3227,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
                 if tsc.name.to_string().find("large-").is_some() {
                     num_big_anchored_txs += 1;
                     total_big_txs_per_block += 1;
-                } else if tsc.name.to_string().find("small-").is_some() {
+                } else if tsc.name.to_string().find("small").is_some() {
                     num_big_microblock_txs += 1;
                     total_big_txs_per_microblock += 1;
                 }
