@@ -1597,6 +1597,7 @@ impl ConversationHttp {
         let txid = tx.txid();
         let response_metadata = HttpResponseMetadata::from(req);
         let (response, accepted) = if mempool.has_tx(&txid) {
+            debug!("Mempool already has POSTed transaction {}", &txid);
             (
                 HttpResponseType::TransactionID(response_metadata, txid),
                 false,
@@ -1609,14 +1610,20 @@ impl ConversationHttp {
                 &tx,
                 event_observer,
             ) {
-                Ok(_) => (
-                    HttpResponseType::TransactionID(response_metadata, txid),
-                    true,
-                ),
-                Err(e) => (
-                    HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
-                    false,
-                ),
+                Ok(_) => {
+                    debug!("Mempool accepted POSTed transaction {}", &txid);
+                    (
+                        HttpResponseType::TransactionID(response_metadata, txid),
+                        true,
+                    )
+                }
+                Err(e) => {
+                    debug!("Mempool rejected POSTed transaction {}: {:?}", &txid, &e);
+                    (
+                        HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
+                        false,
+                    )
+                }
             }
         };
 
