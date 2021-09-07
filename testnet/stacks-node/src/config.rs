@@ -11,6 +11,8 @@ use stacks::core::{
     BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT,
     PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
+use stacks::cost_estimates::CostEstimator;
+use stacks::cost_estimates::PessimisticEstimator;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::get_epoch_time_ms;
@@ -34,6 +36,7 @@ pub struct ConfigFile {
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
+    pub fee_estimation: Option<FeeEstimationConfigFile>,
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -278,6 +281,7 @@ pub struct Config {
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
     pub block_limit: ExecutionCost,
+    pub estimation: FeeEstimationConfig,
 }
 
 lazy_static! {
@@ -714,6 +718,11 @@ impl Config {
 
         let block_limit = BLOCK_LIMIT_MAINNET.clone();
 
+        let estimation = match config_file.fee_estimation {
+            Some(f) => FeeEstimationConfig::from(f),
+            None => FeeEstimationConfig::default(),
+        };
+
         Config {
             node,
             burnchain,
@@ -721,6 +730,7 @@ impl Config {
             events_observers,
             connection_options,
             block_limit,
+            estimation,
         }
     }
 
@@ -731,7 +741,7 @@ impl Config {
         path
     }
 
-    fn get_chainstate_path(&self) -> PathBuf {
+    pub fn get_chainstate_path(&self) -> PathBuf {
         let mut path = PathBuf::from(&self.node.working_dir);
         path.push(&self.burnchain.mode);
         path.push("chainstate");
@@ -826,6 +836,7 @@ impl std::default::Default for Config {
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let block_limit = HELIUM_BLOCK_LIMIT.clone();
+        let estimation = FeeEstimationConfig::default();
 
         Config {
             burnchain,
@@ -834,6 +845,7 @@ impl std::default::Default for Config {
             events_observers: vec![],
             connection_options,
             block_limit,
+            estimation,
         }
     }
 }
@@ -965,6 +977,139 @@ pub struct NodeConfig {
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: u64,
     pub use_test_genesis_chainstate: Option<bool>,
+}
+
+#[derive(Clone, Debug)]
+pub enum CostEstimatorName {
+    NaivePessimistic,
+}
+
+#[derive(Clone, Debug)]
+pub enum FeeEstimatorName {
+    ScalarFeeRate,
+}
+
+#[derive(Clone, Debug)]
+pub enum CostMetricName {
+    ProportionDotProduct,
+}
+
+impl Default for CostEstimatorName {
+    fn default() -> Self {
+        CostEstimatorName::NaivePessimistic
+    }
+}
+
+impl Default for FeeEstimatorName {
+    fn default() -> Self {
+        FeeEstimatorName::ScalarFeeRate
+    }
+}
+
+impl Default for CostMetricName {
+    fn default() -> Self {
+        CostMetricName::ProportionDotProduct
+    }
+}
+
+impl CostEstimatorName {
+    fn panic_parse(s: String) -> CostEstimatorName {
+        if &s.to_lowercase() == "naive_pessimistic" {
+            CostEstimatorName::NaivePessimistic
+        } else {
+            panic!(
+                "Bad cost estimator name supplied in configuration file: {}",
+                s
+            );
+        }
+    }
+}
+
+impl FeeEstimatorName {
+    fn panic_parse(s: String) -> FeeEstimatorName {
+        if &s.to_lowercase() == "scalar_fee_rate" {
+            FeeEstimatorName::ScalarFeeRate
+        } else {
+            panic!(
+                "Bad fee estimator name supplied in configuration file: {}",
+                s
+            );
+        }
+    }
+}
+
+impl CostMetricName {
+    fn panic_parse(s: String) -> CostMetricName {
+        if &s.to_lowercase() == "proportion_dot_product" {
+            CostMetricName::ProportionDotProduct
+        } else {
+            panic!("Bad cost metric name supplied in configuration file: {}", s);
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct FeeEstimationConfig {
+    pub cost_estimator: Option<CostEstimatorName>,
+    pub fee_estimator: Option<FeeEstimatorName>,
+    pub cost_metric: Option<CostMetricName>,
+}
+
+impl Default for FeeEstimationConfig {
+    fn default() -> Self {
+        Self {
+            cost_estimator: Some(CostEstimatorName::default()),
+            fee_estimator: Some(FeeEstimatorName::default()),
+            cost_metric: Some(CostMetricName::default()),
+        }
+    }
+}
+
+impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
+    fn from(f: FeeEstimationConfigFile) -> Self {
+        if f.disabled {
+            return Self {
+                cost_estimator: None,
+                fee_estimator: None,
+                cost_metric: None,
+            };
+        }
+        let cost_estimator = f
+            .cost_estimator
+            .map(CostEstimatorName::panic_parse)
+            .unwrap_or_default();
+        let fee_estimator = f
+            .fee_estimator
+            .map(FeeEstimatorName::panic_parse)
+            .unwrap_or_default();
+        let cost_metric = f
+            .cost_metric
+            .map(CostMetricName::panic_parse)
+            .unwrap_or_default();
+        Self {
+            cost_estimator: Some(cost_estimator),
+            fee_estimator: Some(fee_estimator),
+            cost_metric: Some(cost_metric),
+        }
+    }
+}
+
+impl FeeEstimationConfig {
+    pub fn make_cost_estimator(
+        &self,
+        mut chainstate_path: PathBuf,
+    ) -> Option<Box<dyn CostEstimator>> {
+        self.cost_estimator
+            .as_ref()
+            .map(|cost_estimator| match cost_estimator {
+                CostEstimatorName::NaivePessimistic => {
+                    chainstate_path.push("pessimistic_estimator.sqlite");
+                    let estimator = PessimisticEstimator::open(&chainstate_path)
+                        .expect("Error opening cost estimator");
+                    Box::new(estimator) as Box<dyn CostEstimator>
+                }
+            })
+    }
 }
 
 impl NodeConfig {
@@ -1149,6 +1294,25 @@ pub struct NodeConfigFile {
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct FeeEstimationConfigFile {
+    pub cost_estimator: Option<String>,
+    pub fee_estimator: Option<String>,
+    pub cost_metric: Option<String>,
+    pub disabled: bool,
+}
+
+impl Default for FeeEstimationConfigFile {
+    fn default() -> Self {
+        Self {
+            cost_estimator: None,
+            fee_estimator: None,
+            cost_metric: None,
+            disabled: false,
+        }
+    }
 }
 
 #[derive(Clone, Deserialize, Default)]

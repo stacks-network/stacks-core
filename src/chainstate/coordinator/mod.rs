@@ -158,7 +158,7 @@ pub struct ChainsCoordinator<
     burnchain: Burnchain,
     attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     dispatcher: Option<&'a T>,
-    estimator: Option<PessimisticEstimator>,
+    estimator: Option<Box<dyn CostEstimator>>,
     reward_set_provider: R,
     notifier: N,
     atlas_config: AtlasConfig,
@@ -263,6 +263,7 @@ impl<'a, T: BlockEventDispatcher>
         dispatcher: &mut T,
         comms: CoordinatorReceivers,
         atlas_config: AtlasConfig,
+        estimator: Option<Box<dyn CostEstimator>>,
     ) where
         T: BlockEventDispatcher,
     {
@@ -281,10 +282,6 @@ impl<'a, T: BlockEventDispatcher>
             sortitions_processed,
         };
 
-        let mut estimator_path = PathBuf::from(&chain_state_db.root_path);
-        estimator_path.push("cost_estimator.sqlite");
-        let estimator = PessimisticEstimator::open(&estimator_path).expect("SQLite Failure");
-
         let mut inst = ChainsCoordinator {
             canonical_chain_tip: None,
             canonical_sortition_tip: Some(canonical_sortition_tip),
@@ -297,7 +294,7 @@ impl<'a, T: BlockEventDispatcher>
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
             reward_set_provider: OnChainRewardSetProvider(),
-            estimator: Some(estimator),
+            estimator,
             atlas_config,
         };
 

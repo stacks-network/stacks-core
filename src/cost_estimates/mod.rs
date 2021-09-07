@@ -1,17 +1,81 @@
 use std::collections::HashMap;
 use std::iter::FromIterator;
+use std::ops::{Add, Div, Mul, Sub};
+use std::path::Path;
 use std::{error::Error, fmt::Display};
 
 use chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use chainstate::stacks::{StacksBlock, TransactionPayload};
+use rusqlite::Error as SqliteError;
 use vm::costs::ExecutionCost;
 
-use crate::burnchains::Txid;
+use burnchains::Txid;
+use chainstate::stacks::db::StacksEpochReceipt;
 
+pub mod fee_scalar;
 pub mod pessimistic;
 pub use self::pessimistic::PessimisticEstimator;
 
+/// This trait is for implementation of *fee rate* estimation: estimators should
+///  track the actual paid fee rate for transactions in blocks, and use that to
+///  provide estimates for block inclusion.
+pub trait FeeEstimator {
+    /// This method is invoked by the `stacks-node` to update the fee estimator with a new
+    ///  block receipt.
+    fn notify_block(&mut self, receipt: &StacksEpochReceipt) -> Result<(), EstimatorError>;
+    /// Get the current estimates for fee rate
+    fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError>;
+}
+
+#[derive(Clone)]
+pub struct FeeRateEstimate {
+    fast: u64,
+    medium: u64,
+    slow: u64,
+}
+
+impl Mul<u16> for FeeRateEstimate {
+    type Output = FeeRateEstimate;
+
+    fn mul(self, rhs: u16) -> FeeRateEstimate {
+        FeeRateEstimate {
+            fast: self.fast * (rhs as u64),
+            medium: self.medium * (rhs as u64),
+            slow: self.slow * (rhs as u64),
+        }
+    }
+}
+
+impl Div<u16> for FeeRateEstimate {
+    type Output = FeeRateEstimate;
+
+    fn div(self, rhs: u16) -> FeeRateEstimate {
+        FeeRateEstimate {
+            fast: self.fast / (rhs as u64),
+            medium: self.medium / (rhs as u64),
+            slow: self.slow / (rhs as u64),
+        }
+    }
+}
+
+impl Add for FeeRateEstimate {
+    type Output = FeeRateEstimate;
+
+    fn add(self, rhs: Self) -> FeeRateEstimate {
+        FeeRateEstimate {
+            fast: self.fast + rhs.fast,
+            medium: self.medium + rhs.medium,
+            slow: self.slow + rhs.slow,
+        }
+    }
+}
+
 pub trait CostEstimator {
+    /// Constructor for estimators. Should create new storage at `p` if it does not already
+    /// exist. Otherwise, opens the existing storage.
+    fn open(p: &Path) -> Result<Self, EstimatorError>
+    where
+        Self: Sized;
     /// This method is invoked by the `stacks-node` to update the cost estimator with a new
     ///  cost measurement. The given `tx` had a measured cost of `actual_cost`.
     fn notify_event(
@@ -19,10 +83,17 @@ pub trait CostEstimator {
         tx: &TransactionPayload,
         actual_cost: &ExecutionCost,
     ) -> Result<(), EstimatorError>;
+
     /// This method is used by a stacks-node to obtain an estimate for a given transaction payload.
     /// If the estimator cannot provide an accurate estimate for a given payload, it should return
     /// `EstimatorError::NoEstimateAvailable`
     fn estimate_cost(&self, tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError>;
+
+    /// This method is invoked by the `stacks-node` to notify the estimator of all the transaction
+    /// receipts in a given block.
+    ///
+    /// A default implementation is provided to implementing structs that processes the transaction
+    /// receipts by feeding them into `CostEstimator::notify_event()`
     fn notify_block(&mut self, block: &StacksBlock, receipts: &[StacksTransactionReceipt]) {
         // create a Map from txid -> index in block
         let tx_index: HashMap<Txid, usize> = HashMap::from_iter(
@@ -57,11 +128,15 @@ pub trait CostEstimator {
 #[derive(Debug)]
 pub enum EstimatorError {
     NoEstimateAvailable,
+    SqliteError(SqliteError),
 }
 
 impl Error for EstimatorError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
+        match self {
+            EstimatorError::SqliteError(ref e) => Some(e),
+            _ => None,
+        }
     }
 }
 
@@ -71,48 +146,29 @@ impl Display for EstimatorError {
             EstimatorError::NoEstimateAvailable => {
                 write!(f, "No estimate available for the provided payload.")
             }
+            EstimatorError::SqliteError(e) => {
+                write!(f, "Sqlite error from estimator: {}", e)
+            }
         }
     }
 }
 
-struct LogEstimator;
-
-impl CostEstimator for LogEstimator {
+/// Null `CostEstimator` implementation: this is useful in rust typing when supplying
+/// a `None` value to the `ChainsCoordinator` estimator field.
+impl CostEstimator for () {
     fn notify_event(
         &mut self,
-        tx: &TransactionPayload,
-        actual_cost: &ExecutionCost,
+        _tx: &TransactionPayload,
+        _actual_cost: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
-        let (tx_descriptor, arg_size) = match tx {
-            TransactionPayload::TokenTransfer(..) => ("stx-transfer".to_string(), 1),
-            TransactionPayload::ContractCall(cc) => (
-                format!("cc:{}.{}", cc.contract_name, cc.function_name),
-                cc.function_args
-                    .iter()
-                    .fold(0, |acc, value| acc + value.size() as usize),
-            ),
-            TransactionPayload::SmartContract(sc) => {
-                ("contract-publish".to_string(), sc.code_body.len())
-            }
-            // ignore poison microblock and coinbase events
-            TransactionPayload::PoisonMicroblock(_, _) | TransactionPayload::Coinbase(_) => {
-                return Ok(())
-            }
-        };
-        info!(
-            "{}, {}, {}, {}, {}, {}, {}",
-            tx_descriptor,
-            arg_size,
-            actual_cost.runtime,
-            actual_cost.write_count,
-            actual_cost.write_length,
-            actual_cost.read_length,
-            actual_cost.read_count
-        );
         Ok(())
     }
 
     fn estimate_cost(&self, _tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError> {
-        todo!()
+        Err(EstimatorError::NoEstimateAvailable)
+    }
+
+    fn open(_p: &Path) -> Result<(), EstimatorError> {
+        Ok(())
     }
 }

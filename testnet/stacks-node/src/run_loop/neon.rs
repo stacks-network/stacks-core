@@ -245,6 +245,8 @@ impl RunLoop {
 
         let atlas_config = AtlasConfig::default(mainnet);
         let moved_atlas_config = atlas_config.clone();
+        let moved_estimator_config = self.config.estimation.clone();
+        let moved_chainstate_path = self.config.get_chainstate_path();
 
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
@@ -256,6 +258,7 @@ impl RunLoop {
                     &mut coordinator_dispatcher,
                     coordinator_receivers,
                     moved_atlas_config,
+                    moved_estimator_config.make_cost_estimator(moved_chainstate_path),
                 );
             })
             .unwrap();

@@ -1,3 +1,4 @@
+use std::cmp;
 use std::convert::TryFrom;
 use std::{iter::FromIterator, path::Path};
 
@@ -26,6 +27,12 @@ struct Samples {
 }
 
 const SAMPLE_SIZE: usize = 10;
+const CREATE_TABLE: &'static str = "
+CREATE TABLE pessimistic_estimator (
+    estimate_key TEXT PRIMARY KEY,
+    current_value NUMBER NOT NULL,
+    samples TEXT NOT NULL
+)";
 
 iterable_enum!(CostField {
     RuntimeCost,
@@ -146,8 +153,34 @@ impl Samples {
 }
 
 impl PessimisticEstimator {
-    /// Open a pessimistic estimator at the given db path. Creates if not existent.
-    pub fn open(p: &Path) -> Result<PessimisticEstimator, SqliteError> {
+    fn instantiate_db(c: &Connection) -> Result<(), SqliteError> {
+        c.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+        Ok(())
+    }
+
+    fn get_estimate_key(tx: &TransactionPayload, field: &CostField) -> String {
+        let tx_descriptor = match tx {
+            TransactionPayload::TokenTransfer(..) => "stx-transfer".to_string(),
+            TransactionPayload::ContractCall(cc) => {
+                format!("cc:{}.{}", cc.contract_name, cc.function_name)
+            }
+            TransactionPayload::SmartContract(_sc) => "contract-publish".to_string(),
+            TransactionPayload::PoisonMicroblock(_, _) => "poison-ublock".to_string(),
+            TransactionPayload::Coinbase(_) => "coinbase".to_string(),
+        };
+
+        format!("{}:{}", &tx_descriptor, field)
+    }
+}
+
+impl From<SqliteError> for EstimatorError {
+    fn from(e: SqliteError) -> Self {
+        EstimatorError::SqliteError(e)
+    }
+}
+
+impl CostEstimator for PessimisticEstimator {
+    fn open(p: &Path) -> Result<PessimisticEstimator, EstimatorError> {
         let db = Connection::open_with_flags(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
             .or_else(|e| {
                 if let SqliteError::SqliteFailure(ref internal, _) = e {
@@ -168,32 +201,6 @@ impl PessimisticEstimator {
         })
     }
 
-    fn instantiate_db(c: &Connection) -> Result<(), SqliteError> {
-        let sql = "CREATE TABLE pessimistic_estimator (
-           estimate_key TEXT PRIMARY KEY,
-           current_value NUMBER,
-           samples TEXT
-        )";
-        c.execute(sql, rusqlite::NO_PARAMS)?;
-        Ok(())
-    }
-
-    fn get_estimate_key(tx: &TransactionPayload, field: &CostField) -> String {
-        let tx_descriptor = match tx {
-            TransactionPayload::TokenTransfer(..) => "stx-transfer".to_string(),
-            TransactionPayload::ContractCall(cc) => {
-                format!("cc:{}.{}", cc.contract_name, cc.function_name)
-            }
-            TransactionPayload::SmartContract(_sc) => "contract-publish".to_string(),
-            TransactionPayload::PoisonMicroblock(_, _) => "poison-ublock".to_string(),
-            TransactionPayload::Coinbase(_) => "coinbase".to_string(),
-        };
-
-        format!("{}:{}", &tx_descriptor, field)
-    }
-}
-
-impl CostEstimator for PessimisticEstimator {
     fn notify_event(
         &mut self,
         tx: &TransactionPayload,
