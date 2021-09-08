@@ -153,6 +153,27 @@ impl Samples {
 }
 
 impl PessimisticEstimator {
+    pub fn open(p: &Path) -> Result<PessimisticEstimator, EstimatorError> {
+        let db = Connection::open_with_flags(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .or_else(|e| {
+                if let SqliteError::SqliteFailure(ref internal, _) = e {
+                    if let rusqlite::ErrorCode::CannotOpen = internal.code {
+                        let db = Connection::open(p)?;
+                        PessimisticEstimator::instantiate_db(&db)?;
+                        Ok(db)
+                    } else {
+                        Err(e)
+                    }
+                } else {
+                    Err(e)
+                }
+            })?;
+        Ok(PessimisticEstimator {
+            db,
+            log_error: true,
+        })
+    }
+
     fn instantiate_db(c: &Connection) -> Result<(), SqliteError> {
         c.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
         Ok(())
@@ -180,27 +201,6 @@ impl From<SqliteError> for EstimatorError {
 }
 
 impl CostEstimator for PessimisticEstimator {
-    fn open(p: &Path) -> Result<PessimisticEstimator, EstimatorError> {
-        let db = Connection::open_with_flags(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
-            .or_else(|e| {
-                if let SqliteError::SqliteFailure(ref internal, _) = e {
-                    if let rusqlite::ErrorCode::CannotOpen = internal.code {
-                        let db = Connection::open(p)?;
-                        PessimisticEstimator::instantiate_db(&db)?;
-                        Ok(db)
-                    } else {
-                        Err(e)
-                    }
-                } else {
-                    Err(e)
-                }
-            })?;
-        Ok(PessimisticEstimator {
-            db,
-            log_error: true,
-        })
-    }
-
     fn notify_event(
         &mut self,
         tx: &TransactionPayload,

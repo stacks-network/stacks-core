@@ -17,6 +17,7 @@ use core::BLOCK_LIMIT_MAINNET;
 use chainstate::stacks::db::StacksEpochReceipt;
 use chainstate::stacks::events::TransactionOrigin;
 
+use super::metrics::CostMetric;
 use super::FeeRateEstimate;
 use super::{EstimatorError, FeeEstimator};
 
@@ -34,18 +35,19 @@ CREATE TABLE scalar_fee_estimator (
 /// the subsequent fee rate using the actual paid fee. The 5th, 50th and 95th
 /// percentile fee rates for each block are used as the slow, medium, and fast
 /// estimates. Estimates are updated via exponential decay windowing.
-pub struct ScalarFeeRateEstimator {
+pub struct ScalarFeeRateEstimator<M: CostMetric> {
     db: Connection,
     /// how quickly does the current estimate decay
     /// compared to the newly received block estimate
     ///      new_estimate := (decay_rate_fraction.0/decay_rate_fraction.1) * old_estimate +
     ///                      (1 - decay_rate_fraction.0/decay_rate_fraction.1) * new_measure
     decay_rate_fraction: (u16, u16),
+    metric: M,
 }
 
-impl ScalarFeeRateEstimator {
+impl<M: CostMetric> ScalarFeeRateEstimator<M> {
     /// Open a pessimistic estimator at the given db path. Creates if not existent.
-    pub fn open(p: &Path) -> Result<Self, SqliteError> {
+    pub fn open(p: &Path, metric: M) -> Result<Self, SqliteError> {
         let db = Connection::open_with_flags(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
             .or_else(|e| {
                 if let SqliteError::SqliteFailure(ref internal, _) = e {
@@ -62,6 +64,7 @@ impl ScalarFeeRateEstimator {
             })?;
         Ok(Self {
             db,
+            metric,
             decay_rate_fraction: (3, 4),
         })
     }
@@ -103,36 +106,36 @@ impl ScalarFeeRateEstimator {
     }
 }
 
-impl FeeEstimator for ScalarFeeRateEstimator {
+impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
     fn notify_block(&mut self, receipt: &StacksEpochReceipt) -> Result<(), EstimatorError> {
         let mut all_fee_rates: Vec<_> = receipt
             .tx_receipts
             .iter()
             .filter_map(|tx_receipt| {
-                let (payload, fee) = match tx_receipt.transaction {
-                    TransactionOrigin::Stacks(ref tx) => Some((&tx.payload, tx.get_tx_fee())),
+                let (payload, fee, tx_size) = match tx_receipt.transaction {
+                    TransactionOrigin::Stacks(ref tx) => {
+                        Some((&tx.payload, tx.get_tx_fee(), tx.tx_len()))
+                    }
                     TransactionOrigin::Burn(_) => None,
                 }?;
-                match payload {
+                let scalar_cost = match payload {
                     TransactionPayload::TokenTransfer(_, _, _) => {
-                        // TODO: we need to translate our fee rate scalar for token transfers.
-                        //       for now, we ignore it when computing the current fee market.
-                        return None;
-                    }
-                    TransactionPayload::PoisonMicroblock(_, _) => {
-                        // TODO: we need to translate our fee rate scalar for poison microblock txs.
-                        //       for now, we ignore it when computing the current fee market.
-                        return None;
+                        // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
+                        self.metric.from_len(tx_size)
                     }
                     TransactionPayload::Coinbase(_) => {
                         // Coinbase txs are "free", so they don't factor into the fee market.
                         return None;
                     }
-                    TransactionPayload::ContractCall(_) | TransactionPayload::SmartContract(_) => {}
+                    TransactionPayload::PoisonMicroblock(_, _)
+                    | TransactionPayload::ContractCall(_)
+                    | TransactionPayload::SmartContract(_) => {
+                        // These transaction payload types all "work" the same: they have associated ExecutionCosts
+                        // and contibute to the block length limit with their tx_len
+                        self.metric
+                            .from_cost_and_len(&tx_receipt.execution_cost, tx_size)
+                    }
                 };
-                let scalar_cost = tx_receipt
-                    .execution_cost
-                    .proportion_dot_product(&BLOCK_LIMIT_MAINNET);
                 let fee_rate = fee / cmp::max(1, scalar_cost);
                 Some(fee_rate)
             })

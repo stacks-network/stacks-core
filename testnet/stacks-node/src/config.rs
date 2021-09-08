@@ -7,11 +7,14 @@ use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::chainstate::stacks::miner::BlockBuilderSettings;
+use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::{
     BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT,
     PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
-use stacks::cost_estimates::CostEstimator;
+use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
+use stacks::cost_estimates::metrics::CostMetric;
 use stacks::cost_estimates::PessimisticEstimator;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
@@ -37,6 +40,7 @@ pub struct ConfigFile {
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub fee_estimation: Option<FeeEstimationConfigFile>,
+    pub miner: Option<MinerConfigFile>,
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -280,6 +284,7 @@ pub struct Config {
     pub initial_balances: Vec<InitialBalance>,
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
+    pub miner: MinerConfig,
     pub block_limit: ExecutionCost,
     pub estimation: FeeEstimationConfig,
 }
@@ -484,6 +489,20 @@ impl Config {
             None => default_burnchain_config,
         };
 
+        let miner_default_config = MinerConfig::default();
+        let miner = match config_file.miner {
+            Some(ref miner) => MinerConfig {
+                min_tx_fee: miner.min_tx_fee.unwrap_or(miner_default_config.min_tx_fee),
+                first_attempt_time_ms: miner
+                    .first_attempt_time_ms
+                    .unwrap_or(miner_default_config.first_attempt_time_ms),
+                subsequent_attempt_time_ms: miner
+                    .subsequent_attempt_time_ms
+                    .unwrap_or(miner_default_config.subsequent_attempt_time_ms),
+            },
+            None => miner_default_config,
+        };
+
         let supported_modes = vec![
             "mocknet", "helium", "neon", "argon", "krypton", "xenon", "mainnet",
         ];
@@ -659,9 +678,9 @@ impl Config {
                     walk_interval: opts
                         .walk_interval
                         .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval.clone()),
-                    dns_timeout: opts
-                        .dns_timeout
-                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone()),
+                    dns_timeout: opts.dns_timeout.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone() as u64
+                    }) as u128,
                     max_inflight_blocks: opts.max_inflight_blocks.unwrap_or_else(|| {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS
                             .max_inflight_blocks
@@ -731,6 +750,7 @@ impl Config {
             connection_options,
             block_limit,
             estimation,
+            miner,
         }
     }
 
@@ -821,6 +841,29 @@ impl Config {
     pub fn is_node_event_driven(&self) -> bool {
         self.events_observers.len() > 0
     }
+
+    pub fn make_block_builder_settings(&self, attempt: u64) -> BlockBuilderSettings {
+        BlockBuilderSettings {
+            execution_cost: self.block_limit.clone(),
+            max_miner_time_ms: if attempt <= 1 {
+                // first attempt to mine a block -- do so right away
+                self.miner.first_attempt_time_ms
+            } else {
+                // second or later attempt to mine a block -- give it some time
+                self.miner.subsequent_attempt_time_ms
+            },
+            mempool_settings: MemPoolWalkSettings {
+                min_tx_fee: self.miner.min_tx_fee,
+                max_walk_time_ms: if attempt <= 1 {
+                    // first attempt to mine a block -- do so right away
+                    self.miner.first_attempt_time_ms
+                } else {
+                    // second or later attempt to mine a block -- give it some time
+                    self.miner.subsequent_attempt_time_ms
+                },
+            },
+        }
+    }
 }
 
 impl std::default::Default for Config {
@@ -846,6 +889,7 @@ impl std::default::Default for Config {
             connection_options,
             block_limit,
             estimation,
+            miner: MinerConfig::default(),
         }
     }
 }
@@ -1095,20 +1139,30 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
 }
 
 impl FeeEstimationConfig {
-    pub fn make_cost_estimator(
+    pub fn make_pessimistic_cost_estimator(
         &self,
         mut chainstate_path: PathBuf,
-    ) -> Option<Box<dyn CostEstimator>> {
-        self.cost_estimator
-            .as_ref()
-            .map(|cost_estimator| match cost_estimator {
-                CostEstimatorName::NaivePessimistic => {
-                    chainstate_path.push("pessimistic_estimator.sqlite");
-                    let estimator = PessimisticEstimator::open(&chainstate_path)
-                        .expect("Error opening cost estimator");
-                    Box::new(estimator) as Box<dyn CostEstimator>
-                }
-            })
+    ) -> PessimisticEstimator {
+        if let Some(CostEstimatorName::NaivePessimistic) = self.cost_estimator.as_ref() {
+            chainstate_path.push("cost_estimator_pessimistic.sqlite");
+            PessimisticEstimator::open(&chainstate_path).expect("Error opening cost estimator")
+        } else {
+            panic!("BUG: Expected to configure a naive pessimistic cost estimator");
+        }
+    }
+
+    pub fn make_scalar_fee_estimator<CM: CostMetric>(
+        &self,
+        mut chainstate_path: PathBuf,
+        metric: CM,
+    ) -> ScalarFeeRateEstimator<CM> {
+        if let Some(FeeEstimatorName::ScalarFeeRate) = self.fee_estimator.as_ref() {
+            chainstate_path.push("fee_estimator_scalar_rate.sqlite");
+            ScalarFeeRateEstimator::open(&chainstate_path, metric)
+                .expect("Error opening fee estimator")
+        } else {
+            panic!("BUG: Expected to configure a scalar fee estimator");
+        }
     }
 }
 
@@ -1230,6 +1284,23 @@ impl NodeConfig {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct MinerConfig {
+    pub min_tx_fee: u64,
+    pub first_attempt_time_ms: u64,
+    pub subsequent_attempt_time_ms: u64,
+}
+
+impl MinerConfig {
+    pub fn default() -> MinerConfig {
+        MinerConfig {
+            min_tx_fee: 1,
+            first_attempt_time_ms: 1_000,
+            subsequent_attempt_time_ms: 60_000,
+        }
+    }
+}
+
 #[derive(Clone, Default, Deserialize)]
 pub struct ConnectionOptionsFile {
     pub inbox_maxlen: Option<usize>,
@@ -1252,7 +1323,7 @@ pub struct ConnectionOptionsFile {
     pub soft_max_clients_per_host: Option<u64>,
     pub max_sockets: Option<u64>,
     pub walk_interval: Option<u64>,
-    pub dns_timeout: Option<u128>,
+    pub dns_timeout: Option<u64>,
     pub max_inflight_blocks: Option<u64>,
     pub max_inflight_attachments: Option<u64>,
     pub read_only_call_limit_write_length: Option<u64>,
@@ -1313,6 +1384,13 @@ impl Default for FeeEstimationConfigFile {
             disabled: false,
         }
     }
+}
+
+#[derive(Clone, Deserialize, Default)]
+pub struct MinerConfigFile {
+    pub min_tx_fee: Option<u64>,
+    pub first_attempt_time_ms: Option<u64>,
+    pub subsequent_attempt_time_ms: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default)]

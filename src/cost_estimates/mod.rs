@@ -13,7 +13,9 @@ use burnchains::Txid;
 use chainstate::stacks::db::StacksEpochReceipt;
 
 pub mod fee_scalar;
+pub mod metrics;
 pub mod pessimistic;
+
 pub use self::pessimistic::PessimisticEstimator;
 
 /// This trait is for implementation of *fee rate* estimation: estimators should
@@ -28,6 +30,8 @@ pub trait FeeEstimator {
 }
 
 #[derive(Clone)]
+/// This struct is returned from fee rate estimators as the current best estimate for
+/// fee rates to include a transaction in a block.
 pub struct FeeRateEstimate {
     fast: u64,
     medium: u64,
@@ -71,11 +75,6 @@ impl Add for FeeRateEstimate {
 }
 
 pub trait CostEstimator {
-    /// Constructor for estimators. Should create new storage at `p` if it does not already
-    /// exist. Otherwise, opens the existing storage.
-    fn open(p: &Path) -> Result<Self, EstimatorError>
-    where
-        Self: Sized;
     /// This method is invoked by the `stacks-node` to update the cost estimator with a new
     ///  cost measurement. The given `tx` had a measured cost of `actual_cost`.
     fn notify_event(
@@ -167,8 +166,16 @@ impl CostEstimator for () {
     fn estimate_cost(&self, _tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError> {
         Err(EstimatorError::NoEstimateAvailable)
     }
+}
 
-    fn open(_p: &Path) -> Result<(), EstimatorError> {
+/// Null `FeeEstimator` implementation: this is useful in rust typing when supplying
+/// a `None` value to the `ChainsCoordinator` estimator field.
+impl FeeEstimator for () {
+    fn notify_block(&mut self, _receipt: &StacksEpochReceipt) -> Result<(), EstimatorError> {
         Ok(())
+    }
+
+    fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
+        Err(EstimatorError::NoEstimateAvailable)
     }
 }

@@ -43,6 +43,7 @@ use blockstack_lib::chainstate::burn::ConsensusHash;
 use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
+use blockstack_lib::chainstate::stacks::miner::*;
 use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId};
@@ -419,7 +420,7 @@ check if the associated microblocks can be downloaded
     if argv[1] == "try-mine" {
         if argv.len() < 3 {
             eprintln!(
-                "Usage: {} try-mine <working-dir>
+                "Usage: {} try-mine <working-dir> [min-fee [max-time]]
 
 Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block
 assembly, but does not attempt to broadcast a block commit. This is useful for determining
@@ -431,8 +432,19 @@ simulating a miner.
             process::exit(1);
         }
 
+        let start = get_epoch_time_ms();
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
+
+        let mut min_fee = u64::max_value();
+        let mut max_time = u64::max_value();
+
+        if argv.len() >= 4 {
+            min_fee = argv[3].parse().expect("Could not parse min_fee");
+        }
+        if argv.len() >= 5 {
+            max_time = argv[4].parse().expect("Could not parse max_time");
+        }
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
@@ -470,6 +482,10 @@ simulating a miner.
         tx_signer.sign_origin(&sk).unwrap();
         let coinbase_tx = tx_signer.get_tx().unwrap();
 
+        let mut settings = BlockBuilderSettings::limited(core::BLOCK_LIMIT_MAINNET.clone());
+        settings.max_miner_time_ms = max_time;
+        settings.mempool_settings.min_tx_fee = min_fee;
+
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
             &sort_db.index_conn(),
@@ -479,19 +495,45 @@ simulating a miner.
             VRFProof::empty(),
             Hash160([0; 20]),
             &coinbase_tx,
-            core::BLOCK_LIMIT_MAINNET.clone(),
+            settings,
             None,
         );
 
+        let stop = get_epoch_time_ms();
+
         println!(
-            "{} mined block @ height = {}",
+            "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
             if result.is_ok() {
                 "Successfully"
             } else {
                 "Failed to"
             },
-            parent_header.block_height + 1
+            parent_header.block_height + 1,
+            StacksBlockHeader::make_index_block_hash(
+                &parent_header.consensus_hash,
+                &parent_header.anchored_header.block_hash()
+            ),
+            &parent_header.consensus_hash,
+            &parent_header.anchored_header.block_hash(),
+            stop.saturating_sub(start),
+            min_fee,
+            max_time
         );
+
+        if let Ok((block, execution_cost, size)) = result {
+            let mut total_fees = 0;
+            for tx in block.txs.iter() {
+                total_fees += tx.get_tx_fee();
+            }
+            println!(
+                "Block {}: {} uSTX, {} bytes, cost {:?}",
+                block.block_hash(),
+                total_fees,
+                size,
+                &execution_cost
+            );
+        }
+
         process::exit(0);
     }
 
