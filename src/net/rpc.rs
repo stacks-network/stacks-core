@@ -1598,6 +1598,7 @@ impl ConversationHttp {
         let txid = tx.txid();
         let response_metadata = HttpResponseMetadata::from(req);
         let (response, accepted) = if mempool.has_tx(&txid) {
+            debug!("Mempool already has POSTed transaction {}", &txid);
             (
                 HttpResponseType::TransactionID(response_metadata, txid),
                 false,
@@ -1611,14 +1612,20 @@ impl ConversationHttp {
                 event_observer,
                 use_unconfirmed_tip,
             ) {
-                Ok(_) => (
-                    HttpResponseType::TransactionID(response_metadata, txid),
-                    true,
-                ),
-                Err(e) => (
-                    HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
-                    false,
-                ),
+                Ok(_) => {
+                    debug!("Mempool accepted POSTed transaction {}", &txid);
+                    (
+                        HttpResponseType::TransactionID(response_metadata, txid),
+                        true,
+                    )
+                }
+                Err(e) => {
+                    debug!("Mempool rejected POSTed transaction {}: {:?}", &txid, &e);
+                    (
+                        HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
+                        false,
+                    )
+                }
             }
         };
 
@@ -3110,6 +3117,7 @@ mod test {
                     consensus_hash.clone(),
                     peer_1.chainstate(),
                     &sort_iconn,
+                    BlockBuilderSettings::max_value(),
                 )
                 .unwrap();
                 let microblock = microblock_builder

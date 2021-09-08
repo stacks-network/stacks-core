@@ -31,3 +31,8 @@ RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::size_over
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::antientropy_integration_test
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::transaction_validation_integration_test
+RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::filter_low_fee_tx_integration_test
+RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::filter_long_runtime_tx_integration_test
+RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::mining_transactions_is_fair
+
+
