@@ -29,6 +29,9 @@ use vm::types::{
     parse_name_type_pairs, PrincipalData, QualifiedContractIdentifier, TraitIdentifier,
     TupleTypeSignature, TypeSignature, Value,
 };
+use rand::distributions::{Alphanumeric, Distribution};
+use std::convert::TryFrom;
+use rand::{thread_rng, Rng};
 
 define_named_enum!(DefineFunctions {
     Constant("define-constant"),
@@ -116,16 +119,46 @@ fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<
     }
 }
 
+#[derive(Debug)]
+pub struct Alphabetic;
+
+impl Distribution<char> for Alphabetic {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> char {
+        const RANGE: u32 = 26 + 26;
+        const GEN_ASCII_STR_CHARSET: &[u8] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                abcdefghijklmnopqrstuvwxyz";
+        // We can pick from 52 characters. This is so close to a power of 2, 64,
+        // that we can do better than `Uniform`. Use a simple bitshift and
+        // rejection sampling. We do not use a bitmask, because for small RNGs
+        // the most significant bits are usually of higher quality.
+        loop {
+            let var = rng.next_u32() >> (32 - 6);
+            if var < RANGE {
+                return GEN_ASCII_STR_CHARSET[var as usize] as char
+            }
+        }
+    }
+}
+
 fn handle_define_variable(
     variable: &ClarityName,
     expression: &SymbolicExpression,
     env: &mut Environment,
 ) -> Result<DefineResult> {
+    let rand_string: String = thread_rng()
+        .sample_iter(&Alphabetic)
+        .take(variable.len() as usize)
+        .map(char::from)
+        .collect();
+
+    let clarity_name = ClarityName::try_from(rand_string).unwrap();
+
     // is the variable name legal?
-    check_legal_define(variable, &env.contract_context)?;
+    check_legal_define(&*clarity_name, &env.contract_context)?;
     let context = LocalContext::new();
     let value = eval(expression, env, &context)?;
-    Ok(DefineResult::Variable(variable.clone(), value))
+    Ok(DefineResult::Variable(clarity_name, value))
 }
 
 fn handle_define_function(
