@@ -1340,7 +1340,7 @@ fn should_fix_2771() {
         return;
     }
 
-    let (conf, _) = neon_integration_test_conf();
+    let (conf, _miner_account) = neon_integration_test_conf();
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
