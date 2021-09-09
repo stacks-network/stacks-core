@@ -760,6 +760,15 @@ impl<
                         estimator.notify_block(&block, &block_receipt.tx_receipts);
                     }
 
+                    if let Some(ref mut estimator) = self.fee_estimator {
+                        if let Err(e) = estimator.notify_block(&block_receipt) {
+                            warn!("FeeEstimator failed to process block receipt";
+                                  "stacks_block" => %block_hash,
+                                  "stacks_height" => %block_receipt.header.block_height,
+                                  "error" => %e);
+                        }
+                    }
+
                     if let Some(dispatcher) = self.dispatcher {
                         let metadata = &block_receipt.header;
                         let winner_txid = SortitionDB::get_block_snapshot_for_winning_stacks_block(

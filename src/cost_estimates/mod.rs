@@ -1,6 +1,7 @@
+use std::cmp;
 use std::collections::HashMap;
 use std::iter::FromIterator;
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::path::Path;
 use std::{error::Error, fmt::Display};
 
@@ -16,6 +17,9 @@ pub mod fee_scalar;
 pub mod metrics;
 pub mod pessimistic;
 
+#[cfg(test)]
+pub mod tests;
+
 pub use self::pessimistic::PessimisticEstimator;
 
 /// This trait is for implementation of *fee rate* estimation: estimators should
@@ -29,13 +33,13 @@ pub trait FeeEstimator {
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 /// This struct is returned from fee rate estimators as the current best estimate for
 /// fee rates to include a transaction in a block.
 pub struct FeeRateEstimate {
-    fast: u64,
-    medium: u64,
-    slow: u64,
+    pub fast: u64,
+    pub medium: u64,
+    pub slow: u64,
 }
 
 impl Mul<u16> for FeeRateEstimate {
@@ -43,9 +47,9 @@ impl Mul<u16> for FeeRateEstimate {
 
     fn mul(self, rhs: u16) -> FeeRateEstimate {
         FeeRateEstimate {
-            fast: self.fast * (rhs as u64),
-            medium: self.medium * (rhs as u64),
-            slow: self.slow * (rhs as u64),
+            fast: self.fast.saturating_mul(rhs as u64),
+            medium: self.medium.saturating_mul(rhs as u64),
+            slow: self.slow.saturating_mul(rhs as u64),
         }
     }
 }
@@ -54,10 +58,24 @@ impl Div<u16> for FeeRateEstimate {
     type Output = FeeRateEstimate;
 
     fn div(self, rhs: u16) -> FeeRateEstimate {
+        let denom = cmp::max(rhs as u64, 1);
         FeeRateEstimate {
-            fast: self.fast / (rhs as u64),
-            medium: self.medium / (rhs as u64),
-            slow: self.slow / (rhs as u64),
+            fast: self.fast / denom,
+            medium: self.medium / denom,
+            slow: self.slow / denom,
+        }
+    }
+}
+
+impl Rem<u16> for FeeRateEstimate {
+    type Output = FeeRateEstimate;
+
+    fn rem(self, rhs: u16) -> FeeRateEstimate {
+        let denom = cmp::max(rhs as u64, 1);
+        FeeRateEstimate {
+            fast: self.fast % denom,
+            medium: self.medium % denom,
+            slow: self.slow % denom,
         }
     }
 }
@@ -67,9 +85,9 @@ impl Add for FeeRateEstimate {
 
     fn add(self, rhs: Self) -> FeeRateEstimate {
         FeeRateEstimate {
-            fast: self.fast + rhs.fast,
-            medium: self.medium + rhs.medium,
-            slow: self.slow + rhs.slow,
+            fast: self.fast.saturating_add(rhs.fast),
+            medium: self.medium.saturating_add(rhs.medium),
+            slow: self.slow.saturating_add(rhs.slow),
         }
     }
 }
@@ -124,7 +142,7 @@ pub trait CostEstimator {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum EstimatorError {
     NoEstimateAvailable,
     SqliteError(SqliteError),

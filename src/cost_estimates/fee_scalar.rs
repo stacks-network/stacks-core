@@ -2,6 +2,7 @@ use std::cmp;
 use std::convert::TryFrom;
 use std::{iter::FromIterator, path::Path};
 
+use rusqlite::Transaction as SqlTransaction;
 use rusqlite::{
     types::{FromSql, FromSqlError},
     Connection, Error as SqliteError, OptionalExtension, ToSql,
@@ -9,7 +10,9 @@ use rusqlite::{
 use serde_json::Value as JsonValue;
 
 use chainstate::stacks::TransactionPayload;
+use util::db::tx_begin_immediate_sqlite;
 use util::db::u64_to_sql;
+
 use vm::costs::ExecutionCost;
 
 use core::BLOCK_LIMIT_MAINNET;
@@ -27,7 +30,7 @@ CREATE TABLE scalar_fee_estimator (
     estimate_key NUMBER PRIMARY KEY,
     fast NUMBER NOT NULL,
     medium NUMBER NOT NULL,
-    slow NUMBER NOT NULL,
+    slow NUMBER NOT NULL
 )";
 
 /// This struct estimates fee rates by translating a transaction's `ExecutionCost`
@@ -52,8 +55,10 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
             .or_else(|e| {
                 if let SqliteError::SqliteFailure(ref internal, _) = e {
                     if let rusqlite::ErrorCode::CannotOpen = internal.code {
-                        let db = Connection::open(p)?;
-                        Self::instantiate_db(&db)?;
+                        let mut db = Connection::open(p)?;
+                        let tx = tx_begin_immediate_sqlite(&mut db)?;
+                        Self::instantiate_db(&tx)?;
+                        tx.commit()?;
                         Ok(db)
                     } else {
                         Err(e)
@@ -65,23 +70,48 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         Ok(Self {
             db,
             metric,
-            decay_rate_fraction: (3, 4),
+            decay_rate_fraction: (1, 2),
         })
     }
 
-    fn instantiate_db(c: &Connection) -> Result<(), SqliteError> {
+    fn instantiate_db(c: &SqlTransaction) -> Result<(), SqliteError> {
         c.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
         Ok(())
     }
 
-    fn update_estimate(&self, new_measure: FeeRateEstimate) {
+    fn update_estimate(&mut self, new_measure: FeeRateEstimate) {
         let next_estimate = match self.get_rate_estimates() {
             Ok(old_estimate) => {
-                let prior_component =
-                    (old_estimate / self.decay_rate_fraction.1) * self.decay_rate_fraction.0;
-                let next_component = (new_measure / self.decay_rate_fraction.1)
+                // compute the exponential windowing:
+                // estimate = (a/b * old_estimate) + ((1 - a/b) * new_estimate)
+                //
+                // in order to avoid overflows, we do the division by `b` first, but to preserve
+                //  some integer precision, include the remainder by taking the remainder and doing
+                //  multiplication first (this also cannot overflow, because this calculation is at most
+                //  a * b, which are both u16)
+                let prior_component = (old_estimate.clone() / self.decay_rate_fraction.1)
+                    * self.decay_rate_fraction.0;
+                let prior_remainder = ((old_estimate % self.decay_rate_fraction.1)
+                    * self.decay_rate_fraction.0)
+                    / self.decay_rate_fraction.1;
+
+                let next_component = (new_measure.clone() / self.decay_rate_fraction.1)
                     * (self.decay_rate_fraction.1 - self.decay_rate_fraction.0);
-                prior_component + next_component
+                let next_remainder = (new_measure.clone() % self.decay_rate_fraction.1)
+                    * (self.decay_rate_fraction.1 - self.decay_rate_fraction.0)
+                    / self.decay_rate_fraction.1;
+
+                let mut next_computed =
+                    prior_component + prior_remainder + next_component + next_remainder;
+
+                // because of integer math, we can end up with some edge effects
+                // when the estimate is < decay_rate_fraction.1, so just saturate
+                // on the low end at a rate of "1"
+                next_computed.fast = cmp::max(next_computed.fast, 1);
+                next_computed.medium = cmp::max(next_computed.medium, 1);
+                next_computed.slow = cmp::max(next_computed.slow, 1);
+
+                next_computed
             }
             Err(EstimatorError::NoEstimateAvailable) => new_measure.clone(),
             Err(e) => {
@@ -90,19 +120,31 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
             }
         };
 
+        debug!("Updating fee rate estimate for new block";
+               "new_measure_fast" => new_measure.fast,
+               "new_measure_medium" => new_measure.medium,
+               "new_measure_slow" => new_measure.slow,
+               "new_estimate_fast" => next_estimate.fast,
+               "new_estimate_medium" => next_estimate.medium,
+               "new_estimate_slow" => next_estimate.slow);
+
         let sql = "INSERT OR REPLACE INTO scalar_fee_estimator
                      (estimate_key, fast, medium, slow) VALUES (?, ?, ?, ?)";
-        self.db
-            .execute(
-                sql,
-                rusqlite::params![
-                    SINGLETON_ROW_ID,
-                    u64_to_sql(next_estimate.fast).unwrap_or(i64::MAX),
-                    u64_to_sql(next_estimate.medium).unwrap_or(i64::MAX),
-                    u64_to_sql(next_estimate.slow).unwrap_or(i64::MAX)
-                ],
-            )
-            .expect("SQLite failure");
+
+        let tx = tx_begin_immediate_sqlite(&mut self.db).expect("SQLite failure");
+
+        tx.execute(
+            sql,
+            rusqlite::params![
+                SINGLETON_ROW_ID,
+                u64_to_sql(next_estimate.fast).unwrap_or(i64::MAX),
+                u64_to_sql(next_estimate.medium).unwrap_or(i64::MAX),
+                u64_to_sql(next_estimate.slow).unwrap_or(i64::MAX)
+            ],
+        )
+        .expect("SQLite failure");
+
+        tx.commit().expect("SQLite failure");
     }
 }
 
@@ -136,7 +178,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                             .from_cost_and_len(&tx_receipt.execution_cost, tx_size)
                     }
                 };
-                let fee_rate = fee / cmp::max(1, scalar_cost);
+                let fee_rate = cmp::max(1, fee / cmp::max(1, scalar_cost));
                 Some(fee_rate)
             })
             .collect();

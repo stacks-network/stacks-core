@@ -507,6 +507,14 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
 /// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
 /// then we don't have to worry about any extra rollback logic.
 pub fn tx_begin_immediate<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, Error> {
+    tx_begin_immediate_sqlite(conn).map_err(Error::from)
+}
+
+/// Begin an immediate-mode transaction, and handle busy errors with exponential backoff.
+/// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
+/// then we don't have to worry about any extra rollback logic.
+/// Sames as `tx_begin_immediate` except that it returns a rusqlite error.
+pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, sqlite_error> {
     conn.busy_handler(Some(tx_busy_handler))?;
     let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
     Ok(tx)
