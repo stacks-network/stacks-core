@@ -6666,6 +6666,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                true,
                             )
                             .unwrap();
                     }

@@ -1968,8 +1968,8 @@ fn transaction_validation_integration_test() {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
-  
-   let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -1981,8 +1981,8 @@ fn transaction_validation_integration_test() {
     btc_regtest_controller.bootstrap_chain(201);
 
     eprintln!("Chain bootstrapped...");
-  
-   let mut run_loop = neon::RunLoop::new(conf.clone());
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
     thread::spawn(move || run_loop.start(None, 0));
@@ -2160,9 +2160,9 @@ fn transaction_validation_integration_test() {
     // validated against the confirmed chain tip instead of the unconfirmed tip. This should be valid.
     assert!(submit_tx(&http_origin, &second_call_tx, true).is_ok());
 }
-  
+
 #[test]
-#[ignore]  
+#[ignore]
 fn filter_low_fee_tx_integration_test() {
     let spender_sks: Vec<_> = (0..10)
         .into_iter()
@@ -2230,7 +2230,7 @@ fn filter_low_fee_tx_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     for tx in txs.iter() {
-        submit_tx(&http_origin, tx);
+        assert!(submit_tx(&http_origin, tx, true).is_ok());
     }
 
     // mine a couple more blocks
@@ -2289,7 +2289,20 @@ fn filter_long_runtime_tx_integration_test() {
     // ...but none of them will be mined since we allot zero ms to do so
     conf.miner.first_attempt_time_ms = 0;
     conf.miner.subsequent_attempt_time_ms = 0;
-  
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
@@ -2310,7 +2323,7 @@ fn filter_long_runtime_tx_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     for tx in txs.iter() {
-        submit_tx(&http_origin, tx);
+        assert!(submit_tx(&http_origin, tx, true).is_ok());
     }
 
     // mine a couple more blocks
@@ -2414,7 +2427,7 @@ fn mining_transactions_is_fair() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     for tx in txs.iter() {
-        submit_tx(&http_origin, tx);
+        assert!(submit_tx(&http_origin, tx, true).is_ok());
     }
 
     // mine a couple more blocks -- all 21 transactions should get mined; the same origin should be
