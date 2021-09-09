@@ -147,7 +147,7 @@ impl<'a> DefinitionSorter {
                             DefineFunctions::lookup_by_name(function_name)
                         {
                             match define_function {
-                                DefineFunctions::PersistedVariable | DefineFunctions::Constant => {
+                                DefineFunctions::PersistedVariable | DefineFunctions::Constant | DefineFunctions::ConstantBench => {
                                     // Args: [(define-name-and-types), ...]: ignore 1st arg
                                     if function_args.len() > 1 {
                                         for expr in

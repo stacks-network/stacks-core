@@ -98,6 +98,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 Constant { value, .. } => {
                     self.check_read_only(value)?;
                 }
+                ConstantBench { value, .. } => {
+                    self.check_read_only(value)?;
+                }
                 PersistedVariable { initial, .. } => {
                     self.check_read_only(initial)?;
                 }

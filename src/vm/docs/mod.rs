@@ -1746,6 +1746,7 @@ fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
     let name = define_type.get_name();
     match define_type {
         Constant => make_for_define(&DEFINE_CONSTANT_API, name),
+        ConstantBench => make_for_define(&DEFINE_CONSTANT_API, name),
         PrivateFunction => make_for_define(&DEFINE_PRIVATE_API, name),
         PublicFunction => make_for_define(&DEFINE_PUBLIC_API, name),
         Map => make_for_define(&DEFINE_MAP_API, name),

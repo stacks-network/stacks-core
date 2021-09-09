@@ -35,6 +35,7 @@ use rand::{thread_rng, Rng};
 
 define_named_enum!(DefineFunctions {
     Constant("define-constant"),
+    ConstantBench("define-constant-bench"),
     PrivateFunction("define-private"),
     PublicFunction("define-public"),
     ReadOnlyFunction("define-read-only"),
@@ -49,6 +50,10 @@ define_named_enum!(DefineFunctions {
 
 pub enum DefineFunctionsParsed<'a> {
     Constant {
+        name: &'a ClarityName,
+        value: &'a SymbolicExpression,
+    },
+    ConstantBench {
         name: &'a ClarityName,
         value: &'a SymbolicExpression,
     },
@@ -142,6 +147,18 @@ impl Distribution<char> for Alphabetic {
 }
 
 fn handle_define_variable(
+    variable: &ClarityName,
+    expression: &SymbolicExpression,
+    env: &mut Environment,
+) -> Result<DefineResult> {
+    // is the variable name legal?
+    check_legal_define(variable, &env.contract_context)?;
+    let context = LocalContext::new();
+    let value = eval(expression, env, &context)?;
+    Ok(DefineResult::Variable(variable.clone(), value))
+}
+
+fn handle_define_variable_bench(
     variable: &ClarityName,
     expression: &SymbolicExpression,
     env: &mut Environment,
@@ -327,6 +344,14 @@ impl<'a> DefineFunctionsParsed<'a> {
                     value: &args[1],
                 }
             }
+            DefineFunctions::ConstantBench => {
+                check_argument_count(2, args)?;
+                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                DefineFunctionsParsed::ConstantBench {
+                    name,
+                    value: &args[1],
+                }
+            }
             DefineFunctions::PrivateFunction => {
                 check_argument_count(2, args)?;
                 let signature = args[0]
@@ -437,6 +462,9 @@ pub fn evaluate_define(
         match define_type {
             DefineFunctionsParsed::Constant { name, value } => {
                 handle_define_variable(name, value, env)
+            }
+            DefineFunctionsParsed::ConstantBench { name, value } => {
+                handle_define_variable_bench(name, value, env)
             }
             DefineFunctionsParsed::PrivateFunction { signature, body } => {
                 handle_define_function(signature, body, env, DefineType::Private)

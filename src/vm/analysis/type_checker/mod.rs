@@ -801,6 +801,15 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     )?;
                     self.contract_context.add_variable_type(v_name, v_type)?;
                 }
+                DefineFunctionsParsed::ConstantBench { name, value } => {
+                    let (v_name, v_type) = self.type_check_define_variable(name, value, context)?;
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
+                        self,
+                        v_type.type_size()?,
+                    )?;
+                    self.contract_context.add_variable_type(v_name, v_type)?;
+                }
                 DefineFunctionsParsed::PrivateFunction { signature, body } => {
                     let (f_name, f_type) =
                         self.type_check_define_function(signature, body, context)?;
@@ -963,6 +972,15 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
             match define_type {
                 DefineFunctionsParsed::Constant { name, value } => {
+                    let (_, v_type) = self.type_check_define_variable(name, value, context)?;
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisBindName,
+                        self,
+                        v_type.type_size()?,
+                    )?;
+                    self.contract_context.add_variable_type(clar_name, v_type)?;
+                }
+                DefineFunctionsParsed::ConstantBench { name, value } => {
                     let (_, v_type) = self.type_check_define_variable(name, value, context)?;
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,

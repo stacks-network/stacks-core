@@ -97,6 +97,7 @@ impl ArithmeticOnlyChecker {
                 // The _arguments_ to constant defines must be checked to ensure that
                 //   any _evaluated arguments_ supplied to them are valid.
                 Constant { value, .. } => self.check_expression(value),
+                ConstantBench { value, .. } => self.check_expression(value),
                 PrivateFunction { signature, body } => self.check_define_function(signature, body),
                 ReadOnlyFunction { signature, body } => self.check_define_function(signature, body),
                 PersistedVariable { .. } => Err(Error::DefineTypeForbidden(
