@@ -1396,10 +1396,9 @@ fn should_fix_2771() {
     // WARN [1626791307.078098] [src/chainstate/coordinator/mod.rs:308] [chains-coordinator] Error processing new burn block: NonContiguousBurnchainBlock(UnknownBlock(40bdbf0dda349642bdf4dd30dd31af4f0c9979ce12a7c17485245d0a6ddd970b))
     // And the burnchain db ends up in the same state we ended up while investigating 2771.
     // With this patch, the node is able to entirely register this new canonical fork, and then able to make progress and finish successfully.
-    while sort_height < 213 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        sort_height = channel.get_sortitions_processed();
-        eprintln!("Sort height: {}", sort_height);
+    for _i in 0..3 {
+        btc_regtest_controller.build_next_block(1);
+        thread::sleep(Duration::from_secs(30));
     }
 
     channel.stop_chains_coordinator();
