@@ -11,12 +11,15 @@ env:
 on:
   release:
     types:
-      - published
+      - released
   workflow_dispatch:
 
-jobs:      
+jobs:
   run:
     runs-on: ubuntu-latest
+    # This condition can be removed once the main `stacks-blockchain` workflow creates pre-releases
+    # when appropriate, instead of full releases for every tag passed in.
+    if: "!contains(github.ref, '-rc')"
     steps:
       - name: Checkout latest clarity js sdk
         uses: actions/checkout@v2
@@ -29,7 +32,6 @@ jobs:
         run: |
           RELEASE_VERSION=$(echo ${GITHUB_REF#refs/*/} | tr / -)
           echo "RELEASE_VERSION=$RELEASE_VERSION" >> $GITHUB_ENV
-          echo "UPDATE_BRANCH=auto/update-bin-$RELEASE_VERSION" >> $GITHUB_ENV
 
       - name: Update SDK Tag
         run: sed -i "s@CORE_SDK_TAG = \".*\"@CORE_SDK_TAG = \"$RELEASE_VERSION\"@g" packages/clarity-native-bin/src/index.ts
@@ -38,14 +40,17 @@ jobs:
         uses: peter-evans/create-pull-request@v3
         with:
           token: ${{ secrets.GH_TOKEN }}
-          commit-message: 'chore: update clarity-native-bin tag'
+          commit-message: "chore: update clarity-native-bin tag"
           committer: ${{ env.COMMIT_USER }} <${{ env.COMMIT_EMAIL }}>
           author: ${{ env.COMMIT_USER }} <${{ env.COMMIT_EMAIL }}>
-          branch: ${{ env.UPDATE_BRANCH }}
+          branch: auto/update-bin-tag
+          delete-branch: true
           title: "clarity-native-bin tag update: ${{ env.RELEASE_VERSION }}"
+          labels: |
+            dependencies
           body: |
             :robot: This is an automated pull request created from a new release in [stacks-blockchain](https://github.com/blockstack/stacks-blockchain/releases).
 
             Updates the clarity-native-bin tag.
-          assignees: zone117x,hstove
-          reviewers: zone117x,hstove
+          assignees: zone117x
+          reviewers: zone117x
