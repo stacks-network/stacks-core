@@ -1136,7 +1136,6 @@ impl StacksChainState {
         let (origin_account, payer_account) =
             StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
 
-        info!("Profiler: about to process tx payload.");
         let tx_receipt =
             StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
 
@@ -1159,25 +1158,6 @@ impl StacksChainState {
         }
 
         transaction.commit();
-
-        info!(
-            "Profiler Q3: execution cost of processed transaction";
-            "read_count" => tx_receipt.execution_cost.read_count,
-            "read_length" => tx_receipt.execution_cost.read_length,
-            "write_count" => tx_receipt.execution_cost.write_count,
-            "write_length" => tx_receipt.execution_cost.write_length,
-            "runtime" => tx_receipt.execution_cost.runtime,
-        );
-        if let Some(block_cost_limit) = clarity_block.get_cost_limit() {
-            info!(
-                "Profiler Q3: execution cost percentage of processed transaction";
-                "read_count" => tx_receipt.execution_cost.read_count*100/block_cost_limit.read_count,
-                "read_length" => tx_receipt.execution_cost.read_length*100/block_cost_limit.read_length,
-                "write_count" => tx_receipt.execution_cost.write_count*100/block_cost_limit.write_count,
-                "write_length" => tx_receipt.execution_cost.write_length*100/block_cost_limit.write_length,
-                "runtime" => tx_receipt.execution_cost.runtime*100/block_cost_limit.runtime,
-            );
-        }
 
         Ok((fee, tx_receipt))
     }

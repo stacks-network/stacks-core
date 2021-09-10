@@ -21,6 +21,7 @@ use std::io;
 use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
@@ -95,8 +96,38 @@ pub mod unconfirmed;
 lazy_static! {
     pub static ref TRANSACTION_LOG: bool =
         std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
-    pub static ref PROFILING_ENABLED: bool =
-        std::env::var("STACKS_PROFILING_ENABLED") == Ok("1".into());
+    // pub static ref PROFILING_ENABLED: bool =
+    //     std::env::var("STACKS_PROFILING_QUESTION") == Ok("1".into());
+    pub static ref PROFILING_ENABLED: Option<u64> =
+        match std::env::var("STACKS_PROFILING_ENABLED") {
+            Ok(val) => match val.parse::<u64>() {
+                Ok(val) => Some(val),
+                Err(err) => {
+                    println!(
+                        "WARN: parsing STACKS_PROFILING_QUESTION failed ({:?}), default to None",
+                        err
+                    );
+                    None
+                }
+            },
+            _ => None,
+        };
+    pub static ref PROFILING_LIMIT: Option<u64> =
+        match std::env::var("STACKS_PROFILING_LIMIT") {
+            Ok(val) => match val.parse::<u64>() {
+                Ok(val) => Some(val),
+                Err(err) => {
+                    println!(
+                        "WARN: parsing STACKS_PROFILING_QUESTION failed ({:?}), default to None",
+                        err
+                    );
+                    None
+                }
+            },
+            _ => None,
+        };
+
+    pub static ref STACKS_PROFILING_COUNTER: Mutex<u64> = Mutex::new(0);
 }
 
 pub struct StacksChainState {
@@ -416,6 +447,9 @@ impl<'a> ChainstateTx<'a> {
         &self,
         block_id: &StacksBlockId,
         events: &[StacksTransactionReceipt],
+        block_cost_limit: ExecutionCost,
+        anchored_block_cost: ExecutionCost,
+        microblocks_cost: ExecutionCost,
     ) {
         if *TRANSACTION_LOG {
             let insert =
@@ -430,13 +464,32 @@ impl<'a> ChainstateTx<'a> {
                 }
             }
         }
-        if *PROFILING_ENABLED {
-            info!("STACKS_PROFILING_ENABLED is true!");
+        if let Some(q) = *PROFILING_ENABLED {
             let mut contract_call_events = HashMap::new();
             let mut all_events = HashMap::new();
 
-            for tx_event in events.iter() {
-                for event in &tx_event.events {
+            for tx_receipt in events.iter() {
+                info!(
+                    "Profiler Q3: execution cost of processed transaction";
+                    "txid" => %tx_receipt.transaction.txid(),
+                    "read_count" => tx_receipt.execution_cost.read_count,
+                    "read_length" => tx_receipt.execution_cost.read_length,
+                    "write_count" => tx_receipt.execution_cost.write_count,
+                    "write_length" => tx_receipt.execution_cost.write_length,
+                    "runtime" => tx_receipt.execution_cost.runtime,
+                );
+                info!(
+                    "Profiler Q3: execution cost percentage of processed transaction";
+                    "txid" => %tx_receipt.transaction.txid(),
+                    "read_count" => tx_receipt.execution_cost.read_count*100/block_cost_limit.read_count,
+                    "read_length" => tx_receipt.execution_cost.read_length*100/block_cost_limit.read_length,
+                    "write_count" => tx_receipt.execution_cost.write_count*100/block_cost_limit.write_count,
+                    "write_length" => tx_receipt.execution_cost.write_length*100/block_cost_limit.write_length,
+                    "runtime" => tx_receipt.execution_cost.runtime*100/block_cost_limit.runtime,
+                );
+
+                // populate event frequency maps
+                for event in &tx_receipt.events {
                     match event {
                         StacksTransactionEvent::SmartContractEvent(data) => {
                             let id = data.key.0.clone();
@@ -481,23 +534,38 @@ impl<'a> ChainstateTx<'a> {
                         }
                     }
                 }
+            }
+            // log frequencies of events
+            let all_event_map_as_str = all_events
+                .into_iter()
+                .map(|(k, v)| format!("{:?}: {}; ", k, v))
+                .collect::<String>();
+            let contract_call_map_as_str = contract_call_events
+                .into_iter()
+                .map(|(k, v)| format!("{:?}: {}; ", k, v))
+                .collect::<String>();
+            info!("Profiling Q3: frequencies of all events for a block";
+                "stacks_block_id" => %block_id,
+                "event_frequency_map" => all_event_map_as_str,
+                "contract_call_frequency_map" => contract_call_map_as_str,
+                "block_cost_limit" => %block_cost_limit,
+                "anchored_block_cost" => %anchored_block_cost,
+                "microblocks_cost" => %microblocks_cost,
+            );
 
-                // todo: determine how to print the event maps
-                // log frequencies of events
-                info!("Profiling Q3: frequencies of all events for a block";
-                    "stacks_block_id" => %block_id,
-                    "event_frequency_map" => "WIP", // all_events
-                );
-                // log frequencies for specific contract calls
-                info!("Profiling Q3: frequencies of contract call events for a block";
-                    "stacks_block_id" => %block_id,
-                    "contract_call_frequency_map" => "WIP", // contract_call_events
-                );
+            if q == 3 {
+                let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
+                *count += 1;
+                if let Some(limit) = *PROFILING_LIMIT {
+                    if *count > limit {
+                        // todo - exit
+                    }
+                }
             }
         }
 
-        for tx_event in events.iter() {
-            let txid = tx_event.transaction.txid();
+        for tx_receipt in events.iter() {
+            let txid = tx_receipt.transaction.txid();
             if let Err(e) = monitoring::log_transaction_processed(&txid, &self.root_path) {
                 warn!("Failed to monitor TX processed: {:?}", e; "txid" => %txid);
             }

@@ -36,6 +36,8 @@ use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::PeerMessage;
 
+use chainstate::stacks::db::PROFILING_ENABLED;
+
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::Row;
 use rusqlite::Transaction;
@@ -575,12 +577,14 @@ impl SpvClient {
         let mut tx = self.tx_begin()?;
         for (i, header) in headers.into_iter().enumerate() {
             SpvClient::insert_block_header(&mut tx, header.header, height + (i as u64))?;
-            let bhh = BurnchainHeaderHash::from_bitcoin_hash(&header.header.merkle_root);
-            info!(
-                "Profiler Q1, Q2: Inserting a new bitcoin header";
-                "last_burn_height" => height,
-                "new_burn_header_hash" => %bhh,
-            );
+            if let Some(_) = *PROFILING_ENABLED {
+                let bhh = BurnchainHeaderHash::from_bitcoin_hash(&header.header.merkle_root);
+                info!(
+                    "Profiler Q1, Q2: Inserting a new bitcoin header";
+                    "last_burn_height" => height,
+                    "new_burn_header_hash" => %bhh,
+                );
+            }
         }
         tx.commit()
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;

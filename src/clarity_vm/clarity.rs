@@ -263,6 +263,10 @@ impl ClarityInstance {
         self.mainnet
     }
 
+    pub fn get_block_limit(&self) -> ExecutionCost {
+        self.block_limit.clone()
+    }
+
     pub fn begin_block<'a>(
         &'a mut self,
         current: &StacksBlockId,

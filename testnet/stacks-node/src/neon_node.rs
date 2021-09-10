@@ -64,6 +64,10 @@ use crate::run_loop::RegisteredKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
 
+use stacks::chainstate::stacks::db::{
+    PROFILING_ENABLED, PROFILING_LIMIT, STACKS_PROFILING_COUNTER,
+};
+
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
 use stacks::monitoring;
 
@@ -1060,12 +1064,23 @@ fn spawn_miner_relayer(
 
                     last_tenure_issue_time = get_epoch_time_ms();
 
-                    info!(
-                        "Profiler Q1, Q2: Finished running tenure";
-                        "last_burn_height" => last_burn_block.block_height,
-                        "burn_header_hash_tip" => %burn_chain_tip,
-                        "last_burn_header_hash" => %burn_header_hash
-                    );
+                    if let Some(q) = *PROFILING_ENABLED {
+                        info!(
+                            "Profiler Q1, Q2: Finished running tenure";
+                            "last_burn_height" => last_burn_block.block_height,
+                            "burn_header_hash_tip" => %burn_chain_tip,
+                            "last_burn_header_hash" => %burn_header_hash
+                        );
+                        if q == 1 || q == 2 {
+                            let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
+                            *count += 1;
+                            if let Some(limit) = *PROFILING_LIMIT {
+                                if *count > limit {
+                                    // todo - exit
+                                }
+                            }
+                        }
+                    }
 
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
