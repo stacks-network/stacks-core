@@ -4432,7 +4432,7 @@ impl StacksChainState {
             // epoch defined by this miner.
             clarity_tx.reset_cost(ExecutionCost::zero());
 
-            debug!("Append block";
+            info!("Append block";
                    "block" => %format!("{}/{}", chain_tip_consensus_hash, block.block_hash()),
                    "parent_block" => %format!("{}/{}", parent_consensus_hash, parent_block_hash),
                    "stacks_height" => %block.header.total_work.work,

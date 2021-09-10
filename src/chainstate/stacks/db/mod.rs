@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{btree_map::Entry, BTreeMap};
+use std::collections::{btree_map::Entry, BTreeMap, HashMap};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -95,6 +95,8 @@ pub mod unconfirmed;
 lazy_static! {
     pub static ref TRANSACTION_LOG: bool =
         std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
+    pub static ref PROFILING_ENABLED: bool =
+        std::env::var("STACKS_PROFILING_ENABLED") == Ok("1".into());
 }
 
 pub struct StacksChainState {
@@ -300,6 +302,10 @@ impl<'a> ClarityTx<'a> {
         self.block.cost_so_far()
     }
 
+    pub fn get_cost_limit(&self) -> Option<ExecutionCost> {
+        self.block.get_cost_limit()
+    }
+
     /// Set the ClarityTx's cost tracker.
     /// Returns the replaced cost tracker.
     fn set_cost_tracker(&mut self, new_tracker: LimitedCostTracker) -> LimitedCostTracker {
@@ -424,6 +430,72 @@ impl<'a> ChainstateTx<'a> {
                 }
             }
         }
+        if *PROFILING_ENABLED {
+            info!("STACKS_PROFILING_ENABLED is true!");
+            let mut contract_call_events = HashMap::new();
+            let mut all_events = HashMap::new();
+
+            for tx_event in events.iter() {
+                for event in &tx_event.events {
+                    match event {
+                        StacksTransactionEvent::SmartContractEvent(data) => {
+                            let id = data.key.0.clone();
+                            if let Some(count) = contract_call_events.get(&id) {
+                                contract_call_events.insert(id, count + 1)
+                            } else {
+                                contract_call_events.insert(id, 1)
+                            };
+
+                            let serialized =
+                                StacksTransactionEvent::SmartContractEvent(data.clone())
+                                    .json_serialize(0, &Txid([0u8; 32]), true);
+                            let event_type = match serialized.get("type") {
+                                Some(v) => match v.as_str() {
+                                    Some(s) => s,
+                                    None => "unknown_event_type",
+                                },
+                                None => "unknown_event_type",
+                            }
+                            .to_string();
+                            if let Some(count) = all_events.get(&event_type) {
+                                all_events.insert(event_type, count + 1)
+                            } else {
+                                all_events.insert(event_type, 1)
+                            };
+                        }
+                        e => {
+                            let serialized = e.json_serialize(0, &Txid([0u8; 32]), true);
+                            let event_type = match serialized.get("type") {
+                                Some(v) => match v.as_str() {
+                                    Some(s) => s,
+                                    None => "unknown_event_type",
+                                },
+                                None => "unknown_event_type",
+                            }
+                            .to_string();
+                            if let Some(count) = all_events.get(&event_type) {
+                                all_events.insert(event_type, count + 1)
+                            } else {
+                                all_events.insert(event_type, 1)
+                            };
+                        }
+                    }
+                }
+
+                // todo: determine how to print the event maps
+                // log frequencies of events
+                info!("Profiling Q3: frequencies of all events for a block";
+                    "stacks_block_id" => %block_id,
+                    "event_frequency_map" => "WIP", // all_events
+                );
+                // log frequencies for specific contract calls
+                info!("Profiling Q3: frequencies of contract call events for a block";
+                    "stacks_block_id" => %block_id,
+                    "contract_call_frequency_map" => "WIP", // contract_call_events
+                );
+            }
+        }
+
         for tx_event in events.iter() {
             let txid = tx_event.transaction.txid();
             if let Err(e) = monitoring::log_transaction_processed(&txid, &self.root_path) {

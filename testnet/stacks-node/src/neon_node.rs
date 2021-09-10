@@ -1059,6 +1059,14 @@ fn spawn_miner_relayer(
                     last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
 
                     last_tenure_issue_time = get_epoch_time_ms();
+
+                    info!(
+                        "Profiler Q1, Q2: Finished running tenure";
+                        "last_burn_height" => last_burn_block.block_height,
+                        "burn_header_hash_tip" => %burn_chain_tip,
+                        "last_burn_header_hash" => %burn_header_hash
+                    );
+
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
                     rotate_vrf_and_register(

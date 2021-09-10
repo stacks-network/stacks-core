@@ -233,6 +233,14 @@ impl ClarityBlockConnection<'_> {
             None => ExecutionCost::zero(),
         }
     }
+
+    /// Get the current cost so far
+    pub fn get_cost_limit(&self) -> Option<ExecutionCost> {
+        match self.cost_track {
+            Some(ref track) => Some(track.get_limit()),
+            None => None,
+        }
+    }
 }
 
 impl ClarityInstance {

@@ -41,6 +41,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
+use types::chainstate::BurnchainHeaderHash;
 use util::db::{
     query_row, query_rows, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, DBTx,
     Error as db_error, FromColumn, FromRow,
@@ -574,6 +575,12 @@ impl SpvClient {
         let mut tx = self.tx_begin()?;
         for (i, header) in headers.into_iter().enumerate() {
             SpvClient::insert_block_header(&mut tx, header.header, height + (i as u64))?;
+            let bhh = BurnchainHeaderHash::from_bitcoin_hash(&header.header.merkle_root);
+            info!(
+                "Profiler Q1, Q2: Inserting a new bitcoin header";
+                "last_burn_height" => height,
+                "new_burn_header_hash" => %bhh,
+            );
         }
         tx.commit()
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;
