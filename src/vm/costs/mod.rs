@@ -997,19 +997,29 @@ impl ExecutionCost {
         .clone()
     }
 
-    /// Returns the dot product of this execution cost with 1000/block_limit
+    /// Returns the dot product of this execution cost with `resolution`/block_limit
     /// This provides a scalar value representing the cumulative consumption
     /// of `self` in the provided block_limit.
-    pub fn proportion_dot_product(&self, block_limit: &ExecutionCost) -> u64 {
+    pub fn proportion_dot_product(&self, block_limit: &ExecutionCost, resolution: u64) -> u64 {
         [
-            self.runtime / cmp::max(1, block_limit.runtime / 1000),
-            self.write_length / cmp::max(1, block_limit.write_length / 1000),
-            self.write_count / cmp::max(1, block_limit.write_count / 1000),
-            self.read_length / cmp::max(1, block_limit.read_length / 1000),
-            self.read_count / cmp::max(1, block_limit.read_count / 1000),
+            // each field here is calculating `r * self / limit`, using f64
+            //  use MAX(1, block_limit) to guard against divide by zero
+            //  use MIN(1, self/block_limit) to guard against self > block_limit
+            resolution as f64
+                * 1_f64.min(self.runtime as f64 / 1_f64.max(block_limit.runtime as f64)),
+            resolution as f64
+                * 1_f64.min(self.read_count as f64 / 1_f64.max(block_limit.read_count as f64)),
+            resolution as f64
+                * 1_f64.min(self.write_count as f64 / 1_f64.max(block_limit.write_count as f64)),
+            resolution as f64
+                * 1_f64.min(self.read_length as f64 / 1_f64.max(block_limit.read_length as f64)),
+            resolution as f64
+                * 1_f64.min(self.write_length as f64 / 1_f64.max(block_limit.write_length as f64)),
         ]
         .iter()
-        .fold(0, |acc, dim| acc.checked_add(*dim).unwrap_or(u64::MAX))
+        .fold(0, |acc, dim| {
+            acc.checked_add(*dim as u64).unwrap_or(u64::MAX)
+        })
     }
 
     pub fn max_value() -> ExecutionCost {

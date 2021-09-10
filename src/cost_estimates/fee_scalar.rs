@@ -42,9 +42,8 @@ pub struct ScalarFeeRateEstimator<M: CostMetric> {
     db: Connection,
     /// how quickly does the current estimate decay
     /// compared to the newly received block estimate
-    ///      new_estimate := (decay_rate_fraction.0/decay_rate_fraction.1) * old_estimate +
-    ///                      (1 - decay_rate_fraction.0/decay_rate_fraction.1) * new_measure
-    decay_rate_fraction: (u16, u16),
+    ///      new_estimate := (decay_rate) * old_estimate + (1 - decay_rate) * new_measure
+    decay_rate: f64,
     metric: M,
 }
 
@@ -70,7 +69,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         Ok(Self {
             db,
             metric,
-            decay_rate_fraction: (1, 2),
+            decay_rate: 0.5_f64,
         })
     }
 
@@ -84,25 +83,9 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
             Ok(old_estimate) => {
                 // compute the exponential windowing:
                 // estimate = (a/b * old_estimate) + ((1 - a/b) * new_estimate)
-                //
-                // in order to avoid overflows, we do the division by `b` first, but to preserve
-                //  some integer precision, include the remainder by taking the remainder and doing
-                //  multiplication first (this also cannot overflow, because this calculation is at most
-                //  a * b, which are both u16)
-                let prior_component = (old_estimate.clone() / self.decay_rate_fraction.1)
-                    * self.decay_rate_fraction.0;
-                let prior_remainder = ((old_estimate % self.decay_rate_fraction.1)
-                    * self.decay_rate_fraction.0)
-                    / self.decay_rate_fraction.1;
-
-                let next_component = (new_measure.clone() / self.decay_rate_fraction.1)
-                    * (self.decay_rate_fraction.1 - self.decay_rate_fraction.0);
-                let next_remainder = (new_measure.clone() % self.decay_rate_fraction.1)
-                    * (self.decay_rate_fraction.1 - self.decay_rate_fraction.0)
-                    / self.decay_rate_fraction.1;
-
-                let mut next_computed =
-                    prior_component + prior_remainder + next_component + next_remainder;
+                let prior_component = old_estimate.clone() * self.decay_rate;
+                let next_component = new_measure.clone() * (1_f64 - self.decay_rate);
+                let mut next_computed = prior_component + next_component;
 
                 // because of integer math, we can end up with some edge effects
                 // when the estimate is < decay_rate_fraction.1, so just saturate

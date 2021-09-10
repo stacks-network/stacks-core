@@ -747,17 +747,7 @@ impl<
                     }
 
                     if let Some(ref mut estimator) = self.cost_estimator {
-                        let metadata = &block_receipt.header;
-                        let block: StacksBlock = {
-                            let block_path = StacksChainState::get_block_path(
-                                &self.chain_state_db.blocks_path,
-                                &metadata.consensus_hash,
-                                &block_hash,
-                            )
-                            .unwrap();
-                            StacksChainState::consensus_load(&block_path).unwrap()
-                        };
-                        estimator.notify_block(&block, &block_receipt.tx_receipts);
+                        estimator.notify_block(&block_receipt.tx_receipts);
                     }
 
                     if let Some(ref mut estimator) = self.fee_estimator {

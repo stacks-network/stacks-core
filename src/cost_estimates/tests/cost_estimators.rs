@@ -96,12 +96,12 @@ fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksEpoch
     }
 }
 
-fn make_dummy_coinbase_tx() -> StacksTransaction {
-    StacksTransaction::new(
+fn make_dummy_coinbase_tx() -> StacksTransactionReceipt {
+    StacksTransactionReceipt::from_coinbase(StacksTransaction::new(
         TransactionVersion::Mainnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::Coinbase(CoinbasePayload([0; 32])),
-    )
+    ))
 }
 
 fn make_dummy_transfer_payload() -> TransactionPayload {
@@ -112,8 +112,8 @@ fn make_dummy_transfer_payload() -> TransactionPayload {
     )
 }
 
-fn make_dummy_transfer_tx(fee: u64) -> StacksTransactionReceipt {
-    let mut tx = StacksTransaction::new(
+fn make_dummy_transfer_tx() -> StacksTransactionReceipt {
+    let tx = StacksTransaction::new(
         TransactionVersion::Mainnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::TokenTransfer(
@@ -122,13 +122,32 @@ fn make_dummy_transfer_tx(fee: u64) -> StacksTransactionReceipt {
             TokenTransferMemo([0; 34]),
         ),
     );
-    tx.set_tx_fee(fee);
 
     StacksTransactionReceipt::from_stx_transfer(
         tx,
         vec![],
         Value::okay(Value::Bool(true)).unwrap(),
         ExecutionCost::zero(),
+    )
+}
+
+fn make_dummy_cc_tx(
+    contract_name: &str,
+    function_name: &str,
+    execution_cost: ExecutionCost,
+) -> StacksTransactionReceipt {
+    let tx = StacksTransaction::new(
+        TransactionVersion::Mainnet,
+        TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
+        make_dummy_cc_payload(contract_name, function_name),
+    );
+
+    StacksTransactionReceipt::from_contract_call(
+        tx,
+        vec![],
+        Value::okay(Value::Bool(true)).unwrap(),
+        0,
+        execution_cost,
     )
 }
 
@@ -142,6 +161,103 @@ fn make_dummy_cc_payload(contract_name: &str, function_name: &str) -> Transactio
 }
 
 #[test]
+fn test_cost_estimator_notify_block() {
+    let mut estimator = instantiate_test_db();
+    let block = vec![
+        make_dummy_coinbase_tx(),
+        make_dummy_transfer_tx(),
+        make_dummy_transfer_tx(),
+        make_dummy_cc_tx(
+            "contract-1",
+            "func1",
+            ExecutionCost {
+                write_length: 10,
+                write_count: 10,
+                read_length: 10,
+                read_count: 10,
+                runtime: 10,
+            },
+        ),
+    ];
+    estimator.notify_block(&block);
+
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 10,
+            write_count: 10,
+            read_length: 10,
+            read_count: 10,
+            runtime: 10,
+        }
+    );
+}
+
+#[test]
+/// This tests the PessimisticEstimator as a unit (i.e., separate
+/// from the trait auto-impl method) by providing payload inputs
+/// to produce the expected pessimistic result (i.e., mean over a 10-sample
+/// window, where the window only updates if the new entry would make a dimension
+/// worse). This tests that the average can decline when the window is still
+/// being filled
+fn test_pessimistic_cost_estimator_declining_average() {
+    let mut estimator = instantiate_test_db();
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &ExecutionCost {
+                write_length: 10,
+                write_count: 10,
+                read_length: 10,
+                read_count: 10,
+                runtime: 10,
+            },
+        )
+        .expect("Should be able to process event");
+
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 10,
+            write_count: 10,
+            read_length: 10,
+            read_count: 10,
+            runtime: 10,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &ExecutionCost {
+                write_length: 1,
+                write_count: 1,
+                read_length: 1,
+                read_count: 1,
+                runtime: 1,
+            },
+        )
+        .expect("Should be able to process event");
+
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 6,
+            write_count: 6,
+            read_length: 6,
+            read_count: 6,
+            runtime: 6,
+        }
+    );
+}
+
+#[test]
 /// This tests the PessimisticEstimator as a unit (i.e., separate
 /// from the trait auto-impl method) by providing payload inputs
 /// to produce the expected pessimistic result (i.e., mean over a 10-sample
@@ -149,16 +265,18 @@ fn make_dummy_cc_payload(contract_name: &str, function_name: &str) -> Transactio
 /// worse).
 fn test_pessimistic_cost_estimator() {
     let mut estimator = instantiate_test_db();
-    estimator.notify_event(
-        &make_dummy_cc_payload("contract-1", "func1"),
-        &ExecutionCost {
-            write_length: 1,
-            write_count: 1,
-            read_length: 1,
-            read_count: 1,
-            runtime: 1,
-        },
-    );
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &ExecutionCost {
+                write_length: 1,
+                write_count: 1,
+                read_length: 1,
+                read_count: 1,
+                runtime: 1,
+            },
+        )
+        .expect("Should be able to process event");
 
     assert_eq!(
         estimator
@@ -173,16 +291,20 @@ fn test_pessimistic_cost_estimator() {
         }
     );
 
-    estimator.notify_event(
-        &make_dummy_cc_payload("contract-1", "func1"),
-        &ExecutionCost {
-            write_length: 9,
-            write_count: 5,
-            read_length: 3,
-            read_count: 1,
-            runtime: 1,
-        },
-    );
+    let repeated_cost = ExecutionCost {
+        write_length: 9,
+        write_count: 5,
+        read_length: 3,
+        read_count: 1,
+        runtime: 1,
+    };
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &repeated_cost,
+        )
+        .expect("Should be able to process event");
 
     assert_eq!(
         estimator
@@ -192,6 +314,250 @@ fn test_pessimistic_cost_estimator() {
             write_length: 5,
             write_count: 3,
             read_length: 2,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &repeated_cost,
+        )
+        .expect("Should be able to process event");
+
+    // the updated dimension estimates should be:
+    // 9 * 2 + 1 = 19 / 3: rounds down to 6
+    // 5 * 2 + 1 = 11 / 3: rounds *up* to 4
+    // 3 * 2 + 1 = 7 / 3
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 6,
+            write_count: 4,
+            read_length: 2,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &repeated_cost,
+        )
+        .expect("Should be able to process event");
+
+    // the updated dimension estimates should be:
+    // 9 * 3 + 1 = 28 / 4
+    // 5 * 3 + 1 = 16 / 4
+    // 3 * 3 + 1 = 10 / 4
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 7,
+            write_count: 4,
+            read_length: 2,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &repeated_cost,
+        )
+        .expect("Should be able to process event");
+
+    // the updated dimension estimates should be:
+    // 9 * 4 + 1 = 37 / 5
+    // 5 * 4 + 1 = 21 / 5
+    // 3 * 4 + 1 = 13 / 5
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 7,
+            write_count: 4,
+            read_length: 2,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &repeated_cost,
+        )
+        .expect("Should be able to process event");
+
+    // the updated dimension estimates should be:
+    // 9 * 5 + 1 = 46 / 6
+    // 5 * 5 + 1 = 26 / 6
+    // 3 * 5 + 1 = 16 / 6
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 7,
+            write_count: 4,
+            read_length: 2,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &repeated_cost,
+        )
+        .expect("Should be able to process event");
+
+    // the updated dimension estimates should be:
+    // 9 * 6 + 1 = 51 / 7
+    // 5 * 6 + 1 = 31 / 7
+    // 3 * 6 + 1 = 19 / 7
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 7,
+            write_count: 4,
+            read_length: 2,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &repeated_cost,
+        )
+        .expect("Should be able to process event");
+
+    // the updated dimension estimates should be:
+    // 9 * 7 + 1 = 64 / 8: *note*, the incremental average rounds this down to 7
+    // 5 * 7 + 1 = 36 / 8
+    // 3 * 7 + 1 = 22 / 8
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 7,
+            write_count: 4,
+            read_length: 2,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &repeated_cost,
+        )
+        .expect("Should be able to process event");
+
+    // the updated dimension estimates should be:
+    // 9 * 8 + 1 = 73 / 9: *note*, the incremental average rounds this down to 7
+    // 5 * 8 + 1 = 41 / 9
+    // 3 * 8 + 1 = 25 / 9
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 7,
+            write_count: 4,
+            read_length: 2,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &repeated_cost,
+        )
+        .expect("Should be able to process event");
+
+    // the updated dimension estimates should be:
+    // 9 * 9 + 1 = 82 / 10: *note*, the incremental average rounds this down to 7
+    // 5 * 9 + 1 = 41 / 10
+    // 3 * 9 + 1 = 28 / 10
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 7,
+            write_count: 4,
+            read_length: 2,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    // Now, the pessimistic estimator should kick out the minimum measures from the
+    // estimate
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &repeated_cost,
+        )
+        .expect("Should be able to process event");
+
+    // should just be equal to the repeated cost, because all of the costs in the window are equal
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 9,
+            write_count: 5,
+            read_length: 3,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &make_dummy_cc_payload("contract-1", "func1"),
+            &ExecutionCost {
+                write_length: 1,
+                write_count: 1,
+                read_length: 1,
+                read_count: 1,
+                runtime: 1,
+            },
+        )
+        .expect("Should be able to process event");
+
+    // should still be equal to the repeated cost, because the new event will be ignored
+    //  by the pessimistic estimator
+    assert_eq!(
+        estimator
+            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 9,
+            write_count: 5,
+            read_length: 3,
             read_count: 1,
             runtime: 1,
         }

@@ -1097,6 +1097,7 @@ pub struct FeeEstimationConfig {
     pub cost_estimator: Option<CostEstimatorName>,
     pub fee_estimator: Option<FeeEstimatorName>,
     pub cost_metric: Option<CostMetricName>,
+    pub log_error: bool,
 }
 
 impl Default for FeeEstimationConfig {
@@ -1105,6 +1106,7 @@ impl Default for FeeEstimationConfig {
             cost_estimator: Some(CostEstimatorName::default()),
             fee_estimator: Some(FeeEstimatorName::default()),
             cost_metric: Some(CostMetricName::default()),
+            log_error: true,
         }
     }
 }
@@ -1116,6 +1118,7 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
                 cost_estimator: None,
                 fee_estimator: None,
                 cost_metric: None,
+                log_error: false,
             };
         }
         let cost_estimator = f
@@ -1130,10 +1133,12 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
             .cost_metric
             .map(CostMetricName::panic_parse)
             .unwrap_or_default();
+        let log_error = f.log_error.unwrap_or(true);
         Self {
             cost_estimator: Some(cost_estimator),
             fee_estimator: Some(fee_estimator),
             cost_metric: Some(cost_metric),
+            log_error,
         }
     }
 }
@@ -1145,7 +1150,8 @@ impl FeeEstimationConfig {
     ) -> PessimisticEstimator {
         if let Some(CostEstimatorName::NaivePessimistic) = self.cost_estimator.as_ref() {
             chainstate_path.push("cost_estimator_pessimistic.sqlite");
-            PessimisticEstimator::open(&chainstate_path).expect("Error opening cost estimator")
+            PessimisticEstimator::open(&chainstate_path, self.log_error)
+                .expect("Error opening cost estimator")
         } else {
             panic!("BUG: Expected to configure a naive pessimistic cost estimator");
         }
@@ -1373,6 +1379,7 @@ pub struct FeeEstimationConfigFile {
     pub fee_estimator: Option<String>,
     pub cost_metric: Option<String>,
     pub disabled: bool,
+    pub log_error: bool,
 }
 
 impl Default for FeeEstimationConfigFile {
@@ -1382,6 +1389,7 @@ impl Default for FeeEstimationConfigFile {
             fee_estimator: None,
             cost_metric: None,
             disabled: false,
+            log_error: true,
         }
     }
 }

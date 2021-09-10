@@ -117,7 +117,10 @@ impl Samples {
     }
 
     /// Return the integer mean of the sample, uses iterative
-    /// algorithm to avoid overflow
+    /// algorithm to avoid overflow. The iterative algorithm
+    /// does have some error around *underflows* on the update,
+    /// but only when the new value is close to the average relative
+    /// to the window size.
     fn mean(&self) -> u64 {
         self.items
             .iter()
@@ -125,11 +128,25 @@ impl Samples {
             .fold(0, |avg, (index, value)| {
                 if *value > avg {
                     // cannot underflow: value <= avg because of if branch
-                    avg + ((value - avg) / (index as u64 + 1))
+                    let update_main = (value - avg) / (index as u64 + 1);
+                    let update_remainder_component =
+                        if ((value - avg) % (index as u64 + 1)) > ((index as u64 + 1) / 2) {
+                            1
+                        } else {
+                            0
+                        };
+                    avg + update_main + update_remainder_component
                 } else {
                     // cannot underflow: avg >= avg - value is always true because these are unsigned ints,
                     //                   and value <= avg because of if branch
-                    avg - ((avg - value) / (index as u64 + 1))
+                    let update_main = (avg - value) / (index as u64 + 1);
+                    let update_remainder_component =
+                        if ((avg - value) % (index as u64 + 1)) > ((index as u64 + 1) / 2) {
+                            1
+                        } else {
+                            0
+                        };
+                    avg - update_main - update_remainder_component
                 }
             })
     }
@@ -165,7 +182,7 @@ impl Samples {
 }
 
 impl PessimisticEstimator {
-    pub fn open(p: &Path) -> Result<PessimisticEstimator, EstimatorError> {
+    pub fn open(p: &Path, log_error: bool) -> Result<PessimisticEstimator, EstimatorError> {
         let db = Connection::open_with_flags(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
             .or_else(|e| {
                 if let SqliteError::SqliteFailure(ref internal, _) = e {
@@ -182,10 +199,7 @@ impl PessimisticEstimator {
                     Err(e)
                 }
             })?;
-        Ok(PessimisticEstimator {
-            db,
-            log_error: true,
-        })
+        Ok(PessimisticEstimator { db, log_error })
     }
 
     fn instantiate_db(tx: &SqliteTransaction) -> Result<(), SqliteError> {
@@ -223,8 +237,9 @@ impl CostEstimator for PessimisticEstimator {
         if self.log_error {
             // only log the estimate error if an estimate could be constructed
             if let Ok(estimated_cost) = self.estimate_cost(tx) {
-                let estimated_scalar = estimated_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET);
-                let actual_scalar = actual_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET);
+                let estimated_scalar =
+                    estimated_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET, 1_000);
+                let actual_scalar = actual_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET, 1_000);
                 info!("PessimisticEstimator received event";
                       "key" => %PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost),
                       "estimate" => estimated_scalar,

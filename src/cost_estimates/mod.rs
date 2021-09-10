@@ -42,40 +42,14 @@ pub struct FeeRateEstimate {
     pub slow: u64,
 }
 
-impl Mul<u16> for FeeRateEstimate {
+impl Mul<f64> for FeeRateEstimate {
     type Output = FeeRateEstimate;
 
-    fn mul(self, rhs: u16) -> FeeRateEstimate {
+    fn mul(self, rhs: f64) -> FeeRateEstimate {
         FeeRateEstimate {
-            fast: self.fast.saturating_mul(rhs as u64),
-            medium: self.medium.saturating_mul(rhs as u64),
-            slow: self.slow.saturating_mul(rhs as u64),
-        }
-    }
-}
-
-impl Div<u16> for FeeRateEstimate {
-    type Output = FeeRateEstimate;
-
-    fn div(self, rhs: u16) -> FeeRateEstimate {
-        let denom = cmp::max(rhs as u64, 1);
-        FeeRateEstimate {
-            fast: self.fast / denom,
-            medium: self.medium / denom,
-            slow: self.slow / denom,
-        }
-    }
-}
-
-impl Rem<u16> for FeeRateEstimate {
-    type Output = FeeRateEstimate;
-
-    fn rem(self, rhs: u16) -> FeeRateEstimate {
-        let denom = cmp::max(rhs as u64, 1);
-        FeeRateEstimate {
-            fast: self.fast % denom,
-            medium: self.medium % denom,
-            slow: self.slow % denom,
+            fast: (self.fast as f64 * rhs) as u64,
+            medium: (self.medium as f64 * rhs) as u64,
+            slow: (self.slow as f64 * rhs) as u64,
         }
     }
 }
@@ -111,30 +85,21 @@ pub trait CostEstimator {
     ///
     /// A default implementation is provided to implementing structs that processes the transaction
     /// receipts by feeding them into `CostEstimator::notify_event()`
-    fn notify_block(&mut self, block: &StacksBlock, receipts: &[StacksTransactionReceipt]) {
-        // create a Map from txid -> index in block
-        let tx_index: HashMap<Txid, usize> = HashMap::from_iter(
-            block
-                .txs
-                .iter()
-                .enumerate()
-                .map(|(tx_ix, tx)| (tx.txid(), tx_ix)),
-        );
+    fn notify_block(&mut self, receipts: &[StacksTransactionReceipt]) {
         // iterate over receipts, and for all the tx receipts, notify the event
         for current_receipt in receipts.iter() {
             let current_txid = match current_receipt.transaction {
                 TransactionOrigin::Burn(_) => continue,
                 TransactionOrigin::Stacks(ref tx) => tx.txid(),
             };
-            let tx_payload = match tx_index.get(&current_txid) {
-                Some(block_index) => &block.txs[*block_index].payload,
-                None => continue,
+            let tx_payload = match current_receipt.transaction {
+                TransactionOrigin::Burn(_) => continue,
+                TransactionOrigin::Stacks(ref tx) => &tx.payload,
             };
 
             if let Err(e) = self.notify_event(tx_payload, &current_receipt.execution_cost) {
                 info!("CostEstimator failed to process event";
                       "txid" => %current_txid,
-                      "stacks_block" => %block.header.block_hash(),
                       "error" => %e,
                       "execution_cost" => %current_receipt.execution_cost);
             }
