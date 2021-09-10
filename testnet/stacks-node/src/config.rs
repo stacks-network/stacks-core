@@ -1113,7 +1113,7 @@ impl Default for FeeEstimationConfig {
 
 impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
     fn from(f: FeeEstimationConfigFile) -> Self {
-        if f.disabled {
+        if let Some(true) = f.disabled {
             return Self {
                 cost_estimator: None,
                 fee_estimator: None,
@@ -1378,8 +1378,8 @@ pub struct FeeEstimationConfigFile {
     pub cost_estimator: Option<String>,
     pub fee_estimator: Option<String>,
     pub cost_metric: Option<String>,
-    pub disabled: bool,
-    pub log_error: bool,
+    pub disabled: Option<bool>,
+    pub log_error: Option<bool>,
 }
 
 impl Default for FeeEstimationConfigFile {
@@ -1388,8 +1388,8 @@ impl Default for FeeEstimationConfigFile {
             cost_estimator: None,
             fee_estimator: None,
             cost_metric: None,
-            disabled: false,
-            log_error: true,
+            disabled: None,
+            log_error: None,
         }
     }
 }

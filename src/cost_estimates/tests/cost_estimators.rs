@@ -33,7 +33,7 @@ fn instantiate_test_db() -> PessimisticEstimator {
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     path.push(&format!("fee_db_{}.sqlite", &to_hex(&random_bytes)[0..8]));
 
-    PessimisticEstimator::open(&path).expect("Test failure: could not open fee rate DB")
+    PessimisticEstimator::open(&path, true).expect("Test failure: could not open fee rate DB")
 }
 
 /// This struct implements a simple metric used for unit testing the
