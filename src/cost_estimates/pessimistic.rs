@@ -4,7 +4,7 @@ use std::{iter::FromIterator, path::Path};
 
 use rusqlite::{
     types::{FromSql, FromSqlError},
-    Connection, Error as SqliteError, OptionalExtension, ToSql,
+    Connection, Error as SqliteError, OptionalExtension, ToSql, Transaction as SqliteTransaction,
 };
 use serde_json::Value as JsonValue;
 
@@ -13,6 +13,8 @@ use util::db::u64_to_sql;
 use vm::costs::ExecutionCost;
 
 use core::BLOCK_LIMIT_MAINNET;
+
+use crate::util::db::tx_begin_immediate_sqlite;
 
 use super::{CostEstimator, EstimatorError};
 
@@ -114,19 +116,29 @@ impl Samples {
         return false;
     }
 
-    /// Return the integer mean of the sample
+    /// Return the integer mean of the sample, uses iterative
+    /// algorithm to avoid overflow
     fn mean(&self) -> u64 {
-        let item_len = self.items.len() as u64;
         self.items
             .iter()
-            .fold(0, |acc, item| acc + (*item / item_len))
+            .enumerate()
+            .fold(0, |avg, (index, value)| {
+                if *value > avg {
+                    // cannot underflow: value <= avg because of if branch
+                    avg + ((value - avg) / (index as u64 + 1))
+                } else {
+                    // cannot underflow: avg >= avg - value is always true because these are unsigned ints,
+                    //                   and value <= avg because of if branch
+                    avg - ((avg - value) / (index as u64 + 1))
+                }
+            })
     }
 
-    fn flush_sqlite(&self, conn: &Connection, identifier: &str) {
+    fn flush_sqlite(&self, tx: &SqliteTransaction, identifier: &str) {
         let sql = "INSERT OR REPLACE INTO pessimistic_estimator
                      (estimate_key, current_value, samples) VALUES (?, ?, ?)";
         let current_value = u64_to_sql(self.mean()).unwrap_or_else(|_| i64::max_value());
-        conn.execute(
+        tx.execute(
             sql,
             rusqlite::params![identifier, current_value, self.to_json()],
         )
@@ -158,8 +170,10 @@ impl PessimisticEstimator {
             .or_else(|e| {
                 if let SqliteError::SqliteFailure(ref internal, _) = e {
                     if let rusqlite::ErrorCode::CannotOpen = internal.code {
-                        let db = Connection::open(p)?;
-                        PessimisticEstimator::instantiate_db(&db)?;
+                        let mut db = Connection::open(p)?;
+                        let tx = tx_begin_immediate_sqlite(&mut db)?;
+                        PessimisticEstimator::instantiate_db(&tx)?;
+                        tx.commit()?;
                         Ok(db)
                     } else {
                         Err(e)
@@ -174,8 +188,8 @@ impl PessimisticEstimator {
         })
     }
 
-    fn instantiate_db(c: &Connection) -> Result<(), SqliteError> {
-        c.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+    fn instantiate_db(tx: &SqliteTransaction) -> Result<(), SqliteError> {
+        tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
         Ok(())
     }
 
@@ -220,14 +234,15 @@ impl CostEstimator for PessimisticEstimator {
             }
         }
 
+        let sql_tx = tx_begin_immediate_sqlite(&mut self.db)?;
         for field in CostField::ALL.iter() {
             let key = PessimisticEstimator::get_estimate_key(tx, field);
             let field_cost = field.select_key(actual_cost);
-            let mut current_sample = Samples::get_sqlite(&self.db, &key);
+            let mut current_sample = Samples::get_sqlite(&sql_tx, &key);
             current_sample.update_with(field_cost);
-            current_sample.flush_sqlite(&self.db, &key);
+            current_sample.flush_sqlite(&sql_tx, &key);
         }
-
+        sql_tx.commit()?;
         Ok(())
     }
 

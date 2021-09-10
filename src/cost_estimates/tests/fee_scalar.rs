@@ -49,7 +49,7 @@ impl CostMetric for TestCostMetric {
     }
 }
 
-#[cfg(test)]
+#[test]
 fn test_empty_fee_estimator() {
     let metric = TestCostMetric;
     let estimator = instantiate_test_db(metric);

@@ -1,5 +1,6 @@
 use cost_estimates::FeeRateEstimate;
 
+pub mod cost_estimators;
 pub mod fee_scalar;
 
 #[test]
