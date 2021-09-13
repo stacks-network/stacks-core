@@ -581,8 +581,9 @@ impl SpvClient {
                 let bhh = BurnchainHeaderHash::from_bitcoin_hash(&header.header.merkle_root);
                 info!(
                     "Profiler Q1, Q2: Inserting a new bitcoin header";
-                    "last_burn_height" => height,
+                    "new_burn_height" => height + (i as u64),
                     "new_burn_header_hash" => %bhh,
+                    "timestamp" =>  get_epoch_time_secs(),
                 );
             }
         }

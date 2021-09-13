@@ -471,6 +471,7 @@ impl<'a> ChainstateTx<'a> {
             for tx_receipt in events.iter() {
                 info!(
                     "Profiler Q3: execution cost of processed transaction";
+                    "stacks_block_id" => %block_id,
                     "txid" => %tx_receipt.transaction.txid(),
                     "read_count" => tx_receipt.execution_cost.read_count,
                     "read_length" => tx_receipt.execution_cost.read_length,
@@ -480,6 +481,7 @@ impl<'a> ChainstateTx<'a> {
                 );
                 info!(
                     "Profiler Q3: execution cost percentage of processed transaction";
+                    "stacks_block_id" => %block_id,
                     "txid" => %tx_receipt.transaction.txid(),
                     "read_count" => tx_receipt.execution_cost.read_count*100/block_cost_limit.read_count,
                     "read_length" => tx_receipt.execution_cost.read_length*100/block_cost_limit.read_length,

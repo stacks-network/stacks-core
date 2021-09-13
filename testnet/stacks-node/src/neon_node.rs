@@ -1065,11 +1065,13 @@ fn spawn_miner_relayer(
                     last_tenure_issue_time = get_epoch_time_ms();
 
                     if let Some(q) = *PROFILING_ENABLED {
+                        // let curr_time =  get_epoch_time_secs();
                         info!(
                             "Profiler Q1, Q2: Finished running tenure";
                             "last_burn_height" => last_burn_block.block_height,
                             "burn_header_hash_tip" => %burn_chain_tip,
-                            "last_burn_header_hash" => %burn_header_hash
+                            "last_burn_header_hash" => %burn_header_hash,
+                            "timestamp" => get_epoch_time_secs(),
                         );
                         if q == 1 || q == 2 {
                             let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
