@@ -246,6 +246,11 @@ impl CostEstimator for PessimisticEstimator {
                       "actual" => actual_scalar,
                       "estimate_err" => (estimated_scalar as i64 - actual_scalar as i64),
                       "estimate_err_pct" => (estimated_scalar as i64 - actual_scalar as i64)/(cmp::max(1, actual_scalar as i64)),);
+                for field in CostField::ALL.iter() {
+                    info!("New data event received";
+                          "key" => %PessimisticEstimator::get_estimate_key(tx, field),
+                          "value" => field.select_key(actual_cost));
+                }
             }
         }
 
