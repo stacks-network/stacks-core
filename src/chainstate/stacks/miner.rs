@@ -305,8 +305,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
     /// Mine the next transaction into a microblock.
     ///
-    /// This is a wrapper around `StacksChainState::process_transaction` that also checks certain
-    /// pre-conditions and handles errors.
+    /// This calls `StacksChainState::process_transaction` and also checks certain pre-conditions
+    /// and handles errors.
     ///
     /// # Pre-Checks
     /// - skip if the `anchor_mode` rules out micro-blocks
@@ -347,27 +347,25 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
         let quiet = !cfg!(test);
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet) {
-            TransactionResult::Error(TransactionError { tx, error }) => {
-                match &error {
-                    Error::CostOverflowError(cost_before, cost_after, total_budget) => {
-                        // note: this path _does_ not perform the tx block budget % heuristic,
-                        //  because this code path is not directly called with a mempool handle.
-                        warn!(
-                            "Transaction {} reached block cost {}; budget was {}",
-                            tx.txid(),
-                            &cost_after,
-                            &total_budget
-                        );
-                        clarity_tx.reset_cost(cost_before.clone());
-                    }
-                    _ => {
-                        warn!("Error processing TX {}: {}", tx.txid(), error);
-                    }
-                };
-                TransactionResult::Error(TransactionError { tx, error })
-            }
-            TransactionResult::Success(s) => TransactionResult::Success(s),
-            TransactionResult::Skipped(s) => TransactionResult::Skipped(s),
+            Ok((fee, receipt)) => TransactionResult::success(&tx, fee, receipt),
+            Err(e) => match e {
+                Error::CostOverflowError(cost_before, cost_after, total_budget) => {
+                    // note: this path _does_ not perform the tx block budget % heuristic,
+                    //  because this code path is not directly called with a mempool handle.
+                    warn!(
+                        "Transaction {} reached block cost {}; budget was {}",
+                        tx.txid(),
+                        &cost_after,
+                        &total_budget
+                    );
+                    clarity_tx.reset_cost(cost_before);
+                    TransactionResult::error(&tx, e)
+                }
+                _ => {
+                    warn!("Error processing TX {}: {}", tx.txid(), e);
+                    TransactionResult::error(&tx, e)
+                }
+            },
         }
     }
 
@@ -784,18 +782,12 @@ impl StacksBlockBuilder {
                 );
             }
 
-            let transaction_result = StacksChainState::process_transaction(clarity_tx, tx, quiet);
-            match transaction_result {
-                TransactionResult::Success(TransactionSuccess { tx, fee, receipt }) => {
-                    info!("Include tx";
-                  "tx" => %tx.txid(),
-                  "payload" => tx.payload.name(),
-                  "origin" => %tx.origin_address());
-                    self.txs.push(tx.clone());
-                    self.total_anchored_fees += fee;
-                    TransactionResult::Success(TransactionSuccess { tx, fee, receipt })
+            match StacksChainState::process_transaction(clarity_tx, tx, quiet) {
+                Ok((fee, receipt)) => {
+                    // TODO: add a link here
+                    TransactionResult::success(&tx, fee, receipt)
                 }
-                TransactionResult::Error(TransactionError { tx, error }) => match error {
+                Err(error) => match error {
                     Error::CostOverflowError(cost_before, cost_after, total_budget) => {
                         clarity_tx.reset_cost(cost_before.clone());
                         if total_budget.proportion_largest_dimension(&cost_before)
@@ -820,9 +812,6 @@ impl StacksBlockBuilder {
                     }
                     _ => TransactionResult::error(&tx, error),
                 },
-                TransactionResult::Skipped(TransactionSkipped { tx, reason }) => {
-                    TransactionResult::Skipped(TransactionSkipped { tx, reason })
-                }
             }
         } else {
             // building up the microblocks
@@ -839,49 +828,44 @@ impl StacksBlockBuilder {
             }
 
             match StacksChainState::process_transaction(clarity_tx, tx, quiet) {
-                TransactionResult::Success(TransactionSuccess { tx, fee, receipt }) => {
+                Ok((fee, receipt)) => {
                     debug!(
                         "Include tx {} ({}) in microblock",
                         tx.txid(),
                         tx.payload.name()
                     );
+
+                    // save
                     self.micro_txs.push(tx.clone());
                     self.total_streamed_fees += fee;
                     self.bytes_so_far += tx_len;
-                    TransactionResult::Success(TransactionSuccess { tx, fee, receipt })
+                    TransactionResult::success(&tx, fee, receipt)
                 }
-                TransactionResult::Skipped(s) => TransactionResult::Skipped(s),
-                TransactionResult::Error(TransactionError { tx, error }) => {
-                    let effective_error = match error {
-                        Error::CostOverflowError(cost_before, cost_after, total_budget) => {
-                            clarity_tx.reset_cost(cost_before.clone());
-                            if total_budget.proportion_largest_dimension(&cost_before)
-                                < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
-                            {
-                                warn!(
+                Err(e) => match e {
+                    Error::CostOverflowError(cost_before, cost_after, total_budget) => {
+                        clarity_tx.reset_cost(cost_before.clone());
+                        if total_budget.proportion_largest_dimension(&cost_before)
+                            < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                        {
+                            warn!(
                                 "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
                                 tx.txid(),
                                 100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                 &total_budget
                             );
-                                Error::TransactionTooBigError
-                            } else {
-                                warn!(
-                                    "Transaction {} reached block cost {}; budget was {}",
-                                    tx.txid(),
-                                    &cost_after,
-                                    &total_budget
-                                );
-                                Error::BlockTooBigError
-                            }
+                            TransactionResult::error(&tx, Error::TransactionTooBigError)
+                        } else {
+                            warn!(
+                                "Transaction {} reached block cost {}; budget was {}",
+                                tx.txid(),
+                                &cost_after,
+                                &total_budget
+                            );
+                            TransactionResult::error(&tx, Error::BlockTooBigError)
                         }
-                        _ => error,
-                    };
-                    TransactionResult::Error(TransactionError {
-                        tx,
-                        error: effective_error,
-                    })
-                }
+                    }
+                    _ => TransactionResult::error(&tx, e),
+                },
             }
         }
     }
@@ -911,37 +895,27 @@ impl StacksBlockBuilder {
         if !self.anchored_done {
             // save
             match StacksChainState::process_transaction(clarity_tx, tx, quiet) {
-                TransactionResult::Success(TransactionSuccess {
-                    tx: _,
-                    fee,
-                    receipt,
-                }) => {
+                Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
                 }
-                TransactionResult::Error(TransactionError { tx: _, error }) => {
-                    warn!("Invalid transaction {} in anchored block, but forcing inclusion (error: {:?})", &tx.txid(), &error);
+                Err(e) => {
+                    warn!("Invalid transaction {} in anchored block, but forcing inclusion (error: {:?})", &tx.txid(), &e);
                 }
-                _ => {}
             }
 
             self.txs.push(tx.clone());
         } else {
             match StacksChainState::process_transaction(clarity_tx, tx, quiet) {
-                TransactionResult::Success(TransactionSuccess {
-                    tx: _,
-                    fee,
-                    receipt,
-                }) => {
+                Ok((fee, receipt)) => {
                     self.total_streamed_fees += fee;
                 }
-                TransactionResult::Error(TransactionError { tx: _, error }) => {
+                Err(e) => {
                     warn!(
                         "Invalid transaction {} in microblock, but forcing inclusion (error: {:?})",
                         &tx.txid(),
-                        &error
+                        &e
                     );
                 }
-                _ => {}
             }
 
             self.micro_txs.push(tx.clone());
