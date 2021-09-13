@@ -83,6 +83,8 @@ impl CostEstimator for LogEstimator {
         tx: &TransactionPayload,
         actual_cost: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
+			let bt2 = backtrace::Backtrace::new();
+			warn!("bt2 {:?}", bt2);
         let (tx_descriptor, arg_size) = match tx {
             TransactionPayload::TokenTransfer(..) => ("stx-transfer".to_string(), 1),
             TransactionPayload::ContractCall(cc) => (
@@ -100,7 +102,7 @@ impl CostEstimator for LogEstimator {
             }
         };
         info!(
-            "{}, {}, {}, {}, {}, {}, {}",
+            "notify_event {}, {}, {}, {}, {}, {}, {}",
             tx_descriptor,
             arg_size,
             actual_cost.runtime,

@@ -281,6 +281,8 @@ impl<'a, T: BlockEventDispatcher>
             sortitions_processed,
         };
 
+        let bt = backtrace::Backtrace::new();
+        warn!("bt1 {:?}", bt);
         let mut estimator_path = PathBuf::from(&chain_state_db.root_path);
         estimator_path.push("cost_estimator.sqlite");
         let estimator = PessimisticEstimator::open(&estimator_path).expect("SQLite Failure");

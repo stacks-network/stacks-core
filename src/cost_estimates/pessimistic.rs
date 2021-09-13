@@ -199,21 +199,32 @@ impl CostEstimator for PessimisticEstimator {
         tx: &TransactionPayload,
         actual_cost: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
+			let bt5 = backtrace::Backtrace::new();
+			warn!("bt5 {:?}", bt5);
+            warn!("self.log_error {:?}", self.log_error);
         if self.log_error {
             // only log the estimate error if an estimate could be constructed
             if let Ok(estimated_cost) = self.estimate_cost(tx) {
-                let estimated_scalar = estimated_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET);
-                let actual_scalar = actual_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET);
+                let estimated_cost = estimated_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET);
+                let mut actual_cost = actual_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET);
+                if actual_cost < 1 {
+                    actual_cost = 1;
+                }
+                let delta = i64::abs(estimated_cost as i64 - actual_cost as i64);
+                let pct = delta as f64 / actual_cost as f64;
                 info!("PessimisticEstimator received event";
                       "key" => %PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost),
-                      "estimate" => estimated_scalar,
-                      "actual" => actual_scalar,
-                      "estimate_err" => (estimated_scalar as i64 - actual_scalar as i64),
-                      "estimate_err_pct" => (estimated_scalar as i64 - actual_scalar as i64)/(cmp::max(1, actual_scalar as i64)),);
+                      "estimate" => estimated_cost,
+                      "actual" => actual_cost,
+                      "estimate_err" => delta,
+                      // "estimate_err_pct" => (estimated_cost as i64 - actual_cost as i64)/(cmp::max(1, actual_cost as i64)),);
+                      "estimate_err_pct" => pct,
+                          );
             }
         }
 
         for field in CostField::ALL.iter() {
+            warn!("field {}", field);
             let key = PessimisticEstimator::get_estimate_key(tx, field);
             let field_cost = field.select_key(actual_cost);
             let mut current_sample = Samples::get_sqlite(&self.db, &key);

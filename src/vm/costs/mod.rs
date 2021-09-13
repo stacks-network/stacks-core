@@ -918,6 +918,7 @@ impl CostTracker for &mut LimitedCostTracker {
     }
 }
 
+/// This is the cost of writing an individual transaction.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct ExecutionCost {
     pub write_length: u64,
