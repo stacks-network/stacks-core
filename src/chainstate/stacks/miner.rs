@@ -28,7 +28,7 @@ use chainstate::burn::operations::*;
 use chainstate::burn::*;
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use chainstate::stacks::db::{
-    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
+    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY, PROFILING_ENABLED,
 };
 use chainstate::stacks::events::StacksTransactionReceipt;
 use chainstate::stacks::Error;
@@ -1426,10 +1426,39 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-    ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
+    ) -> Result<(StacksBlock, ExecutionCost, u64, Option<bool>), Error> {
         let execution_budget = settings.execution_cost;
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;
+
+        // do logging for profiler
+        let is_good_commitment_opt = if let Some(q) = *PROFILING_ENABLED {
+            let parent_block_height = parent_stacks_header.burn_header_height;
+            let burn_tip_snapshot = SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn());
+            match burn_tip_snapshot {
+                Ok(tip_sn) => {
+                    let is_good_commitment = if (parent_block_height as u64) == tip_sn.block_height
+                    {
+                        true
+                    } else {
+                        // check if latest burn block was a flash block. If no sortition occurred,
+                        // we assume the miner is building off of the latest winner
+                        !tip_sn.sortition
+                    };
+
+                    Some(is_good_commitment)
+                }
+                Err(e) => {
+                    info!(
+                        "Unable to log info for profiler Q2; error obtaining burn tip sn: {:?}",
+                        e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
         } else {
@@ -1623,7 +1652,7 @@ impl StacksBlockBuilder {
             ts_end.saturating_sub(ts_start);
         );
 
-        Ok((block, consumed, size))
+        Ok((block, consumed, size, is_good_commitment_opt))
     }
 }
 
@@ -8223,7 +8252,7 @@ pub mod test {
 
                     let mblock_pubkey_hash = Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privks[tenure_id]));
 
-                    let (anchored_block, block_size, block_execution_cost) = StacksBlockBuilder::build_anchored_block(
+                    let (anchored_block, block_size, block_execution_cost, _) = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
                         &mut mempool,
@@ -8645,7 +8674,7 @@ pub mod test {
                             .unwrap();
                     }
 
-                    let (anchored_block, block_size, block_execution_cost) = StacksBlockBuilder::build_anchored_block(
+                    let (anchored_block, block_size, block_execution_cost, _) = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
                         &mut mempool,
@@ -9065,7 +9094,7 @@ pub mod test {
 
             let coinbase_tx = tx_signer.get_tx().unwrap();
 
-            let (block, _cost, _size) = StacksBlockBuilder::build_anchored_block(
+            let (block, _cost, _size, _) = StacksBlockBuilder::build_anchored_block(
                 &chainstate,
                 &burndb.index_conn(),
                 &mut mempool,

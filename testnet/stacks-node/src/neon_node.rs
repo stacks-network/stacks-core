@@ -69,6 +69,7 @@ use stacks::chainstate::stacks::db::{
 };
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use crate::util::sleep_ms;
 use stacks::monitoring;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
@@ -1053,36 +1054,38 @@ fn spawn_miner_relayer(
                         &last_mined_blocks_vec.iter().map(|(blk, _)| blk).collect(),
                         &event_dispatcher,
                     );
-                    if let Some((last_mined_block, microblock_privkey)) = last_mined_block_opt {
+                    if let Some((last_mined_block, microblock_privkey, is_good_commitment_opt)) = last_mined_block_opt {
                         if last_mined_blocks_vec.len() == 0 {
                             // (for testing) only bump once per epoch
                             bump_processed_counter(&blocks_processed);
                         }
                         last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
-                    }
-                    last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
 
-                    last_tenure_issue_time = get_epoch_time_ms();
-
-                    if let Some(q) = *PROFILING_ENABLED {
-                        // let curr_time =  get_epoch_time_secs();
-                        info!(
-                            "Profiler Q1, Q2: Finished running tenure";
-                            "last_burn_height" => last_burn_block.block_height,
-                            "burn_header_hash_tip" => %burn_chain_tip,
-                            "last_burn_header_hash" => %burn_header_hash,
-                            "timestamp" => get_epoch_time_secs(),
-                        );
-                        if q == 1 || q == 2 {
-                            let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
-                            *count += 1;
-                            if let Some(limit) = *PROFILING_LIMIT {
-                                if *count > limit {
-                                    // todo - exit
+                        if let Some(q) = *PROFILING_ENABLED {
+                            info!(
+                                "Profiler Q1, Q2: Finished running tenure";
+                                "last_burn_height" => last_burn_block.block_height,
+                                "burn_header_hash_tip" => %burn_chain_tip,
+                                "last_burn_header_hash" => %burn_header_hash,
+                                "is_good_commitment_opt" => is_good_commitment_opt, 
+                                "timestamp" => get_epoch_time_secs(),
+                            );
+                            if q == 1 || q == 2 {
+                                let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
+                                *count += 1;
+                                if let Some(limit) = *PROFILING_LIMIT {
+                                    if *count > limit {
+                                        info!("This process will automatically terminate in 10s, reached the profiling limit for Q1 or Q2.");
+                                        sleep_ms(10000);
+                                        std::process::exit(0);
+                                    }
                                 }
                             }
                         }
                     }
+                    last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
+
+                    last_tenure_issue_time = get_epoch_time_ms();
 
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
@@ -1569,7 +1572,7 @@ impl InitializedNeonNode {
         bitcoin_controller: &mut BitcoinRegtestController,
         last_mined_blocks: &Vec<&AssembledAnchorBlock>,
         event_observer: &EventDispatcher,
-    ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey)> {
+    ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey, Option<bool>)> {
         let MiningTenureInformation {
             mut stacks_parent_header,
             parent_consensus_hash,
@@ -1844,70 +1847,71 @@ impl InitializedNeonNode {
             }
         }
 
-        let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
-            chain_state,
-            &burn_db.index_conn(),
-            mem_pool,
-            &stacks_parent_header,
-            parent_block_total_burn,
-            vrf_proof.clone(),
-            mblock_pubkey_hash,
-            &coinbase_tx,
-            config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
-            Some(event_observer),
-        ) {
-            Ok(block) => block,
-            Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {
-                // part of the parent microblock stream is invalid, so try again
-                info!("Parent microblock stream is invalid; trying again without the offender {} (msg: {})", &mblock_header_hash, &msg);
+        let (anchored_block, _, _, is_good_commitment_opt) =
+            match StacksBlockBuilder::build_anchored_block(
+                chain_state,
+                &burn_db.index_conn(),
+                mem_pool,
+                &stacks_parent_header,
+                parent_block_total_burn,
+                vrf_proof.clone(),
+                mblock_pubkey_hash,
+                &coinbase_tx,
+                config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
+                Some(event_observer),
+            ) {
+                Ok(block) => block,
+                Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {
+                    // part of the parent microblock stream is invalid, so try again
+                    info!("Parent microblock stream is invalid; trying again without the offender {} (msg: {})", &mblock_header_hash, &msg);
 
-                // truncate the stream
-                stacks_parent_header.microblock_tail = match microblock_info_opt {
-                    Some((microblocks, _)) => {
-                        let mut tail = None;
-                        for mblock in microblocks.into_iter() {
-                            if mblock.block_hash() == mblock_header_hash {
-                                break;
+                    // truncate the stream
+                    stacks_parent_header.microblock_tail = match microblock_info_opt {
+                        Some((microblocks, _)) => {
+                            let mut tail = None;
+                            for mblock in microblocks.into_iter() {
+                                if mblock.block_hash() == mblock_header_hash {
+                                    break;
+                                }
+                                tail = Some(mblock);
                             }
-                            tail = Some(mblock);
+                            if let Some(ref t) = &tail {
+                                debug!(
+                                    "New parent microblock stream tail is {} (seq {})",
+                                    t.block_hash(),
+                                    t.header.sequence
+                                );
+                            }
+                            tail.map(|t| t.header)
                         }
-                        if let Some(ref t) = &tail {
-                            debug!(
-                                "New parent microblock stream tail is {} (seq {})",
-                                t.block_hash(),
-                                t.header.sequence
-                            );
-                        }
-                        tail.map(|t| t.header)
-                    }
-                    None => None,
-                };
+                        None => None,
+                    };
 
-                // try again
-                match StacksBlockBuilder::build_anchored_block(
-                    chain_state,
-                    &burn_db.index_conn(),
-                    mem_pool,
-                    &stacks_parent_header,
-                    parent_block_total_burn,
-                    vrf_proof.clone(),
-                    mblock_pubkey_hash,
-                    &coinbase_tx,
-                    config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
-                    Some(event_observer),
-                ) {
-                    Ok(block) => block,
-                    Err(e) => {
-                        error!("Failure mining anchor block even after removing offending microblock {}: {}", &mblock_header_hash, &e);
-                        return None;
+                    // try again
+                    match StacksBlockBuilder::build_anchored_block(
+                        chain_state,
+                        &burn_db.index_conn(),
+                        mem_pool,
+                        &stacks_parent_header,
+                        parent_block_total_burn,
+                        vrf_proof.clone(),
+                        mblock_pubkey_hash,
+                        &coinbase_tx,
+                        config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
+                        Some(event_observer),
+                    ) {
+                        Ok(block) => block,
+                        Err(e) => {
+                            error!("Failure mining anchor block even after removing offending microblock {}: {}", &mblock_header_hash, &e);
+                            return None;
+                        }
                     }
                 }
-            }
-            Err(e) => {
-                error!("Failure mining anchored block: {}", e);
-                return None;
-            }
-        };
+                Err(e) => {
+                    error!("Failure mining anchored block: {}", e);
+                    return None;
+                }
+            };
         let block_height = anchored_block.header.total_work.work;
         info!(
             "Succeeded assembling {} block #{}: {}, with {} txs, attempt {}",
@@ -1996,6 +2000,7 @@ impl InitializedNeonNode {
                 attempt,
             },
             microblock_secret_key,
+            is_good_commitment_opt,
         ))
     }
 

@@ -3670,7 +3670,7 @@ pub mod test {
                                     let coinbase_tx =
                                         make_coinbase_with_nonce(miner, i, (i + 2) as u64);
 
-                                    let (anchored_block, block_size, block_execution_cost) =
+                                    let (anchored_block, block_size, block_execution_cost, _) =
                                         StacksBlockBuilder::build_anchored_block(
                                             chainstate,
                                             &sortdb.index_conn(),

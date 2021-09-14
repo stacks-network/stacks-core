@@ -5,11 +5,12 @@ from collections import Counter, defaultdict
 ### Analysis
 # Q1, Q2
 class BlockProduction:
-    def __init__(self, start_time, end_time, height, ancestor_block_header_hash):
+    def __init__(self, start_time, end_time, height, ancestor_block_header_hash, is_good_commitment):
         self.start_time = start_time
         self.end_time = end_time
         self.height = height
         self.ancestor_block_header_hash = ancestor_block_header_hash
+        self.is_good_commitment = is_good_commitment
 
 # data - list of BlockProduction stats
 #   --> a data point should be produced every time a block commitment is produced (so when the log line is created at
@@ -18,7 +19,7 @@ class BlockProduction:
 #   --> some start_times may not be associated with any end_time (for example, for the blocks downloaded during ibd)
 # canonical_chain - map of height to BHH of canonical chain
 # QUESTION: how to get the canonical block chain?
-def compute_q1(data, canonical_chain):
+def compute_q1(data):
     fastest_block_tracker = {}
     good_block_tracker = {}
 
@@ -27,8 +28,7 @@ def compute_q1(data, canonical_chain):
         if block_data.height not in fastest_block_tracker or block_prod_time < fastest_block_tracker[block_data.height]:
             fastest_block_tracker[block_data.height] = block_prod_time
 
-        has_good_ancestor = canonical_chain[block_data.height - 1] == block_data.ancestor_block_header_hash
-        if has_good_ancestor and (block_data.height not in good_block_tracker or block_prod_time < good_block_tracker[block_data.height]):
+        if block_data.is_good_commitment and (block_data.height not in good_block_tracker or block_prod_time < good_block_tracker[block_data.height]):
             good_block_tracker[block_data.height] = block_prod_time
 
 

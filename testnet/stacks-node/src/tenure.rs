@@ -84,7 +84,7 @@ impl<'a> Tenure {
         )
         .unwrap();
 
-        let (anchored_block, _, _) = StacksBlockBuilder::build_anchored_block(
+        let (anchored_block, _, _, _) = StacksBlockBuilder::build_anchored_block(
             &mut chain_state,
             burn_dbconn,
             &mut self.mem_pool,

@@ -520,7 +520,7 @@ simulating a miner.
             max_time
         );
 
-        if let Ok((block, execution_cost, size)) = result {
+        if let Ok((block, execution_cost, size, _)) = result {
             let mut total_fees = 0;
             for tx in block.txs.iter() {
                 total_fees += tx.get_tx_fee();
