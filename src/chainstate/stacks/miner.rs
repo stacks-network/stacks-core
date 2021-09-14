@@ -321,11 +321,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
         tx_len: u64,
         considered: &mut HashSet<Txid>,
         bytes_so_far: u64,
-    ) -> TransactionResult {
+    ) -> MiningResult {
         if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
             && tx.anchor_mode != TransactionAnchorMode::Any
         {
-            return TransactionResult::skipped(
+            return MiningResult::skipped(
                 &tx,
                 format!(
                     "tx.anchor_mode does not support microblocks, anchor_mode={:?}.",
@@ -334,7 +334,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             );
         }
         if considered.contains(&tx.txid()) {
-            return TransactionResult::skipped(&tx, "Already considered.".to_string());
+            return MiningResult::skipped(&tx, "Already considered.".to_string());
         } else {
             considered.insert(tx.txid());
         }
@@ -343,11 +343,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 "Adding microblock tx {} would exceed epoch data size",
                 &tx.txid()
             );
-            return TransactionResult::error(&tx, Error::BlockTooBigError);
+            return MiningResult::error(&tx, Error::BlockTooBigError);
         }
         let quiet = !cfg!(test);
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet) {
-            Ok((fee, receipt)) => TransactionResult::success(&tx, fee, receipt),
+            Ok((fee, receipt)) => MiningResult::success(&tx, fee, receipt),
             Err(e) => {
                 match &e {
                     Error::CostOverflowError(cost_before, cost_after, total_budget) => {
@@ -365,7 +365,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         warn!("Error processing TX {}: {}", tx.txid(), e);
                     }
                 };
-                TransactionResult::error(&tx, e)
+                MiningResult::error(&tx, e)
             }
         }
     }
@@ -401,15 +401,15 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 &mut considered,
                 bytes_so_far,
             ) {
-                TransactionResult::Success(_) => {
+                MiningResult::Success(_) => {
                     bytes_so_far += tx_len;
                     num_txs += 1;
                     txs_included.push(tx);
                 }
-                TransactionResult::Skipped(_) => {
+                MiningResult::Skipped(_) => {
                     continue;
                 }
-                TransactionResult::Error(TransactionError { tx: _, error }) => {
+                MiningResult::Error(TransactionError { tx: _, error }) => {
                     result = Err(error);
                     break;
                 }
@@ -474,7 +474,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 &mut considered,
                 bytes_so_far,
             ) {
-                TransactionResult::Success(TransactionSuccess { tx, fee, receipt }) => {
+                MiningResult::Success(TransactionSuccess { tx, fee, receipt }) => {
                     bytes_so_far += mempool_tx.metadata.len;
 
                     debug!(
@@ -484,13 +484,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     );
                     txs_included.push(mempool_tx.tx);
                     num_txs += 1;
-                    TransactionResult::Success(TransactionSuccess { tx, fee, receipt })
+                    MiningResult::Success(TransactionSuccess { tx, fee, receipt })
                 }
-                TransactionResult::Error(TransactionError { tx, error }) => {
-                    TransactionResult::Error(TransactionError { tx, error })
+                MiningResult::Error(TransactionError { tx, error }) => {
+                    MiningResult::Error(TransactionError { tx, error })
                 }
-                TransactionResult::Skipped(TransactionSkipped { tx, reason }) => {
-                    TransactionResult::Skipped(TransactionSkipped { tx, reason })
+                MiningResult::Skipped(TransactionSkipped { tx, reason }) => {
+                    MiningResult::Skipped(TransactionSkipped { tx, reason })
                 }
             }
         });
@@ -718,9 +718,9 @@ impl StacksBlockBuilder {
     ) -> Result<(), Error> {
         let tx_len = tx.tx_len();
         match self.try_mine_tx_with_len(clarity_tx, tx, tx_len, &BlockLimitFunction::NO_LIMIT_HIT) {
-            TransactionResult::Success(_) => Ok(()),
-            TransactionResult::Skipped(_) => Ok(()),
-            TransactionResult::Error(TransactionError { tx: _, error }) => Err(error),
+            MiningResult::Success(_) => Ok(()),
+            MiningResult::Skipped(_) => Ok(()),
+            MiningResult::Error(TransactionError { tx: _, error }) => Err(error),
         }
     }
 
@@ -732,9 +732,9 @@ impl StacksBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-    ) -> TransactionResult {
+    ) -> MiningResult {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            return TransactionResult::error(&tx, Error::BlockTooBigError);
+            return MiningResult::error(&tx, Error::BlockTooBigError);
         }
 
         match limit_behavior {
@@ -744,14 +744,14 @@ impl StacksBlockBuilder {
                         // once we've hit the runtime limit once, allow boot code contract calls, but do not try to eval
                         //   other contract calls
                         if !cc.address.is_boot_code_addr() {
-                            return TransactionResult::skipped(
+                            return MiningResult::skipped(
                                 &tx,
                                 "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
                             );
                         }
                     }
                     TransactionPayload::SmartContract(_) => {
-                        return TransactionResult::skipped(
+                        return MiningResult::skipped(
                             &tx,
                             "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
                         );
@@ -760,10 +760,7 @@ impl StacksBlockBuilder {
                 }
             }
             BlockLimitFunction::LIMIT_REACHED => {
-                return TransactionResult::skipped(
-                    &tx,
-                    "BlockLimitFunction::LIMIT_REACHED".to_string(),
-                );
+                return MiningResult::skipped(&tx, "BlockLimitFunction::LIMIT_REACHED".to_string());
             }
             BlockLimitFunction::NO_LIMIT_HIT => {}
         };
@@ -774,7 +771,7 @@ impl StacksBlockBuilder {
             if tx.anchor_mode != TransactionAnchorMode::OnChainOnly
                 && tx.anchor_mode != TransactionAnchorMode::Any
             {
-                return TransactionResult::error(
+                return MiningResult::error(
                     tx,
                     Error::InvalidStacksTransaction(
                         "Invalid transaction anchor mode for anchored data".to_string(),
@@ -789,7 +786,7 @@ impl StacksBlockBuilder {
                     self.txs.push(tx.clone());
                     self.total_anchored_fees += fee;
                     self.bytes_so_far += tx_len;
-                    TransactionResult::success(&tx, fee, receipt)
+                    MiningResult::success(&tx, fee, receipt)
                 }
                 Err(error) => match error {
                     Error::CostOverflowError(cost_before, cost_after, total_budget) => {
@@ -803,7 +800,7 @@ impl StacksBlockBuilder {
                                 100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                 &total_budget
                             );
-                            TransactionResult::error(&tx, Error::TransactionTooBigError)
+                            MiningResult::error(&tx, Error::TransactionTooBigError)
                         } else {
                             warn!(
                                 "Transaction {} reached block cost {}; budget was {}",
@@ -811,10 +808,10 @@ impl StacksBlockBuilder {
                                 &cost_after,
                                 &total_budget
                             );
-                            TransactionResult::error(&tx, Error::BlockTooBigError)
+                            MiningResult::error(&tx, Error::BlockTooBigError)
                         }
                     }
-                    _ => TransactionResult::error(&tx, error),
+                    _ => MiningResult::error(&tx, error),
                 },
             }
         } else {
@@ -822,7 +819,7 @@ impl StacksBlockBuilder {
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
                 && tx.anchor_mode != TransactionAnchorMode::Any
             {
-                return TransactionResult::error(
+                return MiningResult::error(
                     tx,
                     Error::InvalidStacksTransaction(
                         "Invalid transaction anchor mode for streamed data".to_string(),
@@ -843,7 +840,7 @@ impl StacksBlockBuilder {
                     self.micro_txs.push(tx.clone());
                     self.total_streamed_fees += fee;
                     self.bytes_so_far += tx_len;
-                    TransactionResult::success(&tx, fee, receipt)
+                    MiningResult::success(&tx, fee, receipt)
                 }
                 Err(e) => match e {
                     Error::CostOverflowError(cost_before, cost_after, total_budget) => {
@@ -857,7 +854,7 @@ impl StacksBlockBuilder {
                                 100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
                                 &total_budget
                             );
-                            TransactionResult::error(&tx, Error::TransactionTooBigError)
+                            MiningResult::error(&tx, Error::TransactionTooBigError)
                         } else {
                             warn!(
                                 "Transaction {} reached block cost {}; budget was {}",
@@ -865,10 +862,10 @@ impl StacksBlockBuilder {
                                 &cost_after,
                                 &total_budget
                             );
-                            TransactionResult::error(&tx, Error::BlockTooBigError)
+                            MiningResult::error(&tx, Error::BlockTooBigError)
                         }
                     }
-                    _ => TransactionResult::error(&tx, e),
+                    _ => MiningResult::error(&tx, e),
                 },
             }
         }
@@ -1460,7 +1457,7 @@ impl StacksBlockBuilder {
 
         let result = mempool.iterate_candidates(tip_height, |txinfo| {
             if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
-                return TransactionResult::skipped(
+                return MiningResult::skipped(
                     &txinfo.tx,
                     "BlockLimitFunction::LIMIT_REACHED".to_string(),
                 );
@@ -1468,21 +1465,18 @@ impl StacksBlockBuilder {
 
             // skip transactions early if we can
             if considered.contains(&txinfo.tx.txid()) {
-                return TransactionResult::skipped(&txinfo.tx, "Already contained.".to_string());
+                return MiningResult::skipped(&txinfo.tx, "Already contained.".to_string());
             }
             if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
                 if *nonce >= txinfo.tx.get_origin_nonce() {
-                    return TransactionResult::skipped(&txinfo.tx, "Bad nonce.".to_string());
+                    return MiningResult::skipped(&txinfo.tx, "Bad nonce.".to_string());
                 }
             }
             if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
                 if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
                     if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
                         if *nonce >= sponsor_nonce {
-                            return TransactionResult::skipped(
-                                &txinfo.tx,
-                                "Bad nonce.".to_string(),
-                            );
+                            return MiningResult::skipped(&txinfo.tx, "Bad nonce.".to_string());
                         }
                     }
                 }
@@ -1495,7 +1489,7 @@ impl StacksBlockBuilder {
                 txinfo.metadata.len,
                 &block_limit_hit,
             ) {
-                TransactionResult::Success(TransactionSuccess { tx, fee, receipt }) => {
+                MiningResult::Success(TransactionSuccess { tx, fee, receipt }) => {
                     mined_origin_nonces
                         .insert(txinfo.tx.origin_address(), txinfo.tx.get_origin_nonce());
                     if let (Some(sponsor_addr), Some(sponsor_nonce)) =
@@ -1503,10 +1497,10 @@ impl StacksBlockBuilder {
                     {
                         mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
                     }
-                    TransactionResult::Success(TransactionSuccess { tx, fee, receipt })
+                    MiningResult::Success(TransactionSuccess { tx, fee, receipt })
                 }
-                TransactionResult::Skipped(s) => TransactionResult::Skipped(s),
-                TransactionResult::Error(TransactionError { tx, error }) => {
+                MiningResult::Skipped(s) => MiningResult::Skipped(s),
+                MiningResult::Error(TransactionError { tx, error }) => {
                     match &error {
                         Error::BlockTooBigError => {
                             // done mining -- our execution budget is exceeded.
@@ -1535,7 +1529,7 @@ impl StacksBlockBuilder {
                             warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
                         }
                     };
-                    TransactionResult::Error(TransactionError { tx, error })
+                    MiningResult::Error(TransactionError { tx, error })
                 }
             }
         });

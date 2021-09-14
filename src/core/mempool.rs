@@ -32,7 +32,7 @@ use rusqlite::NO_PARAMS;
 
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
-use chainstate::stacks::events::TransactionResult;
+use chainstate::stacks::events::MiningResult;
 use chainstate::stacks::TransactionPayload;
 use chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, index::Error as MarfError,
@@ -394,9 +394,9 @@ impl MemPoolDB {
         &self,
         tip_height: u64,
         mut todo: F,
-    ) -> Result<Vec<TransactionResult>, E>
+    ) -> Result<Vec<MiningResult>, E>
     where
-        F: FnMut(MemPoolTxInfo) -> TransactionResult,
+        F: FnMut(MemPoolTxInfo) -> MiningResult,
         E: From<db_error> + From<ChainstateError>,
     {
         // Want to consider transactions with
@@ -1058,7 +1058,7 @@ mod tests {
         chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
     };
 
-    use chainstate::stacks::events::TransactionResult;
+    use chainstate::stacks::events::MiningResult;
 
     use super::MemPoolDB;
 
@@ -1250,7 +1250,7 @@ mod tests {
         mempool
             .iterate_candidates::<_, ChainstateError>(2, |available_tx| {
                 count_txs += 1;
-                TransactionResult::skipped(
+                MiningResult::skipped(
                     &available_tx.tx,
                     "No StacksTransactionReceipt available".to_string(),
                 )
@@ -1265,7 +1265,7 @@ mod tests {
         mempool
             .iterate_candidates::<_, ChainstateError>(3, |available_tx| {
                 count_txs += 1;
-                TransactionResult::skipped(
+                MiningResult::skipped(
                     &available_tx.tx,
                     "No StacksTransactionReceipt available".to_string(),
                 )
@@ -1280,7 +1280,7 @@ mod tests {
         mempool
             .iterate_candidates::<_, ChainstateError>(2, |available_tx| {
                 count_txs += 1;
-                TransactionResult::skipped(
+                MiningResult::skipped(
                     &available_tx.tx,
                     "No StacksTransactionReceipt available".to_string(),
                 )
@@ -1295,7 +1295,7 @@ mod tests {
         mempool
             .iterate_candidates::<_, ChainstateError>(3, |available_tx| {
                 count_txs += 1;
-                TransactionResult::skipped(
+                MiningResult::skipped(
                     &available_tx.tx,
                     "No StacksTransactionReceipt available".to_string(),
                 )

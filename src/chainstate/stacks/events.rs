@@ -89,7 +89,7 @@ pub struct TransactionSkipped {
     pub reason: String,
 }
 
-/// `TransactionResult` represents the outcome of transaction processing.
+/// `MiningResult` represents the outcome of transaction processing.
 /// We use this enum to involve the compiler in forcing us to always clearly
 /// indicate the outcome of a transaction.
 ///
@@ -98,7 +98,7 @@ pub struct TransactionSkipped {
 /// 2) fail
 /// 3) be skipped for now, to be tried again later
 #[derive(Debug)]
-pub enum TransactionResult {
+pub enum MiningResult {
     // Transaction has already succeeded.
     Success(TransactionSuccess),
     // Transaction failed. It is inherently flawed and will not succeed later either.
@@ -107,40 +107,40 @@ pub enum TransactionResult {
     Skipped(TransactionSkipped),
 }
 
-impl TransactionResult {
-    // Creates a `TransactionResult` backed by `TransactionSuccess`.
+impl MiningResult {
+    // Creates a `MiningResult` backed by `TransactionSuccess`.
     //
     // This method logs "transaction success" as a side effect.
     pub fn success(
         transaction: &StacksTransaction,
         fee: u64,
         receipt: StacksTransactionReceipt,
-    ) -> TransactionResult {
+    ) -> MiningResult {
         log_transaction_success(transaction);
-        TransactionResult::Success(TransactionSuccess {
+        MiningResult::Success(TransactionSuccess {
             tx: transaction.clone(),
             fee: fee,
             receipt: receipt,
         })
     }
 
-    // Creates a `TransactionResult` backed by `TransactionError`.
+    // Creates a `MiningResult` backed by `TransactionError`.
     //
     // This method logs "transaction error" as a side effect.
-    pub fn error(transaction: &StacksTransaction, error: Error) -> TransactionResult {
+    pub fn error(transaction: &StacksTransaction, error: Error) -> MiningResult {
         log_transaction_error(transaction, &error);
-        TransactionResult::Error(TransactionError {
+        MiningResult::Error(TransactionError {
             tx: transaction.clone(),
             error: error,
         })
     }
 
-    // Creates a `TransactionResult` backed by `TransactionSkipped`.
+    // Creates a `MiningResult` backed by `TransactionSkipped`.
     //
     // This method logs "transaction skipped" as a side effect.
-    pub fn skipped(transaction: &StacksTransaction, reason: String) -> TransactionResult {
+    pub fn skipped(transaction: &StacksTransaction, reason: String) -> MiningResult {
         log_transaction_skipped(transaction, reason.clone());
-        TransactionResult::Skipped(TransactionSkipped {
+        MiningResult::Skipped(TransactionSkipped {
             tx: transaction.clone(),
             reason: reason,
         })
@@ -149,7 +149,7 @@ impl TransactionResult {
     /// Returns true iff this enum is backed by `TransactionSuccess`.
     pub fn is_ok(&self) -> bool {
         match &self {
-            TransactionResult::Success(_) => true,
+            MiningResult::Success(_) => true,
             _ => false,
         }
     }
@@ -159,7 +159,7 @@ impl TransactionResult {
     /// Otherwise crashes.
     pub fn unwrap(self) -> (u64, StacksTransactionReceipt) {
         match self {
-            TransactionResult::Success(TransactionSuccess {
+            MiningResult::Success(TransactionSuccess {
                 tx: _,
                 fee,
                 receipt,
@@ -171,7 +171,7 @@ impl TransactionResult {
     /// Returns true iff this enum is backed by `Error`.
     pub fn is_err(&self) -> bool {
         match &self {
-            TransactionResult::Error(_) => true,
+            MiningResult::Error(_) => true,
             _ => false,
         }
     }
@@ -181,7 +181,7 @@ impl TransactionResult {
     /// Otherwise crashes.
     pub fn unwrap_err(self) -> Error {
         match self {
-            TransactionResult::Error(TransactionError { tx: _, error }) => error,
+            MiningResult::Error(TransactionError { tx: _, error }) => error,
             _ => panic!("Tried to `unwrap_error` a non-error result."),
         }
     }
