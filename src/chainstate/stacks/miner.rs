@@ -786,6 +786,8 @@ impl StacksBlockBuilder {
             match StacksChainState::process_transaction(clarity_tx, tx, quiet) {
                 Ok((fee, receipt)) => {
                     // TODO: add a link here
+                    self.txs.push(tx.clone());
+                    self.total_anchored_fees += fee;
                     self.bytes_so_far += tx_len;
                     TransactionResult::success(&tx, fee, receipt)
                 }
