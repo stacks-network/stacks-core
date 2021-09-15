@@ -140,6 +140,31 @@ impl AddressHashMode {
 }
 
 #[derive(Debug)]
+pub enum BlockCostDimension {
+    Runtime,
+    ReadCount,
+    ReadLength,
+    WriteCount,
+    WriteLength,
+    NumBytes,
+    Todo,
+}
+
+impl fmt::Display for BlockCostDimension {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            BlockCostDimension::Runtime => write!(f, "runtime"),
+            BlockCostDimension::ReadCount => write!(f, "read_count"),
+            BlockCostDimension::ReadLength => write!(f, "read_length"),
+            BlockCostDimension::WriteCount => write!(f, "write_count"),
+            BlockCostDimension::WriteLength => write!(f, "write_length"),
+            BlockCostDimension::NumBytes => write!(f, "num_bytes"),
+            BlockCostDimension::Todo => write!(f, "todo"),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum Error {
     InvalidFee,
     InvalidStacksBlock(String),
@@ -148,7 +173,7 @@ pub enum Error {
     PostConditionFailed(String),
     NoSuchBlockError,
     InvalidChainstateDB,
-    BlockTooBigError,
+    BlockTooBigError(BlockCostDimension),
     TransactionTooBigError,
     BlockCostExceeded,
     NoTransactionsToMine,
@@ -202,7 +227,14 @@ impl fmt::Display for Error {
             Error::PostConditionFailed(ref s) => fmt::Display::fmt(s, f),
             Error::NoSuchBlockError => write!(f, "No such Stacks block"),
             Error::InvalidChainstateDB => write!(f, "Invalid chainstate database"),
-            Error::BlockTooBigError => write!(f, "Too much data in block"),
+            Error::BlockTooBigError(ref block_cost_dimension) => write!(
+                f,
+                "{}",
+                &format!(
+                    "Too much data in block; cost exceeded on: {:?}",
+                    block_cost_dimension
+                )
+            ),
             Error::TransactionTooBigError => write!(f, "Too much data in transaction"),
             Error::BlockCostExceeded => write!(f, "Block execution budget exceeded"),
             Error::MicroblockStreamTooLongError => write!(f, "Too many microblocks in stream"),
@@ -243,7 +275,7 @@ impl error::Error for Error {
             Error::PostConditionFailed(ref _s) => None,
             Error::NoSuchBlockError => None,
             Error::InvalidChainstateDB => None,
-            Error::BlockTooBigError => None,
+            Error::BlockTooBigError(_) => None,
             Error::TransactionTooBigError => None,
             Error::BlockCostExceeded => None,
             Error::MicroblockStreamTooLongError => None,
@@ -275,7 +307,7 @@ impl Error {
             Error::PostConditionFailed(ref _s) => "PostConditionFailed",
             Error::NoSuchBlockError => "NoSuchBlockError",
             Error::InvalidChainstateDB => "InvalidChainstateDB",
-            Error::BlockTooBigError => "BlockTooBigError",
+            Error::BlockTooBigError(ref _e) => "BlockTooBigError",
             Error::TransactionTooBigError => "TransactionTooBigError",
             Error::BlockCostExceeded => "BlockCostExceeded",
             Error::MicroblockStreamTooLongError => "MicroblockStreamTooLongError",

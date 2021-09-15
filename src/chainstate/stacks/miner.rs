@@ -432,7 +432,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.num_mined = num_txs;
 
         match result {
-            Err(Error::BlockTooBigError) => {
+            Err(Error::BlockTooBigError(_)) => {
                 info!("Block size budget reached with microblocks");
             }
             Err(e) => {
@@ -549,7 +549,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         match result {
             Ok(_) => {}
-            Err(Error::BlockTooBigError) => {
+            Err(Error::BlockTooBigError(_)) => {
                 info!("Block size budget reached with microblocks");
             }
             Err(e) => {
@@ -767,7 +767,7 @@ impl StacksBlockBuilder {
         limit_behavior: &BlockLimitFunction,
     ) -> Result<(), Error> {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            return Err(Error::BlockTooBigError);
+            return Err(Error::BlockTooBigError(BlockCostDimension::NumBytes));
         }
 
         match limit_behavior {
@@ -819,7 +819,7 @@ impl StacksBlockBuilder {
                                 &cost_after,
                                 &total_budget
                             );
-                            Error::BlockTooBigError
+                            Error::BlockTooBigError(BlockCostDimension::Todo)
                         }
                     }
                     _ => e,
@@ -863,7 +863,7 @@ impl StacksBlockBuilder {
                                 &cost_after,
                                 &total_budget
                             );
-                            Error::BlockTooBigError
+                            Error::BlockTooBigError(BlockCostDimension::Todo)
                         }
                     }
                     _ => e,
@@ -1293,7 +1293,7 @@ impl StacksBlockBuilder {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
-                Err(Error::BlockTooBigError) => {
+                Err(Error::BlockTooBigError(_)) => {
                     // done mining -- our execution budget is exceeded.
                     // Make the block from the transactions we did manage to get
                     debug!("Block budget exceeded on tx {}", &tx.txid());
@@ -1431,7 +1431,7 @@ impl StacksBlockBuilder {
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;
 
-        // do logging for profiler
+        // get logging info for profiler
         let is_good_commitment_opt = if let Some(q) = *PROFILING_ENABLED {
             let parent_block_height = parent_stacks_header.burn_header_height;
             let burn_tip_snapshot = SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn());
@@ -1450,7 +1450,7 @@ impl StacksBlockBuilder {
                 }
                 Err(e) => {
                     info!(
-                        "Unable to log info for profiler Q2; error obtaining burn tip sn: {:?}",
+                        "Unable to get info for profiler Q2; error obtaining burn tip sn: {:?}",
                         e
                     );
                     None
@@ -1556,7 +1556,7 @@ impl StacksBlockBuilder {
                             Ok(_) => {
                                 num_txs += 1;
                             }
-                            Err(Error::BlockTooBigError) => {
+                            Err(Error::BlockTooBigError(_)) => {
                                 // done mining -- our execution budget is exceeded.
                                 // Make the block from the transactions we did manage to get
                                 debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());

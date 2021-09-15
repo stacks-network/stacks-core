@@ -447,6 +447,7 @@ impl<'a> ChainstateTx<'a> {
         block_cost_limit: ExecutionCost,
         anchored_block_cost: ExecutionCost,
         microblocks_cost: ExecutionCost,
+        burn_header_height: u32,
     ) {
         if *TRANSACTION_LOG {
             let insert =
@@ -466,8 +467,6 @@ impl<'a> ChainstateTx<'a> {
             let mut all_events = HashMap::new();
 
             for tx_receipt in events.iter() {
-                info!("exec cost: {:?}", tx_receipt.execution_cost);
-                info!("tx events: {:?}", tx_receipt.events);
                 info!(
                     "Profiler Q3: execution cost of processed transaction";
                     "stacks_block_id" => %block_id,
@@ -482,11 +481,11 @@ impl<'a> ChainstateTx<'a> {
                     "Profiler Q3: execution cost percentage of processed transaction";
                     "stacks_block_id" => %block_id,
                     "txid" => %tx_receipt.transaction.txid(),
-                    "read_count" => %tx_receipt.execution_cost.read_count*100/block_cost_limit.read_count,
-                    "read_length" => %tx_receipt.execution_cost.read_length*100/block_cost_limit.read_length,
-                    "write_count" => %tx_receipt.execution_cost.write_count*100/block_cost_limit.write_count,
-                    "write_length" => %tx_receipt.execution_cost.write_length*100/block_cost_limit.write_length,
-                    "runtime" => %tx_receipt.execution_cost.runtime*100/block_cost_limit.runtime,
+                    "read_count" => %(tx_receipt.execution_cost.read_count*100) as f64/block_cost_limit.read_count as f64,
+                    "read_length" => %(tx_receipt.execution_cost.read_length*100) as f64/block_cost_limit.read_length as f64,
+                    "write_count" => %(tx_receipt.execution_cost.write_count*100) as f64/block_cost_limit.write_count as f64,
+                    "write_length" => %(tx_receipt.execution_cost.write_length*100) as f64/block_cost_limit.write_length as f64,
+                    "runtime" => %(tx_receipt.execution_cost.runtime*100) as f64/block_cost_limit.runtime as f64,
                 );
 
                 // populate event frequency maps
@@ -548,6 +547,7 @@ impl<'a> ChainstateTx<'a> {
                 .collect::<String>();
             info!("Profiler Q3: frequencies of all events for a block";
                 "stacks_block_id" => %block_id,
+                "burn_header_height" => burn_header_height,
                 "event_frequency_map" => all_event_map_as_str,
                 "contract_call_frequency_map" => contract_call_map_as_str,
                 "block_cost_limit" => %block_cost_limit,
