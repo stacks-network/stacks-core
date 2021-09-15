@@ -488,7 +488,7 @@ impl<'a> ChainstateTx<'a> {
                     .to_string()
                 );
                 info!("Profiler: {}", json!({
-                    "event": "Execution cost of processed transaction",
+                    "event": "Execution cost of processed transaction as percentage of limit",
                     "tags": ["Q3"],
                     "details": {
                         "stacks_block_id": block_id.to_hex(),
