@@ -11,24 +11,36 @@ def parse_logs(file_name):
             data = json.loads(s[1])
             events.append(data)
 
-    block_stats = {}
+    return events
+
+def process_events(events):
+    costs = []
+    block_stats = []
     insert_events = {}
     for event in events:
-        if event["event"] == "Inserting new bitcoin header":
+        name = event["event"]
+        if name == "Inserting new bitcoin header":
             insert_events[event["details"]["new_burn_height"]] = event
-        elif event["event"] == "Finished running tenure":
+        elif name == "Finished running tenure":
             last_burn_height = event["details"]["last_burn_height"]
             last_insert_at_height = insert_events[last_burn_height]
             if last_insert_at_height:
-                block_stats[event["details"]["last_burn_height"]] = BlockProduction(
+                block_stats.append(BlockProduction(
                     last_insert_at_height["details"]["timestamp"],
                     event["details"]["timestamp"],
                     last_burn_height,
-                    event["details"]["last_burn_header_hash"],
                     event["details"]["is_good_commitment_opt"]
-                )
+                ))
+        elif name == "Execution cost of processed transaction":
+            costs.append(ExecutionCost(
+                event["details"]["runtime"],
+                event["details"]["read_count"],
+                event["details"]["read_length"],
+                event["details"]["write_count"],
+                event["details"]["write_length"],
+            ))
 
-    print(block_stats)
+    return (block_stats, costs)
 
 
 
@@ -235,4 +247,8 @@ def compute_q4(block_tx_data, verbose=False, min_burn_height=None):
     print("Average number of events per block:", avg_events_per_block)
     print("Total event counter:", all_block_num_events)
 
-parse_logs("sample_logs.txt")
+events = parse_logs("sample_logs.txt")
+block_stats, costs = process_events(events)
+
+print(block_stats)
+print(costs)
