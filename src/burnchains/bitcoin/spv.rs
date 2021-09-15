@@ -579,12 +579,15 @@ impl SpvClient {
             SpvClient::insert_block_header(&mut tx, header.header, height + (i as u64))?;
             if let Some(_) = *PROFILING_ENABLED {
                 let bhh = BurnchainHeaderHash::from_bitcoin_hash(&header.header.merkle_root);
-                // info!(
-                //     "Profiler Q1, Q2: Inserting a new bitcoin header";
-                //     "new_burn_height" => height + (i as u64),
-                //     "new_burn_header_hash" => %bhh,
-                //     "timestamp" =>  get_epoch_time_secs(),
-                // );
+                info!("Profiler: {}", json!({
+                    "event": "Inserting new bitcoin header",
+                    "tags": ["Q1", "Q2"],
+                    "details": {
+                        "new_burn_height": height + (i as u64),
+                        "new_burn_header_hash": bhh.to_hex(),
+                        "timestamp": get_epoch_time_secs()
+                    }
+                }).to_string());
             }
         }
         tx.commit()

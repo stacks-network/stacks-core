@@ -467,26 +467,39 @@ impl<'a> ChainstateTx<'a> {
             let mut all_events = HashMap::new();
 
             for tx_receipt in events.iter() {
+                info!("exec cost: {:?}", tx_receipt.execution_cost);
+                info!("tx events: {:?}", tx_receipt.events);
+
                 info!(
-                    "Profiler Q3: execution cost of processed transaction";
-                    "stacks_block_id" => %block_id,
-                    "txid" => %tx_receipt.transaction.txid(),
-                    "read_count" => %tx_receipt.execution_cost.read_count,
-                    "read_length" => %tx_receipt.execution_cost.read_length,
-                    "write_count" => %tx_receipt.execution_cost.write_count,
-                    "write_length" => %tx_receipt.execution_cost.write_length,
-                    "runtime" => %tx_receipt.execution_cost.runtime,
+                    "Profiler: {}",
+                    json!({
+                        "event": "Execution cost of processed transaction",
+                        "tags": ["Q3"],
+                        "details": {
+                            "stacks_block_id": block_id.to_hex(),
+                            "txid": tx_receipt.transaction.txid().to_hex(),
+                            "read_count": tx_receipt.execution_cost.read_count,
+                            "read_length": tx_receipt.execution_cost.read_length,
+                            "write_count": tx_receipt.execution_cost.write_count,
+                            "write_length": tx_receipt.execution_cost.write_length,
+                            "runtime": tx_receipt.execution_cost.runtime,
+                        }
+                    })
+                    .to_string()
                 );
-                info!(
-                    "Profiler Q3: execution cost percentage of processed transaction";
-                    "stacks_block_id" => %block_id,
-                    "txid" => %tx_receipt.transaction.txid(),
-                    "read_count" => %(tx_receipt.execution_cost.read_count*100) as f64/block_cost_limit.read_count as f64,
-                    "read_length" => %(tx_receipt.execution_cost.read_length*100) as f64/block_cost_limit.read_length as f64,
-                    "write_count" => %(tx_receipt.execution_cost.write_count*100) as f64/block_cost_limit.write_count as f64,
-                    "write_length" => %(tx_receipt.execution_cost.write_length*100) as f64/block_cost_limit.write_length as f64,
-                    "runtime" => %(tx_receipt.execution_cost.runtime*100) as f64/block_cost_limit.runtime as f64,
-                );
+                info!("Profiler: {}", json!({
+                    "event": "Execution cost of processed transaction",
+                    "tags": ["Q3"],
+                    "details": {
+                        "stacks_block_id": block_id.to_hex(),
+                        "txid": tx_receipt.transaction.txid().to_hex(),
+                        "read_count": (tx_receipt.execution_cost.read_count*100) as f64/block_cost_limit.read_count as f64,
+                        "read_length": (tx_receipt.execution_cost.read_length*100) as f64/block_cost_limit.read_length as f64,
+                        "write_count": (tx_receipt.execution_cost.write_count*100) as f64/block_cost_limit.write_count as f64,
+                        "write_length": (tx_receipt.execution_cost.write_length*100) as f64/block_cost_limit.write_length as f64,
+                        "runtime": (tx_receipt.execution_cost.runtime*100) as f64/block_cost_limit.runtime as f64,
+                    }
+                }).to_string());
 
                 // populate event frequency maps
                 for event in &tx_receipt.events {
@@ -545,14 +558,22 @@ impl<'a> ChainstateTx<'a> {
                 .into_iter()
                 .map(|(k, v)| format!("{:?}: {}; ", k, v))
                 .collect::<String>();
-            info!("Profiler Q3: frequencies of all events for a block";
-                "stacks_block_id" => %block_id,
-                "burn_header_height" => burn_header_height,
-                "event_frequency_map" => all_event_map_as_str,
-                "contract_call_frequency_map" => contract_call_map_as_str,
-                "block_cost_limit" => %block_cost_limit,
-                "anchored_block_cost" => %anchored_block_cost,
-                "microblocks_cost" => %microblocks_cost,
+            info!(
+                "Profiler: {}",
+                json!({
+                    "event": "Frequencies of all events for a block",
+                    "tags": ["Q3"],
+                    "details": {
+                        "stacks_block_id": block_id.to_hex(),
+                        "burn_header_height": burn_header_height,
+                        "event_frequency_map": all_event_map_as_str.clone(),
+                        "contract_call_frequency_map": contract_call_map_as_str.clone(),
+                        "block_cost_limit": block_cost_limit.to_string(),
+                        "anchored_block_cost": anchored_block_cost.to_string(),
+                        "microblocks_cost": microblocks_cost.to_string(),
+                    }
+                })
+                .to_string()
             );
 
             if q == 3 {
