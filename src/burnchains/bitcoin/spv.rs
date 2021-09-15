@@ -585,6 +585,15 @@ impl SpvClient {
                 //     "new_burn_header_hash" => %bhh,
                 //     "timestamp" =>  get_epoch_time_secs(),
                 // );
+                info!("Profiler: {}", json!({
+                    "event": "Inserting new bitcoin header",
+                    "tags": ["Q1", "Q2"],
+                    "details": {
+                        "new_burn_height": height + (i as u64),
+                        "new_burn_header_hash": bhh.to_hex(),
+                        "timestamp": get_epoch_time_secs()
+                    }
+                }).to_string());
             }
         }
         tx.commit()

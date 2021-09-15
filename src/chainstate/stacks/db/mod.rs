@@ -468,26 +468,33 @@ impl<'a> ChainstateTx<'a> {
             for tx_receipt in events.iter() {
                 info!("exec cost: {:?}", tx_receipt.execution_cost);
                 info!("tx events: {:?}", tx_receipt.events);
-                info!(
-                    "Profiler Q3: execution cost of processed transaction";
-                    "stacks_block_id" => %block_id,
-                    "txid" => %tx_receipt.transaction.txid(),
-                    "read_count" => %tx_receipt.execution_cost.read_count,
-                    "read_length" => %tx_receipt.execution_cost.read_length,
-                    "write_count" => %tx_receipt.execution_cost.write_count,
-                    "write_length" => %tx_receipt.execution_cost.write_length,
-                    "runtime" => %tx_receipt.execution_cost.runtime,
-                );
-                info!(
-                    "Profiler Q3: execution cost percentage of processed transaction";
-                    "stacks_block_id" => %block_id,
-                    "txid" => %tx_receipt.transaction.txid(),
-                    "read_count" => %tx_receipt.execution_cost.read_count*100/block_cost_limit.read_count,
-                    "read_length" => %tx_receipt.execution_cost.read_length*100/block_cost_limit.read_length,
-                    "write_count" => %tx_receipt.execution_cost.write_count*100/block_cost_limit.write_count,
-                    "write_length" => %tx_receipt.execution_cost.write_length*100/block_cost_limit.write_length,
-                    "runtime" => %tx_receipt.execution_cost.runtime*100/block_cost_limit.runtime,
-                );
+                
+                info!("Profiler: {}", json!({
+                    "event": "Execution cost of processed transaction",
+                    "tags": ["Q3"],
+                    "details": {
+                        "stacks_block_id": block_id.to_hex(),
+                        "txid": tx_receipt.transaction.txid().to_hex(),
+                        "read_count": tx_receipt.execution_cost.read_count,
+                        "read_length": tx_receipt.execution_cost.read_length,
+                        "write_count": tx_receipt.execution_cost.write_count,
+                        "write_length": tx_receipt.execution_cost.write_length,
+                        "runtime": tx_receipt.execution_cost.runtime,
+                    }
+                }).to_string());
+                info!("Profiler: {}", json!({
+                    "event": "Execution cost of processed transaction",
+                    "tags": ["Q3"],
+                    "details": {
+                        "stacks_block_id": block_id.to_hex(),
+                        "txid": tx_receipt.transaction.txid().to_hex(),
+                        "read_count": tx_receipt.execution_cost.read_count*100/block_cost_limit.read_count,
+                        "read_length": tx_receipt.execution_cost.read_length*100/block_cost_limit.read_length,
+                        "write_count": tx_receipt.execution_cost.write_count*100/block_cost_limit.write_count,
+                        "write_length": tx_receipt.execution_cost.write_length*100/block_cost_limit.write_length,
+                        "runtime": tx_receipt.execution_cost.runtime*100/block_cost_limit.runtime,
+                    }
+                }).to_string());
 
                 // populate event frequency maps
                 for event in &tx_receipt.events {
