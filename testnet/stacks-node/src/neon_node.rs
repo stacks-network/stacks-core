@@ -1062,14 +1062,17 @@ fn spawn_miner_relayer(
                         last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
 
                         if let Some(q) = *PROFILING_ENABLED {
-                            info!(
-                                "Profiler Q1, Q2: Finished running tenure";
-                                "last_burn_height" => last_burn_block.block_height,
-                                "burn_header_hash_tip" => %burn_chain_tip,
-                                "last_burn_header_hash" => %burn_header_hash,
-                                "is_good_commitment_opt" => is_good_commitment_opt, 
-                                "timestamp" => get_epoch_time_secs(),
-                            );
+                            info!("Profiler: {}", json!({
+                                "event": "Finished running tenure",
+                                "tags": ["Q1", "Q2"],
+                                "details": {
+                                    "last_burn_height": last_burn_block.block_height,
+                                    "burn_header_hash_tip": burn_chain_tip.to_hex(),
+                                    "last_burn_header_hash": burn_header_hash.to_hex(),
+                                    "is_good_commitment_opt": is_good_commitment_opt.unwrap(),
+                                    "timestamp": get_epoch_time_secs(),
+                                }
+                            }).to_string());
                             if q == 1 || q == 2 {
                                 let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
                                 *count += 1;

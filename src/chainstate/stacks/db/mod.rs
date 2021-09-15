@@ -468,7 +468,7 @@ impl<'a> ChainstateTx<'a> {
             for tx_receipt in events.iter() {
                 info!("exec cost: {:?}", tx_receipt.execution_cost);
                 info!("tx events: {:?}", tx_receipt.events);
-                
+
                 info!("Profiler: {}", json!({
                     "event": "Execution cost of processed transaction",
                     "tags": ["Q3"],
@@ -553,14 +553,18 @@ impl<'a> ChainstateTx<'a> {
                 .into_iter()
                 .map(|(k, v)| format!("{:?}: {}; ", k, v))
                 .collect::<String>();
-            info!("Profiler Q3: frequencies of all events for a block";
-                "stacks_block_id" => %block_id,
-                "event_frequency_map" => all_event_map_as_str,
-                "contract_call_frequency_map" => contract_call_map_as_str,
-                "block_cost_limit" => %block_cost_limit,
-                "anchored_block_cost" => %anchored_block_cost,
-                "microblocks_cost" => %microblocks_cost,
-            );
+            info!("Profiler: {}", json!({
+                "event": "Frequencies of all events for a block",
+                "tags": ["Q3"],
+                "details": {
+                    "stacks_block_id": block_id.to_hex(),
+                    "event_frequency_map": all_event_map_as_str.clone(),
+                    "contract_call_frequency_map": contract_call_map_as_str.clone(),
+                    "block_cost_limit": block_cost_limit.to_string(),
+                    "anchored_block_cost": anchored_block_cost.to_string(),
+                    "microblocks_cost": microblocks_cost.to_string(),
+                }
+            }).to_string());
 
             if q == 3 {
                 if let Some(limit) = *PROFILING_LIMIT {
