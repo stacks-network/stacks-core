@@ -1,5 +1,35 @@
+import json
 from collections import Counter, defaultdict
 import numpy as np
+
+def parse_logs(file_name):
+    events = []
+    with open(file_name) as f:
+        lines = [line for line in f.readlines() if 'Profiler' in line]
+        for line in lines:
+            s = line.split("Profiler: ")
+            data = json.loads(s[1])
+            events.append(data)
+
+    block_stats = {}
+    insert_events = {}
+    for event in events:
+        if event["event"] == "Inserting new bitcoin header":
+            insert_events[event["details"]["new_burn_height"]] = event
+        elif event["event"] == "Finished running tenure":
+            last_burn_height = event["details"]["last_burn_height"]
+            last_insert_at_height = insert_events[last_burn_height]
+            if last_insert_at_height:
+                block_stats[event["details"]["last_burn_height"]] = BlockProduction(
+                    last_insert_at_height["details"]["timestamp"],
+                    event["details"]["timestamp"],
+                    last_burn_height,
+                    event["details"]["last_burn_header_hash"],
+                    event["details"]["is_good_commitment_opt"]
+                )
+
+    print(block_stats)
+
 
 
 ### Analysis
@@ -204,3 +234,5 @@ def compute_q4(block_tx_data, verbose=False, min_burn_height=None):
     avg_events_per_block =  np.average(np.asarray(all_block_event_counter))
     print("Average number of events per block:", avg_events_per_block)
     print("Total event counter:", all_block_num_events)
+
+parse_logs("sample_logs.txt")
