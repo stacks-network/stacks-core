@@ -1,7 +1,8 @@
 import sys
 import collections
-import matplotlib.pyplot
-import collections
+import json
+
+output_fname = sys.argv[1]
 
 """
 Converts a Rust-style structured output line to a python-style dict.
@@ -34,19 +35,22 @@ def extract_structured_field_into(line, key, kv):
 	value = inner_split[0]
 	kv[key] = value
 
-kv_list = []
-
 header_kv = []
 kv = []
+kv_list = []
+
+
 for line in sys.stdin:
 	if "data:header_info" in line:
-		print ('kv', kv)
+		# print ('kv', kv)
 		header_kv = collections.defaultdict(list)
 		extract_structured_field_into(line, 'block_height', header_kv)
 		extract_structured_field_into(line, 'consensus_hash', header_kv)
+                # print(header_kv['block_height'], header_kv['consensus_hash'], len(kv_list))
 
 	if "PessimisticEstimator received event" in line:
 		# print(line)
+		kv_list.append(kv)
 		kv = collections.defaultdict(list)
 		kv.update(header_kv)
 		additions = rust_to_map(line)
@@ -55,7 +59,11 @@ for line in sys.stdin:
 	if "New data event received" in line:
 		# print(line)
 		kv['elements'].append(rust_to_map(line))
-		kv_list.append(kv)
 
 
+
+outfile = open(output_fname, 'w')
+for kv in kv_list:
+    kv_line = json.dumps(kv)
+    outfile.write(kv_line + '\n')
 
