@@ -677,6 +677,8 @@ impl<
 
         while let Some(block_result) = processed_blocks.pop() {
             if let (Some(block_receipt), _) = block_result {
+                let header_info = &block_receipt.header;
+                warn!("data:header_info {:?}", header_info);
                 // only bump the coordinator's state if the processed block
                 //   is in our sortition fork
                 //  TODO: we should update the staging block logic to prevent
