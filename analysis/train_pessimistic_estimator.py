@@ -37,5 +37,8 @@ print(len(pred_costs), len(gold_costs))
 
 for error_function in error_functions.all_functions:
     error = error_function(gold_costs, pred_costs)
-    print(error_functions.__name__)
-    print(error)
+    parts = [
+        error_function.__name__,
+        str(error),
+        ]
+    print(','.join(parts))
