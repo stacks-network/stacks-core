@@ -31,9 +31,11 @@ for idx, line in enumerate(lines):
     gold_cost = data_point['actual']
 
     pred_costs.append(offline_estimate)
-    gold_costs.append(gold_cost)
+    gold_costs.append(float(gold_cost))
 
 print(len(pred_costs), len(gold_costs))
 
-#for function in error_functions.all_functions:
-#    function(gold_costs, pred_costs)
+for error_function in error_functions.all_functions:
+    error = error_function(gold_costs, pred_costs)
+    print(error_functions.__name__)
+    print(error)
