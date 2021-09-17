@@ -730,6 +730,7 @@ fn pox_2_lock_extend_units() {
         );
 
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+        eprintln!("{}", POX_ADDRS[1].clone());
         assert_eq!(
             env.execute_transaction(
                 (&delegator).into(),
@@ -899,6 +900,193 @@ fn pox_2_lock_extend_units() {
             "(err 26)".to_string(),
             "Should not be able to call stack-extend after lock expired",
         );
+    });
+}
+
+#[test]
+fn pox_2_multi_stack_stx() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1];
+
+    let reward_cycle_len = 5;
+    let stack_size: u128 = USTX_PER_HOLDER / 2;
+
+    let pox_addr_item_1 = execute(
+        &format!("{{ version: 0x00, hashbytes: 0x0000000000000000000000000000000000000000, amount-ustx: u{} }}", stack_size)
+    );
+    let pox_addr_item_2 = execute(
+        &format!("{{ version: 0x00, hashbytes: 0x0000000000000000000000000100000000000000, amount-ustx: u{} }}", stack_size)
+    );
+    let pox_addr_item_3 = execute(
+        &format!("{{ version: 0x00, hashbytes: 0x0000000000000000000000000100000000000000, amount-ustx: u{} }}", USTX_PER_HOLDER)
+    );
+
+    // execute past 2.1 epoch initialization
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
+            .unwrap();
+        env.execute_in_env(boot_code_addr(false).into(), None, |env| {
+            env.execute_contract(
+                POX_2_CONTRACT_TESTNET.deref(),
+                "set-burnchain-parameters",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                    Value::UInt(1),
+                    Value::UInt(reward_cycle_len),
+                    Value::UInt(25),
+                    Value::UInt(0),
+                ]),
+                false,
+            )
+        })
+        .unwrap();
+    });
+
+    sim.execute_next_block(|env| {
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "multi-stack-stx",
+                &symbols_from_values(vec![
+                    Value::list_from(vec![]).unwrap(),
+                    burn_height.clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 13)".to_string(),
+            "User1 cannot multi-stack-stx with zero pox-addr-items",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "multi-stack-stx",
+                &symbols_from_values(vec![
+                    Value::list_from(vec![
+                        pox_addr_item_1.clone(),
+                        pox_addr_item_3.clone(),
+                    ]).unwrap(),
+                    burn_height.clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 1)".to_string(),
+            "User1 cannot multi-stack-stx with more than their balance",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "multi-stack-stx",
+                &symbols_from_values(vec![
+                    Value::list_from(vec![
+                        pox_addr_item_1.clone(),
+                        pox_addr_item_2.clone(),
+                    ]).unwrap(),
+                    burn_height.clone(),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(2 * reward_cycle_len)
+            )),
+            "User1 should be able to multi-stack-stx",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "multi-stack-stx",
+                &symbols_from_values(vec![
+                    Value::list_from(vec![
+                        pox_addr_item_1.clone(),
+                    ]).unwrap(),
+                    burn_height.clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 3)".to_string(),
+            "User1 cannot multi-stack-stx when already stacking",
+        );
+
+        for cycle in 0..5 {
+            eprintln!("Cycle number = {}", cycle);
+            let empty_set = cycle != 1;
+            let expected = if empty_set {
+                "(u0 u0)"
+            } else {
+                "(u1000000 u2)"
+            };
+            assert_eq!(
+                env.eval_read_only(
+                    &POX_2_CONTRACT_TESTNET,
+                    &format!("(list (default-to u0 (get total-ustx (map-get? reward-cycle-total-stacked {{ reward-cycle: u{} }})))
+                                    (default-to u0 (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: u{} }}))))",
+                             cycle, cycle))
+                    .unwrap()
+                    .0
+                    .to_string(),
+                expected
+            );
+            if !empty_set {
+                let expected_pox_addr = if cycle > 3 {
+                    &POX_ADDRS[2]
+                } else {
+                    &POX_ADDRS[1]
+                };
+
+                assert_eq!(
+                    env.eval_read_only(
+                        &POX_2_CONTRACT_TESTNET,
+                        &format!("(unwrap-panic (map-get? reward-cycle-pox-address-list {{ reward-cycle: u{}, index: u0 }}))",
+                                 cycle))
+                        .unwrap()
+                        .0,
+                    execute(&format!(
+                        "{{ pox-addr: {}, total-ustx: u{} }}",
+                        &POX_ADDRS[0],
+                        stack_size
+                    ))
+                );
+                assert_eq!(
+                    env.eval_read_only(
+                        &POX_2_CONTRACT_TESTNET,
+                        &format!("(unwrap-panic (map-get? reward-cycle-pox-address-list {{ reward-cycle: u{}, index: u1 }}))",
+                                 cycle))
+                        .unwrap()
+                        .0,
+                    execute(&format!(
+                        "{{ pox-addr: {}, total-ustx: u{} }}",
+                        &POX_ADDRS[1],
+                        stack_size
+                    ))
+                );
+            }
+        }
     });
 }
 

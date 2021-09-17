@@ -825,3 +825,89 @@
       (ok { stacker: stacker,
             unlock-burn-height: new-unlock-ht }))))
 
+;; used in multi-stack-stx
+;; accumulates a sum of a list of reward address stacks
+;; adds each pox-addr to the set of reward addresses for this cycle
+(define-private (accumulate-multi-stack 
+                    (pox-addr-item { version: (buff 1), hashbytes: (buff 20), amount-ustx: uint })
+                    (iterator-response (response { total-ustx: uint, reward-cycle: uint } int )))
+    (let
+        (
+            (iterator (try! iterator-response))
+            (amount-ustx (get amount-ustx pox-addr-item))
+            (total-ustx (get total-ustx iterator))
+            (reward-cycle (get reward-cycle iterator))
+            (total-stacked (get-total-ustx-stacked reward-cycle))
+            (pox-addr { version: (get version pox-addr-item), hashbytes: (get hashbytes pox-addr-item) })
+        )
+        ;; ensure that stacking can be performed
+        (try! (can-stack-stx pox-addr amount-ustx reward-cycle u1))
+
+        ;; record how many uSTX this pox-addr will stack for in the given reward cycle
+        (append-reward-cycle-pox-addr
+            pox-addr
+            reward-cycle
+            amount-ustx)
+
+        ;; update running total
+        (map-set reward-cycle-total-stacked
+            { reward-cycle: reward-cycle }
+            { total-ustx: (+ amount-ustx total-stacked) })
+        (ok (merge iterator { total-ustx: (+ total-ustx amount-ustx) }))
+    )
+)
+
+;; Lock up STX for stacking, providing a list of (pox-addr, amount) tuples
+;; This allows a principal to lock a large amount of STX, and to allocate
+;; various amounts of STX to different reward addresses.
+;; When using this function, the `lock-period` is set to 1
+(define-public (multi-stack-stx 
+                (pox-addrs (list 4000 { version: (buff 1), hashbytes: (buff 20), amount-ustx: uint }))
+                (start-burn-ht uint)
+                ;; (lock-period uint) ;; lock period is always u1 for this
+                )
+    (let
+        (
+            (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
+            (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
+            (lock-period u1)
+            (iterator (ok { total-ustx: u0, reward-cycle: first-reward-cycle }))
+            (accumulation (try! (fold accumulate-multi-stack pox-addrs iterator)))
+            (amount-ustx (get total-ustx accumulation))
+            (first-pox-addr-item (unwrap! (element-at pox-addrs u0) (err ERR_STACKING_INVALID_POX_ADDRESS)))
+        )
+        ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
+        ;;  to "post-date" their `stack-stx` transaction
+        (asserts! (is-eq first-reward-cycle specified-reward-cycle)
+                (err ERR_INVALID_START_BURN_HEIGHT))
+
+        ;; must be called directly by the tx-sender or by an allowed contract-caller
+        (asserts! (check-caller-allowed)
+                (err ERR_STACKING_PERMISSION_DENIED))
+
+        ;; tx-sender principal must not be stacking
+        (asserts! (is-none (get-stacker-info tx-sender))
+        (err ERR_STACKING_ALREADY_STACKED))
+
+        ;; tx-sender must not be delegating
+        (asserts! (is-none (get-check-delegation tx-sender))
+        (err ERR_STACKING_ALREADY_DELEGATED))
+
+        ;; the Stacker must have sufficient unlocked funds
+        (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
+        (err ERR_STACKING_INSUFFICIENT_FUNDS))
+
+        ;; add stacker record
+        ;; NB: `stacking-state` only allows setting one pox-addr per stacker.
+        ;; we are setting the pox-addr to the first pox-addr in the list.
+        ;; this allows other checks to ensure that a stacker can only call this function once.
+        (map-set stacking-state
+          { stacker: tx-sender }
+          { amount-ustx: amount-ustx,
+            pox-addr: { version: (get version first-pox-addr-item), hashbytes: (get hashbytes first-pox-addr-item) },
+            first-reward-cycle: first-reward-cycle,
+            lock-period: lock-period })
+
+        (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) })
+    )
+)
