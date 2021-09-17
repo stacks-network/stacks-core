@@ -248,11 +248,11 @@ fn test_pessimistic_cost_estimator_declining_average() {
             .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
-            write_length: 6,
-            write_count: 6,
-            read_length: 6,
-            read_count: 6,
-            runtime: 6,
+            write_length: 5,
+            write_count: 5,
+            read_length: 5,
+            read_count: 5,
+            runtime: 5,
         }
     );
 }
@@ -328,7 +328,7 @@ fn test_pessimistic_cost_estimator() {
 
     // the updated dimension estimates should be:
     // 9 * 2 + 1 = 19 / 3: rounds down to 6
-    // 5 * 2 + 1 = 11 / 3: rounds *up* to 4
+    // 5 * 2 + 1 = 11 / 3: rounds down to 3
     // 3 * 2 + 1 = 7 / 3
     assert_eq!(
         estimator
@@ -336,7 +336,7 @@ fn test_pessimistic_cost_estimator() {
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 6,
-            write_count: 4,
+            write_count: 3,
             read_length: 2,
             read_count: 1,
             runtime: 1,
@@ -447,7 +447,7 @@ fn test_pessimistic_cost_estimator() {
         .expect("Should be able to process event");
 
     // the updated dimension estimates should be:
-    // 9 * 7 + 1 = 64 / 8: *note*, the incremental average rounds this down to 7
+    // 9 * 7 + 1 = 64 / 8
     // 5 * 7 + 1 = 36 / 8
     // 3 * 7 + 1 = 22 / 8
     assert_eq!(
@@ -455,7 +455,7 @@ fn test_pessimistic_cost_estimator() {
             .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
-            write_length: 7,
+            write_length: 8,
             write_count: 4,
             read_length: 2,
             read_count: 1,
@@ -471,7 +471,7 @@ fn test_pessimistic_cost_estimator() {
         .expect("Should be able to process event");
 
     // the updated dimension estimates should be:
-    // 9 * 8 + 1 = 73 / 9: *note*, the incremental average rounds this down to 7
+    // 9 * 8 + 1 = 73 / 9
     // 5 * 8 + 1 = 41 / 9
     // 3 * 8 + 1 = 25 / 9
     assert_eq!(
@@ -479,7 +479,7 @@ fn test_pessimistic_cost_estimator() {
             .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
-            write_length: 7,
+            write_length: 8,
             write_count: 4,
             read_length: 2,
             read_count: 1,
@@ -495,7 +495,7 @@ fn test_pessimistic_cost_estimator() {
         .expect("Should be able to process event");
 
     // the updated dimension estimates should be:
-    // 9 * 9 + 1 = 82 / 10: *note*, the incremental average rounds this down to 7
+    // 9 * 9 + 1 = 82 / 10
     // 5 * 9 + 1 = 41 / 10
     // 3 * 9 + 1 = 28 / 10
     assert_eq!(
@@ -503,7 +503,7 @@ fn test_pessimistic_cost_estimator() {
             .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
-            write_length: 7,
+            write_length: 8,
             write_count: 4,
             read_length: 2,
             read_count: 1,

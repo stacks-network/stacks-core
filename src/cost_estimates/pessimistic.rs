@@ -131,33 +131,16 @@ impl Samples {
     /// but only when the new value is close to the average relative
     /// to the window size.
     fn mean(&self) -> u64 {
-        self.items
+        if self.items.is_empty() {
+            return 0;
+        }
+
+        let total = self
+            .items
             .iter()
-            .enumerate()
-            .fold(0, |avg, (index, value)| {
-                if *value > avg {
-                    // cannot underflow: value <= avg because of if branch
-                    let update_main = (value - avg) / (index as u64 + 1);
-                    let update_remainder_component =
-                        if ((value - avg) % (index as u64 + 1)) > ((index as u64 + 1) / 2) {
-                            1
-                        } else {
-                            0
-                        };
-                    avg + update_main + update_remainder_component
-                } else {
-                    // cannot underflow: avg >= avg - value is always true because these are unsigned ints,
-                    //                   and value <= avg because of if branch
-                    let update_main = (avg - value) / (index as u64 + 1);
-                    let update_remainder_component =
-                        if ((avg - value) % (index as u64 + 1)) > ((index as u64 + 1) / 2) {
-                            1
-                        } else {
-                            0
-                        };
-                    avg - update_main - update_remainder_component
-                }
-            })
+            .fold(0f64, |total, value| total + (*value as f64));
+
+        (total / (self.items.len() as f64)) as u64
     }
 
     fn flush_sqlite(&self, tx: &SqliteTransaction, identifier: &str) {
