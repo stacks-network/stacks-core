@@ -10,6 +10,8 @@ import error_functions
 data_fname = sys.argv[1]
 model_name = sys.argv[2]
 
+remove_trivial = True
+
 model_dict = {
         'pessimistic' : pessimistic_estimator.Model(),
         'average' : average_estimator.Model(),
@@ -20,11 +22,17 @@ model = model_dict[model_name]
 with open(data_fname, 'r') as data_file:
     lines = data_file.readlines()
 
+def key_is_trivial(key):
+    return key == 'stx-transfer:runtime' or key == 'coinbase:runtime'
+
 gold_costs = []
 pred_costs = []
 for idx, line in enumerate(lines):
     data_point = json.loads(line)
     data_key = data_point['key']
+
+    if remove_trivial and key_is_trivial(data_key):
+        continue
 
     # Make the estimate first.
     offline_estimate = model.create_estimate(data_key)

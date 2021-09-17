@@ -89,6 +89,24 @@ def RelativePenalizedDifference(gold_costs, pred_costs):
     avg = sigma / len(gold_costs)
     return avg
 
+def Underestimate(gold_costs, pred_costs):
+    assert len(gold_costs) == len(pred_costs)
+    sigma = 0.0
+    for gold, pred in zip(gold_costs,pred_costs):
+        if pred < gold:
+            sigma += 1
+    avg = sigma / len(gold_costs)
+    return avg
+
+def Overestimate(gold_costs, pred_costs):
+    assert len(gold_costs) == len(pred_costs)
+    sigma = 0.0
+    for gold, pred in zip(gold_costs,pred_costs):
+        if pred > gold:
+            sigma += 1
+    avg = sigma / len(gold_costs)
+    return avg
+
 all_functions = [
         RootMeanSquaredError,
         Bias,
@@ -97,4 +115,6 @@ all_functions = [
         RelativeAbsoluteDifference,
         PenalizedDifference,
         RelativePenalizedDifference,
+        Underestimate,
+        Overestimate,
         ]
