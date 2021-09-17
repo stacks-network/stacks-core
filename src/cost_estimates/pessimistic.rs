@@ -13,6 +13,7 @@ use util::db::u64_to_sql;
 use vm::costs::ExecutionCost;
 
 use core::BLOCK_LIMIT_MAINNET;
+use core::ZERO_BLOCK;
 
 use crate::util::db::tx_begin_immediate_sqlite;
 
@@ -116,13 +117,39 @@ impl Samples {
         return false;
     }
 
+    fn int_space_mean(&self) -> u64 {
+        let mut sum = 0_u64;
+        for i in &self.items {
+            let old_sum = sum;
+            sum += i;
+
+            if sum < old_sum {
+                warn!("fatal overflow");
+            }
+        }
+        let n = self.items.len() as u64;
+        sum / n
+    }
+
+    fn float_space_mean(&self) -> u64 {
+        let mut sum = 0_f64;
+        for i in &self.items {
+            sum += *i as f64;
+        }
+        let n = self.items.len() as f64;
+        let fmean = sum / n;
+        fmean as u64
+    }
+
     /// Return the integer mean of the sample, uses iterative
     /// algorithm to avoid overflow. The iterative algorithm
     /// does have some error around *underflows* on the update,
     /// but only when the new value is close to the average relative
     /// to the window size.
     fn mean(&self) -> u64 {
-        self.items
+        let int_mean = self.int_space_mean();
+        let float_mean = self.float_space_mean();
+        let custom_mean = self.items
             .iter()
             .enumerate()
             .fold(0, |avg, (index, value)| {
@@ -148,7 +175,9 @@ impl Samples {
                         };
                     avg - update_main - update_remainder_component
                 }
-            })
+            });
+        info!("custom mean comparison"; "int_mean" => int_mean, "float_mean" => float_mean, "custom_mean" => custom_mean);
+        custom_mean
     }
 
     fn flush_sqlite(&self, tx: &SqliteTransaction, identifier: &str) {
@@ -236,21 +265,23 @@ impl CostEstimator for PessimisticEstimator {
     ) -> Result<(), EstimatorError> {
         if self.log_error {
             // only log the estimate error if an estimate could be constructed
-            if let Ok(estimated_cost) = self.estimate_cost(tx) {
-                let estimated_scalar =
-                    estimated_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET, 1_000);
-                let actual_scalar = actual_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET, 1_000);
-                info!("PessimisticEstimator received event";
+            let estimated_cost = match self.estimate_cost(tx) {
+                Ok(cost) => cost,
+                Err(_) => ZERO_BLOCK,
+            };
+            let estimated_scalar =
+                estimated_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET, 1_000);
+            let actual_scalar = actual_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET, 1_000);
+            info!("PessimisticEstimator received event";
                       "key" => %PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost),
                       "estimate" => estimated_scalar,
                       "actual" => actual_scalar,
                       "estimate_err" => (estimated_scalar as i64 - actual_scalar as i64),
                       "estimate_err_pct" => (estimated_scalar as i64 - actual_scalar as i64)/(cmp::max(1, actual_scalar as i64)),);
-                for field in CostField::ALL.iter() {
-                    info!("New data event received";
+            for field in CostField::ALL.iter() {
+                info!("New data event received";
                           "key" => %PessimisticEstimator::get_estimate_key(tx, field),
                           "value" => field.select_key(actual_cost));
-                }
             }
         }
 

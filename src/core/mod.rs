@@ -122,6 +122,14 @@ pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
     runtime: 5_000_000_000,
 };
 
+pub const ZERO_BLOCK: ExecutionCost = ExecutionCost {
+    write_length: 0, // roughly 15 mb
+    write_count: 0,
+    read_length: 0,
+    read_count: 0,
+    runtime: 0,
+};
+
 pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
     write_length: 15_0_000_000,
     write_count: 5_0_000,
