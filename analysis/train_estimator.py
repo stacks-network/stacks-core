@@ -4,13 +4,15 @@ import json
 import numpy
 
 import pessimistic_estimator
+import average_estimator
 import error_functions
 
 data_fname = sys.argv[1]
 model_name = sys.argv[2]
 
 model_dict = {
-        'pessimistic' : pessimistic_estimator.PessimisticModel(),
+        'pessimistic' : pessimistic_estimator.Model(),
+        'average' : average_estimator.Model(),
 }
 
 model = model_dict[model_name]

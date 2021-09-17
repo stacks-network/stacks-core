@@ -3,18 +3,15 @@ import collections
 import json
 import numpy
 
-active_N = 10
-
 """
-Maintains a set of the N highest samples we have seen so far.
-This is used to implemente the `PessimisticEstimator` in the rust code.
+Maintain an average of all of the samples we've seen so far.
 """
-class PessimisticSample(object):
-    def __init__(self, N):
-        # The number of samples to remember.
-        self._N = N
-        # The entries we are tracking, stored as a simple vector.
-        self._entries = []
+class AverageSample(object):
+    def __init__(self):
+        # The sum of all values.
+        self._sum = 0.0
+        # The count of all values.
+        self._count = 0
         # We store the mean, and use `0` as the mean of no samples to get started.
         self._mean = 0.0
 
@@ -24,19 +21,14 @@ class PessimisticSample(object):
     """
     def insert(self, point):
         # print('before', self._entries, point)
-        if len(self._entries) < self._N:
-            self._entries.append(point)
-        else:
-            min_val = self._entries[0]
-            min_idx = 0
-            for idx, val in enumerate(self._entries):
-                if val < min_val:
-                    min_val = val
-                    min_idx = idx
-            if point > min_val:
-                self._entries[min_idx] = point
-        self._mean = numpy.mean(self._entries)
-        # print('after', self._entries, self._mean)
+        old_sum = self._sum
+        self._sum += point
+        self._count += 1
+
+        assert self._sum >= old_sum
+
+        self._mean = self._sum / self._count
+
 
     def mean(self):
         return self._mean
@@ -68,14 +60,13 @@ def create_estimate(key_to_samples, event_key):
         samples = key_to_samples[full_key]
         estimate_components.append(samples.mean())
     estimate = create_point_estimate(estimate_components)
-    # print ('estimate', estimate)
     return estimate
 
 def new_estimator():
-    return PessimisticSample(active_N)
+    return AverageSample()
 
 """
-Python implementation of PessimisticEstimator.
+Python implementation of an "average" modeler.
 """
 class Model(object):
     def __init__(self):
