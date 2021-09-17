@@ -48,7 +48,7 @@ pub struct ScalarFeeRateEstimator<M: CostMetric> {
 }
 
 impl<M: CostMetric> ScalarFeeRateEstimator<M> {
-    /// Open a pessimistic estimator at the given db path. Creates if not existent.
+    /// Open a fee rate estimator at the given db path. Creates if not existent.
     pub fn open(p: &Path, metric: M) -> Result<Self, SqliteError> {
         let db = Connection::open_with_flags(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
             .or_else(|e| {

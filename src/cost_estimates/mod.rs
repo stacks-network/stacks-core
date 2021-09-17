@@ -24,7 +24,15 @@ pub use self::pessimistic::PessimisticEstimator;
 
 /// This trait is for implementation of *fee rate* estimation: estimators should
 ///  track the actual paid fee rate for transactions in blocks, and use that to
-///  provide estimates for block inclusion.
+///  provide estimates for block inclusion. Fee rate estimators provide an estimate
+///  for the amount of microstx per unit of the block limit occupied that must be
+///  paid for miners to consider the transaction for inclusion in a block.
+///
+/// Note: `CostEstimator` and `FeeRateEstimator` implementations do two very different
+///  tasks. `CostEstimator` implementations estimate the `ExecutionCost` for a transaction
+///  payload. `FeeRateEstimator` implementations estimate the network's current fee rate.
+///  Clients interested in determining the fee to be paid for a transaction must used both
+///  whereas miners only need to use a `CostEstimator`
 pub trait FeeEstimator {
     /// This method is invoked by the `stacks-node` to update the fee estimator with a new
     ///  block receipt.
@@ -66,6 +74,14 @@ impl Add for FeeRateEstimate {
     }
 }
 
+/// This trait is for implementation of *execution cost* estimation. CostEstimators
+///  provide the estimated `ExecutionCost` for a given `TransactionPayload`.
+///
+/// Note: `CostEstimator` and `FeeRateEstimator` implementations do two very different
+///  tasks. `CostEstimator` implementations estimate the `ExecutionCost` for a transaction
+///  payload. `FeeRateEstimator` implementations estimate the network's current fee rate.
+///  Clients interested in determining the fee to be paid for a transaction must used both
+///  whereas miners only need to use a `CostEstimator`
 pub trait CostEstimator {
     /// This method is invoked by the `stacks-node` to update the cost estimator with a new
     ///  cost measurement. The given `tx` had a measured cost of `actual_cost`.

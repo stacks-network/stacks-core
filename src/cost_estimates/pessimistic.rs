@@ -19,6 +19,14 @@ use crate::util::db::tx_begin_immediate_sqlite;
 
 use super::{CostEstimator, EstimatorError};
 
+/// This struct pessimistically estimates the `ExecutionCost` of transaction payloads.
+///
+/// Each operation has a string-valued key (see `PessimisticEstimator::get_estimate_key`).
+///
+/// For each pair of 1) operation key, and 2) dimension of
+/// ExecutionCost, the PessimisticEstimator retains a set of the top
+/// 10 highest costs yet observed for that operation/dimension. The
+/// estimate returned is the average of these.
 pub struct PessimisticEstimator {
     db: Connection,
     log_error: bool,
