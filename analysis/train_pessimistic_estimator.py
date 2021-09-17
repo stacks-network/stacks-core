@@ -7,8 +7,13 @@ import pessimistic_estimator
 import error_functions
 
 data_fname = sys.argv[1]
+model_name = sys.argv[2]
 
-model = pessimistic_estimator.PessimisticModel()
+model_dict = {
+        'pessimistic' : pessimistic_estimator.PessimisticModel(),
+}
+
+model = model_dict[model_name]
 
 with open(data_fname, 'r') as data_file:
     lines = data_file.readlines()
@@ -33,11 +38,10 @@ for idx, line in enumerate(lines):
     pred_costs.append(offline_estimate)
     gold_costs.append(float(gold_cost))
 
-print(len(pred_costs), len(gold_costs))
-
 for error_function in error_functions.all_functions:
     error = error_function(gold_costs, pred_costs)
     parts = [
+        model_name,
         error_function.__name__,
         str(error),
         ]
