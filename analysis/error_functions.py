@@ -1,4 +1,6 @@
 
+UNDERESTIMATE_PENALTY_FACTOR = 2.0
+
 def RootMeanSquaredError(gold_costs, pred_costs):
     assert len(gold_costs) == len(pred_costs)
     sigma = 0.0
@@ -59,6 +61,33 @@ def RelativeAbsoluteDifference(gold_costs, pred_costs):
     avg = sigma / num_points
     return avg
 
+def PenalizedDifference(gold_costs, pred_costs):
+    assert len(gold_costs) == len(pred_costs)
+    sigma = 0.0
+    for gold, pred in zip(gold_costs,pred_costs):
+        if pred > gold:
+            penalty_factor = 1.0
+        else:
+            penalty_factor = UNDERESTIMATE_PENALTY_FACTOR
+        delta = penalty_factor * abs(pred - gold)
+        sigma += delta
+    avg = sigma / len(gold_costs)
+    return avg
+
+def RelativePenalizedDifference(gold_costs, pred_costs):
+    assert len(gold_costs) == len(pred_costs)
+    sigma = 0.0
+    for gold, pred in zip(gold_costs,pred_costs):
+        if gold == 0.0:
+            continue
+        if pred > gold:
+            penalty_factor = 1.0
+        else:
+            penalty_factor = UNDERESTIMATE_PENALTY_FACTOR
+        delta = penalty_factor * abs(pred - gold) / gold
+        sigma += delta
+    avg = sigma / len(gold_costs)
+    return avg
 
 all_functions = [
         RootMeanSquaredError,
@@ -66,4 +95,6 @@ all_functions = [
         RelativeBias,
         AbsoluteDifference,
         RelativeAbsoluteDifference,
+        PenalizedDifference,
+        RelativePenalizedDifference,
         ]
