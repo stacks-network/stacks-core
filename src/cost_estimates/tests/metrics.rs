@@ -29,7 +29,7 @@ fn test_proportional_dot_product() {
             },
             10_000
         ),
-        6_000
+        60_000
     );
 
     // an execution cost equal to the limit should be maxed in each dimension,
@@ -45,16 +45,16 @@ fn test_proportional_dot_product() {
             },
             10_000
         ),
-        6_000
+        60_000
     );
 
-    // 400 / 5 = 80
-    // 200 / 6 = 33
-    // 100 / 7 = 14
-    // 200 / 8 = 25
-    // 50 / 9 =   5
-    // 100 / 10 = 10
-    // Expected scalar = 167
+    // 4000 / 5 =  800
+    // 2000 / 6 =  333
+    // 1000 / 7 =  142
+    // 2000 / 8 =  250
+    // 500 / 9 =    55
+    // 1000 / 10 = 100
+    // Expected scalar = 1680
     assert_eq!(
         metric.from_cost_and_len(
             &ExecutionCost {
@@ -66,7 +66,7 @@ fn test_proportional_dot_product() {
             },
             100
         ),
-        167
+        1680
     );
 }
 
@@ -87,10 +87,10 @@ fn test_proportional_dot_product_with_mainnet_lims() {
             },
             2 * 1024 * 1024
         ),
-        6_000
+        60_000
     );
 
-    // should be: 100 + 100 + 1 + 100 + 1 + 0 = 302
+    // should be: 1000 + 1000 + 10 + 1000 + 10 + 4 = 3024
     assert_eq!(
         metric.from_cost_and_len(
             &ExecutionCost {
@@ -102,7 +102,7 @@ fn test_proportional_dot_product_with_mainnet_lims() {
             },
             1024
         ),
-        302
+        3024
     );
 
     // defend against costs > limit, should max to 6_000
@@ -117,6 +117,6 @@ fn test_proportional_dot_product_with_mainnet_lims() {
             },
             2 * 1024 * 1024 + 1
         ),
-        6_000
+        60_000
     );
 }

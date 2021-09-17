@@ -9,11 +9,14 @@ pub trait CostMetric {
     fn from_len(&self, tx_len: u64) -> u64;
 }
 
-pub const PROPORTION_RESOLUTION: u64 = 1000;
+pub const PROPORTION_RESOLUTION: u64 = 10_000;
 
 /// This metric calculates a single dimensional value for a transaction's
 /// consumption by summing the proportion of each of the block limit's dimensions
 /// that the transaction consumed.
+///
+/// The maximum scalar value for an execution cost that = the block limit is
+/// 6 * `PROPORTION_RESOLUTION`.
 pub struct ProportionalDotProduct {
     block_execution_limit: ExecutionCost,
     block_size_limit: u64,

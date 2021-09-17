@@ -2,6 +2,7 @@ use std::cmp;
 use std::convert::TryFrom;
 use std::{iter::FromIterator, path::Path};
 
+use super::metrics::PROPORTION_RESOLUTION;
 use rusqlite::{
     types::{FromSql, FromSqlError},
     Connection, Error as SqliteError, OptionalExtension, ToSql, Transaction as SqliteTransaction,
@@ -237,9 +238,10 @@ impl CostEstimator for PessimisticEstimator {
         if self.log_error {
             // only log the estimate error if an estimate could be constructed
             if let Ok(estimated_cost) = self.estimate_cost(tx) {
-                let estimated_scalar =
-                    estimated_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET, 1_000);
-                let actual_scalar = actual_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET, 1_000);
+                let estimated_scalar = estimated_cost
+                    .proportion_dot_product(&BLOCK_LIMIT_MAINNET, PROPORTION_RESOLUTION);
+                let actual_scalar =
+                    actual_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET, PROPORTION_RESOLUTION);
                 info!("PessimisticEstimator received event";
                       "key" => %PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost),
                       "estimate" => estimated_scalar,
