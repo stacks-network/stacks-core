@@ -23,6 +23,7 @@ use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
 use crate::util::boot::boot_code_id;
+use chainstate::stacks::BlockCostDimension;
 use vm::ast::ContractAST;
 use vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
 use vm::costs::cost_functions::ClarityCostFunction;
@@ -980,6 +981,30 @@ impl ExecutionCost {
             write_count: 0,
             read_length: 0,
         }
+    }
+
+    pub fn get_exceeding_cost_dimensions(
+        &self,
+        actual_cost: &ExecutionCost,
+    ) -> Vec<BlockCostDimension> {
+        let mut exceeding_dims = Vec::new();
+        if actual_cost.runtime > self.runtime {
+            exceeding_dims.push(BlockCostDimension::Runtime);
+        }
+        if actual_cost.read_count > self.read_count {
+            exceeding_dims.push(BlockCostDimension::ReadCount);
+        }
+        if actual_cost.read_length > self.read_length {
+            exceeding_dims.push(BlockCostDimension::ReadLength);
+        }
+        if actual_cost.write_count > self.write_count {
+            exceeding_dims.push(BlockCostDimension::WriteCount);
+        }
+        if actual_cost.write_length > self.write_length {
+            exceeding_dims.push(BlockCostDimension::WriteLength);
+        }
+
+        exceeding_dims
     }
 
     /// Returns the percentage of self consumed in `numerator`'s largest proportion dimension.

@@ -173,7 +173,7 @@ pub enum Error {
     PostConditionFailed(String),
     NoSuchBlockError,
     InvalidChainstateDB,
-    BlockTooBigError(BlockCostDimension),
+    BlockTooBigError(Vec<BlockCostDimension>),
     TransactionTooBigError,
     BlockCostExceeded,
     NoTransactionsToMine,

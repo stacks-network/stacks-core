@@ -4646,6 +4646,7 @@ impl StacksChainState {
             clarity_instance.get_block_limit(),
             block_execution_cost.clone(),
             microblock_execution_cost.clone(),
+            new_tip.block_height,
             chain_tip_burn_header_height,
         );
 

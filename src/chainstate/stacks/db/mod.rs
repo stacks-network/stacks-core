@@ -440,6 +440,37 @@ impl<'a> ChainstateTx<'a> {
         &self.config
     }
 
+    pub fn get_event_type_as_str(event: &StacksTransactionEvent) -> String {
+        let serialized_tx = match event {
+            StacksTransactionEvent::SmartContractEvent(data) => {
+                StacksTransactionEvent::SmartContractEvent(data.clone()).json_serialize(
+                    0,
+                    &Txid([0u8; 32]),
+                    true,
+                )
+            }
+            e => e.json_serialize(0, &Txid([0u8; 32]), true),
+        };
+
+        let serialized_tx = event.json_serialize(0, &Txid([0u8; 32]), true);
+        let mut event_type = match serialized_tx.get("type") {
+            Some(v) => match v.as_str() {
+                Some(s) => s,
+                None => "unknown_event_type",
+            },
+            None => "unknown_event_type",
+        }
+        .to_string();
+
+        if let StacksTransactionEvent::SmartContractEvent(data) = event {
+            let contract_id = data.key.0.to_string();
+            event_type.push_str(":");
+            event_type.push_str(&contract_id);
+        }
+
+        event_type
+    }
+
     pub fn log_transactions_processed(
         &self,
         block_id: &StacksBlockId,
@@ -447,6 +478,7 @@ impl<'a> ChainstateTx<'a> {
         block_cost_limit: ExecutionCost,
         anchored_block_cost: ExecutionCost,
         microblocks_cost: ExecutionCost,
+        stacks_block_height: u64,
         burn_header_height: u32,
     ) {
         if *TRANSACTION_LOG {
@@ -469,6 +501,12 @@ impl<'a> ChainstateTx<'a> {
             for tx_receipt in events.iter() {
                 info!("exec cost: {:?}", tx_receipt.execution_cost);
                 info!("tx events: {:?}", tx_receipt.events);
+                let serialized_events: String = tx_receipt
+                    .events
+                    .iter()
+                    .map(|e| ChainstateTx::get_event_type_as_str(e))
+                    .collect::<Vec<String>>()
+                    .join(";");
 
                 info!(
                     "Profiler: {}",
@@ -478,6 +516,7 @@ impl<'a> ChainstateTx<'a> {
                         "details": {
                             "stacks_block_id": block_id.to_hex(),
                             "txid": tx_receipt.transaction.txid().to_hex(),
+                            "serialized_events": serialized_events,
                             "read_count": tx_receipt.execution_cost.read_count,
                             "read_length": tx_receipt.execution_cost.read_length,
                             "write_count": tx_receipt.execution_cost.write_count,
@@ -503,6 +542,7 @@ impl<'a> ChainstateTx<'a> {
 
                 // populate event frequency maps
                 for event in &tx_receipt.events {
+                    let event_type = ChainstateTx::get_event_type_as_str(event);
                     match event {
                         StacksTransactionEvent::SmartContractEvent(data) => {
                             let id = data.key.0.clone();
@@ -512,17 +552,6 @@ impl<'a> ChainstateTx<'a> {
                                 contract_call_events.insert(id, 1)
                             };
 
-                            let serialized =
-                                StacksTransactionEvent::SmartContractEvent(data.clone())
-                                    .json_serialize(0, &Txid([0u8; 32]), true);
-                            let event_type = match serialized.get("type") {
-                                Some(v) => match v.as_str() {
-                                    Some(s) => s,
-                                    None => "unknown_event_type",
-                                },
-                                None => "unknown_event_type",
-                            }
-                            .to_string();
                             if let Some(count) = all_events.get(&event_type) {
                                 all_events.insert(event_type, count + 1)
                             } else {
@@ -530,16 +559,6 @@ impl<'a> ChainstateTx<'a> {
                             };
                         }
                         e => {
-                            let serialized = e.json_serialize(0, &Txid([0u8; 32]), true);
-                            let event_type = match serialized.get("type") {
-                                Some(v) => match v.as_str() {
-                                    Some(s) => s,
-                                    None => "unknown_event_type",
-                                },
-                                None => "unknown_event_type",
-                            }
-                            .to_string();
-
                             if let Some(count) = all_events.get(&event_type) {
                                 all_events.insert(event_type, count + 1)
                             } else {
@@ -562,10 +581,11 @@ impl<'a> ChainstateTx<'a> {
                 "Profiler: {}",
                 json!({
                     "event": "Frequencies of all events for a block",
-                    "tags": ["Q3"],
+                    "tags": ["Q4"],
                     "details": {
                         "stacks_block_id": block_id.to_hex(),
                         "burn_header_height": burn_header_height,
+                        "stacks_block_height": stacks_block_height,
                         "event_frequency_map": all_event_map_as_str.clone(),
                         "contract_call_frequency_map": contract_call_map_as_str.clone(),
                         "block_cost_limit": block_cost_limit.to_string(),
@@ -581,7 +601,7 @@ impl<'a> ChainstateTx<'a> {
                     let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
                     *count += 1;
                     if *count > limit {
-                        info!("This process will automatically terminate in 10s, reached the profiling limit for Q3.");
+                        info!("This process will automatically terminate in 10s, reached the profiling limit for Q4.");
                         sleep_ms(10000);
                         std::process::exit(0);
                     }

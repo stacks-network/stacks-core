@@ -28,7 +28,8 @@ use chainstate::burn::operations::*;
 use chainstate::burn::*;
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use chainstate::stacks::db::{
-    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY, PROFILING_ENABLED,
+    blocks::MemPoolRejection, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
+    PROFILING_ENABLED, PROFILING_LIMIT, STACKS_PROFILING_COUNTER,
 };
 use chainstate::stacks::events::StacksTransactionReceipt;
 use chainstate::stacks::Error;
@@ -37,11 +38,12 @@ use clarity_vm::clarity::ClarityConnection;
 use core::mempool::*;
 use core::*;
 use net::Error as net_error;
-use util::get_epoch_time_ms;
+use util::get_epoch_time_secs;
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
 use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use util::vrf::*;
+use util::{get_epoch_time_ms, sleep_ms};
 use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 
 use crate::codec::{read_next, write_next, StacksMessageCodec};
@@ -88,7 +90,7 @@ struct MicroblockMinerRuntime {
     disable_cost_check: bool,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum BlockLimitFunction {
     NO_LIMIT_HIT,
     CONTRACT_LIMIT_HIT,
@@ -432,7 +434,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.num_mined = num_txs;
 
         match result {
-            Err(Error::BlockTooBigError(_)) => {
+            Err(Error::BlockTooBigError(exceeded_dimensions)) => {
                 info!("Block size budget reached with microblocks");
             }
             Err(e) => {
@@ -549,8 +551,39 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         match result {
             Ok(_) => {}
-            Err(Error::BlockTooBigError(_)) => {
+            Err(Error::BlockTooBigError(exceeded_dimensions)) => {
                 info!("Block size budget reached with microblocks");
+                if let Some(q) = *PROFILING_ENABLED {
+                    let exceeded_dimensions_str: String = exceeded_dimensions
+                        .iter()
+                        .map(|dim| format!("{:?}", dim))
+                        .collect::<Vec<String>>()
+                        .join(" ");
+                    info!(
+                        "Profiler: {}",
+                        json!({
+                            "event": "Full microblock",
+                            "tags": ["Q5"],
+                            "details": {
+                                "exceeded_dimensions": exceeded_dimensions_str,
+                                "anchor_block_tip_height": self.anchor_block_height,
+                                "sequence_number": self.runtime.prev_microblock_header.as_ref().map_or(0, |header| header.sequence + 1),
+                            }
+                        })
+                        .to_string()
+                    );
+                    if q == 5 {
+                        let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
+                        *count += 1;
+                        if let Some(limit) = *PROFILING_LIMIT {
+                            if *count > limit {
+                                info!("This process will automatically terminate in 10s, reached the profiling limit for Q5.");
+                                sleep_ms(10000);
+                                std::process::exit(0);
+                            }
+                        }
+                    }
+                }
             }
             Err(e) => {
                 warn!("Error producing microblock: {}", e);
@@ -767,7 +800,7 @@ impl StacksBlockBuilder {
         limit_behavior: &BlockLimitFunction,
     ) -> Result<(), Error> {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            return Err(Error::BlockTooBigError(BlockCostDimension::NumBytes));
+            return Err(Error::BlockTooBigError(vec![BlockCostDimension::NumBytes]));
         }
 
         match limit_behavior {
@@ -819,7 +852,8 @@ impl StacksBlockBuilder {
                                 &cost_after,
                                 &total_budget
                             );
-                            Error::BlockTooBigError(BlockCostDimension::Todo)
+                            let exceeding_dims = total_budget.get_exceeding_cost_dimensions(&cost_after);
+                            Error::BlockTooBigError(exceeding_dims)
                         }
                     }
                     _ => e,
@@ -863,7 +897,8 @@ impl StacksBlockBuilder {
                                 &cost_after,
                                 &total_budget
                             );
-                            Error::BlockTooBigError(BlockCostDimension::Todo)
+                            let exceeding_dims = total_budget.get_exceeding_cost_dimensions(&cost_after);
+                            Error::BlockTooBigError(exceeding_dims)
                         }
                     }
                     _ => e,
@@ -1556,7 +1591,37 @@ impl StacksBlockBuilder {
                             Ok(_) => {
                                 num_txs += 1;
                             }
-                            Err(Error::BlockTooBigError(_)) => {
+                            Err(Error::BlockTooBigError(exceeded_dimensions)) => {
+                                if let Some(q) = *PROFILING_ENABLED {
+                                    let exceeded_dimensions_str: String = exceeded_dimensions
+                                        .iter()
+                                        .map(|dim| format!("{:?}", dim))
+                                        .collect::<Vec<String>>()
+                                        .join(" ");
+                                    info!(
+                                        "Profiler: {}",
+                                        json!({
+                                            "event": "Full block",
+                                            "tags": ["Q5"],
+                                            "details": {
+                                                "exceeded_dimensions": exceeded_dimensions_str,
+                                                "parent_tip_height": tip_height,
+                                                "block_limit_hit": format!("{:?}", block_limit_hit),
+                                            }
+                                        }).to_string()
+                                    );
+                                    if q == 5 {
+                                        let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
+                                        *count += 1;
+                                        if let Some(limit) = *PROFILING_LIMIT {
+                                            if *count > limit {
+                                                info!("This process will automatically terminate in 10s, reached the profiling limit for Q5.");
+                                                sleep_ms(10000);
+                                                std::process::exit(0);
+                                            }
+                                        }
+                                    }
+                                }
                                 // done mining -- our execution budget is exceeded.
                                 // Make the block from the transactions we did manage to get
                                 debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());

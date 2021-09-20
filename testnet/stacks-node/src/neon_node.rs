@@ -1062,7 +1062,6 @@ fn spawn_miner_relayer(
                         last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
 
                         if let Some(q) = *PROFILING_ENABLED {
-
                             info!("Profiler: {}", json!({
                                 "event": "Finished running tenure",
                                 "tags": ["Q1", "Q2"],
