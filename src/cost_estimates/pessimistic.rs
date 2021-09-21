@@ -7,6 +7,7 @@ use rusqlite::{
     Connection, Error as SqliteError, OptionalExtension, ToSql, Transaction as SqliteTransaction,
 };
 use serde_json::Value as JsonValue;
+pub use vm::types::signatures::TypeSignature;
 
 use chainstate::stacks::TransactionPayload;
 use util::db::u64_to_sql;
@@ -149,7 +150,8 @@ impl Samples {
     fn mean(&self) -> u64 {
         let int_mean = self.int_space_mean();
         let float_mean = self.float_space_mean();
-        let custom_mean = self.items
+        let custom_mean = self
+            .items
             .iter()
             .enumerate()
             .fold(0, |avg, (index, value)| {
@@ -257,6 +259,21 @@ impl From<SqliteError> for EstimatorError {
     }
 }
 
+fn characterize_payload(tx: &TransactionPayload) {
+    match tx {
+        TransactionPayload::ContractCall(cc) => {
+            for carg in &cc.function_args {
+                warn!(
+                    "contract argument, type {:?}, size: {:?}",
+                    TypeSignature::type_of(carg),
+                    carg.size()
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
 impl CostEstimator for PessimisticEstimator {
     fn notify_event(
         &mut self,
@@ -283,6 +300,7 @@ impl CostEstimator for PessimisticEstimator {
                           "key" => %PessimisticEstimator::get_estimate_key(tx, field),
                           "value" => field.select_key(actual_cost));
             }
+            characterize_payload(tx);
         }
 
         let sql_tx = tx_begin_immediate_sqlite(&mut self.db)?;
