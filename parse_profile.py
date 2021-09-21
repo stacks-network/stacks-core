@@ -2,6 +2,18 @@ import json
 from collections import Counter, defaultdict
 import numpy as np
 
+## Question Docs
+# Q1: How long does it take How long does it take an already-synchronized miner
+#     to broadcast their first good commitment to a new block (i.e., one that builds on the previous winner)?
+# Q2: How long does it take an already-synchronized miner to broadcast their first good commitment to a new
+#     block (i.e., one that builds on the previous winner)?
+# Q3: What distribution of transactions are limited by runtime, read count, write count, etc.?
+# Q4: What are the relative frequencies of different event types? (this breaks down by contract)
+# Q5: If an anchored block's cost limit is hit, this logs which dimension it was. Same analysis done for microblocks.
+# Q6: How long does it take a follower to process an epoch? (logs time in `append_block`)
+# Q7: No logging - how long does it take to start a non-sidecar follower from genesis?
+# Q8: How long does it take a miner to assemble a block?
+
 def parse_logs(file_name):
     events = []
     with open(file_name) as f:
@@ -39,7 +51,9 @@ def process_events(events):
     for event in events:
         name = event["event"]
         if name == "Inserting new bitcoin header":
-            insert_events[event["details"]["new_burn_height"]] = event
+            height = event["details"]["new_burn_height"]
+            if height not in insert_events:
+                insert_events[height] = event
         elif name == "Finished running tenure":
             last_burn_height = event["details"]["last_burn_height"]
             if last_burn_height not in insert_events:
@@ -47,7 +61,7 @@ def process_events(events):
             last_insert_at_height = insert_events[last_burn_height]
             is_good_commitment = None
             if event["details"]["is_good_commitment_opt"] != "none":
-                is_good_commitment = event["details"]["is_good_commitment_opt"]
+                is_good_commitment = event["details"]["is_good_commitment_opt"] == "true"
             if last_insert_at_height:
                 block_tenure_stats.append(BlockProduction(
                     last_insert_at_height["details"]["timestamp"],
@@ -141,6 +155,13 @@ class BlockProduction:
         self.height = height
         self.is_good_commitment = is_good_commitment
 
+def compute_stats_for_block_commitment(commitment_map):
+    num_values = len(commitment_map)
+    values = np.array(list(commitment_map.values()))
+    avg = np.percentile(values, 50)
+    nf_p = np.percentile(values, 95)
+    print("50th percentile: ", avg, "95th percentile: ", nf_p, "\nNum values: ", num_values)
+
 # data - list of BlockProduction stats
 #   --> a data point should be produced every time a block commitment is produced (so when the log line is created at
 #       the end of RunTenure
@@ -154,30 +175,19 @@ def compute_q1(data):
 
     for block_data in data:
         block_prod_time = block_data.end_time - block_data.start_time
-        print(block_prod_time, block_data.is_good_commitment)
         if block_data.height not in fastest_block_tracker or block_prod_time < fastest_block_tracker[block_data.height]:
             fastest_block_tracker[block_data.height] = block_prod_time
 
         if block_data.is_good_commitment == True and (block_data.height not in good_block_tracker or block_prod_time < good_block_tracker[block_data.height]):
             good_block_tracker[block_data.height] = block_prod_time
-            print("good block: ", block_data.height)
-
-
+            
     # Q1
     print("Answering Q1: What is the average time a synchronized miner takes to broadcast a block commitment?")
-    avg = 0
-    num_values = len(fastest_block_tracker)
-    for (_height, time) in fastest_block_tracker.items():
-        avg += time/num_values
-    print("Average: ", avg, "\n")
+    compute_stats_for_block_commitment(fastest_block_tracker)
 
     # Q2
     print("Answering Q2: What is the average time a synchronized miner takes to broadcast their first good block commitment?")
-    avg = 0
-    num_values = len(good_block_tracker)
-    for (_height, time) in good_block_tracker.items():
-        avg += time/num_values
-    print("Average: ", avg, "\n")
+    compute_stats_for_block_commitment(good_block_tracker)
 
 ## Test for Q1/ Q2
 ## test case:
@@ -410,3 +420,5 @@ def parse_json_file():
 
     # Closing file
     f.close()
+
+parse_log_file()

@@ -14,7 +14,7 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState, PROFILING_ENABLED};
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stx_genesis::GenesisData;
 
@@ -28,6 +28,7 @@ use crate::{
 };
 
 use super::RunLoopCallbacks;
+use crate::util::sleep_ms;
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
@@ -502,6 +503,21 @@ impl RunLoop {
                         "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
                         block_height
                     );
+                    if let Some(q) = *PROFILING_ENABLED {
+                        info!(
+                            "Profiler: {}",
+                            json!({
+                                "event": "Node fully caught up",
+                                "tags": ["Q7"]
+                            })
+                        );
+                        if q == 7 {
+                            info!("This process will automatically terminate in 10s, reached the profiling limit for Q7.");
+                            sleep_ms(10000);
+                            std::process::exit(0);
+                        }
+                    }
+
                     if !node.relayer_issue_tenure() {
                         // relayer hung up, exit.
                         error!("Block relayer and miner hung up, exiting.");

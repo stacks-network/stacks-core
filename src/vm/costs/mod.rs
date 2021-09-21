@@ -1093,6 +1093,16 @@ impl ExecutionCost {
             read_length: first.read_length.max(second.read_length),
         }
     }
+
+    pub fn convert_to_json(&self) -> serde_json::Value {
+        json!(
+        {"read_count": self.read_count,
+        "read_length": self.read_length,
+        "write_count": self.write_count,
+        "write_length": self.write_length,
+        "runtime": self.runtime,
+        })
+    }
 }
 
 // ONLY WORKS IF INPUT IS u64

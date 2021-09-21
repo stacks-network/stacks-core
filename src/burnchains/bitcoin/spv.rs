@@ -28,6 +28,7 @@ use deps::bitcoin::network::message as btc_message;
 use deps::bitcoin::network::serialize::{deserialize, serialize, BitcoinHash};
 use deps::bitcoin::util::hash::Sha256dHash;
 
+use util::get_epoch_time_ms;
 use util::uint::Uint256;
 
 use burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -579,15 +580,19 @@ impl SpvClient {
             SpvClient::insert_block_header(&mut tx, header.header, height + (i as u64))?;
             if let Some(_) = *PROFILING_ENABLED {
                 let bhh = BurnchainHeaderHash::from_bitcoin_hash(&header.header.merkle_root);
-                info!("Profiler: {}", json!({
-                    "event": "Inserting new bitcoin header",
-                    "tags": ["Q1", "Q2"],
-                    "details": {
-                        "new_burn_height": height + (i as u64),
-                        "new_burn_header_hash": bhh.to_hex(),
-                        "timestamp": get_epoch_time_secs()
-                    }
-                }).to_string());
+                info!(
+                    "Profiler: {}",
+                    json!({
+                        "event": "Inserting new bitcoin header",
+                        "tags": ["Q1", "Q2"],
+                        "details": {
+                            "new_burn_height": height + (i as u64),
+                            "new_burn_header_hash": bhh.to_hex(),
+                            "timestamp": get_epoch_time_ms()
+                        }
+                    })
+                    .to_string()
+                );
             }
         }
         tx.commit()

@@ -1070,10 +1070,10 @@ fn spawn_miner_relayer(
                                     "burn_header_hash_tip": burn_chain_tip.to_hex(),
                                     "last_burn_header_hash": burn_header_hash.to_hex(),
                                     "is_good_commitment_opt": is_good_commitment_opt.map_or("none".to_string(), |v| if v {"true".to_string()} else {"false".to_string()}),
-                                    "timestamp": get_epoch_time_secs(),
+                                    "timestamp": get_epoch_time_ms(),
                                 }
                             }).to_string());
-                            if q == 1 || q == 2 {
+                            if q == 1 || (q == 2 && is_good_commitment_opt.unwrap_or(false)) {
                                 let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
                                 *count += 1;
                                 if let Some(limit) = *PROFILING_LIMIT {

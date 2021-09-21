@@ -558,11 +558,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         .iter()
                         .map(|dim| format!("{:?}", dim))
                         .collect::<Vec<String>>()
-                        .join(" ");
+                        .join(";");
                     info!(
                         "Profiler: {}",
                         json!({
-                            "event": "Full microblock",
+                            "event": "Microblock limit hit",
                             "tags": ["Q5"],
                             "details": {
                                 "exceeded_dimensions": exceeded_dimensions_str,
@@ -1597,11 +1597,11 @@ impl StacksBlockBuilder {
                                         .iter()
                                         .map(|dim| format!("{:?}", dim))
                                         .collect::<Vec<String>>()
-                                        .join(" ");
+                                        .join(";");
                                     info!(
                                         "Profiler: {}",
                                         json!({
-                                            "event": "Full block",
+                                            "event": "Anchored block limit hit",
                                             "tags": ["Q5"],
                                             "details": {
                                                 "exceeded_dimensions": exceeded_dimensions_str,
@@ -1716,6 +1716,33 @@ impl StacksBlockBuilder {
             &consumed,
             ts_end.saturating_sub(ts_start);
         );
+
+        if let Some(q) = *PROFILING_ENABLED {
+            info!(
+                "Profiler: {}",
+                json!({
+                    "event": "Miner assembled block",
+                    "tags": ["Q8"],
+                    "details": {
+                        "block_header_hash": block.block_hash(),
+                        "mining_time": ts_end.saturating_sub(ts_start),
+                    }
+                })
+                .to_string()
+            );
+
+            if q == 8 {
+                if let Some(limit) = *PROFILING_LIMIT {
+                    let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
+                    *count += 1;
+                    if *count > limit {
+                        info!("This process will automatically terminate in 10s, reached the profiling limit for Q8.");
+                        sleep_ms(10000);
+                        std::process::exit(0);
+                    }
+                }
+            }
+        }
 
         Ok((block, consumed, size, is_good_commitment_opt))
     }

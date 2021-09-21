@@ -59,6 +59,7 @@ use clarity_vm::clarity::{
 use core::*;
 use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
+use serde_json::{Map, Value as serde_value};
 use util::db::Error as db_error;
 use util::db::{
     db_mkdirs, query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx,
@@ -522,23 +523,11 @@ impl<'a> ChainstateTx<'a> {
                             "write_count": tx_receipt.execution_cost.write_count,
                             "write_length": tx_receipt.execution_cost.write_length,
                             "runtime": tx_receipt.execution_cost.runtime,
+                            "block_cost_limit": block_cost_limit.convert_to_json(),
                         }
                     })
                     .to_string()
                 );
-                info!("Profiler: {}", json!({
-                    "event": "Execution cost of processed transaction as percentage of limit",
-                    "tags": ["Q3"],
-                    "details": {
-                        "stacks_block_id": block_id.to_hex(),
-                        "txid": tx_receipt.transaction.txid().to_hex(),
-                        "read_count": (tx_receipt.execution_cost.read_count*100) as f64/block_cost_limit.read_count as f64,
-                        "read_length": (tx_receipt.execution_cost.read_length*100) as f64/block_cost_limit.read_length as f64,
-                        "write_count": (tx_receipt.execution_cost.write_count*100) as f64/block_cost_limit.write_count as f64,
-                        "write_length": (tx_receipt.execution_cost.write_length*100) as f64/block_cost_limit.write_length as f64,
-                        "runtime": (tx_receipt.execution_cost.runtime*100) as f64/block_cost_limit.runtime as f64,
-                    }
-                }).to_string());
 
                 // populate event frequency maps
                 for event in &tx_receipt.events {
@@ -568,40 +557,39 @@ impl<'a> ChainstateTx<'a> {
                     }
                 }
             }
-            // log frequencies of events
-            let all_event_map_as_str = all_events
-                .into_iter()
-                .map(|(k, v)| format!("{:?}: {}; ", k, v))
-                .collect::<String>();
-            let contract_call_map_as_str = contract_call_events
-                .into_iter()
-                .map(|(k, v)| format!("{:?}: {}; ", k, v))
-                .collect::<String>();
-            info!(
-                "Profiler: {}",
-                json!({
-                    "event": "Frequencies of all events for a block",
-                    "tags": ["Q4"],
-                    "details": {
-                        "stacks_block_id": block_id.to_hex(),
-                        "burn_header_height": burn_header_height,
-                        "stacks_block_height": stacks_block_height,
-                        "event_frequency_map": all_event_map_as_str.clone(),
-                        "contract_call_frequency_map": contract_call_map_as_str.clone(),
-                        "block_cost_limit": block_cost_limit.to_string(),
-                        "anchored_block_cost": anchored_block_cost.to_string(),
-                        "microblocks_cost": microblocks_cost.to_string(),
-                    }
-                })
-                .to_string()
-            );
+            // convert frequencies of events to json objects
+            let mut all_event_map = Map::new();
+            for (k, v) in all_events.into_iter() {
+                all_event_map.insert(k, json!(v));
+            }
+            let all_event_obj = serde_value::Object(all_event_map);
+            let mut contract_call_map = Map::new();
+            for (k, v) in contract_call_events.into_iter() {
+                contract_call_map.insert(k.to_string(), json!(v));
+            }
+            let contract_call_obj = serde_value::Object(contract_call_map);
+            let json_obj = json!({
+                "event": "Frequencies of all events for a block",
+                "tags": ["Q4"],
+                "details": {
+                    "stacks_block_id": block_id.to_hex(),
+                    "burn_header_height": burn_header_height,
+                    "stacks_block_height": stacks_block_height,
+                    "event_frequency_map": all_event_obj.clone(),
+                    "contract_call_frequency_map": contract_call_obj.clone(),
+                    "block_cost_limit": block_cost_limit.convert_to_json(),
+                    "anchored_block_cost": anchored_block_cost.convert_to_json(),
+                    "microblocks_cost": microblocks_cost.convert_to_json(),
+                }
+            });
+            info!("Profiler: {}", json_obj.to_string());
 
-            if q == 3 {
+            if q == 3 || q == 4 {
                 if let Some(limit) = *PROFILING_LIMIT {
                     let mut count = STACKS_PROFILING_COUNTER.lock().unwrap();
                     *count += 1;
                     if *count > limit {
-                        info!("This process will automatically terminate in 10s, reached the profiling limit for Q4.");
+                        info!("This process will automatically terminate in 10s, reached the profiling limit for Q3 or Q4.");
                         sleep_ms(10000);
                         std::process::exit(0);
                     }
