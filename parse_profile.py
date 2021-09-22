@@ -1,6 +1,7 @@
 import json
 from collections import Counter, defaultdict
 import numpy as np
+import sys
 
 ## Question Docs
 # Q1: How long does it take How long does it take an already-synchronized miner
@@ -406,7 +407,7 @@ def compute_q8(mining_times):
     print("95th percentile:", nf_perc)
     print("Num values:", len(mining_times))
 
-def parse_log_file(file_name="sample_logs.txt"):
+def compute_stats_from_log_file(file_name="sample_logs.txt"):
     events = parse_logs(file_name)
     (block_tenure_stats, unmatched_block_tenure, tx_costs, block_limit, block_tx_data, microblock_limit_hit,
      anchored_block_limit_hit, block_processing_times, node_startup_time, mining_times) = process_events(events)
@@ -447,5 +448,9 @@ def parse_json_file():
     # Closing file
     f.close()
 
-parse_log_file()
-# parse_json_file()
+
+if __name__ == "__main__":
+    file_name = "sample_logs.txt"
+    if len(sys.argv) >= 2:
+        file_name = str(sys.argv[1])
+    compute_stats_from_log_file(file_name)
