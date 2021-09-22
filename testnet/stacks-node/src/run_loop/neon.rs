@@ -28,7 +28,7 @@ use crate::{
 };
 
 use super::RunLoopCallbacks;
-use crate::util::sleep_ms;
+use crate::util::{get_epoch_time_secs, sleep_ms};
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
@@ -121,6 +121,17 @@ impl RunLoop {
         });
         if let Err(e) = install {
             error!("Error setting termination handler - {}", e);
+        }
+
+        if let Some(q) = *PROFILING_ENABLED {
+            info!(
+                "Profiler: {}",
+                json!({
+                    "event": "Node starting up",
+                    "tags": ["Q7"],
+                    "timestamp": get_epoch_time_secs(),
+                })
+            );
         }
 
         // Initialize and start the burnchain.
@@ -508,7 +519,8 @@ impl RunLoop {
                             "Profiler: {}",
                             json!({
                                 "event": "Node fully caught up",
-                                "tags": ["Q7"]
+                                "tags": ["Q7"],
+                                "timestamp": get_epoch_time_secs()
                             })
                         );
                         if q == 7 {

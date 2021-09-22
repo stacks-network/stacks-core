@@ -576,7 +576,6 @@ impl<'a> ChainstateTx<'a> {
                     "burn_header_height": burn_header_height,
                     "stacks_block_height": stacks_block_height,
                     "event_frequency_map": all_event_obj.clone(),
-                    "contract_call_frequency_map": contract_call_obj.clone(),
                     "block_cost_limit": block_cost_limit.convert_to_json(),
                     "anchored_block_cost": anchored_block_cost.convert_to_json(),
                     "microblocks_cost": microblocks_cost.convert_to_json(),

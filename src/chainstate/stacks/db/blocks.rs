@@ -4213,20 +4213,6 @@ impl StacksChainState {
             block.txs.len()
         );
         let start_timestamp = get_epoch_time_ms();
-        if let Some(q) = *PROFILING_ENABLED {
-            info!(
-                "Profiler: {}",
-                json!({
-                    "event": "Start of processing block",
-                    "tags": ["Q6"],
-                    "details": {
-                        "stacks_block_id": &block.block_hash().to_hex(),
-                         "timestamp": start_timestamp,
-                    }
-                })
-                .to_string()
-            );
-        }
 
         let mainnet = chainstate_tx.get_config().mainnet;
         let next_block_height = block.header.total_work.work;
