@@ -96,15 +96,15 @@ def process_events(events):
         elif name == "Full block":
             anchored_block_limit_hit.append(BlockLimitHit(
                 event["details"]["exceeded_dimensions"],
-                event["details"]["anchor_block_tip_height"],
-                event["details"]["sequence_number"],
+                event["details"]["parent_tip_height"],
+                event["details"]["block_limit_hit"],
             ))
         # Q5b
         elif name == "Full microblock":
             microblock_limit_hit.append(MicroblockLimitHit(
                 event["details"]["exceeded_dimensions"],
-                event["details"]["parent_tip_height"],
-                event["details"]["block_limit_hit"],
+                event["details"]["anchored_block_tip_height"],
+                event["details"]["sequence_number"],
             ))
         # Q6
         elif name == "End of processing block":
@@ -218,7 +218,7 @@ def compute_q1_and_q2(data):
             good_block_tracker[block_data.height] = block_prod_time
 
     # Q1
-    print("Answering Q1: What is the average time (in ms) a synchronized miner takes to broadcast a block commitment?")
+    print("\nAnswering Q1: What is the average time (in ms) a synchronized miner takes to broadcast a block commitment?")
     compute_stats_for_block_commitment(fastest_block_tracker)
 
     # Q2
@@ -334,15 +334,15 @@ def compute_q5a(block_limit_hit_data, total_blocks_mined):
     exceeded_dimension_counter = defaultdict(int)
     total_limits_hit = 0
     for lim_hit in block_limit_hit_data:
-        exceeded_dimensions = lim_hit["exceeded_dimensions"].split(" ")
+        exceeded_dimensions = lim_hit.exceeded_dimensions.split(";")
         for dim in exceeded_dimensions:
             exceeded_dimension_counter[dim] += 1
             total_limits_hit += 1
     percent_per_dim = {}
-    for cost_dim, num_hits in exceeded_dimension_counter:
-        percent_per_dim[cost_dim] = num_hits/total_limits_hit
+    for cost_dim, num_hits in exceeded_dimension_counter.items():
+        percent_per_dim[cost_dim] = num_hits/total_limits_hit * 100
 
-    print("\nAnswering Q5: stats on full blocks")
+    print("\nAnswering Q5a: stats on full blocks")
     print("Num of full blocks:", len(block_limit_hit_data))
     print("Num of total blocks:", total_blocks_mined)
     print("Percent breakdown of which limit is hit:", percent_per_dim)
@@ -368,10 +368,10 @@ def compute_q5b(microblock_limit_hit_data):
             exceeded_dimension_counter[dim] += 1
             total_limits_hit += 1
     percent_per_dim = {}
-    for cost_dim, num_hits in exceeded_dimension_counter:
-        percent_per_dim[cost_dim] = num_hits/total_limits_hit
+    for cost_dim, num_hits in exceeded_dimension_counter.items():
+        percent_per_dim[cost_dim] = num_hits/total_limits_hit * 100
 
-    print("\nAnswering Q5: stats on full microblocks")
+    print("\nAnswering Q5b: stats on full microblocks")
     print("Num of full microblocks:", len(microblock_limit_hit_data))
     print("Percent breakdown of which limit is hit:", percent_per_dim)
 
