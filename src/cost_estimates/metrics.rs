@@ -22,6 +22,11 @@ pub struct ProportionalDotProduct {
     block_size_limit: u64,
 }
 
+/// This metric always returns a unit value for all execution costs and tx lengths.
+/// When used, this metric will cause block assembly to consider transactions based
+/// solely on their raw transaction fee, not any kind of rate estimation.
+pub struct UnitMetric;
+
 impl ProportionalDotProduct {
     pub fn new(
         block_size_limit: u64,
@@ -52,5 +57,15 @@ impl CostMetric for ProportionalDotProduct {
 
     fn from_len(&self, tx_len: u64) -> u64 {
         self.calculate_len_proportion(tx_len)
+    }
+}
+
+impl CostMetric for UnitMetric {
+    fn from_cost_and_len(&self, _cost: &ExecutionCost, _tx_len: u64) -> u64 {
+        1
+    }
+
+    fn from_len(&self, _tx_len: u64) -> u64 {
+        1
     }
 }

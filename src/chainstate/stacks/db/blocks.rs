@@ -5545,6 +5545,8 @@ pub mod test {
     use util::hash::*;
     use util::retry::*;
 
+    use crate::cost_estimates::metrics::UnitMetric;
+    use crate::cost_estimates::UnitEstimator;
     use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore};
 
     use super::*;
@@ -9169,6 +9171,9 @@ pub mod test {
                     let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
+                    let mut estimator = UnitEstimator;
+                    let metric = UnitMetric;
+
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
@@ -9180,6 +9185,8 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        &mut estimator,
+                        &metric,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])

@@ -40,6 +40,7 @@ use chainstate::stacks::{
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use monitoring::increment_stx_mempool_gc;
+use std::time::Instant;
 use util::db::query_row_columns;
 use util::db::query_rows;
 use util::db::tx_begin_immediate;
@@ -55,7 +56,11 @@ use vm::types::PrincipalData;
 
 use clarity_vm::clarity::ClarityConnection;
 
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::codec::StacksMessageCodec;
+use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::CostEstimator;
+use crate::cost_estimates::EstimatorError;
 use crate::monitoring;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
 
@@ -103,6 +108,21 @@ pub enum MemPoolDropReason {
     TOO_EXPENSIVE,
 }
 
+pub struct ConsiderTransaction {
+    /// Transaction to consider in block assembly
+    pub tx: MemPoolTxInfo,
+    /// If `update_estimator` is set, the iteration should update the estimator
+    /// after considering the tx.
+    pub update_estimate: bool,
+}
+
+enum ConsiderTransactionResult {
+    NO_TRANSACTIONS,
+    UPDATE_NONCES(Vec<StacksAddress>),
+    /// This transaction should be considered for inclusion in the block.
+    CONSIDER(ConsiderTransaction),
+}
+
 impl std::fmt::Display for MemPoolDropReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -136,6 +156,8 @@ pub struct MemPoolTxMetadata {
     pub origin_nonce: u64,
     pub sponsor_address: StacksAddress,
     pub sponsor_nonce: u64,
+    pub last_known_origin_nonce: Option<u64>,
+    pub last_known_sponsor_nonce: Option<u64>,
     pub accept_time: u64,
 }
 
@@ -175,26 +197,30 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
         let tx_fee = u64::from_column(row, "tx_fee")?;
-        let height = u64::from_column(row, "height")?;
+        let block_height = u64::from_column(row, "height")?;
         let len = u64::from_column(row, "length")?;
-        let ts = u64::from_column(row, "accept_time")?;
+        let accept_time = u64::from_column(row, "accept_time")?;
         let origin_address = StacksAddress::from_column(row, "origin_address")?;
         let origin_nonce = u64::from_column(row, "origin_nonce")?;
         let sponsor_address = StacksAddress::from_column(row, "sponsor_address")?;
         let sponsor_nonce = u64::from_column(row, "sponsor_nonce")?;
+        let last_known_sponsor_nonce = u64::from_column(row, "last_known_sponsor_nonce")?;
+        let last_known_origin_nonce = u64::from_column(row, "last_known_origin_nonce")?;
 
         Ok(MemPoolTxMetadata {
-            txid: txid,
-            tx_fee: tx_fee,
-            len: len,
-            consensus_hash: consensus_hash,
-            block_header_hash: block_header_hash,
-            block_height: height,
-            accept_time: ts,
-            origin_address: origin_address,
-            origin_nonce: origin_nonce,
-            sponsor_address: sponsor_address,
-            sponsor_nonce: sponsor_nonce,
+            txid,
+            len,
+            tx_fee,
+            consensus_hash,
+            block_header_hash,
+            block_height,
+            origin_address,
+            origin_nonce,
+            sponsor_address,
+            sponsor_nonce,
+            last_known_origin_nonce,
+            last_known_sponsor_nonce,
+            accept_time,
         })
     }
 }
@@ -255,6 +281,24 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);",
 ];
 
+const MEMPOOL_SCHEMA_2: &'static [&'static str] = &[
+    r#"
+    CREATE TABLE fee_estimates(
+        txid TEXT NOT NULL,
+        fee_rate NUMBER,
+        PRIMARY KEY (txid),
+        FOREIGN KEY (txid) REFERENCES mempool (txid) ON DELETE CASCADE ON UPDATE CASCADE
+    );
+    "#,
+    r#"
+    ALTER TABLE mempool ADD COLUMN last_known_origin_nonce TEXT;
+    "#,
+    r#"
+    ALTER TABLE mempool ADD COLUMN last_known_sponsor_nonce TEXT;
+    "#,
+    "CREATE INDEX by_txid ON mempool(txid);",
+];
+
 pub struct MemPoolDB {
     db: DBConn,
     path: String,
@@ -311,22 +355,21 @@ impl MemPoolTxInfo {
             };
 
         let metadata = MemPoolTxMetadata {
-            txid: txid,
+            txid,
             len: tx_data.len() as u64,
             tx_fee: tx.get_tx_fee(),
-            consensus_hash: consensus_hash,
-            block_header_hash: block_header_hash,
-            block_height: block_height,
-            origin_address: origin_address,
-            origin_nonce: origin_nonce,
-            sponsor_address: sponsor_address,
-            sponsor_nonce: sponsor_nonce,
+            consensus_hash,
+            block_header_hash,
+            block_height,
+            origin_address,
+            origin_nonce,
+            sponsor_address,
+            sponsor_nonce,
             accept_time: get_epoch_time_secs(),
+            last_known_origin_nonce: None,
+            last_known_sponsor_nonce: None,
         };
-        MemPoolTxInfo {
-            tx: tx,
-            metadata: metadata,
-        }
+        MemPoolTxInfo { tx, metadata }
     }
 }
 
@@ -393,6 +436,8 @@ impl MemPoolDB {
         conn.busy_handler(Some(tx_busy_handler))
             .map_err(db_error::SqliteError)?;
 
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+
         if create_flag {
             // instantiate!
             MemPoolDB::instantiate_mempool_db(&mut conn)?;
@@ -401,8 +446,82 @@ impl MemPoolDB {
         Ok(MemPoolDB {
             db: conn,
             path: db_path,
-            admitter: admitter,
+            admitter,
         })
+    }
+
+    pub fn reset_last_known_nonces(&mut self) -> Result<(), db_error> {
+        let sql =
+            "UPDATE mempool SET last_known_origin_nonce = NULL, last_known_sponsor_nonce = NULL";
+        self.db.execute(sql, rusqlite::NO_PARAMS)?;
+        Ok(())
+    }
+
+    fn bump_last_known_nonces(&self, address: &StacksAddress) -> Result<(), db_error> {
+        let query_by = address.to_string();
+
+        let sql = "UPDATE mempool SET last_known_origin_nonce = last_known_origin_nonce + 1
+                   WHERE origin_address = ? AND last_known_origin_nonce IS NOT NULL";
+        self.db.execute(sql, &[&query_by])?;
+
+        let sql = "UPDATE mempool SET last_known_sponsor_nonce = last_known_sponsor_nonce + 1
+                   WHERE sponsor_address = ? AND last_known_sponsor_nonce IS NOT NULL";
+        self.db.execute(sql, &[&query_by])?;
+        Ok(())
+    }
+
+    fn update_last_known_nonces(
+        &self,
+        address: &StacksAddress,
+        nonce: u64,
+    ) -> Result<(), db_error> {
+        let addr_str = address.to_string();
+        let nonce_i64 = u64_to_sql(nonce)?;
+
+        let sql = "UPDATE mempool SET last_known_origin_nonce = ? WHERE origin_address = ?";
+        self.db
+            .execute(sql, rusqlite::params![nonce_i64, &addr_str])?;
+
+        let sql = "UPDATE mempool SET last_known_sponsor_nonce = ? WHERE sponsor_address = ?";
+        self.db
+            .execute(sql, rusqlite::params![nonce_i64, &addr_str])?;
+        Ok(())
+    }
+
+    fn get_next_tx_to_consider(&self) -> Result<ConsiderTransactionResult, db_error> {
+        let select_estimate = "SELECT * FROM mempool WHERE
+                   ((origin_nonce = last_known_origin_nonce + 1 AND
+                     sponsor_nonce = last_known_sponsor_nonce + 1) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
+                   AND estimated_fee_rate IS NOT NULL ORDER BY estimated_fee_rate DESC LIMIT 1";
+        let select_no_estimate = "SELECT * FROM mempool WHERE
+                   ((origin_nonce = last_known_origin_nonce + 1 AND
+                     sponsor_nonce = last_known_sponsor_nonce + 1) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
+                   AND estimated_fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
+        let (next_tx, update_estimate): (MemPoolTxInfo, bool) =
+            match query_row(&self.db, select_estimate, rusqlite::NO_PARAMS)? {
+                Some(tx) => (tx, false),
+                None => match query_row(&self.db, select_no_estimate, rusqlite::NO_PARAMS)? {
+                    Some(tx) => (tx, true),
+                    None => return Ok(ConsiderTransactionResult::NO_TRANSACTIONS),
+                },
+            };
+
+        let mut needs_nonces = vec![];
+        if next_tx.metadata.last_known_origin_nonce.is_none() {
+            needs_nonces.push(next_tx.metadata.origin_address);
+        }
+        if next_tx.metadata.last_known_sponsor_nonce.is_none() {
+            needs_nonces.push(next_tx.metadata.sponsor_address);
+        }
+
+        if !needs_nonces.is_empty() {
+            Ok(ConsiderTransactionResult::UPDATE_NONCES(needs_nonces))
+        } else {
+            Ok(ConsiderTransactionResult::CONSIDER(ConsiderTransaction {
+                tx: next_tx,
+                update_estimate,
+            }))
+        }
     }
 
     /// Find the origin addresses who have sent the highest-fee transactions
@@ -414,7 +533,8 @@ impl MemPoolDB {
         offset: u32,
         count: u32,
     ) -> Result<Vec<StacksAddress>, db_error> {
-        let sql = "SELECT DISTINCT origin_address FROM mempool WHERE height > ?1 AND height <= ?2 AND tx_fee >= ?3 ORDER BY tx_fee DESC LIMIT ?4 OFFSET ?5";
+        let sql = "SELECT DISTINCT origin_address FROM mempool WHERE height > ?1 AND height <= ?2 AND tx_fee >= ?3
+                   ORDER BY tx_fee DESC LIMIT ?4 OFFSET ?5";
         let args: &[&dyn ToSql] = &[
             &start_height,
             &end_height,
@@ -423,6 +543,53 @@ impl MemPoolDB {
             &offset,
         ];
         query_row_columns(self.conn(), sql, args, "origin_address")
+    }
+
+    /// Add estimated fee rates to the mempool rate table using
+    /// the supplied `CostMetric` and `CostEstimator`. Will update
+    /// at most `max_updates` entries in the database before returning.
+    ///
+    /// Returns `Ok(number_updated)` on success
+    pub fn estimate_tx_rates<CE: CostEstimator, CM: CostMetric>(
+        &mut self,
+        estimator: &CE,
+        metric: &CM,
+        max_updates: u32,
+    ) -> Result<u32, db_error> {
+        let sql_tx = self.tx_begin()?;
+        let txs: Vec<MemPoolTxInfo> = query_rows(
+            &sql_tx,
+            "SELECT * FROM mempool as m LEFT OUTER JOIN fee_estimates as f ON
+                               m.txid = f.txid WHERE f.fee_rate IS NULL LIMIT ?",
+            &[max_updates],
+        )?;
+        let mut updated = 0;
+        for tx_to_estimate in txs {
+            let txid = tx_to_estimate.tx.txid();
+            let cost_estimate = match estimator.estimate_cost(&tx_to_estimate.tx.payload) {
+                Ok(x) => x,
+                Err(EstimatorError::NoEstimateAvailable) => continue,
+                Err(e) => {
+                    warn!("Error while estimating mempool tx rate";
+                          "txid" => %txid,
+                          "error" => ?e);
+                    continue;
+                }
+            };
+            let metric_estimate =
+                metric.from_cost_and_len(&cost_estimate, tx_to_estimate.tx.tx_len());
+            let fee_rate_f64 = tx_to_estimate.tx.get_tx_fee() as f64 / metric_estimate as f64;
+
+            sql_tx.execute(
+                "INSERT OR REPLACE INTO fee_estimates(txid, fee_rate) VALUES (?, ?)",
+                rusqlite::params![&txid, fee_rate_f64],
+            )?;
+            updated += 1;
+        }
+
+        sql_tx.commit()?;
+
+        Ok(updated)
     }
 
     ///
@@ -437,114 +604,74 @@ impl MemPoolDB {
     pub fn iterate_candidates<F, E, C>(
         &self,
         clarity_tx: &mut C,
-        tip_height: u64,
+        _tip_height: u64,
         settings: MemPoolWalkSettings,
         mut todo: F,
     ) -> Result<u64, E>
     where
         C: ClarityConnection,
-        F: FnMut(&mut C, MemPoolTxInfo) -> Result<bool, E>,
+        F: FnMut(&mut C, &ConsiderTransaction) -> Result<bool, E>,
         E: From<db_error> + From<ChainstateError>,
     {
-        let min_height = (tip_height as i64)
-            .checked_sub((MEMPOOL_MAX_TRANSACTION_AGE + 1) as i64)
-            .unwrap_or(-1);
-        let max_height = tip_height as i64;
-
-        let page_size = 1000;
-        let mut offset = 0;
-
-        let min_tx_fee = settings.min_tx_fee;
-
-        let deadline = get_epoch_time_ms() + (settings.max_walk_time_ms as u128);
+        let start_time = Instant::now();
         let mut total_considered = 0;
-        let mut total_origins = 0;
 
-        test_debug!(
-            "Mempool walk for {}ms, min tx fee {}",
-            settings.max_walk_time_ms,
-            min_tx_fee,
-        );
+        debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
         loop {
-            if deadline <= get_epoch_time_ms() {
-                debug!("Mempool iteration deadline exceeded");
+            if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
+                debug!("Mempool iteration deadline exceeded";
+                       "deadline_ms" => settings.max_walk_time_ms);
                 break;
             }
 
-            let origin_addresses = self.find_origin_addresses_by_descending_fees(
-                min_height,
-                max_height,
-                min_tx_fee,
-                offset * page_size,
-                page_size,
-            )?;
-            debug!(
-                "Consider {} origin addresses between {},{} with min_fee {}",
-                origin_addresses.len(),
-                min_height,
-                max_height,
-                min_tx_fee,
-            );
-
-            if origin_addresses.len() == 0 {
-                debug!("No more origin addresses to consider");
-                break;
-            }
-
-            for origin_address in origin_addresses.iter() {
-                if deadline <= get_epoch_time_ms() {
-                    debug!("Mempool iteration deadline exceeded");
+            match self.get_next_tx_to_consider()? {
+                ConsiderTransactionResult::NO_TRANSACTIONS => {
+                    debug!("No more transactions to consider in mempool");
                     break;
                 }
+                ConsiderTransactionResult::UPDATE_NONCES(addresses) => {
+                    let mut last_addr = None;
+                    for address in addresses.into_iter() {
+                        // do not recheck nonces if the sponsor == origin
+                        if last_addr.as_ref() == Some(&address) {
+                            continue;
+                        }
+                        let min_nonce =
+                            StacksChainState::get_account(clarity_tx, &address.clone().into())
+                                .nonce;
 
-                let min_origin_nonce = StacksChainState::get_account(
-                    clarity_tx,
-                    &PrincipalData::Standard(origin_address.to_owned().into()),
-                )
-                .nonce;
-
-                total_origins += 1;
-
-                debug!(
-                    "Consider mempool transactions from origin address {} nonce {}",
-                    &origin_address, min_origin_nonce
-                );
-
-                let sql = "SELECT * FROM mempool WHERE origin_address = ?1 AND height > ?2 AND height <= ?3 AND origin_nonce = ?4 AND tx_fee >= ?5 ORDER BY sponsor_nonce ASC LIMIT 1";
-                let args: &[&dyn ToSql] = &[
-                    &origin_address.to_string(),
-                    &min_height,
-                    &max_height,
-                    &u64_to_sql(min_origin_nonce)?,
-                    &u64_to_sql(min_tx_fee)?,
-                ];
-
-                let tx_opt = query_row::<MemPoolTxInfo, _>(self.conn(), sql, args)?;
-                if let Some(tx) = tx_opt {
+                        self.update_last_known_nonces(&address, min_nonce)?;
+                        last_addr = Some(address)
+                    }
+                }
+                ConsiderTransactionResult::CONSIDER(consider) => {
+                    debug!("Consider mempool transaction";
+                           "txid" => %consider.tx.tx.txid(),
+                           "origin_addr" => %consider.tx.metadata.origin_address,
+                           "sponsor_addr" => %consider.tx.metadata.sponsor_address,
+                           "accept_time" => consider.tx.metadata.accept_time,
+                           "tx_fee" => consider.tx.metadata.tx_fee,
+                           "size" => consider.tx.metadata.len);
                     total_considered += 1;
-                    debug!(
-                        "Consider transaction {} from {} between heights {},{} with nonce = {} and tx_fee = {} and size = {}",
-                        &tx.metadata.txid,
-                        &origin_address,
-                        min_height,
-                        max_height,
-                        min_origin_nonce,
-                        tx.metadata.tx_fee,
-                        tx.metadata.len
-                    );
 
-                    if !todo(clarity_tx, tx)? {
-                        test_debug!("Mempool early return from iteration");
+                    if !todo(clarity_tx, &consider)? {
+                        debug!("Mempool iteration early exit from iterator");
                         break;
+                    }
+
+                    self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
+                    if consider.tx.tx.auth.is_sponsored() {
+                        self.bump_last_known_nonces(&consider.tx.metadata.sponsor_address)?;
                     }
                 }
             }
-            offset += 1;
         }
+
         debug!(
-            "Mempool iteration finished; considered {} transactions across {} origin addresses",
-            total_considered, total_origins
+            "Mempool iteration finished";
+            "considered_txs" => total_considered,
+            "elapsed_ms" => start_time.elapsed().as_millis()
         );
         Ok(total_considered)
     }

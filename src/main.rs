@@ -33,6 +33,8 @@ use std::process;
 use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
 
+use blockstack_lib::cost_estimates::UnitEstimator;
+use cost_estimates::metrics::UnitMetric;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
@@ -486,6 +488,9 @@ simulating a miner.
         settings.max_miner_time_ms = max_time;
         settings.mempool_settings.min_tx_fee = min_fee;
 
+        let mut estimator = UnitEstimator;
+        let metric = UnitMetric;
+
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
             &sort_db.index_conn(),
@@ -497,6 +502,8 @@ simulating a miner.
             &coinbase_tx,
             settings,
             None,
+            &mut estimator,
+            &metric,
         );
 
         let stop = get_epoch_time_ms();

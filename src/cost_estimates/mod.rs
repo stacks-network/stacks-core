@@ -178,3 +178,28 @@ impl FeeEstimator for () {
         Err(EstimatorError::NoEstimateAvailable)
     }
 }
+
+/// This estimator always returns a unit estimate in all dimensions.
+/// This can be paired with the UnitMetric to cause block assembly to consider
+/// *only* transaction fees, not performing any kind of rate estimation.
+pub struct UnitEstimator;
+
+impl CostEstimator for UnitEstimator {
+    fn notify_event(
+        &mut self,
+        _tx: &TransactionPayload,
+        _actual_cost: &ExecutionCost,
+    ) -> Result<(), EstimatorError> {
+        Ok(())
+    }
+
+    fn estimate_cost(&self, _tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError> {
+        Ok(ExecutionCost {
+            write_length: 1,
+            write_count: 1,
+            read_length: 1,
+            read_count: 1,
+            runtime: 1,
+        })
+    }
+}
