@@ -5424,7 +5424,7 @@ mod test {
         let mut post_transaction_preamble = HttpRequestPreamble::new(
             HttpVersion::Http11,
             "POST".to_string(),
-            "/v2/transactions".to_string(),
+            "/v2/transactions?use_unconfirmed_tip=true".to_string(),
             http_request_metadata_dns.peer.hostname(),
             http_request_metadata_dns.peer.port(),
             http_request_metadata_dns.keep_alive,
