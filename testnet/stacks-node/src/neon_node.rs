@@ -27,6 +27,7 @@ use stacks::chainstate::stacks::db::{
 };
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
+use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::chainstate::stacks::{
     miner::BlockBuilderSettings, miner::StacksMicroblockBuilder, StacksBlockBuilder,
 };
@@ -37,6 +38,11 @@ use stacks::chainstate::stacks::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use stacks::cost_estimates::metrics::CostMetric;
+use stacks::cost_estimates::metrics::ProportionalDotProduct;
+use stacks::cost_estimates::metrics::UnitMetric;
+use stacks::cost_estimates::CostEstimator;
+use stacks::cost_estimates::UnitEstimator;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
 use stacks::net::{
     atlas::{AtlasConfig, AtlasDB, AttachmentInstance},
@@ -60,6 +66,8 @@ use stacks::vm::costs::ExecutionCost;
 use stacks::{burnchains::BurnchainSigner, chainstate::stacks::db::StacksHeaderInfo};
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
+use crate::config::CostEstimatorName;
+use crate::config::CostMetricName;
 use crate::run_loop::RegisteredKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
@@ -324,11 +332,13 @@ fn inner_generate_block_commit_op(
 }
 
 /// Mine and broadcast a single microblock, unconditionally.
-fn mine_one_microblock(
+fn mine_one_microblock<CM: CostMetric + ?Sized, CE: CostEstimator + ?Sized>(
     microblock_state: &mut MicroblockMinerState,
     sortdb: &SortitionDB,
     chainstate: &mut StacksChainState,
-    mempool: &MemPoolDB,
+    mempool: &mut MemPoolDB,
+    estimator: &mut CE,
+    metric: &CM,
 ) -> Result<StacksMicroblock, ChainstateError> {
     debug!(
         "Try to mine one microblock off of {}/{} (total: {})",
@@ -363,7 +373,13 @@ fn mine_one_microblock(
         };
 
         let t1 = get_epoch_time_ms();
-        let mblock = microblock_miner.mine_next_microblock(mempool, &microblock_state.miner_key)?;
+
+        let mblock = microblock_miner.mine_next_microblock(
+            mempool,
+            &microblock_state.miner_key,
+            estimator,
+            metric,
+        )?;
         let new_cost_so_far = microblock_miner.get_cost_so_far().expect("BUG: cannot read cost so far from miner -- indicates that the underlying Clarity Tx is somehow in use still.");
         let t2 = get_epoch_time_ms();
 
@@ -399,13 +415,15 @@ fn mine_one_microblock(
     return Ok(mined_microblock);
 }
 
-fn try_mine_microblock(
+fn try_mine_microblock<CM: CostMetric + ?Sized, CE: CostEstimator + ?Sized>(
     config: &Config,
     microblock_miner_state: &mut Option<MicroblockMinerState>,
     chainstate: &mut StacksChainState,
     sortdb: &SortitionDB,
-    mem_pool: &MemPoolDB,
+    mem_pool: &mut MemPoolDB,
     winning_tip: (ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey),
+    estimator: &mut CE,
+    metric: &CM,
 ) -> Result<Option<StacksMicroblock>, NetError> {
     let ch = winning_tip.0;
     let bhh = winning_tip.1;
@@ -466,8 +484,14 @@ fn try_mine_microblock(
                     get_epoch_time_secs() - 600,
                 )?;
                 if num_attachable == 0 {
-                    match mine_one_microblock(&mut microblock_miner, sortdb, chainstate, &mem_pool)
-                    {
+                    match mine_one_microblock(
+                        &mut microblock_miner,
+                        sortdb,
+                        chainstate,
+                        mem_pool,
+                        estimator,
+                        metric,
+                    ) {
                         Ok(microblock) => {
                             // will need to relay this
                             next_microblock = Some(microblock);
@@ -493,16 +517,18 @@ fn try_mine_microblock(
     Ok(next_microblock)
 }
 
-fn run_microblock_tenure(
+fn run_microblock_tenure<CM: CostMetric + ?Sized, CE: CostEstimator + ?Sized>(
     config: &Config,
     microblock_miner_state: &mut Option<MicroblockMinerState>,
     chainstate: &mut StacksChainState,
     sortdb: &mut SortitionDB,
-    mem_pool: &MemPoolDB,
+    mem_pool: &mut MemPoolDB,
     relayer: &mut Relayer,
     miner_tip: (ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey),
     microblocks_processed: BlocksProcessedCounter,
     event_dispatcher: &EventDispatcher,
+    estimator: &mut CE,
+    metric: &CM,
 ) {
     // TODO: this is sensitive to poll latency -- can we call this on a fixed
     // schedule, regardless of network activity?
@@ -522,6 +548,8 @@ fn run_microblock_tenure(
         sortdb,
         mem_pool,
         miner_tip.clone(),
+        estimator,
+        metric,
     ) {
         Ok(x) => x,
         Err(e) => {
@@ -839,6 +867,20 @@ fn spawn_miner_relayer(
     let mut last_tenure_issue_time = 0;
 
     let relayer_handle = thread::Builder::new().name("relayer".to_string()).spawn(move || {
+        let mut cost_estimator: Box<dyn CostEstimator> = match config.estimation.cost_estimator {
+            Some(CostEstimatorName::NaivePessimistic) =>
+                Box::new(
+                    config.estimation
+                        .make_pessimistic_cost_estimator(config.get_chainstate_path())),
+            None => Box::new(UnitEstimator),
+        };
+
+        let metric: Box<dyn CostMetric> = match config.estimation.cost_metric {
+            Some(CostMetricName::ProportionDotProduct) =>
+                Box::new(ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, config.block_limit.clone())),
+            None => Box::new(UnitMetric),
+        };
+
         while let Ok(mut directive) = relay_channel.recv() {
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
@@ -1048,6 +1090,8 @@ fn spawn_miner_relayer(
                         &mut bitcoin_controller,
                         &last_mined_blocks_vec.iter().map(|(blk, _)| blk).collect(),
                         &event_dispatcher,
+                        cost_estimator.as_mut(),
+                        metric.as_ref(),
                     );
                     if let Some((last_mined_block, microblock_privkey)) = last_mined_block_opt {
                         if last_mined_blocks_vec.len() == 0 {
@@ -1096,11 +1140,13 @@ fn spawn_miner_relayer(
                             &mut microblock_miner_state,
                             &mut chainstate,
                             &mut sortdb,
-                            &mem_pool,
+                            &mut mem_pool,
                             &mut relayer,
                             (ch, bh, mblock_pkey),
                             microblocks_processed.clone(),
-                            &event_dispatcher
+                            &event_dispatcher,
+                            cost_estimator.as_mut(),
+                            metric.as_ref(),
                         );
 
                         // synchronize unconfirmed tx index to p2p thread
@@ -1531,7 +1577,7 @@ impl InitializedNeonNode {
 
     /// Return the assembled anchor block info and microblock private key on success.
     /// Return None if we couldn't build a block for whatever reason
-    fn relayer_run_tenure(
+    fn relayer_run_tenure<CM: CostMetric + ?Sized, CE: CostEstimator + ?Sized>(
         config: &Config,
         registered_key: RegisteredKey,
         chain_state: &mut StacksChainState,
@@ -1544,6 +1590,8 @@ impl InitializedNeonNode {
         bitcoin_controller: &mut BitcoinRegtestController,
         last_mined_blocks: &Vec<&AssembledAnchorBlock>,
         event_observer: &EventDispatcher,
+        estimator: &mut CE,
+        metric: &CM,
     ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey)> {
         let MiningTenureInformation {
             mut stacks_parent_header,
@@ -1830,6 +1878,8 @@ impl InitializedNeonNode {
             &coinbase_tx,
             config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
             Some(event_observer),
+            estimator,
+            metric,
         ) {
             Ok(block) => block,
             Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {
@@ -1870,6 +1920,8 @@ impl InitializedNeonNode {
                     &coinbase_tx,
                     config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
                     Some(event_observer),
+                    estimator,
+                    metric,
                 ) {
                     Ok(block) => block,
                     Err(e) => {

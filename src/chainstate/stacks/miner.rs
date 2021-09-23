@@ -448,7 +448,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         return self.make_next_microblock(txs_included, miner_key);
     }
 
-    pub fn mine_next_microblock<CE: CostEstimator, CM: CostMetric>(
+    pub fn mine_next_microblock<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
         &mut self,
         mem_pool: &mut MemPoolDB,
         miner_key: &Secp256k1PrivateKey,
@@ -1444,7 +1444,7 @@ impl StacksBlockBuilder {
 
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
-    pub fn build_anchored_block<CE: CostEstimator, CM: CostMetric>(
+    pub fn build_anchored_block<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
         burn_dbconn: &SortitionDBConn,
         mempool: &mut MemPoolDB,

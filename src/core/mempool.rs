@@ -550,7 +550,7 @@ impl MemPoolDB {
     /// at most `max_updates` entries in the database before returning.
     ///
     /// Returns `Ok(number_updated)` on success
-    pub fn estimate_tx_rates<CE: CostEstimator, CM: CostMetric>(
+    pub fn estimate_tx_rates<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
         &mut self,
         estimator: &CE,
         metric: &CM,
