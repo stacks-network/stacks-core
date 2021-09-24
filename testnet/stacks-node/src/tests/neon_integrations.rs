@@ -21,7 +21,7 @@ use stacks::core::BLOCK_LIMIT_MAINNET;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
-    AccountEntryResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
+    AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
     PostTransactionRequestBody, RPCPeerInfoData,
 };
 use stacks::types::chainstate::{
@@ -664,6 +664,33 @@ fn get_chain_tip_height(http_origin: &str) -> u64 {
         .unwrap();
 
     res.stacks_tip_height
+}
+
+fn get_contract_src(
+    http_origin: &str,
+    contract_addr: StacksAddress,
+    contract_name: String,
+    use_latest_tip: bool,
+) -> Result<String, String> {
+    let client = reqwest::blocking::Client::new();
+    let query_string = if use_latest_tip {
+        "?use_latest_tip=true".to_string()
+    } else {
+        "?use_latest_tip=false".to_string()
+    };
+    let path = format!(
+        "{}/v2/contracts/source/{}/{}{}",
+        http_origin, contract_addr, contract_name, query_string
+    );
+    let res = client.get(&path).send().unwrap();
+
+    if res.status().is_success() {
+        let contract_src_res = res.json::<ContractSrcResponse>().unwrap();
+        Ok(contract_src_res.source)
+    } else {
+        let err_str = res.text().unwrap();
+        Err(err_str)
+    }
 }
 
 #[test]
@@ -5504,4 +5531,245 @@ fn atlas_stress_integration_test() {
     }
 
     test_observer::clear();
+}
+
+#[test]
+#[ignore]
+fn use_latest_tip_integration_test() {
+    // The purpose of this test is to check if the `use_latest_tip` query parameter is working
+    // as expected. Multiple endpoints accept this parameter, and in this test, we are using the
+    // GetContractSrc method to test it.
+    //
+    // The following scenarios are tested here:
+    // - The caller passes use_latest_tip=0, and the canonical chain tip is used regardless of the
+    //    state of the unconfirmed microblock stream.
+    // - The caller passes use_latest_tip=1 with an existing unconfirmed microblock stream, and
+    //   Clarity state from the unconfirmed microblock stream is successfully loaded.
+    // - The caller passes use_latest_tip=1 with an empty unconfirmed microblock stream, and
+    //   Clarity state from the canonical chain tip is successfully loaded (i.e. you don't
+    //   get a 404 even though the unconfirmed chain tip points to a nonexistent MARF trie).
+    //
+    // Note: In this test, we are manually creating a microblock as well as reloading the unconfirmed
+    // state of the chainstate, instead of relying on `next_block_and_wait` to generate
+    // microblocks. We do this because the unconfirmed state is not automatically being initialized
+    // on the node, so attempting to validate any transactions against the expected unconfirmed
+    // state fails.
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    let spender_stacks_addr = to_addr(&spender_sk);
+    let spender_addr: PrincipalData = spender_stacks_addr.into();
+
+    let (mut conf, _) = neon_integration_test_conf();
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_addr.clone(),
+        amount: 100300,
+    });
+
+    conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 10_000;
+    conf.node.microblock_frequency = 1_000;
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // Give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // First block wakes up the run loop.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Second block will hold our VRF registration.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Third block will be the first mined Stacks block.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Let's query our first spender.
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.balance, 100300);
+    assert_eq!(account.nonce, 0);
+
+    // this call wakes up our node
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Open chainstate.
+    // TODO (hack) instantiate the sortdb in the burnchain
+    let _ = btc_regtest_controller.sortdb_mut();
+    let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
+    let tip_hash =
+        StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
+    let (mut chainstate, _) =
+        StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path_str()).unwrap();
+
+    // Initialize the unconfirmed state.
+    chainstate
+        .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
+        .unwrap();
+
+    // Make microblock with two transactions.
+    let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+    let transfer_tx =
+        make_stacks_transfer_mblock_only(&spender_sk, 0, 1000, &recipient.into(), 1000);
+
+    let caller_src = "
+     (define-public (execute)
+        (ok stx-liquid-supply))
+     ";
+    let publish_tx =
+        make_contract_publish_microblock_only(&spender_sk, 1, 1000, "caller", caller_src);
+
+    let tx_1 = StacksTransaction::consensus_deserialize(&mut &transfer_tx[..]).unwrap();
+    let tx_2 = StacksTransaction::consensus_deserialize(&mut &publish_tx[..]).unwrap();
+    let vec_tx = vec![tx_1, tx_2];
+    let privk =
+        find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024).unwrap();
+    let mblock = make_microblock(
+        &privk,
+        &mut chainstate,
+        &btc_regtest_controller.sortdb_ref().index_conn(),
+        consensus_hash,
+        stacks_block.clone(),
+        vec_tx,
+    );
+    let mut mblock_bytes = vec![];
+    mblock.consensus_serialize(&mut mblock_bytes).unwrap();
+
+    let client = reqwest::blocking::Client::new();
+
+    // Post the microblock
+    let path = format!("{}/v2/microblocks", &http_origin);
+    let res: String = client
+        .post(&path)
+        .header("Content-Type", "application/octet-stream")
+        .body(mblock_bytes.clone())
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
+
+    assert_eq!(res, format!("{}", &mblock.block_hash()));
+
+    // Wait for the microblock to be accepted
+    sleep_ms(5_000);
+    let path = format!("{}/v2/info", &http_origin);
+    let mut iter_count = 0;
+    loop {
+        let tip_info = client
+            .get(&path)
+            .send()
+            .unwrap()
+            .json::<RPCPeerInfoData>()
+            .unwrap();
+        eprintln!("{:#?}", tip_info);
+        if tip_info.unanchored_tip == Some(StacksBlockId([0; 32])) {
+            iter_count += 1;
+            assert!(
+                iter_count < 10,
+                "Hit retry count while waiting for net module to process pushed microblock"
+            );
+            sleep_ms(5_000);
+            continue;
+        } else {
+            break;
+        }
+    }
+
+    // Wait at least two p2p refreshes so it can produce the microblock.
+    for i in 0..30 {
+        info!(
+            "wait {} more seconds for microblock miner to find our transaction...",
+            30 - i
+        );
+        sleep_ms(1000);
+    }
+
+    // Check event observer for new microblock event (expect 1).
+    let microblock_events = test_observer::get_microblocks();
+    assert_eq!(microblock_events.len(), 1);
+
+    // Set use_latest_tip=0, and ask for the source of the contract we just defined in a microblock.
+    // This should fail because the anchored tip would be unaware of this contract.
+    let err_opt = get_contract_src(
+        &http_origin,
+        spender_stacks_addr,
+        "caller".to_string(),
+        false,
+    );
+    match err_opt {
+        Ok(_) => {
+            panic!(
+                "Asking for the contract source off the anchored tip for a contract published \
+            only in unconfirmed state should panic."
+            );
+        }
+        // Expect to get "NoSuchContract" because the function we are attempting to call is in a
+        // contract that only exists on unconfirmed state (and we set `use_unconfirmed_tip` to false).
+        Err(err_str) => {
+            assert!(err_str.contains("No contract source data found"));
+        }
+    }
+
+    // Set use_latest_tip=1, and ask for the source of the contract defined in the microblock.
+    // This should succeeed.
+    assert!(get_contract_src(
+        &http_origin,
+        spender_stacks_addr,
+        "caller".to_string(),
+        true,
+    )
+    .is_ok());
+
+    // Mine an anchored block because now we want to have no unconfirmed state.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Check that the underlying trie for the unconfirmed state does not exist.
+    assert!(chainstate.unconfirmed_state.is_some());
+    let unconfirmed_state = chainstate.unconfirmed_state.as_mut().unwrap();
+    let trie_exists = match unconfirmed_state
+        .clarity_inst
+        .trie_exists_for_block(&unconfirmed_state.unconfirmed_chain_tip)
+    {
+        Ok(res) => res,
+        Err(e) => {
+            panic!("error when determining whether or not trie exists: {:?}", e);
+        }
+    };
+    assert!(!trie_exists);
+
+    // Set use_latest_tip=1, and ask for the source of the contract defined in the previous epoch.
+    // The underlying MARF trie for the unconfirmed tip does not exist, so the transaction will be
+    // validated against the confirmed chain tip instead of the unconfirmed tip. This should be valid.
+    assert!(get_contract_src(
+        &http_origin,
+        spender_stacks_addr,
+        "caller".to_string(),
+        true,
+    )
+    .is_ok());
 }

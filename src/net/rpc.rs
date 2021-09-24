@@ -1528,14 +1528,36 @@ impl ConversationHttp {
         req: &HttpRequestType,
         tip_opt: Option<&StacksBlockId>,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
         use_latest_tip: bool,
     ) -> Result<Option<StacksBlockId>, net_error> {
         if use_latest_tip {
-            let unconfirmed_chain_tip_opt = match &chainstate.unconfirmed_state {
+            let unconfirmed_chain_tip_opt = match &mut chainstate.unconfirmed_state {
                 Some(unconfirmed_state) => {
                     if unconfirmed_state.is_readable() {
-                        Some(unconfirmed_state.unconfirmed_chain_tip.clone())
+                        // Check if underlying MARF trie exists before returning unconfirmed chain tip
+                        // let unconfirmed_state = self.unconfirmed_state.as_mut().unwrap();
+                        let trie_exists = match unconfirmed_state
+                            .clarity_inst
+                            .trie_exists_for_block(&unconfirmed_state.unconfirmed_chain_tip)
+                        {
+                            Ok(res) => res,
+                            Err(e) => {
+                                let response_metadata = HttpResponseMetadata::from(req);
+                                warn!("Failed to load Stacks chain tip; error checking underlying trie");
+                                let response = HttpResponseType::ServerError(
+                                    response_metadata,
+                                    format!("Failed to load Stacks chain tip"),
+                                );
+                                return response.send(http, fd).and_then(|_| Ok(None));
+                            }
+                        };
+
+                        if trie_exists {
+                            Some(unconfirmed_state.unconfirmed_chain_tip)
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
