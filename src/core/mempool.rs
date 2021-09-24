@@ -281,6 +281,10 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);",
 ];
 
+const MEMPOOL_SCHEMA_2_TEST: &'static str = "
+   SELECT name FROM sqlite_master WHERE type='table' AND name='fee_estimates'
+";
+
 const MEMPOOL_SCHEMA_2: &'static [&'static str] = &[
     r#"
     CREATE TABLE fee_estimates(
@@ -296,7 +300,7 @@ const MEMPOOL_SCHEMA_2: &'static [&'static str] = &[
     r#"
     ALTER TABLE mempool ADD COLUMN last_known_sponsor_nonce TEXT;
     "#,
-    "CREATE INDEX by_txid ON mempool(txid);",
+    "CREATE INDEX fee_by_txid ON fee_estimates(txid);",
 ];
 
 pub struct MemPoolDB {
@@ -443,11 +447,33 @@ impl MemPoolDB {
             MemPoolDB::instantiate_mempool_db(&mut conn)?;
         }
 
+        MemPoolDB::apply_schema_2_if_needed(&mut conn)?;
+
         Ok(MemPoolDB {
             db: conn,
             path: db_path,
             admitter,
         })
+    }
+
+    fn apply_schema_2_if_needed(conn: &mut DBConn) -> Result<(), db_error> {
+        let tx = conn.transaction()?;
+        let needs_to_apply = tx
+            .query_row(MEMPOOL_SCHEMA_2_TEST, rusqlite::NO_PARAMS, |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()?
+            .is_none();
+
+        if needs_to_apply {
+            for sql_exec in MEMPOOL_SCHEMA_2 {
+                tx.execute_batch(sql_exec)?;
+            }
+        }
+
+        tx.commit()?;
+
+        Ok(())
     }
 
     pub fn reset_last_known_nonces(&mut self) -> Result<(), db_error> {
@@ -489,14 +515,14 @@ impl MemPoolDB {
     }
 
     fn get_next_tx_to_consider(&self) -> Result<ConsiderTransactionResult, db_error> {
-        let select_estimate = "SELECT * FROM mempool WHERE
+        let select_estimate = "SELECT * FROM mempool LEFT OUTER JOIN fee_estimates as f WHERE
                    ((origin_nonce = last_known_origin_nonce + 1 AND
                      sponsor_nonce = last_known_sponsor_nonce + 1) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
-                   AND estimated_fee_rate IS NOT NULL ORDER BY estimated_fee_rate DESC LIMIT 1";
-        let select_no_estimate = "SELECT * FROM mempool WHERE
+                   AND f.fee_rate IS NOT NULL ORDER BY f.fee_rate DESC LIMIT 1";
+        let select_no_estimate = "SELECT * FROM mempool LEFT OUTER JOIN fee_estimates as f WHERE
                    ((origin_nonce = last_known_origin_nonce + 1 AND
                      sponsor_nonce = last_known_sponsor_nonce + 1) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
-                   AND estimated_fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
+                   AND f.fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
         let (next_tx, update_estimate): (MemPoolTxInfo, bool) =
             match query_row(&self.db, select_estimate, rusqlite::NO_PARAMS)? {
                 Some(tx) => (tx, false),
