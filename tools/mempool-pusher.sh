@@ -106,10 +106,16 @@ antientropy_pass() {
    local mempool_path="$1"
    local local_peer="$2"
    local last_sent="$3"
+   local peer_count=0
 
    # do this sequentially so we don't hold open the DB
-   get_mempool_txs "$mempool_path" "$last_sent" > "/tmp/last_mempool_scan.txs.$$"
-   antientropy_push "/tmp/last_mempool_scan.tx.$$" "$local_peer"
+   for peer in ${local_peer//,/ }; do
+         if [ $peer_count -eq 0 ]; then
+            get_mempool_txs "$mempool_path" "$last_sent" > "/tmp/last_mempool_scan.txs.$$"
+         fi
+         antientropy_push "/tmp/last_mempool_scan.txs.$$" "$peer"
+         let peer_count++
+   done
 }
 
 # Obtain the last-sent time (stored to disk)
@@ -162,7 +168,10 @@ usage() {
    log "Usage: $0 MODE [ARGS...]"
    log "MODE can be the following:"
    log "      $0 daemon PATH_TO_MEMPOOL LOCAL_PEER_HOST:PORT"
+   log "      $0 daemon PATH_TO_MEMPOOL LOCAL_PEER_HOST1:PORT,LOCAL_PEER_HOST2:PORT,..."
+   log ""
    log "      $0 push PATH_TO_TX_FILE LOCAL_PEER_HOST:PORT"
+   log "      $0 push PATH_TO_TX_FILE LOCAL_PEER_HOST1:PORT,LOCAL_PEER_HOST2:PORT,..."
    log ""
    log "In daemon mode, this program simply loops forever and re-sends transactions from the given"
    log "mempool every 5 minutes to the given node's neighbors."
