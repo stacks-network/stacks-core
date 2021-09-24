@@ -1496,7 +1496,7 @@ impl StacksBlockBuilder {
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
         mempool.reset_last_known_nonces()?;
-        mempool.estimate_tx_rates(estimator, metric, 100);
+        mempool.estimate_tx_rates(estimator, metric, 100)?;
 
         let mut considered = HashSet::new(); // txids of all transactions we looked at
         let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used

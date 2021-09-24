@@ -295,10 +295,10 @@ const MEMPOOL_SCHEMA_2: &'static [&'static str] = &[
     );
     "#,
     r#"
-    ALTER TABLE mempool ADD COLUMN last_known_origin_nonce TEXT;
+    ALTER TABLE mempool ADD COLUMN last_known_origin_nonce INTEGER;
     "#,
     r#"
-    ALTER TABLE mempool ADD COLUMN last_known_sponsor_nonce TEXT;
+    ALTER TABLE mempool ADD COLUMN last_known_sponsor_nonce INTEGER;
     "#,
     "CREATE INDEX fee_by_txid ON fee_estimates(txid);",
 ];
@@ -511,17 +511,18 @@ impl MemPoolDB {
         let sql = "UPDATE mempool SET last_known_sponsor_nonce = ? WHERE sponsor_address = ?";
         self.db
             .execute(sql, rusqlite::params![nonce_i64, &addr_str])?;
+
         Ok(())
     }
 
     fn get_next_tx_to_consider(&self) -> Result<ConsiderTransactionResult, db_error> {
         let select_estimate = "SELECT * FROM mempool LEFT OUTER JOIN fee_estimates as f WHERE
-                   ((origin_nonce = last_known_origin_nonce + 1 AND
-                     sponsor_nonce = last_known_sponsor_nonce + 1) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
+                   ((origin_nonce = last_known_origin_nonce AND
+                     sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
                    AND f.fee_rate IS NOT NULL ORDER BY f.fee_rate DESC LIMIT 1";
-        let select_no_estimate = "SELECT * FROM mempool LEFT OUTER JOIN fee_estimates as f WHERE
-                   ((origin_nonce = last_known_origin_nonce + 1 AND
-                     sponsor_nonce = last_known_sponsor_nonce + 1) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
+        let select_no_estimate = "SELECT * FROM mempool LEFT JOIN fee_estimates as f ON mempool.txid = f.txid WHERE
+                   ((origin_nonce = last_known_origin_nonce AND
+                     sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
                    AND f.fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
         let (next_tx, update_estimate): (MemPoolTxInfo, bool) =
             match query_row(&self.db, select_estimate, rusqlite::NO_PARAMS)? {
@@ -659,6 +660,7 @@ impl MemPoolDB {
                 ConsiderTransactionResult::UPDATE_NONCES(addresses) => {
                     let mut last_addr = None;
                     for address in addresses.into_iter() {
+                        debug!("Update nonce"; "address" => %address);
                         // do not recheck nonces if the sponsor == origin
                         if last_addr.as_ref() == Some(&address) {
                             continue;
