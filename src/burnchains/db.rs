@@ -305,12 +305,6 @@ impl BurnchainDB {
         block: &BurnchainBlock,
         block_header: &BurnchainBlockHeader,
     ) -> Vec<BlockstackOperationType> {
-        debug!(
-            "Extract Blockstack transactions from block {} {}",
-            block.block_height(),
-            &block.block_hash()
-        );
-
         let mut ops = Vec::new();
         let mut pre_stx_ops = HashMap::new();
 
@@ -333,6 +327,13 @@ impl BurnchainDB {
         );
 
         ops.sort_by_key(|op| op.vtxindex());
+
+        debug!(
+            "Extracted {} Blockstack transactions from block {} {}",
+            ops.len(),
+            block.block_height(),
+            &block.block_hash()
+        );
 
         ops
     }
