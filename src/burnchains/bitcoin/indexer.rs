@@ -38,6 +38,7 @@ use burnchains::bitcoin::BitcoinNetworkType;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 use burnchains::Error as burnchain_error;
+use burnchains::IndexerError as indexer_error;
 use burnchains::MagicBytes;
 use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 
@@ -604,9 +605,10 @@ impl BurnchainIndexer for BitcoinIndexer {
 
     /// Connect to the Bitcoin peer network.
     /// Use the peer host and peer port given in the config file,
-    /// and loaded in on setup.  Don't call this before init().
+    /// and loaded in on setup.
     fn connect(&mut self) -> Result<(), burnchain_error> {
-        self.reconnect_peer().map_err(burnchain_error::Bitcoin)
+        self.reconnect_peer()
+            .map_err(|e| burnchain_error::Indexer(indexer_error::Bitcoin(e)))
     }
 
     /// Get the location on disk where we keep headers
@@ -624,10 +626,10 @@ impl BurnchainIndexer for BitcoinIndexer {
             false,
             false,
         )
-        .map_err(burnchain_error::Bitcoin)?;
+        .map_err(|e| burnchain_error::Indexer(indexer_error::Bitcoin(e)))?;
         spv_client
             .get_headers_height()
-            .map_err(burnchain_error::Bitcoin)
+            .map_err(|e| burnchain_error::Indexer(indexer_error::Bitcoin(e)))
     }
 
     fn get_highest_header_height(&self) -> Result<u64, burnchain_error> {
@@ -639,10 +641,10 @@ impl BurnchainIndexer for BitcoinIndexer {
             false,
             false,
         )
-        .map_err(burnchain_error::Bitcoin)?;
+        .map_err(|e| burnchain_error::Indexer(indexer_error::Bitcoin(e)))?;
         spv_client
             .get_highest_header_height()
-            .map_err(burnchain_error::Bitcoin)
+            .map_err(|e| burnchain_error::Indexer(indexer_error::Bitcoin(e)))
     }
 
     /// Get the first block height
@@ -732,12 +734,12 @@ impl BurnchainIndexer for BitcoinIndexer {
         )
         .map_err(|e| match e {
             btc_error::TimedOut => burnchain_error::TrySyncAgain,
-            x => burnchain_error::Bitcoin(x),
+            x => burnchain_error::Indexer(indexer_error::Bitcoin(x)),
         })
     }
 
     /// Download and store all headers between two block heights
-    /// end_heights, if given, is inclusive.
+    /// end_height, if given, is inclusive.
     /// Returns the height of the last header fetched
     fn sync_headers(
         &mut self,
@@ -751,7 +753,7 @@ impl BurnchainIndexer for BitcoinIndexer {
         self.sync_last_headers(start_height, end_height)
             .map_err(|e| match e {
                 btc_error::TimedOut => burnchain_error::TrySyncAgain,
-                x => burnchain_error::Bitcoin(x),
+                x => burnchain_error::Indexer(indexer_error::Bitcoin(x)),
             })
     }
 
@@ -765,10 +767,10 @@ impl BurnchainIndexer for BitcoinIndexer {
             true,
             false,
         )
-        .map_err(burnchain_error::Bitcoin)?;
+        .map_err(|e| burnchain_error::Indexer(indexer_error::Bitcoin(e)))?;
         spv_client
             .drop_headers(new_height)
-            .map_err(burnchain_error::Bitcoin)
+            .map_err(|e| burnchain_error::Indexer(indexer_error::Bitcoin(e)))
     }
 
     fn downloader(&self) -> BitcoinBlockDownloader {
