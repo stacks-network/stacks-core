@@ -894,8 +894,10 @@ impl BlockDownloader {
         &mut self,
         block_sortition_height: u64,
         ibd: bool,
+        force: bool,
     ) -> () {
-        if (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
+        if force
+            || (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_block_download_passes > 0
                 || block_sortition_height < self.block_sortition_height + 1)
         {
@@ -926,8 +928,10 @@ impl BlockDownloader {
         &mut self,
         mblock_sortition_height: u64,
         ibd: bool,
+        force: bool,
     ) -> () {
-        if (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
+        if force
+            || (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_microblock_download_passes > 0
                 || mblock_sortition_height < self.microblock_sortition_height + 1)
         {
@@ -953,8 +957,8 @@ impl BlockDownloader {
 
     /// Set a hint that we should re-scan for blocks
     pub fn hint_download_rescan(&mut self, target_sortition_height: u64, ibd: bool) -> () {
-        self.hint_block_sortition_height_available(target_sortition_height, ibd);
-        self.hint_microblock_sortition_height_available(target_sortition_height, ibd);
+        self.hint_block_sortition_height_available(target_sortition_height, ibd, false);
+        self.hint_microblock_sortition_height_available(target_sortition_height, ibd, false);
     }
 
     // are we doing the initial block download?
@@ -1222,6 +1226,11 @@ impl PeerNetwork {
         for (i, (consensus_hash, block_hash_opt, mut neighbors)) in
             availability.drain(..).enumerate()
         {
+            debug!(
+                "{:?}: consider availability of {}/{:?}",
+                &self.local_peer, &consensus_hash, &block_hash_opt
+            );
+
             if (i as u64) >= scan_batch_size {
                 // we may have loaded scan_batch_size + 1 so we can find the child block for
                 // microblocks, but we don't have to request this block's data either way.
@@ -1242,11 +1251,9 @@ impl PeerNetwork {
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
             if downloader.is_inflight(&index_block_hash, microblocks) {
                 // we already asked for this block or microblock stream
-                test_debug!(
+                debug!(
                     "{:?}: Already in-flight: {}/{}",
-                    &self.local_peer,
-                    &consensus_hash,
-                    &block_hash
+                    &self.local_peer, &consensus_hash, &block_hash
                 );
                 continue;
             }
@@ -1260,11 +1267,9 @@ impl PeerNetwork {
                     &block_hash,
                 )? {
                     // we already have this block stored to disk
-                    test_debug!(
+                    debug!(
                         "{:?}: Already have anchored block {}/{}",
-                        &self.local_peer,
-                        &consensus_hash,
-                        &block_hash
+                        &self.local_peer, &consensus_hash, &block_hash
                     );
                     continue;
                 }
