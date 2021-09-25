@@ -11,7 +11,7 @@ use std::sync::{
 };
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
+use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
@@ -28,11 +28,12 @@ use stacks::chainstate::stacks::db::{
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
 use stacks::chainstate::stacks::{
-    miner::BlockBuilderSettings, miner::StacksMicroblockBuilder, StacksBlockBuilder,
+    events::StacksTransactionReceipt, CoinbasePayload, StacksBlock, StacksMicroblock,
+    StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionPayload,
+    TransactionVersion,
 };
 use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
-    TransactionAnchorMode, TransactionPayload, TransactionVersion,
+    miner::BlockBuilderSettings, miner::StacksMicroblockBuilder, StacksBlockBuilder,
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
@@ -60,6 +61,7 @@ use stacks::vm::costs::ExecutionCost;
 use stacks::{burnchains::BurnchainSigner, chainstate::stacks::db::StacksHeaderInfo};
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
+use crate::burnchains::stacks_controller::StacksController;
 use crate::run_loop::RegisteredKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
@@ -272,7 +274,7 @@ fn rotate_vrf_and_register(
     is_mainnet: bool,
     keychain: &mut Keychain,
     burn_block: &BlockSnapshot,
-    btc_controller: &mut BitcoinRegtestController,
+    burnchain_controller: &mut Box<dyn BurnchainController>,
 ) -> bool {
     let vrf_pk = keychain.rotate_vrf_keypair(burn_block.block_height);
     let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
@@ -283,7 +285,7 @@ fn rotate_vrf_and_register(
     );
 
     let mut one_off_signer = keychain.generate_op_signer();
-    btc_controller.submit_operation(op, &mut one_off_signer, 1)
+    (*burnchain_controller).submit_operation(op, &mut one_off_signer, 1)
 }
 
 /// Constructs and returns a LeaderBlockCommitOp out of the provided params
@@ -625,6 +627,7 @@ fn spawn_peer(
     let stacks_chainstate_path = config.get_chainstate_path_str();
     let block_limit = config.block_limit.clone();
     let exit_at_block_height = config.burnchain.process_exit_at_block_height;
+    let is_appchain = config.describes_appchain();
 
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
@@ -649,7 +652,7 @@ fn spawn_peer(
     let mut results_with_data = VecDeque::new();
 
     let server_thread = thread::Builder::new()
-        .name("p2p".to_string())
+        .name(format!("p2p{}", if is_appchain { "-appchain" } else { "" }))
         .spawn(move || {
             let handler_args = RPCHandlerArgs {
                 exit_at_block_height: exit_at_block_height.as_ref(),
@@ -781,7 +784,10 @@ fn spawn_peer(
         .unwrap();
 
     let _jh = thread::Builder::new()
-        .name("dns-resolver".to_string())
+        .name(format!(
+            "dns-resolver{}",
+            if is_appchain { "-appchain" } else { "" }
+        ))
         .spawn(move || {
             dns_resolver.thread_main();
         })
@@ -832,13 +838,28 @@ fn spawn_miner_relayer(
     > = HashMap::new();
     let burn_fee_cap = config.burnchain.burn_fee_cap;
 
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
     let mut miner_tip = None; // only set if we won the last sortition
     let mut last_microblock_tenure_time = 0;
     let mut last_tenure_issue_time = 0;
+    let is_appchain = config.describes_appchain();
 
-    let relayer_handle = thread::Builder::new().name("relayer".to_string()).spawn(move || {
+    let relayer_handle = thread::Builder::new()
+        .name(format!("relayer{}", if is_appchain { "-appchain" } else { "" }))
+        .spawn(move || {
+        let mut burnchain_controller : Box<dyn BurnchainController> =
+            if is_appchain {
+                Box::new(StacksController::new_submitter(config.clone())
+                    .map_err(|e| {
+                        error!("FATAL: failed to instantiate Stacks transaction submitter: {:?}", &e);
+                        panic!();
+                    }).unwrap()
+                )
+            }
+            else {
+                Box::new(BitcoinRegtestController::new_dummy(config.clone()))
+            };
+
         while let Ok(mut directive) = relay_channel.recv() {
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
@@ -1005,7 +1026,6 @@ fn spawn_miner_relayer(
                         .burn_header_hash
                         .clone();
 
-                    let mut burn_tenure_snapshot = last_burn_block.clone();
                     if burn_chain_tip == burn_header_hash {
                         // no burnchain change, so only re-run block tenure every so often in order
                         // to give microblocks a chance to collect
@@ -1016,7 +1036,6 @@ fn spawn_miner_relayer(
                     }
                     else {
                         // burnchain has changed since this directive was sent, so mine immediately
-                        burn_tenure_snapshot = burn_chain_sn;
                         if issue_timestamp_ms + (config.node.wait_time_for_microblocks as u128) < get_epoch_time_ms() {
                             // still waiting for microblocks to arrive
                             continue;
@@ -1026,13 +1045,18 @@ fn spawn_miner_relayer(
 
                     debug!(
                         "Relayer: Run tenure";
-                        "height" => last_burn_block.block_height,
+                        "height" => burn_chain_sn.block_height,
                         "burn_header_hash" => %burn_chain_tip,
                         "last_burn_header_hash" => %burn_header_hash
                     );
 
+                    /*
                     let mut last_mined_blocks_vec = last_mined_blocks
                         .remove(&burn_header_hash)
+                        .unwrap_or_default();
+                    */
+                    let mut last_mined_blocks_vec = last_mined_blocks
+                        .remove(&burn_chain_sn.burn_header_hash)
                         .unwrap_or_default();
 
                     let last_mined_block_opt = InitializedNeonNode::relayer_run_tenure(
@@ -1041,11 +1065,11 @@ fn spawn_miner_relayer(
                         &mut chainstate,
                         &mut sortdb,
                         &burnchain,
-                        burn_tenure_snapshot,
+                        burn_chain_sn.clone(),
                         &mut keychain,
                         &mut mem_pool,
                         burn_fee_cap,
-                        &mut bitcoin_controller,
+                        &mut burnchain_controller,
                         &last_mined_blocks_vec.iter().map(|(blk, _)| blk).collect(),
                         &event_dispatcher,
                     );
@@ -1056,16 +1080,17 @@ fn spawn_miner_relayer(
                         }
                         last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
                     }
-                    last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
+                    last_mined_blocks.insert(burn_chain_sn.burn_header_hash, last_mined_blocks_vec);
 
                     last_tenure_issue_time = get_epoch_time_ms();
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
+                    debug!("Relayer: register VRF key");
                     rotate_vrf_and_register(
                         is_mainnet,
                         &mut keychain,
                         last_burn_block,
-                        &mut bitcoin_controller,
+                        &mut burnchain_controller,
                     );
                     bump_processed_counter(&blocks_processed);
                 }
@@ -1222,6 +1247,7 @@ impl InitializedNeonNode {
             // bootstrap nodes *always* allowed
             let mut tx = peerdb.tx_begin().unwrap();
             for initial_neighbor in initial_neighbors.iter() {
+                debug!("Set always-allowed peer {:?}", &initial_neighbor);
                 PeerDB::set_allow_peer(
                     &mut tx,
                     initial_neighbor.addr.network_id,
@@ -1389,6 +1415,8 @@ impl InitializedNeonNode {
                     warn!(
                         "Tenure: skipped tenure because no active VRF key. Trying to register one."
                     );
+                    // TODO: if the key registration fails, this whole state-machine gets stuck in
+                    // a Pending status forever.
                     self.leader_key_registration_state = LeaderKeyRegistrationState::Pending;
                     self.relay_channel
                         .send(RelayerDirective::RegisterKey(burnchain_tip))
@@ -1541,7 +1569,7 @@ impl InitializedNeonNode {
         keychain: &mut Keychain,
         mem_pool: &mut MemPoolDB,
         burn_fee_cap: u64,
-        bitcoin_controller: &mut BitcoinRegtestController,
+        burnchain_controller: &mut Box<dyn BurnchainController>,
         last_mined_blocks: &Vec<&AssembledAnchorBlock>,
         event_observer: &EventDispatcher,
     ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey)> {
@@ -1565,15 +1593,13 @@ impl InitializedNeonNode {
             .ok()?
         } else {
             debug!("No Stacks chain tip known, will return a genesis block");
-            let (network, _) = config.burnchain.get_bitcoin_network();
-            let burnchain_params =
-                BurnchainParameters::from_params(&config.burnchain.chain, &network)
-                    .expect("Bitcoin network unsupported");
+            let (first_block_height, first_block_hash, first_block_timestamp) =
+                config.get_burnchain_genesis_info();
 
             let chain_tip = ChainTip::genesis(
-                &burnchain_params.first_block_hash,
-                burnchain_params.first_block_height.into(),
-                burnchain_params.first_block_timestamp.into(),
+                &first_block_hash,
+                first_block_height.into(),
+                first_block_timestamp.into(),
             );
 
             MiningTenureInformation {
@@ -1585,6 +1611,9 @@ impl InitializedNeonNode {
                 coinbase_nonce: 0,
             }
         };
+
+        // going to try and replace the empty block we immediately mined?
+        let mut replace_first_empty_block = false;
 
         // has the tip changed from our previously-mined block for this epoch?
         let attempt = {
@@ -1603,12 +1632,16 @@ impl InitializedNeonNode {
                     &prev_block.anchored_block.txs.len()
                 );
                 if prev_block.anchored_block.txs.len() == 1 {
-                    if last_mined_blocks.len() == 1 {
-                        // this is an empty block, and we've only tried once before. We should always
-                        // try again, with the `subsequent_miner_time_ms` allotment, in order to see if
+                    if prev_block.parent_consensus_hash == parent_consensus_hash
+                        && prev_block.my_burn_hash == burn_block.burn_header_hash
+                        && last_mined_blocks.len() == 1
+                    {
+                        // this is an empty block, and we've only tried once before at this burn chain tip.
+                        // We should always try again, with the `subsequent_miner_time_ms` allotment, in order to see if
                         // we can make a bigger block
                         debug!("Have only mined one empty block off of {}/{} height {}; unconditionally trying again", &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work);
                         best_attempt = 1;
+                        replace_first_empty_block = true;
                         break;
                     } else if prev_block.attempt == 1 {
                         // Don't let the fact that we've built an empty block during this sortition
@@ -1655,8 +1688,8 @@ impl InitializedNeonNode {
                         } else {
                             // there are new microblocks!
                             // TODO: only consider rebuilding our anchored block if we (a) have
-                            // time, and (b) the new microblocks are worth more than the new BTC
-                            // fee minus the old BTC fee
+                            // time, and (b) the new microblocks are worth more than the new
+                            // burnchain fee minus the old burnchain
                             debug!("Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, but there are new microblocks ({} > {})",
                                    &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                    prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
@@ -1883,9 +1916,20 @@ impl InitializedNeonNode {
                 return None;
             }
         };
+
+        // so do we actually need to commit?
+        if replace_first_empty_block
+            && anchored_block.txs.len() == 1
+            && anchored_block.header.parent_microblock == BlockHeaderHash([0x00; 32])
+        {
+            // not actually replacing anything
+            debug!("No new transactions or microblocks processed since initial empty block, so not submitting a new block-commit");
+            return None;
+        }
+
         let block_height = anchored_block.header.total_work.work;
         info!(
-            "Succeeded assembling {} block #{}: {}, with {} txs, attempt {}",
+            "Succeeded assembling {} block #{}: {}, with {} txs, parent {}, attempt {}",
             if parent_block_total_burn == 0 {
                 "Genesis"
             } else {
@@ -1894,6 +1938,7 @@ impl InitializedNeonNode {
             block_height,
             anchored_block.block_hash(),
             anchored_block.txs.len(),
+            &anchored_block.header.parent_block,
             attempt
         );
 
@@ -1953,13 +1998,13 @@ impl InitializedNeonNode {
             attempt
         );
 
-        let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
+        let res = (*burnchain_controller).submit_operation(op, &mut op_signer, attempt);
         if !res {
             if !config.node.mock_mining {
-                warn!("Failed to submit Bitcoin transaction");
+                warn!("Failed to submit burnchain transaction");
                 return None;
             } else {
-                debug!("Mock-mining enabled; not sending Bitcoin transaction");
+                debug!("Mock-mining enabled; not sending burnchain transaction");
             }
         }
 
@@ -1998,14 +2043,13 @@ impl InitializedNeonNode {
 
         update_active_miners_count_gauge(block_commits.len() as i64);
 
-        let (_, network) = self.config.burnchain.get_bitcoin_network();
-
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!(
                     "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
                     block_height,
-                    op.apparent_sender.to_bitcoin_address(network),
+                    op.apparent_sender
+                        .to_bitcoin_address(self.config.is_mainnet()),
                     &op.block_header_hash
                 );
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
@@ -2014,7 +2058,8 @@ impl InitializedNeonNode {
                     info!(
                         "Received burnchain block #{} including block_commit_op - {} ({})",
                         block_height,
-                        op.apparent_sender.to_bitcoin_address(network),
+                        op.apparent_sender
+                            .to_bitcoin_address(self.config.is_mainnet()),
                         &op.block_header_hash
                     );
                 }
@@ -2068,7 +2113,7 @@ impl NeonGenesisNode {
         config: Config,
         mut event_dispatcher: EventDispatcher,
         burnchain: Burnchain,
-        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> Vec<StacksTransactionReceipt>>,
     ) -> Self {
         let keychain = Keychain::default(config.node.seed.clone());
         let initial_balances = config
