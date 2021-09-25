@@ -30,6 +30,7 @@ use burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser,
 };
 use burnchains::Error as burnchain_error;
+use burnchains::IndexerError as indexer_error;
 use burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid, MAGIC_BYTES_LENGTH};
 use deps;
 use deps::bitcoin::blockdata::block::{Block, LoneBlockHeader};
@@ -136,7 +137,7 @@ impl BurnchainBlockDownloader for BitcoinBlockDownloader {
     fn download(&mut self, header: &BitcoinHeaderIPC) -> Result<BitcoinBlockIPC, burnchain_error> {
         self.run(header).map_err(|e| match e {
             btc_error::TimedOut => burnchain_error::TrySyncAgain,
-            x => burnchain_error::DownloadError(x),
+            x => burnchain_error::DownloadError(indexer_error::Bitcoin(x)),
         })
     }
 }
