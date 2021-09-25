@@ -277,6 +277,7 @@ pub fn setup_states(
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
+            vec![]
         };
 
         boot_data.post_flight_callback = Some(Box::new(post_flight_callback));
