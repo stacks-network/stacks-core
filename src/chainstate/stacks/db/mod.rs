@@ -454,14 +454,20 @@ pub struct BlockStreamData {
     offset: u64, // offset into whatever is being read (the blob, or the file in the chunk store)
     total_bytes: u64, // total number of bytes read.
 
+    // used for microblocks and headers
+    num_items_buf: [u8; 4],
+    num_items_ptr: usize,
+
     // used only for microblocks
     is_microblock: bool,
     microblock_hash: BlockHeaderHash,
     parent_index_block_hash: StacksBlockId,
     seq: u16, // only used for unconfirmed microblocks
     unconfirmed: bool,
-    num_mblocks_buf: [u8; 4],
-    num_mblocks_ptr: usize,
+
+    // used only for headers
+    is_headers: bool,
+    num_headers: u32,
 }
 
 pub const CHAINSTATE_VERSION: &'static str = "1";
@@ -677,7 +683,8 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub pox_constants: PoxConstants,
-    pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    pub post_flight_callback:
+        Option<Box<dyn FnOnce(&mut ClarityTx) -> Vec<StacksTransactionReceipt>>>,
     pub get_bulk_initial_lockups:
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountLockup>>>>,
     pub get_bulk_initial_balances:
@@ -686,13 +693,19 @@ pub struct ChainStateBootData {
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateBNSNamespace>>>>,
     pub get_bulk_initial_names:
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateBNSName>>>>,
+
+    /// must be set if this is an appchain; otherwise the chain won't boot since its genesis root
+    /// hash will almost definitely not be the same as stacks mainnet.
+    pub appchain_genesis_hash: Option<TrieHash>,
 }
 
 impl ChainStateBootData {
     pub fn new(
         burnchain: &Burnchain,
         initial_balances: Vec<(PrincipalData, u64)>,
-        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+        post_flight_callback: Option<
+            Box<dyn FnOnce(&mut ClarityTx) -> Vec<StacksTransactionReceipt>>,
+        >,
     ) -> ChainStateBootData {
         ChainStateBootData {
             first_burnchain_block_hash: burnchain.first_block_hash.clone(),
@@ -705,6 +718,79 @@ impl ChainStateBootData {
             get_bulk_initial_balances: None,
             get_bulk_initial_namespaces: None,
             get_bulk_initial_names: None,
+            appchain_genesis_hash: None,
+        }
+    }
+
+    pub fn new_appchain(
+        mainnet: bool,
+        burnchain: &Burnchain,
+        initial_balances: Vec<(PrincipalData, u64)>,
+        additional_contracts: Vec<(ContractName, StacksString)>,
+        genesis_hash: TrieHash,
+    ) -> ChainStateBootData {
+        let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
+            let mut receipts = vec![];
+            if additional_contracts.len() > 0 {
+                clarity_tx.connection().as_transaction(|clarity| {
+                    let boot_code_addr = boot_code_addr(mainnet);
+                    let mut boot_code_account = StacksChainState::get_account(clarity, &boot_code_addr.to_account_principal());
+                    let boot_code_auth = TransactionAuth::Standard(
+                        TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                            signer: boot_code_addr.bytes.clone(),
+                            hash_mode: SinglesigHashMode::P2PKH,
+                            key_encoding: TransactionPublicKeyEncoding::Uncompressed,
+                            nonce: boot_code_account.nonce,
+                            tx_fee: 0,
+                            signature: MessageSignature::empty(),
+                        }),
+                    );
+
+                    for (contract_name, contract_code) in additional_contracts.into_iter() {
+                        debug!(
+                            "Instantiate appchain-specific boot code contract '{}.{}' ({} bytes)...",
+                            &boot_code_addr.to_string(),
+                            &contract_name.as_str(),
+                            contract_code.len(),
+                        );
+
+                        let smart_contract =
+                            TransactionPayload::SmartContract(TransactionSmartContract {
+                                name: contract_name.clone(),
+                                code_body: contract_code
+                            });
+
+                        let boot_code_smart_contract = StacksTransaction::new(
+                            if mainnet { TransactionVersion::Mainnet } else { TransactionVersion::Testnet },
+                            boot_code_auth.clone(),
+                            smart_contract,
+                        );
+                        let receipt = StacksChainState::process_transaction_payload(
+                            clarity,
+                            &boot_code_smart_contract,
+                            &boot_code_account,
+                        )
+                        .expect(&format!("BUG: boot code did not run successfully. Failed contract was {}.{}", &boot_code_addr.to_string(), &contract_name.as_str()));
+
+                        receipts.push(receipt);
+                        boot_code_account.nonce += 1;
+                    }
+                });
+            }
+            receipts
+        };
+        ChainStateBootData {
+            first_burnchain_block_hash: burnchain.first_block_hash.clone(),
+            first_burnchain_block_height: burnchain.first_block_height as u32,
+            first_burnchain_block_timestamp: burnchain.first_block_timestamp,
+            initial_balances,
+            pox_constants: burnchain.pox_constants.clone(),
+            post_flight_callback: Some(Box::new(post_flight_callback)),
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+            get_bulk_initial_namespaces: None,
+            get_bulk_initial_names: None,
+            appchain_genesis_hash: Some(genesis_hash),
         }
     }
 }
@@ -950,7 +1036,7 @@ impl StacksChainState {
             clarity_tx.connection().as_transaction(|clarity| {
                 // Balances
                 if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
-                    info!("Importing accounts from Stacks 1.0");
+                    info!("Initializing imported accounts");
                     let mut balances_count = 0;
                     let initial_balances = get_balances();
                     for balance in initial_balances {
@@ -1208,7 +1294,8 @@ impl StacksChainState {
             receipts.push(allocations_receipt);
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
-                callback(&mut clarity_tx);
+                let mut postflight_receipts = callback(&mut clarity_tx);
+                receipts.append(&mut postflight_receipts);
             }
 
             // Setup burnchain parameters for pox contract
@@ -1221,6 +1308,9 @@ impl StacksChainState {
                 Value::UInt(pox_constants.reward_cycle_length as u128),
                 Value::UInt(pox_constants.pox_rejection_fraction as u128),
             ];
+
+            debug!("Setting up PoX parameters");
+
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(
                     &sender,
@@ -1231,6 +1321,8 @@ impl StacksChainState {
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
+
+            debug!("Setting up uSTX liquid supply");
 
             clarity_tx
                 .connection()
@@ -1247,24 +1339,29 @@ impl StacksChainState {
 
         // verify that genesis root hash is as expected
         {
-            let genesis_root_hash = chainstate.clarity_state.with_marf(|marf| {
-                let index_block_hash = StacksBlockHeader::make_index_block_hash(
-                    &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                    &FIRST_STACKS_BLOCK_HASH,
-                );
-                marf.get_root_hash_at(&index_block_hash).unwrap()
-            });
+            let genesis_root_hash = chainstate.get_genesis_state_index_root();
 
             info!("Computed Clarity state genesis"; "root_hash" => %genesis_root_hash);
 
+            let expected_root_hash = boot_data
+                .appchain_genesis_hash
+                .unwrap_or(TrieHash::from_hex(MAINNET_2_0_GENESIS_ROOT_HASH).unwrap());
             if mainnet {
                 assert_eq!(
-                    &genesis_root_hash.to_string(),
-                    MAINNET_2_0_GENESIS_ROOT_HASH,
-                    "Incorrect root hash for genesis block computed. expected={} computed={}",
-                    MAINNET_2_0_GENESIS_ROOT_HASH,
-                    genesis_root_hash.to_string()
+                    genesis_root_hash,
+                    expected_root_hash,
+                    "Incorrect root hash for genesis block computed. expected={} computed={} (alt given? {})",
+                    &expected_root_hash,
+                    &genesis_root_hash,
+                    boot_data.appchain_genesis_hash.is_some()
                 )
+            } else {
+                if genesis_root_hash != expected_root_hash {
+                    warn!(
+                        "Genesis root mismatch: {} != {}, but in testnet, so ignoring",
+                        &genesis_root_hash, &expected_root_hash
+                    );
+                }
             }
         }
 
@@ -2029,6 +2126,55 @@ pub mod test {
             get_bulk_initial_balances: None,
             get_bulk_initial_names: None,
             get_bulk_initial_namespaces: None,
+            appchain_genesis_hash: None,
+        };
+
+        StacksChainState::open_and_exec(
+            mainnet,
+            chain_id,
+            &path,
+            Some(&mut boot_data),
+            ExecutionCost::max_value(),
+        )
+        .unwrap()
+        .0
+    }
+
+    pub fn instantiate_appchain_chainstate(
+        mainnet: bool,
+        chain_id: u32,
+        test_name: &str,
+        balances: Vec<(StacksAddress, u64)>,
+        first_burnchain_block_hash: BurnchainHeaderHash,
+        first_burnchain_block_height: u64,
+    ) -> StacksChainState {
+        assert!(chain_id != 0 && chain_id != 0x80000000);
+
+        let path = chainstate_path(test_name);
+        match fs::metadata(&path) {
+            Ok(_) => {
+                fs::remove_dir_all(&path).unwrap();
+            }
+            Err(_) => {}
+        };
+
+        let initial_balances = balances
+            .into_iter()
+            .map(|(addr, balance)| (PrincipalData::from(addr), balance))
+            .collect();
+
+        let mut boot_data = ChainStateBootData {
+            initial_balances,
+            post_flight_callback: None,
+            first_burnchain_block_hash: first_burnchain_block_hash,
+            first_burnchain_block_height: first_burnchain_block_height as u32,
+            first_burnchain_block_timestamp: 0,
+            pox_constants: PoxConstants::testnet_default(),
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+            get_bulk_initial_names: None,
+            get_bulk_initial_namespaces: None,
+            appchain_genesis_hash: None,
         };
 
         StacksChainState::open_and_exec(
@@ -2127,6 +2273,7 @@ pub mod test {
                         }),
                 )
             })),
+            appchain_genesis_hash: None,
         };
 
         let path = chainstate_path("genesis-consistency-chainstate-test");
@@ -2222,6 +2369,7 @@ pub mod test {
                         }),
                 )
             })),
+            appchain_genesis_hash: None,
         };
 
         let path = chainstate_path("genesis-consistency-chainstate");
