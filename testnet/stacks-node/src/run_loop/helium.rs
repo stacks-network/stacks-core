@@ -4,6 +4,7 @@ use crate::{
     BitcoinRegtestController, BurnchainController, ChainTip, Config, MocknetController, Node,
 };
 use stacks::chainstate::stacks::db::ClarityTx;
+use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::net::atlas::AttachmentInstance;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use std::collections::HashSet;
@@ -20,13 +21,13 @@ pub struct RunLoop {
 
 impl RunLoop {
     pub fn new(config: Config) -> Self {
-        RunLoop::new_with_boot_exec(config, Box::new(|_| {}))
+        RunLoop::new_with_boot_exec(config, Box::new(|_| vec![]))
     }
 
     /// Sets up a runloop and node, given a config.
     pub fn new_with_boot_exec(
         config: Config,
-        boot_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+        boot_exec: Box<dyn FnOnce(&mut ClarityTx) -> Vec<StacksTransactionReceipt>>,
     ) -> Self {
         let (attachments_tx, attachments_rx) = sync_channel(1);
 
