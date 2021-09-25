@@ -32,6 +32,7 @@ use rusqlite::DatabaseName;
 use rusqlite::{Error as sqlite_error, OptionalExtension};
 
 use crate::codec::MAX_MESSAGE_LEN;
+use crate::codec::{read_next, write_next};
 use chainstate::burn::db::sortdb::*;
 use chainstate::burn::operations::*;
 use chainstate::burn::BlockSnapshot;
@@ -50,6 +51,7 @@ use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use core::*;
 use net::BlocksInvData;
 use net::Error as net_error;
+use net::ExtendedStacksHeader;
 use util::db::u64_to_sql;
 use util::db::Error as db_error;
 use util::db::{
@@ -382,8 +384,11 @@ impl BlockStreamData {
             parent_index_block_hash: StacksBlockId([0u8; 32]),
             seq: 0,
             unconfirmed: false,
-            num_mblocks_buf: [0u8; 4],
-            num_mblocks_ptr: 0,
+            num_items_buf: [0u8; 4],
+            num_items_ptr: 0,
+
+            is_headers: false,
+            num_headers: 0,
         }
     }
 
@@ -405,7 +410,7 @@ impl BlockStreamData {
 
         // need to send out the consensus_serialize()'ed array length before sending microblocks.
         // this is exactly what seq tells us, though.
-        let num_mblocks_buf = ((mblock_info.sequence as u32) + 1).to_be_bytes();
+        let num_items_buf = ((mblock_info.sequence as u32) + 1).to_be_bytes();
 
         Ok(BlockStreamData {
             index_block_hash: StacksBlockId([0u8; 32]),
@@ -418,8 +423,11 @@ impl BlockStreamData {
             parent_index_block_hash: parent_index_block_hash,
             seq: mblock_info.sequence,
             unconfirmed: false,
-            num_mblocks_buf: num_mblocks_buf,
-            num_mblocks_ptr: 0,
+            num_items_buf: num_items_buf,
+            num_items_ptr: 0,
+
+            is_headers: false,
+            num_headers: 0,
         })
     }
 
@@ -446,9 +454,93 @@ impl BlockStreamData {
             parent_index_block_hash: anchored_index_block_hash,
             seq: seq,
             unconfirmed: true,
-            num_mblocks_buf: [0u8; 4],
-            num_mblocks_ptr: 4, // stops us from trying to send a length prefix
+            num_items_buf: [0u8; 4],
+            num_items_ptr: 4, // stops us from trying to send a length prefix
+
+            is_headers: false,
+            num_headers: 0,
         })
+    }
+
+    pub fn new_headers(
+        chainstate: &StacksChainState,
+        tip: &StacksBlockId,
+        num_headers_requested: u32,
+    ) -> Result<BlockStreamData, Error> {
+        let header_info = StacksChainState::load_staging_block_info(chainstate.db(), tip)?
+            .ok_or(Error::NoSuchBlockError)?;
+
+        let num_headers = if header_info.height < (num_headers_requested as u64) {
+            header_info.height as u32
+        } else {
+            num_headers_requested
+        };
+
+        test_debug!("Request for {} headers from {}", num_headers, tip);
+
+        // need to send out the consensus_serialize()'ed array length before sending headers.
+        let num_items_buf = num_headers.to_be_bytes();
+        Ok(BlockStreamData {
+            index_block_hash: tip.clone(),
+            rowid: None,
+            offset: 0,
+            total_bytes: 0,
+
+            is_microblock: false,
+            microblock_hash: BlockHeaderHash([0u8; 32]),
+            parent_index_block_hash: StacksBlockId([0u8; 32]),
+            seq: 0,
+            unconfirmed: false,
+
+            num_items_buf: num_items_buf,
+            num_items_ptr: 0,
+
+            is_headers: true,
+            num_headers: num_headers,
+        })
+    }
+
+    fn stream_count<W: Write>(&mut self, fd: &mut W, count: u64) -> Result<u64, Error> {
+        let mut num_written = 0;
+        while self.num_items_ptr < self.num_items_buf.len() && num_written < count {
+            // stream length prefix
+            test_debug!(
+                "Length prefix: try to send {:?} (ptr={})",
+                &self.num_items_buf[self.num_items_ptr..],
+                self.num_items_ptr
+            );
+            let num_sent = match fd.write(&self.num_items_buf[self.num_items_ptr..]) {
+                Ok(0) => {
+                    // done (disconnected)
+                    test_debug!("Length prefix: wrote 0 bytes",);
+                    return Ok(num_written);
+                }
+                Ok(n) => {
+                    self.num_items_ptr += n;
+                    n as u64
+                }
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::Interrupted {
+                        // EINTR; try again
+                        continue;
+                    } else if e.kind() == io::ErrorKind::WouldBlock
+                        || (cfg!(windows) && e.kind() == io::ErrorKind::TimedOut)
+                    {
+                        // blocked
+                        return Ok(num_written);
+                    } else {
+                        return Err(Error::WriteError(e));
+                    }
+                }
+            };
+            num_written += num_sent;
+            test_debug!(
+                "Length prefix: sent {} bytes ({} total)",
+                num_sent,
+                num_written
+            );
+        }
+        Ok(num_written)
     }
 
     pub fn stream_to<W: Write>(
@@ -463,55 +555,18 @@ impl BlockStreamData {
                 // Confirmed microblocks are represented as a consensus-encoded vector of
                 // microblocks, in reverse sequence order.
                 // Write 4-byte length prefix first
-                while self.num_mblocks_ptr < self.num_mblocks_buf.len() {
-                    // stream length prefix
-                    test_debug!(
-                        "Confirmed microblock stream for {}: try to send length prefix {:?} (ptr={})",
-                        &self.microblock_hash,
-                        &self.num_mblocks_buf[self.num_mblocks_ptr..],
-                        self.num_mblocks_ptr
-                    );
-                    let num_sent = match fd.write(&self.num_mblocks_buf[self.num_mblocks_ptr..]) {
-                        Ok(0) => {
-                            // done (disconnected)
-                            test_debug!(
-                                "Confirmed microblock stream for {}: wrote 0 bytes",
-                                &self.microblock_hash
-                            );
-                            return Ok(num_written);
-                        }
-                        Ok(n) => {
-                            self.num_mblocks_ptr += n;
-                            n as u64
-                        }
-                        Err(e) => {
-                            if e.kind() == io::ErrorKind::Interrupted {
-                                // EINTR; try again
-                                continue;
-                            } else if e.kind() == io::ErrorKind::WouldBlock
-                                || (cfg!(windows) && e.kind() == io::ErrorKind::TimedOut)
-                            {
-                                // blocked
-                                return Ok(num_written);
-                            } else {
-                                return Err(Error::WriteError(e));
-                            }
-                        }
-                    };
-                    num_written += num_sent;
-                    test_debug!(
-                        "Confirmed microblock stream for {}: sent {} bytes ({} total)",
-                        &self.microblock_hash,
-                        num_sent,
-                        num_written
-                    );
-                }
+                num_written += self.stream_count(fd, count)?;
                 StacksChainState::stream_microblocks_confirmed(&chainstate, fd, self, count)
                     .and_then(|bytes_sent| Ok(bytes_sent + num_written))
             } else {
                 StacksChainState::stream_microblocks_unconfirmed(&chainstate, fd, self, count)
                     .and_then(|bytes_sent| Ok(bytes_sent + num_written))
             }
+        } else if self.is_headers {
+            let num_written = self.stream_count(fd, count)?;
+            chainstate
+                .stream_headers(fd, self, count)
+                .and_then(|bytes_sent| Ok(bytes_sent + num_written))
         } else {
             chainstate.stream_block(fd, self, count)
         }
@@ -895,6 +950,17 @@ impl StacksChainState {
         Ok(Some(block))
     }
 
+    fn inner_load_block_header(block_path: &String) -> Result<Option<StacksBlockHeader>, Error> {
+        let sz = StacksChainState::get_file_size(block_path)?;
+        if sz == 0 {
+            debug!("Zero-sized block {}", &block_path);
+            return Ok(None);
+        }
+
+        let block_header: StacksBlockHeader = StacksChainState::consensus_load(block_path)?;
+        Ok(Some(block_header))
+    }
+
     /// Load up an anchored block header from the chunk store.
     /// Returns Ok(Some(blockheader)) if found.
     /// Returns Ok(None) if this block was found, but is known to be invalid
@@ -913,6 +979,18 @@ impl StacksChainState {
 
         let block_header: StacksBlockHeader = StacksChainState::consensus_load(&block_path)?;
         Ok(Some(block_header))
+    }
+
+    /// Load up an anchored block header from the chunk store, given the index block hash
+    /// Returns Ok(Some(blockheader)) if found.
+    /// Returns Ok(None) if this block was found, but is known to be invalid
+    /// Returns Err(...) on not found or I/O error
+    pub fn load_block_header_indexed(
+        blocks_dir: &String,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<StacksBlockHeader>, Error> {
+        let block_path = StacksChainState::get_index_block_path(blocks_dir, index_block_hash)?;
+        StacksChainState::inner_load_block_header(&block_path)
     }
 
     /// Closure for defaulting to an empty microblock stream if a microblock stream file is not found
@@ -2643,6 +2721,23 @@ impl StacksChainState {
         Ok(microblock_info)
     }
 
+    /// Write data to the fd
+    fn write_stream_data<W: Write, R: Read>(
+        fd: &mut W,
+        stream: &mut BlockStreamData,
+        input: &mut R,
+        count: u64,
+    ) -> Result<u64, Error> {
+        let mut buf = vec![0u8; count as usize];
+        let nr = input.read(&mut buf).map_err(Error::ReadError)?;
+        fd.write_all(&buf[0..nr]).map_err(Error::WriteError)?;
+
+        stream.offset += nr as u64;
+        stream.total_bytes += nr as u64;
+
+        Ok(nr as u64)
+    }
+
     /// Stream data from one Read to one Write
     fn stream_data<W: Write, R: Read + Seek>(
         fd: &mut W,
@@ -2654,14 +2749,150 @@ impl StacksChainState {
             .seek(SeekFrom::Start(stream.offset))
             .map_err(Error::ReadError)?;
 
-        let mut buf = vec![0u8; count as usize];
-        let nr = input.read(&mut buf).map_err(Error::ReadError)?;
-        fd.write_all(&buf[0..nr]).map_err(Error::WriteError)?;
+        StacksChainState::write_stream_data(fd, stream, input, count)
+    }
 
-        stream.offset += nr as u64;
-        stream.total_bytes += nr as u64;
+    /// Stream a single header's data from disk
+    /// If this method returns 0, it's because we're EOF on the header and should begin the next.
+    fn stream_one_header<W: Write>(
+        blocks_conn: &DBConn,
+        block_path: &String,
+        fd: &mut W,
+        stream: &mut BlockStreamData,
+        count: u64,
+    ) -> Result<u64, Error> {
+        let header =
+            StacksChainState::load_block_header_indexed(block_path, &stream.index_block_hash)?
+                .ok_or(Error::NoSuchBlockError)?;
 
-        Ok(nr as u64)
+        let header_info =
+            StacksChainState::load_staging_block_info(blocks_conn, &stream.index_block_hash)?
+                .ok_or(Error::NoSuchBlockError)?;
+
+        let parent_index_block_hash = StacksBlockHeader::make_index_block_hash(
+            &header_info.parent_consensus_hash,
+            &header_info.parent_anchored_block_hash,
+        );
+
+        let mut header_bytes = vec![];
+        let extended_header = ExtendedStacksHeader {
+            consensus_hash: header_info.consensus_hash,
+            header: header,
+            parent_block_id: parent_index_block_hash,
+        };
+        extended_header
+            .consensus_serialize(&mut header_bytes)
+            .expect("BUG: could not reserialize block header");
+
+        if stream.offset >= (header_bytes.len() as u64) {
+            // EOF
+            return Ok(0);
+        }
+
+        let num_bytes = StacksChainState::write_stream_data(
+            fd,
+            stream,
+            &mut &header_bytes[(stream.offset as usize)..],
+            count,
+        )?;
+        test_debug!(
+            "Stream header hash={} offset={} total_bytes={}, num_bytes={} num_headers={}",
+            &stream.index_block_hash,
+            stream.offset,
+            stream.total_bytes,
+            num_bytes,
+            stream.num_headers
+        );
+        Ok(num_bytes)
+    }
+
+    /// Stream multiple headers from disk, moving in reverse order from the chain tip back.
+    /// Returns total number of bytes written (will be equal to the number of bytes read).
+    /// Returns 0 if we run out of headers
+    fn stream_headers<W: Write>(
+        &self,
+        fd: &mut W,
+        stream: &mut BlockStreamData,
+        count: u64,
+    ) -> Result<u64, Error> {
+        let mut to_write = count;
+        while to_write > 0 {
+            let nw = match StacksChainState::stream_one_header(
+                &self.db(),
+                &self.blocks_path,
+                fd,
+                stream,
+                to_write,
+            ) {
+                Ok(nw) => nw,
+                Err(Error::DBError(db_error::NotFoundError)) => {
+                    // out of headers
+                    debug!(
+                        "No more header to stream after {}",
+                        &stream.index_block_hash
+                    );
+                    break;
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            };
+
+            if nw == 0 {
+                if stream.num_headers == 0 {
+                    // out of headers
+                    debug!(
+                        "No more header to stream after {}",
+                        &stream.index_block_hash
+                    );
+                    break;
+                }
+
+                // EOF on header; move to the next one (its parent)
+                let header_info = match StacksChainState::load_staging_block_info(
+                    &self.db(),
+                    &stream.index_block_hash,
+                )? {
+                    Some(x) => x,
+                    None => {
+                        // out of headers
+                        debug!(
+                            "Out of headers to stream after block {}",
+                            &stream.index_block_hash
+                        );
+                        break;
+                    }
+                };
+
+                let parent_index_block_hash = StacksBlockHeader::make_index_block_hash(
+                    &header_info.parent_consensus_hash,
+                    &header_info.parent_anchored_block_hash,
+                );
+
+                stream.index_block_hash = parent_index_block_hash;
+                stream.offset = 0;
+                stream.num_headers = stream
+                    .num_headers
+                    .checked_sub(1)
+                    .expect("BUG: streamed more headers than called for");
+            } else {
+                to_write = to_write
+                    .checked_sub(nw)
+                    .expect("BUG: wrote more data than called for");
+            }
+
+            debug!(
+                "Streaming header={}: to_write={}, nw={}",
+                &stream.index_block_hash, to_write, nw
+            );
+        }
+        debug!(
+            "Streamed headers: {} - {} = {}",
+            count,
+            to_write,
+            count - to_write
+        );
+        Ok(count - to_write)
     }
 
     /// Stream a single microblock's data from the staging database.
@@ -5540,6 +5771,7 @@ pub mod test {
     use chainstate::stacks::*;
     use core::mempool::*;
     use net::test::*;
+    use net::ExtendedStacksHeader;
     use util::db::Error as db_error;
     use util::db::*;
     use util::hash::*;
@@ -8501,6 +8733,20 @@ pub mod test {
         }
     }
 
+    fn stream_one_header_to_vec(
+        blocks_conn: &DBConn,
+        blocks_path: &String,
+        stream: &mut BlockStreamData,
+        count: u64,
+    ) -> Result<Vec<u8>, chainstate_error> {
+        let mut bytes = vec![];
+        StacksChainState::stream_one_header(blocks_conn, blocks_path, &mut bytes, stream, count)
+            .map(|nr| {
+                assert_eq!(bytes.len(), nr as usize);
+                bytes
+            })
+    }
+
     fn stream_one_staging_microblock_to_vec(
         blocks_conn: &DBConn,
         stream: &mut BlockStreamData,
@@ -8527,6 +8773,18 @@ pub mod test {
         )
     }
 
+    fn stream_headers_to_vec(
+        chainstate: &mut StacksChainState,
+        stream: &mut BlockStreamData,
+        count: u64,
+    ) -> Result<Vec<u8>, chainstate_error> {
+        let mut bytes = vec![];
+        stream.stream_to(chainstate, &mut bytes, count).map(|nr| {
+            assert_eq!(bytes.len(), nr as usize);
+            bytes
+        })
+    }
+
     fn stream_unconfirmed_microblocks_to_vec(
         chainstate: &mut StacksChainState,
         stream: &mut BlockStreamData,
@@ -8549,6 +8807,34 @@ pub mod test {
             assert_eq!(bytes.len(), nr as usize);
             bytes
         })
+    }
+
+    fn decode_headers_stream(header_bytes: Vec<u8>) -> Vec<StacksBlockHeader> {
+        // decode stream
+        let mut header_ptr = header_bytes.as_slice();
+        let mut headers = vec![];
+        loop {
+            test_debug!("decoded {}", headers.len());
+            {
+                let mut debug_reader = LogReader::from_reader(&mut header_ptr);
+                let next_header = StacksBlockHeader::consensus_deserialize(&mut debug_reader)
+                    .map_err(|e| {
+                        eprintln!("Failed to decode header {}: {:?}", headers.len(), &e);
+                        eprintln!("Bytes consumed:");
+                        for buf in debug_reader.log().iter() {
+                            eprintln!("  {}", to_hex(buf));
+                        }
+                        assert!(false);
+                        unreachable!();
+                    })
+                    .unwrap();
+                headers.push(next_header);
+            }
+            if header_ptr.len() == 0 {
+                break;
+            }
+        }
+        headers
     }
 
     fn decode_microblock_stream(mblock_bytes: &Vec<u8>) -> Vec<StacksMicroblock> {
@@ -8657,6 +8943,251 @@ pub mod test {
         // should decode back into the block
         let staging_block = StacksBlock::consensus_deserialize(&mut &all_block_bytes[..]).unwrap();
         assert_eq!(staging_block, block);
+    }
+
+    #[test]
+    fn stacks_db_stream_headers() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_stream_headers");
+        let privk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+
+        let mut blocks: Vec<StacksBlock> = vec![];
+        let mut blocks_index_hashes: Vec<StacksBlockId> = vec![];
+
+        // make a linear stream
+        for i in 0..32 {
+            let mut block = make_empty_coinbase_block(&privk);
+
+            if i == 0 {
+                block.header.total_work.work = 1;
+                block.header.total_work.burn = 1;
+            }
+            if i > 0 {
+                block.header.parent_block = blocks.get(i - 1).unwrap().block_hash();
+                block.header.total_work.work =
+                    blocks.get(i - 1).unwrap().header.total_work.work + 1;
+                block.header.total_work.burn =
+                    blocks.get(i - 1).unwrap().header.total_work.burn + 1;
+            }
+
+            let consensus_hash = ConsensusHash([((i + 1) as u8); 20]);
+            let parent_consensus_hash = ConsensusHash([(i as u8); 20]);
+
+            store_staging_block(
+                &mut chainstate,
+                &consensus_hash,
+                &block,
+                &parent_consensus_hash,
+                i as u64,
+                i as u64,
+            );
+
+            blocks_index_hashes.push(StacksBlockHeader::make_index_block_hash(
+                &consensus_hash,
+                &block.block_hash(),
+            ));
+            blocks.push(block);
+        }
+
+        let mut blocks_fork = blocks[0..16].to_vec();
+        let mut blocks_fork_index_hashes = blocks_index_hashes[0..16].to_vec();
+
+        // make a stream that branches off
+        for i in 16..32 {
+            let mut block = make_empty_coinbase_block(&privk);
+
+            if i == 16 {
+                block.header.parent_block = blocks.get(i - 1).unwrap().block_hash();
+                block.header.total_work.work =
+                    blocks.get(i - 1).unwrap().header.total_work.work + 1;
+                block.header.total_work.burn =
+                    blocks.get(i - 1).unwrap().header.total_work.burn + 2;
+            } else {
+                block.header.parent_block = blocks_fork.get(i - 1).unwrap().block_hash();
+                block.header.total_work.work =
+                    blocks_fork.get(i - 1).unwrap().header.total_work.work + 1;
+                block.header.total_work.burn =
+                    blocks_fork.get(i - 1).unwrap().header.total_work.burn + 2;
+            }
+
+            let consensus_hash = ConsensusHash([((i + 1) as u8) | 0x80; 20]);
+            let parent_consensus_hash = if i == 16 {
+                ConsensusHash([(i as u8); 20])
+            } else {
+                ConsensusHash([(i as u8) | 0x80; 20])
+            };
+
+            store_staging_block(
+                &mut chainstate,
+                &consensus_hash,
+                &block,
+                &parent_consensus_hash,
+                i as u64,
+                i as u64,
+            );
+
+            blocks_fork_index_hashes.push(StacksBlockHeader::make_index_block_hash(
+                &consensus_hash,
+                &block.block_hash(),
+            ));
+            blocks_fork.push(block);
+        }
+
+        // can't stream a non-existant header
+        assert!(BlockStreamData::new_headers(&chainstate, &StacksBlockId([0x11; 32]), 1).is_err());
+
+        // stream back individual headers
+        for i in 0..blocks.len() {
+            let mut stream =
+                BlockStreamData::new_headers(&chainstate, &blocks_index_hashes[i], 1).unwrap();
+            let mut next_header_bytes = vec![];
+            loop {
+                // torture test
+                let mut next_bytes = stream_one_header_to_vec(
+                    &chainstate.db(),
+                    &chainstate.blocks_path,
+                    &mut stream,
+                    25,
+                )
+                .unwrap();
+                if next_bytes.len() == 0 {
+                    break;
+                }
+                next_header_bytes.append(&mut next_bytes);
+            }
+            test_debug!("Got {} total bytes", next_header_bytes.len());
+            let header =
+                ExtendedStacksHeader::consensus_deserialize(&mut &next_header_bytes[..]).unwrap();
+
+            assert_eq!(header.consensus_hash, ConsensusHash([(i + 1) as u8; 20]));
+            assert_eq!(header.header, blocks[i].header);
+
+            if i > 0 {
+                assert_eq!(header.parent_block_id, blocks_index_hashes[i - 1]);
+            }
+        }
+
+        // stream back a run of headers
+        let block_expected_headers: Vec<StacksBlockHeader> =
+            blocks.iter().rev().map(|blk| blk.header.clone()).collect();
+
+        let block_expected_index_hashes: Vec<StacksBlockId> = blocks_index_hashes
+            .iter()
+            .rev()
+            .map(|idx| idx.clone())
+            .collect();
+
+        let block_fork_expected_headers: Vec<StacksBlockHeader> = blocks_fork
+            .iter()
+            .rev()
+            .map(|blk| blk.header.clone())
+            .collect();
+
+        let block_fork_expected_index_hashes: Vec<StacksBlockId> = blocks_fork_index_hashes
+            .iter()
+            .rev()
+            .map(|idx| idx.clone())
+            .collect();
+
+        // get them all -- ask for more than there is
+        let mut stream =
+            BlockStreamData::new_headers(&chainstate, blocks_index_hashes.last().unwrap(), 4096)
+                .unwrap();
+        let header_bytes =
+            stream_headers_to_vec(&mut chainstate, &mut stream, 1024 * 1024).unwrap();
+        let headers: Vec<ExtendedStacksHeader> =
+            Vec::consensus_deserialize(&mut &header_bytes[..]).unwrap();
+
+        assert_eq!(headers.len(), block_expected_headers.len());
+        for ((i, h), eh) in headers
+            .iter()
+            .enumerate()
+            .zip(block_expected_headers.iter())
+        {
+            assert_eq!(h.header, *eh);
+            assert_eq!(h.consensus_hash, ConsensusHash([(32 - i) as u8; 20]));
+            if i + 1 < block_expected_index_hashes.len() {
+                assert_eq!(h.parent_block_id, block_expected_index_hashes[i + 1]);
+            }
+        }
+
+        let mut stream = BlockStreamData::new_headers(
+            &chainstate,
+            blocks_fork_index_hashes.last().unwrap(),
+            4096,
+        )
+        .unwrap();
+        let header_bytes =
+            stream_headers_to_vec(&mut chainstate, &mut stream, 1024 * 1024).unwrap();
+        let fork_headers: Vec<ExtendedStacksHeader> =
+            Vec::consensus_deserialize(&mut &header_bytes[..]).unwrap();
+
+        assert_eq!(fork_headers.len(), block_fork_expected_headers.len());
+        for ((i, h), eh) in fork_headers
+            .iter()
+            .enumerate()
+            .zip(block_fork_expected_headers.iter())
+        {
+            let consensus_hash = if i >= 16 {
+                ConsensusHash([((32 - i) as u8); 20])
+            } else {
+                ConsensusHash([((32 - i) as u8) | 0x80; 20])
+            };
+
+            assert_eq!(h.header, *eh);
+            assert_eq!(h.consensus_hash, consensus_hash);
+            if i + 1 < block_fork_expected_index_hashes.len() {
+                assert_eq!(h.parent_block_id, block_fork_expected_index_hashes[i + 1]);
+            }
+        }
+
+        assert_eq!(fork_headers[16..32], headers[16..32]);
+
+        // ask for only a few
+        let mut stream =
+            BlockStreamData::new_headers(&chainstate, blocks_index_hashes.last().unwrap(), 10)
+                .unwrap();
+        let mut header_bytes = vec![];
+        loop {
+            // torture test
+            let mut next_bytes = stream_headers_to_vec(&mut chainstate, &mut stream, 17).unwrap();
+            if next_bytes.len() == 0 {
+                break;
+            }
+            header_bytes.append(&mut next_bytes);
+        }
+        let headers: Vec<ExtendedStacksHeader> =
+            Vec::consensus_deserialize(&mut &header_bytes[..]).unwrap();
+
+        assert_eq!(headers.len(), 10);
+        for (i, hdr) in headers.iter().enumerate() {
+            assert_eq!(hdr.header, block_expected_headers[i]);
+            assert_eq!(hdr.parent_block_id, block_expected_index_hashes[i + 1]);
+        }
+
+        // ask for only a few
+        let mut stream =
+            BlockStreamData::new_headers(&chainstate, blocks_fork_index_hashes.last().unwrap(), 10)
+                .unwrap();
+        let mut header_bytes = vec![];
+        loop {
+            // torture test
+            let mut next_bytes = stream_headers_to_vec(&mut chainstate, &mut stream, 17).unwrap();
+            if next_bytes.len() == 0 {
+                break;
+            }
+            header_bytes.append(&mut next_bytes);
+        }
+        let headers: Vec<ExtendedStacksHeader> =
+            Vec::consensus_deserialize(&mut &header_bytes[..]).unwrap();
+
+        assert_eq!(headers.len(), 10);
+        for (i, hdr) in headers.iter().enumerate() {
+            assert_eq!(hdr.header, block_fork_expected_headers[i]);
+            assert_eq!(hdr.parent_block_id, block_fork_expected_index_hashes[i + 1]);
+        }
     }
 
     #[test]
