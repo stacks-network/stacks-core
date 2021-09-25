@@ -229,6 +229,7 @@ pub struct PeerNetwork {
 
     // work state -- we can be walking, fetching block inventories, fetching blocks, pruning, etc.
     pub work_state: PeerNetworkWorkState,
+    have_data_to_download: bool,
 
     // neighbor walk state
     pub walk: Option<NeighborWalk>,
@@ -361,6 +362,7 @@ impl PeerNetwork {
             connection_opts: connection_opts,
 
             work_state: PeerNetworkWorkState::GetPublicIP,
+            have_data_to_download: false,
 
             walk: None,
             walk_deadline: 0,
@@ -3021,6 +3023,12 @@ impl PeerNetwork {
         let mut did_cycle = false;
 
         while !did_cycle {
+            if self.have_data_to_download && self.work_state == PeerNetworkWorkState::BlockInvSync {
+                self.have_data_to_download = false;
+                // forcibly advance
+                self.work_state = PeerNetworkWorkState::BlockDownload;
+            }
+
             debug!(
                 "{:?}: network work state is {:?}",
                 &self.local_peer, &self.work_state
@@ -3074,8 +3082,17 @@ impl PeerNetwork {
                             if always_allowed.len() == 0 {
                                 have_always_allowed = true;
                             } else {
+                                let mut have_unsynced = false;
                                 if let Some(ref inv_state) = self.inv_state {
                                     for (nk, stats) in inv_state.block_stats.iter() {
+                                        if self.is_bound(&nk) {
+                                            continue;
+                                        }
+                                        if Some((nk.addrbytes.clone(), nk.port))
+                                            == self.local_peer.public_ip_address
+                                        {
+                                            continue;
+                                        }
                                         if !always_allowed.contains(&nk) {
                                             continue;
                                         }
@@ -3088,8 +3105,18 @@ impl PeerNetwork {
                                                 &self.local_peer, nk
                                             );
                                             have_always_allowed = true;
+                                        } else {
+                                            debug!(
+                                                "{:?}: Have not fully sync'ed with {}",
+                                                &self.local_peer, &nk
+                                            );
+                                            have_unsynced = true;
                                         }
                                     }
+                                }
+
+                                if !have_unsynced {
+                                    have_always_allowed = true;
                                 }
                             }
 
@@ -3154,10 +3181,12 @@ impl PeerNetwork {
                                 downloader.hint_block_sortition_height_available(
                                     start_download_sortition,
                                     ibd,
+                                    false,
                                 );
                                 downloader.hint_microblock_sortition_height_available(
                                     start_download_sortition,
                                     ibd,
+                                    false,
                                 );
                             } else {
                                 warn!(
@@ -3581,8 +3610,10 @@ impl PeerNetwork {
     fn handle_unsolicited_BlocksAvailable(
         &mut self,
         sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
         event_id: usize,
         new_blocks: &BlocksAvailableData,
+        ibd: bool,
         buffer: bool,
     ) -> bool {
         let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
@@ -3628,12 +3659,54 @@ impl PeerNetwork {
                 }
             };
 
-            // have the downloader request this block if it's new
-            match self.block_downloader {
-                Some(ref mut downloader) => {
-                    downloader.hint_block_sortition_height_available(block_sortition_height, false);
+            let need_block = {
+                if let Ok(Some(sn)) =
+                    SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)
+                {
+                    if let Ok(inv) = chainstate.get_blocks_inventory(&[(
+                        consensus_hash.clone(),
+                        if sn.sortition {
+                            Some(sn.winning_stacks_block_hash.clone())
+                        } else {
+                            None
+                        },
+                    )]) {
+                        if inv.block_bitvec.len() > 0 {
+                            inv.block_bitvec[0] == 0
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
                 }
-                None => {}
+            };
+
+            debug!(
+                "Need block {}/{}? {}",
+                &consensus_hash, &block_hash, need_block
+            );
+
+            if need_block {
+                // have the downloader request this block if it's new and we don't have it
+                match self.block_downloader {
+                    Some(ref mut downloader) => {
+                        downloader.hint_block_sortition_height_available(
+                            block_sortition_height,
+                            ibd,
+                            need_block,
+                        );
+
+                        // advance straight to download state if we're in inv state
+                        if self.work_state == PeerNetworkWorkState::BlockInvSync {
+                            debug!("{:?}: advance directly to block download with knowledge of block sortition {}", &self.local_peer, block_sortition_height);
+                            self.have_data_to_download = true;
+                        }
+                    }
+                    None => {}
+                }
             }
         }
 
@@ -3647,8 +3720,10 @@ impl PeerNetwork {
     fn handle_unsolicited_MicroblocksAvailable(
         &mut self,
         sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
         event_id: usize,
         new_mblocks: &BlocksAvailableData,
+        ibd: bool,
         buffer: bool,
     ) -> bool {
         let outbound_neighbor_key = match self.find_outbound_neighbor(event_id) {
@@ -3666,7 +3741,6 @@ impl PeerNetwork {
         );
 
         let mut to_buffer = false;
-
         for (consensus_hash, block_hash) in new_mblocks.available.iter() {
             let mblock_sortition_height = match self.handle_unsolicited_inv_update(
                 sortdb,
@@ -3695,13 +3769,54 @@ impl PeerNetwork {
                 }
             };
 
-            // have the downloader request this block if it's new
-            match self.block_downloader {
-                Some(ref mut downloader) => {
-                    downloader
-                        .hint_microblock_sortition_height_available(mblock_sortition_height, false);
+            let need_microblock_stream = {
+                if let Ok(Some(sn)) =
+                    SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)
+                {
+                    if let Ok(inv) = chainstate.get_blocks_inventory(&[(
+                        consensus_hash.clone(),
+                        if sn.sortition {
+                            Some(sn.winning_stacks_block_hash.clone())
+                        } else {
+                            None
+                        },
+                    )]) {
+                        if inv.microblocks_bitvec.len() > 0 {
+                            inv.microblocks_bitvec[0] == 0
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
                 }
-                None => {}
+            };
+
+            debug!(
+                "Need microblock stream {}/{}? {}",
+                &consensus_hash, &block_hash, need_microblock_stream
+            );
+
+            if need_microblock_stream {
+                // have the downloader request this microblock block if it's new to us
+                match self.block_downloader {
+                    Some(ref mut downloader) => {
+                        downloader.hint_microblock_sortition_height_available(
+                            mblock_sortition_height,
+                            ibd,
+                            need_microblock_stream,
+                        );
+
+                        // advance straight to download state if we're in inv state
+                        if self.work_state == PeerNetworkWorkState::BlockInvSync {
+                            debug!("{:?}: advance directly to block download with knowledge of microblock stream {}", &self.local_peer, mblock_sortition_height);
+                            self.have_data_to_download = true;
+                        }
+                    }
+                    None => {}
+                }
             }
         }
         to_buffer
@@ -3916,6 +4031,7 @@ impl PeerNetwork {
         chainstate: &StacksChainState,
         event_id: usize,
         payload: &StacksMessageType,
+        ibd: bool,
         buffer: bool,
     ) -> (bool, bool) {
         match payload {
@@ -3926,15 +4042,18 @@ impl PeerNetwork {
             // conversation and use _that_ conversation's neighbor key to identify
             // which inventory we need to update.
             StacksMessageType::BlocksAvailable(ref new_blocks) => {
-                let to_buffer =
-                    self.handle_unsolicited_BlocksAvailable(sortdb, event_id, new_blocks, buffer);
+                let to_buffer = self.handle_unsolicited_BlocksAvailable(
+                    sortdb, chainstate, event_id, new_blocks, ibd, buffer,
+                );
                 (to_buffer, false)
             }
             StacksMessageType::MicroblocksAvailable(ref new_mblocks) => {
                 let to_buffer = self.handle_unsolicited_MicroblocksAvailable(
                     sortdb,
+                    chainstate,
                     event_id,
                     new_mblocks,
+                    ibd,
                     buffer,
                 );
                 (to_buffer, false)
@@ -3971,6 +4090,7 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
         unsolicited: HashMap<usize, Vec<StacksMessage>>,
+        ibd: bool,
         buffer: bool,
     ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         let mut unhandled: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
@@ -4008,6 +4128,7 @@ impl PeerNetwork {
                     chainstate,
                     event_id,
                     &message.payload,
+                    ibd,
                     buffer,
                 );
                 if buffer && to_buffer {
@@ -4188,6 +4309,7 @@ impl PeerNetwork {
         &mut self,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
+        ibd: bool,
     ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
@@ -4228,7 +4350,13 @@ impl PeerNetwork {
         if sn.burn_header_hash != self.burnchain_tip.burn_header_hash {
             // try processing previously-buffered messages (best-effort)
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
-            ret = self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, false)?;
+            ret = self.handle_unsolicited_messages(
+                sortdb,
+                chainstate,
+                buffered_messages,
+                ibd,
+                false,
+            )?;
         }
 
         // update cached stacks chain view for /v2/info
@@ -4277,7 +4405,7 @@ impl PeerNetwork {
             self.deregister_peer(error_event);
         }
         let unhandled_messages =
-            self.handle_unsolicited_messages(sortdb, chainstate, unsolicited_messages, true)?;
+            self.handle_unsolicited_messages(sortdb, chainstate, unsolicited_messages, ibd, true)?;
         network_result.consume_unsolicited(unhandled_messages);
 
         // schedule now-authenticated inbound convos for pingback
@@ -4492,7 +4620,7 @@ impl PeerNetwork {
         self.refresh_local_peer()?;
 
         // update burnchain view, before handling any HTTP connections
-        let unsolicited_buffered_messages = self.refresh_burnchain_view(sortdb, chainstate)?;
+        let unsolicited_buffered_messages = self.refresh_burnchain_view(sortdb, chainstate, ibd)?;
         network_result.consume_unsolicited(unsolicited_buffered_messages);
 
         // update PoX view, before handling any HTTP connections
