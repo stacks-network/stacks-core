@@ -21,6 +21,7 @@ use std::fs;
 use std::mem;
 
 use crate::types::StacksPublicKeyBuffer;
+use burnchains::Burnchain;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
@@ -1319,7 +1320,7 @@ impl StacksBlockBuilder {
         Ok((block, size, cost))
     }
 
-    /// Create a block builder for mining
+    /// Create a block builder for mining on Bitcoin mainnet or testnet
     pub fn make_block_builder(
         mainnet: bool,
         stacks_parent_header: &StacksHeaderInfo,
@@ -1373,7 +1374,7 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
-    /// Create a block builder for regtest mining
+    /// Create a block builder for regtest mining on Bitcoin
     pub fn make_regtest_block_builder(
         stacks_parent_header: &StacksHeaderInfo,
         proof: VRFProof,
@@ -1410,6 +1411,46 @@ impl StacksBlockBuilder {
                 pubkey_hash,
             )
         };
+        Ok(builder)
+    }
+
+    /// Create a block builder for a particular burnchain
+    pub fn make_block_builder_for_burnchain(
+        burnchain: &Burnchain,
+        stacks_parent_header: &StacksHeaderInfo,
+        proof: VRFProof,
+        total_burn: u64,
+        pubkey_hash: Hash160,
+    ) -> Result<StacksBlockBuilder, Error> {
+        let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
+            StacksBlockBuilder::first_pubkey_hash(
+                0,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &burnchain.first_block_hash,
+                burnchain.first_block_height as u32,
+                burnchain.first_block_timestamp as u64,
+                &proof,
+                pubkey_hash,
+            )
+        } else {
+            // building off an existing stacks block
+            let new_work = StacksWorkScore {
+                burn: total_burn,
+                work: stacks_parent_header
+                    .block_height
+                    .checked_add(1)
+                    .expect("FATAL: block height overflow"),
+            };
+
+            StacksBlockBuilder::from_parent_pubkey_hash(
+                0,
+                stacks_parent_header,
+                &new_work,
+                &proof,
+                pubkey_hash,
+            )
+        };
+
         Ok(builder)
     }
 
@@ -8771,7 +8812,9 @@ pub mod test {
         chain_id: u32,
         test_name: &str,
         balances: Vec<(StacksAddress, u64)>,
-        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+        post_flight_callback: Option<
+            Box<dyn FnOnce(&mut ClarityTx) -> Vec<StacksTransactionReceipt>>,
+        >,
     ) -> StacksChainState {
         let path = chainstate_path(test_name);
         match fs::metadata(&path) {
@@ -8797,6 +8840,7 @@ pub mod test {
             get_bulk_initial_balances: None,
             get_bulk_initial_names: None,
             get_bulk_initial_namespaces: None,
+            appchain_genesis_hash: None,
         };
 
         StacksChainState::open_and_exec(
@@ -8893,7 +8937,8 @@ pub mod test {
                     tx.initialize_smart_contract(&CONTRACT_IDENT, &ct_ast, CONTRACT, |_, _| false)
                         .unwrap();
                     tx.save_analysis(&CONTRACT_IDENT, &ct_analysis).unwrap();
-                })
+                });
+                vec![]
             })),
         );
 
