@@ -145,6 +145,22 @@ impl Secp256k1PublicKey {
         }
     }
 
+    pub fn from_bytevec(data: &Vec<u8>) -> Result<Secp256k1PublicKey, &'static str> {
+        if data.len() != 33 && data.len() != 65 {
+            return Err("Invalid public key: not 33 or 65 bytes");
+        }
+
+        if data.len() == 33 {
+            let mut bytes = [0u8; 33];
+            bytes.copy_from_slice(&data[0..33]);
+            Secp256k1PublicKey::from_slice(&bytes)
+        } else {
+            let mut bytes = [0u8; 65];
+            bytes.copy_from_slice(&data[0..65]);
+            Secp256k1PublicKey::from_slice(&bytes)
+        }
+    }
+
     pub fn from_private(privk: &Secp256k1PrivateKey) -> Secp256k1PublicKey {
         _secp256k1.with(|ctx| {
             let pubk = LibSecp256k1PublicKey::from_secret_key(&ctx, &privk.key);
