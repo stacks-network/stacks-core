@@ -279,6 +279,18 @@ impl StackStxOp {
     }
 }
 
+impl StacksMessageCodec for PreStxOp {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &(Opcodes::PreStx as u8))?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<PreStxOp, codec_error> {
+        // Op deserialized through burchain indexer
+        unimplemented!();
+    }
+}
+
 impl StacksMessageCodec for StackStxOp {
     /*
             Wire format:
