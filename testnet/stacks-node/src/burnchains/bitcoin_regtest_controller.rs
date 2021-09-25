@@ -26,6 +26,7 @@ use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
+use stacks::burnchains::Address;
 use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::PoxConstants;
@@ -53,6 +54,8 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
 
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
+
+use crate::Keychain;
 
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
@@ -306,13 +309,6 @@ impl BitcoinRegtestController {
         burnchain.pox_constants
     }
 
-    pub fn get_burnchain(&self) -> Burnchain {
-        match self.burnchain_config {
-            Some(ref burnchain) => burnchain.clone(),
-            None => self.default_burnchain(),
-        }
-    }
-
     fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
         let (_, network_type) = self.config.burnchain.get_bitcoin_network();
         let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
@@ -404,7 +400,7 @@ impl BitcoinRegtestController {
             }
             match burnchain.sync_with_indexer(
                 &mut burnchain_indexer,
-                coordinator_comms.clone(),
+                Some(coordinator_comms.clone()),
                 target_block_height_opt,
                 Some(burnchain.pox_constants.reward_cycle_length as u64),
                 self.should_keep_running.clone(),
@@ -1324,55 +1320,6 @@ impl BitcoinRegtestController {
         }
     }
 
-    /// wait until the ChainsCoordinator has processed sortitions up to the
-    ///   canonical chain tip, or has processed up to height_to_wait
-    pub fn wait_for_sortitions(
-        &self,
-        height_to_wait: Option<u64>,
-    ) -> Result<BurnchainTip, BurnchainControllerError> {
-        loop {
-            let canonical_burnchain_tip = self
-                .burnchain_db
-                .as_ref()
-                .expect("BurnchainDB not opened")
-                .get_canonical_chain_tip()
-                .unwrap();
-            let canonical_sortition_tip =
-                SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn()).unwrap();
-            if canonical_burnchain_tip.block_height == canonical_sortition_tip.block_height {
-                let (_, state_transition) = self
-                    .sortdb_ref()
-                    .get_sortition_result(&canonical_sortition_tip.sortition_id)
-                    .expect("Sortition DB error.")
-                    .expect("BUG: no data for the canonical chain tip");
-                return Ok(BurnchainTip {
-                    block_snapshot: canonical_sortition_tip,
-                    received_at: Instant::now(),
-                    state_transition,
-                });
-            } else if let Some(height_to_wait) = height_to_wait {
-                if canonical_sortition_tip.block_height >= height_to_wait {
-                    let (_, state_transition) = self
-                        .sortdb_ref()
-                        .get_sortition_result(&canonical_sortition_tip.sortition_id)
-                        .expect("Sortition DB error.")
-                        .expect("BUG: no data for the canonical chain tip");
-
-                    return Ok(BurnchainTip {
-                        block_snapshot: canonical_sortition_tip,
-                        received_at: Instant::now(),
-                        state_transition,
-                    });
-                }
-            }
-            if !self.should_keep_running() {
-                return Err(BurnchainControllerError::CoordinatorClosed);
-            }
-            // yield some time
-            sleep_ms(100);
-        }
-    }
-
     pub fn build_next_block(&self, num_blocks: u64) {
         debug!("Generate {} block(s)", num_blocks);
         let public_key = match &self.config.burnchain.local_mining_public_key {
@@ -1462,6 +1409,54 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
+    fn get_burnchain(&self) -> Burnchain {
+        match self.burnchain_config {
+            Some(ref burnchain) => burnchain.clone(),
+            None => self.default_burnchain(),
+        }
+    }
+
+    fn can_mine(&self) -> bool {
+        let keychain = Keychain::default(self.config.node.seed.clone());
+        let node_address = Keychain::address_from_burnchain_signer(
+            &keychain.get_burnchain_signer(),
+            self.config.is_mainnet(),
+        );
+        let btc_addr = BitcoinAddress::from_bytes(
+            if self.config.is_mainnet() {
+                BitcoinNetworkType::Mainnet
+            } else {
+                BitcoinNetworkType::Testnet
+            },
+            BitcoinAddressType::PublicKeyHash,
+            &node_address.to_bytes(),
+        )
+        .unwrap();
+        info!(
+            "Miner node on Bitcoin: checking UTXOs at address: {}",
+            btc_addr
+        );
+
+        match self.create_wallet_if_dne() {
+            Err(e) => warn!("Error when creating wallet: {:?}", e),
+            _ => {}
+        }
+
+        let utxos = self.get_utxos(&keychain.generate_op_signer().get_public_key(), 1, None, 0);
+        if utxos.is_none() {
+            if self.config.node.mock_mining {
+                info!("No UTXOs found, but configured to mock mine");
+                true
+            } else {
+                error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
+                false
+            }
+        } else {
+            info!("UTXOs found - will run as a Miner node");
+            true
+        }
+    }
+
     fn start(
         &mut self,
         target_block_height_opt: Option<u64>,
@@ -1471,6 +1466,55 @@ impl BurnchainController for BitcoinRegtestController {
             false,
             target_block_height_opt.map_or_else(|| Some(1), |x| Some(x)),
         )
+    }
+
+    /// wait until the ChainsCoordinator has processed sortitions up to the
+    ///   canonical chain tip, or has processed up to height_to_wait
+    fn wait_for_sortitions(
+        &self,
+        height_to_wait: Option<u64>,
+    ) -> Result<BurnchainTip, BurnchainControllerError> {
+        loop {
+            let canonical_burnchain_tip = self
+                .burnchain_db
+                .as_ref()
+                .expect("BurnchainDB not opened")
+                .get_canonical_chain_tip()
+                .unwrap();
+            let canonical_sortition_tip =
+                SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn()).unwrap();
+            if canonical_burnchain_tip.block_height == canonical_sortition_tip.block_height {
+                let (_, state_transition) = self
+                    .sortdb_ref()
+                    .get_sortition_result(&canonical_sortition_tip.sortition_id)
+                    .expect("Sortition DB error.")
+                    .expect("BUG: no data for the canonical chain tip");
+                return Ok(BurnchainTip {
+                    block_snapshot: canonical_sortition_tip,
+                    received_at: Instant::now(),
+                    state_transition,
+                });
+            } else if let Some(height_to_wait) = height_to_wait {
+                if canonical_sortition_tip.block_height >= height_to_wait {
+                    let (_, state_transition) = self
+                        .sortdb_ref()
+                        .get_sortition_result(&canonical_sortition_tip.sortition_id)
+                        .expect("Sortition DB error.")
+                        .expect("BUG: no data for the canonical chain tip");
+
+                    return Ok(BurnchainTip {
+                        block_snapshot: canonical_sortition_tip,
+                        received_at: Instant::now(),
+                        state_transition,
+                    });
+                }
+            }
+            if !self.should_keep_running() {
+                return Err(BurnchainControllerError::CoordinatorClosed);
+            }
+            // yield some time
+            sleep_ms(100);
+        }
     }
 
     fn sync(
