@@ -45,7 +45,7 @@ use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
 
 // return type from parse_data below
-struct ParsedData {
+pub struct ParsedData {
     block_header_hash: BlockHeaderHash,
     new_seed: VRFSeed,
     parent_block_ptr: u32,
@@ -654,9 +654,7 @@ impl LeaderBlockCommitOp {
         // There must be a burn
         /////////////////////////////////////////////////////////////////////////////////////
 
-        let apparent_sender_address = self
-            .apparent_sender
-            .to_bitcoin_address(BitcoinNetworkType::Mainnet);
+        let apparent_sender_address = self.apparent_sender.to_bitcoin_address(true);
 
         if self.burn_fee == 0 {
             warn!("Invalid block commit: no burn amount";
