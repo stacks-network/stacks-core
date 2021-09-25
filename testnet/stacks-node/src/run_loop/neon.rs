@@ -6,9 +6,7 @@ use std::thread;
 
 use ctrlc as termination;
 
-use stacks::burnchains::bitcoin::address::BitcoinAddress;
-use stacks::burnchains::bitcoin::address::BitcoinAddressType;
-use stacks::burnchains::{Address, Burnchain};
+use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
@@ -19,12 +17,14 @@ use stacks::net::atlas::{AtlasConfig, Attachment};
 use stx_genesis::GenesisData;
 
 use crate::monitoring::start_serving_monitoring_metrics;
-use crate::node::use_test_genesis_chainstate;
+use crate::node::{
+    get_account_balances, get_account_lockups, get_names, get_namespaces,
+    use_test_genesis_chainstate,
+};
 use crate::syncctl::PoxSyncWatchdog;
 use crate::{
-    node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
-    BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
-    NeonGenesisNode,
+    BitcoinRegtestController, BurnchainController, Config, EventDispatcher, NeonGenesisNode,
+    StacksController,
 };
 
 use super::RunLoopCallbacks;
@@ -122,68 +122,60 @@ impl RunLoop {
             error!("Error setting termination handler - {}", e);
         }
 
-        // Initialize and start the burnchain.
-        let mut burnchain = BitcoinRegtestController::with_burnchain(
-            self.config.clone(),
-            Some(coordinator_senders.clone()),
-            burnchain_opt,
-            Some(should_keep_running.clone()),
-        );
-        let pox_constants = burnchain.get_pox_constants();
+        // Initialize and start the burnchain client.
+        let mut burnchain_client: Box<dyn BurnchainController> = if self.config.describes_appchain()
+        {
+            debug!(
+                "Starting runloop for appchain {}",
+                self.config.burnchain.chain_id
+            );
+            Box::new(
+                StacksController::new(
+                    self.config.clone(),
+                    coordinator_senders.clone(),
+                    should_keep_running.clone(),
+                )
+                .expect("BUG: failed to instantiate Stacks controller"),
+            )
+        } else {
+            debug!(
+                "Starting runloop for Stacks mainchain {}",
+                self.config.burnchain.chain_id
+            );
+            Box::new(BitcoinRegtestController::with_burnchain(
+                self.config.clone(),
+                Some(coordinator_senders.clone()),
+                burnchain_opt,
+                Some(should_keep_running.clone()),
+            ))
+        };
+
+        let burnchain_config = burnchain_client.get_burnchain();
+        let pox_constants = burnchain_config.pox_constants.clone();
 
         let is_miner = if self.config.node.miner {
-            let keychain = Keychain::default(self.config.node.seed.clone());
-            let node_address = Keychain::address_from_burnchain_signer(
-                &keychain.get_burnchain_signer(),
-                self.config.is_mainnet(),
-            );
-            let btc_addr = BitcoinAddress::from_bytes(
-                self.config.burnchain.get_bitcoin_network().1,
-                BitcoinAddressType::PublicKeyHash,
-                &node_address.to_bytes(),
-            )
-            .unwrap();
-            info!("Miner node: checking UTXOs at address: {}", btc_addr);
-
-            match burnchain.create_wallet_if_dne() {
-                Err(e) => warn!("Error when creating wallet: {:?}", e),
-                _ => {}
-            }
-
-            let utxos =
-                burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1, None, 0);
-            if utxos.is_none() {
-                if self.config.node.mock_mining {
-                    info!("No UTXOs found, but configured to mock mine");
-                    true
-                } else {
-                    error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
-                    false
-                }
-            } else {
-                info!("UTXOs found - will run as a Miner node");
-                true
-            }
+            burnchain_client.can_mine()
         } else {
             info!("Will run as a Follower node");
             false
         };
 
-        let burnchain_config = burnchain.get_burnchain();
         let mut target_burnchain_block_height = 1.max(burnchain_config.first_block_height);
 
-        info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
-        match burnchain.start(Some(target_burnchain_block_height)) {
+        info!("Start syncing burnchain headers up to height {}, feel free to grab a cup of coffee, this can take a while", target_burnchain_block_height);
+        match burnchain_client.start(Some(target_burnchain_block_height)) {
             Ok(_) => {}
             Err(e) => {
                 error!("Burnchain controller stopped: {}", e);
                 return;
             }
         };
+        debug!("Header sync finished");
 
         let mainnet = self.config.is_mainnet();
         let chainid = self.config.burnchain.chain_id;
         let block_limit = self.config.block_limit.clone();
+        let is_appchain = self.config.describes_appchain();
         let initial_balances = self
             .config
             .initial_balances
@@ -214,24 +206,39 @@ impl RunLoop {
 
         let (attachments_tx, attachments_rx) = sync_channel(1);
 
-        let mut boot_data = ChainStateBootData {
-            initial_balances,
-            post_flight_callback: None,
-            first_burnchain_block_hash: coordinator_burnchain_config.first_block_hash,
-            first_burnchain_block_height: coordinator_burnchain_config.first_block_height as u32,
-            first_burnchain_block_timestamp: coordinator_burnchain_config.first_block_timestamp,
-            pox_constants: coordinator_burnchain_config.pox_constants.clone(),
-            get_bulk_initial_lockups: Some(Box::new(move || {
-                get_account_lockups(use_test_genesis_data)
-            })),
-            get_bulk_initial_balances: Some(Box::new(move || {
-                get_account_balances(use_test_genesis_data)
-            })),
-            get_bulk_initial_namespaces: Some(Box::new(move || {
-                get_namespaces(use_test_genesis_data)
-            })),
-            get_bulk_initial_names: Some(Box::new(move || get_names(use_test_genesis_data))),
-        };
+        let mut boot_data =
+            if let Some(appchain_runtime) = self.config.burnchain.appchain_runtime.as_ref() {
+                // appchain mode
+                debug!(
+                    "Instantiate appchain {} state at {:?}",
+                    chainid, &chainstate_path
+                );
+                ChainStateBootData::new_appchain(
+                    mainnet,
+                    &coordinator_burnchain_config,
+                    initial_balances,
+                    appchain_runtime.boot_code.clone(),
+                    appchain_runtime.config.genesis_hash(),
+                )
+            } else {
+                // mainchain node
+                debug!(
+                    "Instantiate Stacks mainchain state at {:?}",
+                    &chainstate_path
+                );
+                let mut boot_data =
+                    ChainStateBootData::new(&coordinator_burnchain_config, initial_balances, None);
+                boot_data.get_bulk_initial_lockups =
+                    Some(Box::new(move || get_account_lockups(use_test_genesis_data)));
+                boot_data.get_bulk_initial_balances = Some(Box::new(move || {
+                    get_account_balances(use_test_genesis_data)
+                }));
+                boot_data.get_bulk_initial_namespaces =
+                    Some(Box::new(move || get_namespaces(use_test_genesis_data)));
+                boot_data.get_bulk_initial_names =
+                    Some(Box::new(move || get_names(use_test_genesis_data)));
+                boot_data
+            };
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
             mainnet,
@@ -247,7 +254,10 @@ impl RunLoop {
         let moved_atlas_config = atlas_config.clone();
 
         let coordinator_thread_handle = thread::Builder::new()
-            .name("chains-coordinator".to_string())
+            .name(format!(
+                "chains-coordinator{}",
+                if is_appchain { "-appchain" } else { "" }
+            ))
             .spawn(move || {
                 ChainsCoordinator::run(
                     chain_state_db,
@@ -265,7 +275,7 @@ impl RunLoop {
         // stored during a previous session.
         coordinator_senders.announce_new_burn_block();
 
-        let mut burnchain_tip = burnchain
+        let mut burnchain_tip = burnchain_client
             .wait_for_sortitions(None)
             .expect("Unable to get burnchain tip");
 
@@ -282,12 +292,15 @@ impl RunLoop {
         )
         .unwrap();
 
+        // TODO (hack) instantiate the sortdb in the burnchain
+        let sortdb = burnchain_client.sortdb_mut();
+
         // setup genesis
         let node = NeonGenesisNode::new(
             self.config.clone(),
             event_dispatcher,
             burnchain_config.clone(),
-            Box::new(|_| {}),
+            Box::new(|_| vec![]),
         );
         let mut node = if is_miner {
             node.into_initialized_leader_node(
@@ -313,8 +326,6 @@ impl RunLoop {
             )
         };
 
-        // TODO (hack) instantiate the sortdb in the burnchain
-        let sortdb = burnchain.sortdb_mut();
         let mut block_height = {
             let (stacks_ch, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
                 .expect("BUG: failed to load canonical stacks chain tip hash");
@@ -400,11 +411,12 @@ impl RunLoop {
                     continue;
                 }
             };
+
             // will recalculate this
             num_sortitions_in_last_cycle = 0;
 
             let (next_burnchain_tip, next_burnchain_height) =
-                match burnchain.sync(Some(target_burnchain_block_height)) {
+                match burnchain_client.sync(Some(target_burnchain_block_height)) {
                     Ok(x) => x,
                     Err(e) => {
                         warn!("Burnchain controller stopped: {}", e);
@@ -441,7 +453,7 @@ impl RunLoop {
                 // first, let's process all blocks in (block_height, next_height]
                 for block_to_process in (block_height + 1)..(next_height + 1) {
                     let block = {
-                        let ic = burnchain.sortdb_ref().index_conn();
+                        let ic = burnchain_client.sortdb_ref().index_conn();
                         SortitionDB::get_ancestor_snapshot(&ic, block_to_process, sortition_tip)
                             .unwrap()
                             .expect("Failed to find block in fork processed by bitcoin indexer")
@@ -453,7 +465,7 @@ impl RunLoop {
                     let sortition_id = &block.sortition_id;
 
                     // Have the node process the new block, that can include, or not, a sortition.
-                    node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd);
+                    node.process_burnchain_state(burnchain_client.sortdb_mut(), sortition_id, ibd);
 
                     // Now, tell the relayer to check if it won a sortition during this block,
                     //   and, if so, to process and advertize the block
@@ -483,7 +495,7 @@ impl RunLoop {
 
             if block_height >= burnchain_height && !ibd {
                 let canonical_stacks_tip_height =
-                    SortitionDB::get_canonical_burn_chain_tip(burnchain.sortdb_ref().conn())
+                    SortitionDB::get_canonical_burn_chain_tip(burnchain_client.sortdb_ref().conn())
                         .map(|snapshot| snapshot.canonical_stacks_tip_height)
                         .unwrap_or(0);
                 if canonical_stacks_tip_height < mine_start {
