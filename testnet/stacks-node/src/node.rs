@@ -253,9 +253,13 @@ impl Node {
     /// Instantiate and initialize a new node, given a config
     pub fn new(
         config: Config,
-        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
+        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> Vec<StacksTransactionReceipt>>,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     ) -> Self {
+        assert!(
+            !config.describes_appchain(),
+            "FATAL: mocknet only works with bitcoin"
+        );
         let use_test_genesis_data = if config.burnchain.mode == "mocknet" {
             use_test_genesis_chainstate(&config)
         } else {
@@ -292,6 +296,7 @@ impl Node {
                 get_namespaces(use_test_genesis_data)
             })),
             get_bulk_initial_names: Some(Box::new(move || get_names(use_test_genesis_data))),
+            appchain_genesis_hash: None,
         };
 
         let chain_state_result = StacksChainState::open_and_exec(
