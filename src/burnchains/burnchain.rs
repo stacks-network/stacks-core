@@ -41,6 +41,7 @@ use burnchains::db::BurnchainDB;
 use burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
+use burnchains::stacks::AppChainConfig;
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::PublicKey;
@@ -333,16 +334,24 @@ impl BurnchainSigner {
         }
     }
 
-    pub fn to_bitcoin_address(&self, network_type: BitcoinNetworkType) -> String {
+    pub fn to_bitcoin_address(&self, is_mainnet: bool) -> String {
         let addr_type = match &self.hash_mode {
             AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
                 BitcoinAddressType::PublicKeyHash
             }
             _ => BitcoinAddressType::ScriptHash,
         };
-        BitcoinAddress::from_bytes(network_type, addr_type, &self.to_address_bits())
-            .unwrap()
-            .to_string()
+        BitcoinAddress::from_bytes(
+            if is_mainnet {
+                BitcoinNetworkType::Mainnet
+            } else {
+                BitcoinNetworkType::Testnet
+            },
+            addr_type,
+            &self.to_address_bits(),
+        )
+        .unwrap()
+        .to_string()
     }
 
     pub fn to_address_bits(&self) -> Vec<u8> {
@@ -365,18 +374,25 @@ impl BurnchainBlock {
     pub fn block_height(&self) -> u64 {
         match *self {
             BurnchainBlock::Bitcoin(ref data) => data.block_height,
+            BurnchainBlock::Stacks(ref data) => data.header.header.total_work.work,
         }
     }
 
     pub fn block_hash(&self) -> BurnchainHeaderHash {
         match *self {
             BurnchainBlock::Bitcoin(ref data) => data.block_hash.clone(),
+            BurnchainBlock::Stacks(ref data) => {
+                BurnchainHeaderHash(data.header.header.block_hash().0)
+            }
         }
     }
 
     pub fn parent_block_hash(&self) -> BurnchainHeaderHash {
         match *self {
             BurnchainBlock::Bitcoin(ref data) => data.parent_block_hash.clone(),
+            BurnchainBlock::Stacks(ref data) => {
+                BurnchainHeaderHash(data.header.header.parent_block.clone().0)
+            }
         }
     }
 
@@ -387,12 +403,19 @@ impl BurnchainBlock {
                 .iter()
                 .map(|ref tx| BurnchainTransaction::Bitcoin((*tx).clone()))
                 .collect(),
+
+            BurnchainBlock::Stacks(ref data) => data
+                .txs
+                .iter()
+                .map(|ref tx| BurnchainTransaction::Stacks((*tx).clone()))
+                .collect(),
         }
     }
 
     pub fn timestamp(&self) -> u64 {
         match *self {
             BurnchainBlock::Bitcoin(ref data) => data.timestamp,
+            BurnchainBlock::Stacks(_) => 0,
         }
     }
 
@@ -404,6 +427,13 @@ impl BurnchainBlock {
                 parent_block_hash: data.parent_block_hash.clone(),
                 num_txs: data.txs.len() as u64,
                 timestamp: data.timestamp,
+            },
+            BurnchainBlock::Stacks(ref data) => BurnchainBlockHeader {
+                block_height: data.header.header.total_work.work,
+                block_hash: BurnchainHeaderHash(data.header.header.block_hash().0),
+                parent_block_hash: BurnchainHeaderHash(data.header.header.parent_block.clone().0),
+                num_txs: data.txs.len() as u64,
+                timestamp: 0,
             },
         }
     }
@@ -452,8 +482,38 @@ impl Burnchain {
         })
     }
 
+    pub fn new_appchain(
+        appchain_config: &AppChainConfig,
+        working_dir: &str,
+    ) -> Result<Burnchain, db_error> {
+        Ok(Burnchain {
+            peer_version: if appchain_config.mainnet() {
+                PEER_VERSION_MAINNET
+            } else {
+                PEER_VERSION_TESTNET
+            },
+            network_id: appchain_config.parent_chain_id(),
+            chain_name: format!("{}", &appchain_config.mining_contract_id()),
+            network_name: if appchain_config.mainnet() {
+                "mainnet".to_string()
+            } else {
+                "testnet".to_string()
+            },
+            working_dir: working_dir.to_string(),
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            first_block_height: appchain_config.start_block(),
+            first_block_hash: appchain_config.start_block_hash(),
+            first_block_timestamp: 0,
+            initial_reward_start_block: appchain_config.start_block(),
+            pox_constants: appchain_config.pox_constants(),
+        })
+    }
+
     pub fn is_mainnet(&self) -> bool {
-        self.network_id == NETWORK_ID_MAINNET
+        // NOTE(BUG): this is always false
+        // self.network_id == NETWORK_ID_MAINNET
+        false
     }
 
     /// the expected sunset burn is:
@@ -629,6 +689,7 @@ impl Burnchain {
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
 
+        debug!("Create/open sortition DB at {:?}", &db_path);
         let sortitiondb = SortitionDB::connect(
             &db_path,
             self.first_block_height,
@@ -636,6 +697,8 @@ impl Burnchain {
             first_block_header_timestamp,
             readwrite,
         )?;
+
+        debug!("Create/open burnchain DB at {:?}", &burnchain_db_path);
         let burnchaindb = BurnchainDB::connect(
             &burnchain_db_path,
             self.first_block_height,
@@ -662,7 +725,10 @@ impl Burnchain {
             return Err(burnchain_error::DBError(db_error::NoDBError));
         }
 
+        debug!("Open sortition DB at {:?}", &db_path);
         let sortition_db = SortitionDB::open(&db_path, readwrite)?;
+
+        debug!("Open burnchain DB at {:?}", &burnchain_db_path);
         let burnchain_db = BurnchainDB::open(&burnchain_db_path, readwrite)?;
 
         Ok((sortition_db, burnchain_db))
@@ -759,7 +825,9 @@ impl Burnchain {
                     warn!(
                         "Failed to find corresponding input to TransferStxOp";
                         "txid" => %burn_tx.txid(),
-                        "pre_stx_txid" => %pre_stx_txid
+                        "pre_stx_txid" => %pre_stx_txid,
+                        "block_height" => block_header.block_height,
+                        "vtxindex" => burn_tx.vtxindex(),
                     );
                     None
                 }
@@ -793,7 +861,9 @@ impl Burnchain {
                     warn!(
                         "Failed to find corresponding input to StackStxOp";
                         "txid" => %burn_tx.txid().to_string(),
-                        "pre_stx_txid" => %pre_stx_txid.to_string()
+                        "pre_stx_txid" => %pre_stx_txid.to_string(),
+                        "block_height" => block_header.block_height,
+                        "vtxindex" => burn_tx.vtxindex(),
                     );
                     None
                 }
@@ -1010,8 +1080,6 @@ impl Burnchain {
         let download_thread: thread::JoinHandle<Result<(), burnchain_error>> =
             thread::spawn(move || {
                 while let Ok(Some(ipc_header)) = downloader_recv.recv() {
-                    debug!("Try recv next header");
-
                     let download_start = get_epoch_time_ms();
                     let ipc_block = downloader.download(&ipc_header)?;
                     let download_end = get_epoch_time_ms();
@@ -1035,8 +1103,6 @@ impl Burnchain {
         let parse_thread: thread::JoinHandle<Result<(), burnchain_error>> =
             thread::spawn(move || {
                 while let Ok(Some(ipc_block)) = parser_recv.recv() {
-                    debug!("Try recv next block");
-
                     let parse_start = get_epoch_time_ms();
                     let burnchain_block = parser.parse(&ipc_block)?;
                     let parse_end = get_epoch_time_ms();
@@ -1062,8 +1128,6 @@ impl Burnchain {
         > = thread::spawn(move || {
             let mut last_processed = (last_snapshot_processed, None);
             while let Ok(Some(burnchain_block)) = db_recv.recv() {
-                debug!("Try recv next parsed block");
-
                 if burnchain_block.block_height() == 0 {
                     continue;
                 }
@@ -1148,7 +1212,7 @@ impl Burnchain {
     pub fn sync_with_indexer<I>(
         &mut self,
         indexer: &mut I,
-        coord_comm: CoordinatorChannels,
+        coord_comm: Option<CoordinatorChannels>,
         target_block_height_opt: Option<u64>,
         max_blocks_opt: Option<u64>,
         should_keep_running: Option<Arc<AtomicBool>>,
@@ -1263,7 +1327,7 @@ impl Burnchain {
         let total = sync_height - self.first_block_height;
         let progress = (end_block - self.first_block_height) as f32 / total as f32 * 100.;
         info!(
-            "Syncing Bitcoin blocks: {:.1}% ({} to {} out of {})",
+            "Syncing burnchain blocks: {:.1}% ({} to {} out of {})",
             progress, start_block, end_block, sync_height
         );
 
@@ -1277,14 +1341,18 @@ impl Burnchain {
 
         let myself = self.clone();
 
+        let chain_name_downloader = self.chain_name.clone();
+        let chain_name_parser = self.chain_name.clone();
+        let chain_name_processor = self.chain_name.clone();
+
         // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
         // and if so, do nothing.
         let download_thread: thread::JoinHandle<Result<(), burnchain_error>> =
             thread::Builder::new()
-                .name("burnchain-downloader".to_string())
+                .name(format!("burnchain-downloader-{}", chain_name_downloader))
                 .spawn(move || {
                     while let Ok(Some(ipc_header)) = downloader_recv.recv() {
-                        debug!("Try recv next header");
+                        debug!("Try recv next block");
 
                         match should_keep_running {
                             Some(ref should_keep_running)
@@ -1317,7 +1385,7 @@ impl Burnchain {
                 .unwrap();
 
         let parse_thread: thread::JoinHandle<Result<(), burnchain_error>> = thread::Builder::new()
-            .name("burnchain-parser".to_string())
+            .name(format!("burnchain-parser-{}", chain_name_parser))
             .spawn(move || {
                 while let Ok(Some(ipc_block)) = parser_recv.recv() {
                     debug!("Try recv next block");
@@ -1346,7 +1414,7 @@ impl Burnchain {
         let is_mainnet = self.is_mainnet();
         let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
             thread::Builder::new()
-                .name("burnchain-db".to_string())
+                .name(format!("burnchain-db-{}", chain_name_processor))
                 .spawn(move || {
                     let mut last_processed = burn_chain_tip;
                     while let Ok(Some(burnchain_block)) = db_recv.recv() {
@@ -1373,8 +1441,11 @@ impl Burnchain {
                         let insert_start = get_epoch_time_ms();
                         last_processed =
                             Burnchain::process_block(&myself, &mut burnchain_db, &burnchain_block)?;
-                        if !coord_comm.announce_new_burn_block() {
-                            return Err(burnchain_error::CoordinatorClosed);
+
+                        if let Some(coord_comm) = coord_comm.as_ref() {
+                            if !coord_comm.announce_new_burn_block() {
+                                return Err(burnchain_error::CoordinatorClosed);
+                            }
                         }
                         let insert_end = get_epoch_time_ms();
 
