@@ -1,8 +1,10 @@
 pub mod bitcoin_regtest_controller;
 pub mod mocknet_controller;
+pub mod stacks_controller;
 
 pub use self::bitcoin_regtest_controller::BitcoinRegtestController;
 pub use self::mocknet_controller::MocknetController;
+pub use self::stacks_controller::StacksController;
 
 use super::operations::BurnchainOpSigner;
 
@@ -10,6 +12,8 @@ use std::fmt;
 use std::time::Instant;
 
 use stacks::burnchains;
+use stacks::burnchains::stacks::Error as stacks_burnchain_error;
+use stacks::burnchains::Burnchain;
 use stacks::burnchains::BurnchainStateTransitionOps;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -30,7 +34,22 @@ impl fmt::Display for Error {
     }
 }
 
+impl From<stacks_burnchain_error> for Error {
+    fn from(e: stacks_burnchain_error) -> Error {
+        Error::IndexerError(burnchains::Error::Indexer(
+            burnchains::IndexerError::Stacks(e),
+        ))
+    }
+}
+
+impl From<burnchains::Error> for Error {
+    fn from(e: burnchains::Error) -> Error {
+        Error::IndexerError(e)
+    }
+}
+
 pub trait BurnchainController {
+    fn can_mine(&self) -> bool;
     fn start(&mut self, target_block_height_opt: Option<u64>)
         -> Result<(BurnchainTip, u64), Error>;
     fn submit_operation(
@@ -39,10 +58,12 @@ pub trait BurnchainController {
         op_signer: &mut BurnchainOpSigner,
         attempt: u64,
     ) -> bool;
+    fn wait_for_sortitions(&self, height_to_wait: Option<u64>) -> Result<BurnchainTip, Error>;
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;
     fn get_chain_tip(&self) -> BurnchainTip;
+    fn get_burnchain(&self) -> Burnchain;
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, blocks_count: u64);
