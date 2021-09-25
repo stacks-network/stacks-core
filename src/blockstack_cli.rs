@@ -761,7 +761,12 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
         TransactionVersion::Mainnet
     };
 
-    let chain_id = if tx_version == TransactionVersion::Testnet {
+    let chain_id = if let Some(ix) = argv.iter().position(|x| x == "--chain_id") {
+        argv.remove(ix);
+        let tmp = argv[ix].parse().expect("Expected u32 for --chain_id");
+        argv.remove(ix);
+        tmp
+    } else if tx_version == TransactionVersion::Testnet {
         CHAIN_ID_TESTNET
     } else {
         CHAIN_ID_MAINNET
