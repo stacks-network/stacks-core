@@ -14,6 +14,7 @@ use stacks::chainstate::burn::BlockSnapshot;
 use stacks::types::chainstate::{BurnchainHeaderHash, PoxId};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
+use stacks::util::sleep_ms;
 
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
@@ -121,6 +122,24 @@ impl BurnchainController for MocknetController {
     ) -> bool {
         self.queued_operations.push_back(operation);
         true
+    }
+
+    fn wait_for_sortitions(
+        &self,
+        height_to_wait: Option<u64>,
+    ) -> Result<BurnchainTip, BurnchainControllerError> {
+        if let Some(height_to_weight) = height_to_wait {
+            loop {
+                let tip = self.get_chain_tip();
+                if tip.block_snapshot.block_height < height_to_weight {
+                    sleep_ms(1000);
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
+        Ok(self.get_chain_tip())
     }
 
     fn sync(
@@ -269,6 +288,14 @@ impl BurnchainController for MocknetController {
 
         let block_height = new_state.block_snapshot.block_height;
         Ok((new_state, block_height))
+    }
+
+    fn get_burnchain(&self) -> Burnchain {
+        self.burnchain.clone()
+    }
+
+    fn can_mine(&self) -> bool {
+        true
     }
 
     #[cfg(test)]
