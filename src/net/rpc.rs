@@ -73,10 +73,11 @@ use net::UnconfirmedTransactionResponse;
 use net::UnconfirmedTransactionStatus;
 use net::UrlString;
 use net::HTTP_REQUEST_ID_RESERVED;
+use net::MAX_HEADERS;
 use net::MAX_NEIGHBORS_DATA_LEN;
 use net::{
     AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
-    GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
+    DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
 };
 use net::{BlocksData, GetIsTraitImplementedResponse};
 use net::{RPCNeighbor, RPCNeighborsInfo};
@@ -93,6 +94,7 @@ use vm::{
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
         clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
+        StoreType,
     },
     errors::Error as ClarityRuntimeError,
     errors::Error::Unchecked,
@@ -771,6 +773,56 @@ impl ConversationHttp {
         return response.send(http, fd).and_then(|_| Ok(None));
     }
 
+    /// Handle a GET headers. Start streaming the reply.
+    /// The response's preamble (but not the headers list) will be synchronously written to the fd
+    /// (so use a fd that can buffer!)
+    /// Return a BlockStreamData struct for the reward cycle we're sending, so we can continue to
+    /// make progress sending it
+    fn handle_getheaders<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        tip: &StacksBlockId,
+        quantity: u64,
+        chainstate: &StacksChainState,
+    ) -> Result<Option<BlockStreamData>, net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        if quantity > (MAX_HEADERS as u64) {
+            // bad request
+            let response = HttpResponseType::BadRequestJSON(
+                response_metadata,
+                serde_json::Value::String(format!(
+                    "Invalid request: requested more than {} headers",
+                    MAX_HEADERS
+                )),
+            );
+            response.send(http, fd).and_then(|_| Ok(None))
+        } else {
+            let stream = match BlockStreamData::new_headers(chainstate, tip, quantity as u32) {
+                Ok(stream) => stream,
+                Err(chain_error::NoSuchBlockError) => {
+                    return ConversationHttp::handle_notfound(
+                        http,
+                        fd,
+                        response_metadata,
+                        format!("No such block {:?}", &tip),
+                    );
+                }
+                Err(e) => {
+                    // nope -- error trying to check
+                    warn!("Failed to load block header {:?}: {:?}", req, &e);
+                    let response = HttpResponseType::ServerError(
+                        response_metadata,
+                        format!("Failed to query block header {}", tip.to_hex()),
+                    );
+                    return response.send(http, fd).and_then(|_| Ok(None));
+                }
+            };
+            let response = HttpResponseType::HeaderStream(response_metadata);
+            response.send(http, fd).and_then(|_| Ok(Some(stream)))
+        }
+    }
+
     /// Handle a GET block.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
     /// (so use a fd that can buffer!)
@@ -1083,6 +1135,64 @@ impl ConversationHttp {
         response.send(http, fd).map(|_| ())
     }
 
+    /// Handle a GET on a smart contract's data var, given the current chain tip.  Optionally
+    /// supplies a MARF proof for the value.
+    fn handle_get_data_var<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+        tip: &StacksBlockId,
+        contract_addr: &StacksAddress,
+        contract_name: &ContractName,
+        var_name: &ClarityName,
+        with_proof: bool,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let contract_identifier =
+            QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
+
+        let response =
+            match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    let key = ClarityDatabase::make_key_for_trip(
+                        &contract_identifier,
+                        StoreType::Variable,
+                        var_name,
+                    );
+
+                    let (value, marf_proof) = clarity_db
+                        .get_with_proof::<Value>(&key)
+                        .map(|(a, b)| (a, format!("0x{}", b.to_hex())))?;
+
+                    let marf_proof = if with_proof {
+                        test_debug!(
+                            "Return a MARF proof of '{}' of {} bytes",
+                            &key,
+                            marf_proof.as_bytes().len()
+                        );
+                        Some(marf_proof)
+                    } else {
+                        None
+                    };
+
+                    let data = format!("0x{}", value.serialize());
+                    Some(DataVarResponse { data, marf_proof })
+                })
+            }) {
+                Ok(Some(Some(data))) => HttpResponseType::GetDataVar(response_metadata, data),
+                Ok(Some(None)) => {
+                    HttpResponseType::NotFound(response_metadata, "Data var not found".into())
+                }
+                Ok(None) | Err(_) => {
+                    HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
+                }
+            };
+
+        response.send(http, fd).map(|_| ())
+    }
+
     /// Handle a GET on a smart contract's data map, given the current chain tip.  Optionally
     /// supplies a MARF proof for the value.
     fn handle_get_map_entry<W: Write>(
@@ -1255,7 +1365,7 @@ impl ConversationHttp {
                         .get_with_proof::<ContractCommitment>(&contract_commit_key)
                         .expect("BUG: obtained source, but couldn't get MARF proof.");
                     let marf_proof = if with_proof {
-                        Some(proof.to_hex())
+                        Some(format!("0x{}", proof.to_hex()))
                     } else {
                         None
                     };
@@ -1871,6 +1981,27 @@ impl ConversationHttp {
                 )?;
                 None
             }
+            HttpRequestType::GetHeaders(ref _md, ref quantity, ref tip_opt) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    tip_opt.as_ref(),
+                    sortdb,
+                    chainstate,
+                )? {
+                    ConversationHttp::handle_getheaders(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        &tip,
+                        *quantity,
+                        chainstate,
+                    )?
+                } else {
+                    None
+                }
+            }
             HttpRequestType::GetBlock(ref _md, ref index_block_hash) => {
                 ConversationHttp::handle_getblock(
                     &mut self.connection.protocol,
@@ -1938,6 +2069,37 @@ impl ConversationHttp {
                         chainstate,
                         &tip,
                         principal,
+                        *with_proof,
+                    )?;
+                }
+                None
+            }
+            HttpRequestType::GetDataVar(
+                ref _md,
+                ref contract_addr,
+                ref contract_name,
+                ref var_name,
+                ref tip_opt,
+                ref with_proof,
+            ) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    tip_opt.as_ref(),
+                    sortdb,
+                    chainstate,
+                )? {
+                    ConversationHttp::handle_get_data_var(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        sortdb,
+                        chainstate,
+                        &tip,
+                        contract_addr,
+                        contract_name,
+                        var_name,
                         *with_proof,
                     )?;
                 }
@@ -2614,6 +2776,15 @@ impl ConversationHttp {
         HttpRequestType::GetNeighbors(HttpRequestMetadata::from_host(self.peer_host.clone()))
     }
 
+    /// Make a new getheaders request to this endpoint
+    pub fn new_getheaders(&self, quantity: u64, tip_opt: Option<StacksBlockId>) -> HttpRequestType {
+        HttpRequestType::GetHeaders(
+            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            quantity,
+            tip_opt,
+        )
+    }
+
     /// Make a new getblock request to this endpoint
     pub fn new_getblock(&self, index_block_hash: StacksBlockId) -> HttpRequestType {
         HttpRequestType::GetBlock(
@@ -2706,6 +2877,25 @@ impl ConversationHttp {
         HttpRequestType::GetAccount(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             principal,
+            tip_opt,
+            with_proof,
+        )
+    }
+
+    /// Make a new request for a data var
+    pub fn new_getdatavar(
+        &self,
+        contract_addr: StacksAddress,
+        contract_name: ContractName,
+        var_name: ClarityName,
+        tip_opt: Option<StacksBlockId>,
+        with_proof: bool,
+    ) -> HttpRequestType {
+        HttpRequestType::GetDataVar(
+            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            contract_addr,
+            contract_name,
+            var_name,
             tip_opt,
             with_proof,
         )
@@ -2841,6 +3031,7 @@ mod test {
         (define-public (add-unit)
           (begin
             (map-set unit-map { account: tx-sender } { units: 1 } )
+            (var-set bar 1)
             (ok 1)))
         (begin
           (map-set unit-map { account: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R } { units: 123 }))";
@@ -3394,6 +3585,93 @@ mod test {
                     HttpResponseType::Neighbors(response_md, neighbor_info) => {
                         assert_eq!(neighbor_info.sample.len(), 1);
                         assert_eq!(neighbor_info.sample[0].port, peer_client.config.server_port); // we see ourselves as the neighbor
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_getheaders() {
+        let server_blocks_cell = RefCell::new(None);
+
+        test_rpc(
+            "test_rpc_getheaders",
+            40012,
+            40013,
+            50012,
+            50013,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // have "server" peer store a few continuous block to staging
+                let mut blocks: Vec<StacksBlock> = vec![];
+                let mut index_block_hashes = vec![];
+                for i in 0..25 {
+                    let mut peer_server_block = make_codec_test_block(25);
+
+                    peer_server_block.header.total_work.work = (i + 1) as u64;
+                    peer_server_block.header.total_work.burn = (i + 1) as u64;
+                    peer_server_block.header.parent_block = blocks
+                        .last()
+                        .map(|blk| blk.block_hash())
+                        .unwrap_or(BlockHeaderHash([0u8; 32]));
+
+                    let peer_server_consensus_hash = ConsensusHash([(i + 1) as u8; 20]);
+                    let index_block_hash = StacksBlockHeader::make_index_block_hash(
+                        &peer_server_consensus_hash,
+                        &peer_server_block.block_hash(),
+                    );
+
+                    test_debug!("Store peer server index block {:?}", &index_block_hash);
+                    store_staging_block(
+                        peer_server.chainstate(),
+                        &peer_server_consensus_hash,
+                        &peer_server_block,
+                        &ConsensusHash([i as u8; 20]),
+                        456,
+                        123,
+                    );
+                    set_block_processed(
+                        peer_server.chainstate(),
+                        &peer_server_consensus_hash,
+                        &peer_server_block.block_hash(),
+                        true,
+                    );
+
+                    index_block_hashes.push(index_block_hash);
+                    blocks.push(peer_server_block);
+                }
+
+                let rev_blocks: Vec<_> = blocks.into_iter().rev().collect();
+                let rev_ibhs: Vec<_> = index_block_hashes.into_iter().rev().collect();
+
+                let tip = rev_ibhs[0].clone();
+                *server_blocks_cell.borrow_mut() = Some((rev_blocks, rev_ibhs));
+
+                // now ask for it
+                convo_client.new_getheaders(25, Some(tip))
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::Headers(response_md, headers) => {
+                        assert_eq!(headers.len(), 25);
+                        let expected = server_blocks_cell.borrow().clone().unwrap();
+                        for (i, h) in headers.iter().enumerate() {
+                            assert_eq!(h.header, expected.0[i].header);
+                            assert_eq!(h.consensus_hash, ConsensusHash([(25 - i) as u8; 20]));
+                            if i + 1 < headers.len() {
+                                assert_eq!(h.parent_block_id, expected.1[i + 1]);
+                            }
+                        }
                         true
                     }
                     _ => {
@@ -4200,6 +4478,103 @@ mod test {
                         assert_eq!(data.nonce, 4);
                         let balance = u128::from_str_radix(&data.balance[2..], 16).unwrap();
                         assert_eq!(balance, 1000000000 - 123);
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_data_var() {
+        test_rpc(
+            "test_rpc_get_data_var",
+            40122,
+            40123,
+            50122,
+            50123,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let principal =
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap()
+                        .to_account_principal();
+                convo_client.new_getdatavar(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "bar".try_into().unwrap(),
+                    None,
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetDataVar(response_md, data) => {
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                            Value::Int(0)
+                        );
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_data_var_unconfirmed() {
+        test_rpc(
+            "test_rpc_get_data_var_unconfirmed",
+            40124,
+            40125,
+            50124,
+            50125,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let unconfirmed_tip = peer_client
+                    .chainstate()
+                    .unconfirmed_state
+                    .as_ref()
+                    .unwrap()
+                    .unconfirmed_chain_tip
+                    .clone();
+                let principal =
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap()
+                        .to_account_principal();
+                convo_client.new_getdatavar(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "bar".try_into().unwrap(),
+                    Some(unconfirmed_tip),
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetDataVar(response_md, data) => {
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                            Value::Int(1)
+                        );
                         true
                     }
                     _ => {
