@@ -89,9 +89,18 @@ start_faucet() {
 
    local PRIVKEY="$(cat "$BITCOIN_CONTROLLER_CONF" | grep "# WIF" | cut -d ' ' -f 3)"
 
+   log "[$$]  Creating Bitcoin wallet..."
+   bitcoin-cli -conf="$BITCOIN_CONF" createwallet "" >"$FAUCET_LOGFILE" 2>&1
+   local RC="$?"
+   if [ $RC -ne 0 ]; then
+      logln "FAILED!"
+      return 1
+   fi
+   logln "ok"
+
    log "[$$]  Importing faucet private key..."
-   bitcoin-cli -conf="$BITCOIN_CONF" importprivkey "$PRIVKEY" >"$FAUCET_LOGFILE" 2>&1
-   local RC=$?
+   bitcoin-cli -conf="$BITCOIN_CONF" importprivkey "$PRIVKEY" >>"$FAUCET_LOGFILE" 2>&1
+   RC=$?
    if [ $RC -ne 0 ]; then
       logln "FAILED!"
       return 1
