@@ -291,6 +291,7 @@ impl<'a> SortitionHandleTx<'a> {
             match self.check_transaction(burnchain, blockstack_op, reward_set_info) {
                 Ok(_) => true,
                 Err(BurnchainError::OpError(OpError::MissedBlockCommit(missed_op))) => {
+                    debug!("Missed block-commit tx {}", &missed_op.txid);
                     missed_block_commits.push(missed_op);
                     false
                 }
