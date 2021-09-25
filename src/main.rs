@@ -825,6 +825,7 @@ simulating a miner.
             get_bulk_initial_balances: None,
             get_bulk_initial_namespaces: None,
             get_bulk_initial_names: None,
+            appchain_genesis_hash: None,
         };
 
         let (mut new_chainstate, _) = StacksChainState::open_and_exec(
