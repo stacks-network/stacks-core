@@ -34,6 +34,7 @@ pub mod tenure;
 
 pub use self::burnchains::{
     BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
+    StacksController,
 };
 pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::EventDispatcher;
@@ -43,11 +44,22 @@ pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
 
+use self::stacks::burnchains::Burnchain;
+use self::stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use self::stacks::util::boot::boot_code_addr;
+use self::stacks::util::get_epoch_time_secs;
+use self::stacks::util::strings::StacksString;
+use self::stacks::vm::ContractName;
+
 use pico_args::Arguments;
 use std::env;
 
+use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::convert::TryInto;
+use std::fs;
 use std::panic;
+use std::path::PathBuf;
 use std::process;
 
 use backtrace::Backtrace;
@@ -91,6 +103,10 @@ fn main() {
         );
     }
 
+    let mut boot_code_paths: Vec<String> = vec![];
+    let mut expect_appchain = false;
+    let mut appchain_genesis = false;
+
     let config_file = match subcommand.as_str() {
         "mocknet" => {
             args.finish().unwrap();
@@ -107,6 +123,21 @@ fn main() {
         "mainnet" => {
             args.finish().unwrap();
             ConfigFile::mainnet()
+        }
+        "appchain" => {
+            expect_appchain = true;
+            let config_path: String = args.value_from_str("--config").unwrap();
+            boot_code_paths = args.values_from_str("--boot-code").unwrap();
+            args.finish().unwrap();
+            ConfigFile::from_path(&config_path)
+        }
+        "appchain-genesis" => {
+            expect_appchain = true;
+            appchain_genesis = true;
+            let config_path: String = args.value_from_str("--config").unwrap();
+            boot_code_paths = args.values_from_str("--boot-code").unwrap();
+            args.finish().unwrap();
+            ConfigFile::from_path(&config_path)
         }
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
@@ -150,7 +181,76 @@ fn main() {
         }
     };
 
-    let conf = Config::from_config_file(config_file);
+    let mut conf = Config::from_config_file(config_file.clone());
+    let mut boot_code_data = vec![];
+
+    if expect_appchain {
+        info!("Booting as appchain to finish self-configuring");
+        let mut boot_code = HashMap::new();
+        if boot_code_paths.len() > 0 {
+            info!("Boot codes to load from disk:");
+            for boot_code_path_str in boot_code_paths.iter() {
+                let boot_code_path = PathBuf::from(&boot_code_path_str);
+                let boot_code_filename = boot_code_path
+                    .file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+
+                info!(
+                    "  {}.{}: {}",
+                    boot_code_addr(conf.is_mainnet()),
+                    &boot_code_filename,
+                    boot_code_path_str
+                );
+
+                let boot_code_src = fs::read_to_string(&boot_code_path).unwrap();
+                let boot_code_name = ContractName::try_from(boot_code_filename).unwrap();
+                let boot_code_string = StacksString::from_string(&boot_code_src).unwrap();
+
+                boot_code.insert(boot_code_name.clone(), boot_code_string.clone());
+                boot_code_data.push((boot_code_name, boot_code_string));
+            }
+        }
+
+        conf.boot_into_appchain(&boot_code);
+    }
+
+    if appchain_genesis {
+        // only validating the boot code to get the genesis hash
+        let appchain_runtime = conf.burnchain.appchain_runtime.clone().unwrap();
+        let appchain_working_dir = format!("/tmp/appchain-genesis-{}", get_epoch_time_secs());
+        let burnchain =
+            Burnchain::new_appchain(&appchain_runtime.config, &appchain_working_dir).unwrap();
+
+        let mut appchain_boot_data = ChainStateBootData::new_appchain(
+            conf.is_mainnet(),
+            &burnchain,
+            appchain_runtime.config.initial_balances(),
+            boot_code_data,
+            appchain_runtime.config.genesis_hash(),
+        );
+
+        let (mut appchain_chainstate, _) = StacksChainState::open_and_exec(
+            conf.is_mainnet(),
+            appchain_runtime.config.chain_id(),
+            &appchain_working_dir,
+            Some(&mut appchain_boot_data),
+            appchain_runtime.config.block_limit(),
+        )
+        .unwrap();
+
+        eprintln!(
+            "Appchain genesis state instantiated in {}",
+            appchain_working_dir
+        );
+
+        let genesis_root = appchain_chainstate.get_genesis_state_index_root();
+        eprintln!("Appchain genesis hash: {}", &genesis_root);
+        process::exit(0);
+    }
+
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
@@ -159,6 +259,10 @@ fn main() {
     let num_round: u64 = 0; // Infinite number of rounds
 
     if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
+        assert!(
+            !conf.describes_appchain(),
+            "FATAL: cannot boot an appchain in `helium` or `mocknet` mode at this time"
+        );
         let mut run_loop = helium::RunLoop::new(conf);
         if let Err(e) = run_loop.start(num_round) {
             warn!("Helium runloop exited: {}", e);
