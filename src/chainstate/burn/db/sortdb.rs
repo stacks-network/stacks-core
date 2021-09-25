@@ -76,7 +76,7 @@ use vm::types::Value;
 
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, MARFValue, PoxId, SortitionId, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, MARFValue, PoxId, SortitionId, StacksBlockHeader, VRFSeed,
 };
 use crate::types::proof::{ClarityMarfTrieId, TrieHash};
 
@@ -1987,10 +1987,9 @@ impl SortitionDB {
     /// It's best not to call this if you are able to call connect().  If you must call this, do so
     /// after you call connect() somewhere else, since connect() performs additional validations.
     pub fn open(path: &str, readwrite: bool) -> Result<SortitionDB, db_error> {
-        let (db_path, index_path) = db_mkdirs(path)?;
+        let (_, index_path) = db_mkdirs(path)?;
         debug!(
-            "Open sortdb '{}' as '{}', with index as '{}'",
-            db_path,
+            "Open sortdb mode '{}' at '{}'",
             if readwrite { "readwrite" } else { "readonly" },
             index_path
         );
@@ -2032,11 +2031,10 @@ impl SortitionDB {
             Ok(_md) => false,
         };
 
-        let (db_path, index_path) = db_mkdirs(path)?;
+        let (_, index_path) = db_mkdirs(path)?;
         debug!(
-            "Connect/Open {} sortdb '{}' as '{}', with index as '{}'",
-            if create_flag { "(create)" } else { "" },
-            db_path,
+            "Connect/Open {} sortdb as '{} in '{}'",
+            if create_flag { "(create)" } else { "(open)" },
             if readwrite { "readwrite" } else { "readonly" },
             index_path
         );
@@ -2582,18 +2580,11 @@ impl SortitionDB {
             return Err(db_error::Corruption);
         }
 
-        if chain_tip.block_height < burnchain.stable_confirmations as u64 {
-            // should never happen, but don't panic since this is network-callable code
-            error!(
-                "Invalid block height from DB: {}: expected at least {}",
-                chain_tip.block_height, burnchain.stable_confirmations
-            );
-            return Err(db_error::Corruption);
-        }
-
         let stable_block_height = cmp::max(
             burnchain.first_block_height,
-            chain_tip.block_height - (burnchain.stable_confirmations as u64),
+            chain_tip
+                .block_height
+                .saturating_sub(burnchain.stable_confirmations as u64),
         );
 
         // get all burn block hashes between the chain tip, and the stable height back
@@ -3338,7 +3329,7 @@ impl<'a> SortitionHandleTx<'a> {
                 info!(
                     "ACCEPTED({}) leader block commit {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex;
-                    "apparent_sender" => %op.apparent_sender.to_bitcoin_address(BitcoinNetworkType::Mainnet)
+                    "apparent_sender" => %op.apparent_sender.to_bitcoin_address(true)
                 );
                 self.insert_block_commit(op, sort_id)
             }
@@ -3598,7 +3589,7 @@ impl<'a> SortitionHandleTx<'a> {
     /// * sortdb::sortition_block_hash::${STACKS_BLOCK_HASH} --> $BURN_BLOCK_HASH for each winning block sortition
     /// * sortdb::stacks::block::${STACKS_BLOCK_HASH} --> ${STACKS_BLOCK_HEIGHT} for each block that has been accepted so far
     /// * sortdb::stacks::block::max_arrival_index --> ${ARRIVAL_INDEX} to set the maximum arrival index processed in this fork
-    /// * sortdb::pox_reward_set::${n} --> recipient Bitcoin address, to track the reward set as the permutation progresses
+    /// * sortdb::pox_reward_set::${n} --> recipient burnchain address, to track the reward set as the permutation progresses
     ///
     /// `recipient_info` is used to pass information to this function about which reward set addresses were consumed
     ///   during this sortition. this object will be None in the following cases:
@@ -3878,7 +3869,7 @@ impl<'a> SortitionHandleTx<'a> {
 
             if height > best_tip_height {
                 debug!(
-                    "At tip {}: {}/{} (height {}) is superceded by {}/{} (height {})",
+                    "At tip {}: {}/{} (height {}) is superseded by {}/{} (height {})",
                     &parent_tip.burn_header_hash,
                     &best_tip_consensus_hash,
                     &best_tip_block_bhh,
