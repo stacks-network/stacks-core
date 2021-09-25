@@ -36,11 +36,15 @@ use core::*;
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use util::db::Error as db_error;
 use util::hash::Hash160;
+use util::hash::Sha512Trunc256Sum;
 use util::secp256k1::MessageSignature;
+
+use regex::{Captures, Regex};
 
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::StacksBlockId;
 use crate::types::proof::TrieHash;
 
 use self::bitcoin::indexer::{
@@ -52,12 +56,15 @@ use self::bitcoin::Error as btc_error;
 use self::bitcoin::{
     BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
 };
+use self::stacks::Error as stacks_error;
+use self::stacks::{MiningContractBlock, MiningContractTransaction};
 
 /// This module contains drivers and types for all burn chains we support.
 pub mod bitcoin;
 pub mod burnchain;
 pub mod db;
 pub mod indexer;
+pub mod stacks;
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid(pub [u8; 32]);
@@ -93,6 +100,7 @@ pub struct BurnchainParameters {
 }
 
 impl BurnchainParameters {
+    /// Bitcoin only
     pub fn from_params(chain: &str, network: &str) -> Option<BurnchainParameters> {
         match (chain, network) {
             ("bitcoin", "mainnet") => Some(BurnchainParameters::bitcoin_mainnet()),
@@ -146,13 +154,6 @@ impl BurnchainParameters {
             initial_reward_start_block: BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
         }
     }
-
-    pub fn is_testnet(network_id: u32) -> bool {
-        match network_id {
-            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST => true,
-            _ => false,
-        }
-    }
 }
 
 pub trait PublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
@@ -189,37 +190,42 @@ pub struct BurnchainRecipient {
 #[derive(Debug, PartialEq, Clone)]
 pub enum BurnchainTransaction {
     Bitcoin(BitcoinTransaction),
-    // TODO: fill in more types as we support them
+    Stacks(MiningContractTransaction),
 }
 
 impl BurnchainTransaction {
     pub fn txid(&self) -> Txid {
         match *self {
             BurnchainTransaction::Bitcoin(ref btc) => btc.txid.clone(),
+            BurnchainTransaction::Stacks(ref stx) => stx.txid(),
         }
     }
 
     pub fn vtxindex(&self) -> u32 {
         match *self {
             BurnchainTransaction::Bitcoin(ref btc) => btc.vtxindex,
+            BurnchainTransaction::Stacks(ref stx) => stx.vtxindex(),
         }
     }
 
     pub fn opcode(&self) -> u8 {
         match *self {
             BurnchainTransaction::Bitcoin(ref btc) => btc.opcode,
+            BurnchainTransaction::Stacks(ref stx) => stx.opcode(),
         }
     }
 
     pub fn data(&self) -> Vec<u8> {
         match *self {
             BurnchainTransaction::Bitcoin(ref btc) => btc.data.clone(),
+            BurnchainTransaction::Stacks(ref stx) => stx.data(),
         }
     }
 
     pub fn num_signers(&self) -> usize {
         match *self {
             BurnchainTransaction::Bitcoin(ref btc) => btc.inputs.len(),
+            BurnchainTransaction::Stacks(ref stx) => stx.num_signers(),
         }
     }
 
@@ -230,6 +236,8 @@ impl BurnchainTransaction {
                 .iter()
                 .map(|ref i| BurnchainSigner::from_bitcoin_input(i))
                 .collect(),
+
+            BurnchainTransaction::Stacks(ref stx) => stx.get_signers(),
         }
     }
 
@@ -239,6 +247,8 @@ impl BurnchainTransaction {
                 .inputs
                 .get(input)
                 .map(|ref i| BurnchainSigner::from_bitcoin_input(i)),
+
+            BurnchainTransaction::Stacks(ref stx) => stx.get_signer(input),
         }
     }
 
@@ -247,6 +257,7 @@ impl BurnchainTransaction {
             BurnchainTransaction::Bitcoin(ref btc) => {
                 btc.inputs.get(input).map(|txin| &txin.tx_ref)
             }
+            BurnchainTransaction::Stacks(ref stx) => stx.get_input_tx_ref(input),
         }
     }
 
@@ -257,12 +268,15 @@ impl BurnchainTransaction {
                 .iter()
                 .map(|ref o| BurnchainRecipient::from_bitcoin_output(o))
                 .collect(),
+
+            BurnchainTransaction::Stacks(ref stx) => stx.get_recipients(),
         }
     }
 
     pub fn get_burn_amount(&self) -> u64 {
         match *self {
             BurnchainTransaction::Bitcoin(ref btc) => btc.data_amt,
+            BurnchainTransaction::Stacks(ref stx) => stx.get_burn_amount(),
         }
     }
 }
@@ -270,7 +284,7 @@ impl BurnchainTransaction {
 #[derive(Debug, PartialEq, Clone)]
 pub enum BurnchainBlock {
     Bitcoin(BitcoinBlock),
-    // TODO: fill in some more types as we support them
+    Stacks(MiningContractBlock),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -284,8 +298,8 @@ pub struct BurnchainBlockHeader {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Burnchain {
-    pub peer_version: u32,
-    pub network_id: u32,
+    pub peer_version: u32, // NOTE: This is *this* peer's version (i.e. Stacks), not the burnchain
+    pub network_id: u32,   // NOTE: This is the network ID of the *burnchain* (i.e. Bitcoin)
     pub chain_name: String,
     pub network_name: String,
     pub working_dir: String,
@@ -434,23 +448,35 @@ pub struct BurnchainStateTransitionOps {
 }
 
 #[derive(Debug)]
+pub enum IndexerError {
+    Bitcoin(btc_error),
+    Stacks(stacks_error),
+}
+
+#[derive(Debug)]
 pub enum Error {
+    /// Not connected to burnchain
+    NotConnected,
     /// Unsupported burn chain
     UnsupportedBurnchain,
-    /// Bitcoin-related error
-    Bitcoin(btc_error),
+    /// Indexer error
+    Indexer(IndexerError),
     /// burn database error
     DBError(db_error),
     /// Download error
-    DownloadError(btc_error),
+    DownloadError(IndexerError),
     /// Parse error
     ParseError,
     /// Thread channel error
     ThreadChannelError,
     /// Missing headers
     MissingHeaders,
+    /// Missing block
+    MissingBlock,
     /// Missing parent block
     MissingParentBlock,
+    /// No data returned
+    NoDataReturned,
     /// Remote burnchain peer has misbehaved
     BurnchainPeerBroken,
     /// filesystem error
@@ -467,13 +493,16 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Error::NotConnected => write!(f, "Not connected"),
             Error::UnsupportedBurnchain => write!(f, "Unsupported burnchain"),
-            Error::Bitcoin(ref btce) => fmt::Display::fmt(btce, f),
+            Error::Indexer(ref e) => write!(f, "{:?}", e),
             Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
-            Error::DownloadError(ref btce) => fmt::Display::fmt(btce, f),
+            Error::DownloadError(ref btce) => write!(f, "{:?}", btce),
             Error::ParseError => write!(f, "Parse error"),
             Error::MissingHeaders => write!(f, "Missing block headers"),
+            Error::MissingBlock => write!(f, "Missing block"),
             Error::MissingParentBlock => write!(f, "Missing parent block"),
+            Error::NoDataReturned => write!(f, "No data returned"),
             Error::ThreadChannelError => write!(f, "Error in thread channel"),
             Error::BurnchainPeerBroken => write!(f, "Remote burnchain peer has misbehaved"),
             Error::FSError(ref e) => fmt::Display::fmt(e, f),
@@ -493,13 +522,16 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
+            Error::NotConnected => None,
             Error::UnsupportedBurnchain => None,
-            Error::Bitcoin(ref e) => Some(e),
+            Error::Indexer(ref _e) => None,
             Error::DBError(ref e) => Some(e),
-            Error::DownloadError(ref e) => Some(e),
+            Error::DownloadError(ref _e) => None,
             Error::ParseError => None,
             Error::MissingHeaders => None,
+            Error::MissingBlock => None,
             Error::MissingParentBlock => None,
+            Error::NoDataReturned => None,
             Error::ThreadChannelError => None,
             Error::BurnchainPeerBroken => None,
             Error::FSError(ref e) => Some(e),
@@ -526,7 +558,13 @@ impl From<sqlite_error> for Error {
 
 impl From<btc_error> for Error {
     fn from(e: btc_error) -> Error {
-        Error::Bitcoin(e)
+        Error::Indexer(IndexerError::Bitcoin(e))
+    }
+}
+
+impl From<stacks_error> for Error {
+    fn from(e: stacks_error) -> Error {
+        Error::Indexer(IndexerError::Stacks(e))
     }
 }
 
