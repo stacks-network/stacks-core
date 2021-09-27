@@ -812,7 +812,9 @@ impl MemPoolDB {
                           consensus_hash,
                           block_header_hash,
                           height,
-                          accept_time
+                          accept_time,
+                          last_known_sponsor_nonce,
+                          last_known_origin_nonce
                           FROM mempool WHERE {0}_address = ?1 AND {0}_nonce = ?2",
             if is_origin { "origin" } else { "sponsor" }
         );
