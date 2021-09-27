@@ -17,7 +17,7 @@ fn test_proportional_dot_product() {
     );
 
     // an execution cost equal to the limit should be maxed in each dimension,
-    // and the maximum value for the metric is 6_000.
+    // and the maximum value for the metric is 60_000.
     assert_eq!(
         metric.from_cost_and_len(
             &ExecutionCost {
@@ -33,7 +33,7 @@ fn test_proportional_dot_product() {
     );
 
     // an execution cost equal to the limit should be maxed in each dimension,
-    // and the maximum value for the metric is 6_000.
+    // and the maximum value for the metric is 60_000.
     assert_eq!(
         metric.from_cost_and_len(
             &ExecutionCost {
@@ -75,7 +75,7 @@ fn test_proportional_dot_product_with_mainnet_lims() {
     let metric = ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, BLOCK_LIMIT_MAINNET.clone());
 
     // an execution cost equal to the limit should be maxed in each dimension,
-    // and the maximum value for the metric is 6_000.
+    // and the maximum value for the metric is 60_000.
     assert_eq!(
         metric.from_cost_and_len(
             &ExecutionCost {
@@ -105,7 +105,7 @@ fn test_proportional_dot_product_with_mainnet_lims() {
         3024
     );
 
-    // defend against costs > limit, should max to 6_000
+    // defend against costs > limit, should max to 60_000
     assert_eq!(
         metric.from_cost_and_len(
             &ExecutionCost {
