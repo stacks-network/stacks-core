@@ -3195,27 +3195,20 @@ mod test {
         peer_1.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
 
-        // build 1-block microblock stream with the contract-call and the unconfirmed contract
-        let microblock = {
-            let sortdb = peer_1.sortdb.take().unwrap();
-            Relayer::setup_unconfirmed_state(peer_1.chainstate(), &sortdb).unwrap();
-            let mblock = {
-                let sort_iconn = sortdb.index_conn();
-                let mut microblock_builder = StacksMicroblockBuilder::new(
-                    stacks_block.block_hash(),
-                    consensus_hash.clone(),
-                    peer_1.chainstate(),
-                    &sort_iconn,
-                    BlockBuilderSettings::max_value(),
-                )
-                .unwrap();
-                let microblock = microblock_builder
-                    .mine_next_microblock_from_txs(
-                        vec![
-                            (tx_cc_signed, tx_cc_len),
-                            (tx_unconfirmed_contract_signed, tx_unconfirmed_contract_len),
-                        ],
-                        &microblock_privkey,
+        // begin microblock section
+        if include_microblocks {
+            // build 1-block microblock stream with the contract-call and the unconfirmed contract
+            let microblock = {
+                let sortdb = peer_1.sortdb.take().unwrap();
+                Relayer::setup_unconfirmed_state(peer_1.chainstate(), &sortdb).unwrap();
+                let mblock = {
+                    let sort_iconn = sortdb.index_conn();
+                    let mut microblock_builder = StacksMicroblockBuilder::new(
+                        stacks_block.block_hash(),
+                        consensus_hash.clone(),
+                        peer_1.chainstate(),
+                        &sort_iconn,
+                        BlockBuilderSettings::max_value(),
                     )
                     .unwrap();
                     let microblock = microblock_builder
