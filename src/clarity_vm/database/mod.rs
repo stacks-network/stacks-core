@@ -146,7 +146,8 @@ impl MemoryBackingStore {
 
 impl ClarityBackingStore for MemoryBackingStore {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
-        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+        // Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+        Ok(bhh)
     }
 
     fn get(&mut self, key: &str) -> Option<String> {
