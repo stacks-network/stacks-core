@@ -142,7 +142,7 @@ paths:
             If use_latest_tip == true, the query will be run from the latest known tip (includes unconfirmed state).
             If use_latest_tip == false or is unspecified, the tip is selected as usual (first checking value of the
             tip parameter, otherwise taking the stacks chain tip).
-    x-codegen-request-body-name: key
+      x-codegen-request-body-name: key
       requestBody:
         description: Hex string serialization of the lookup key (which should be a Clarity value)
         required: true

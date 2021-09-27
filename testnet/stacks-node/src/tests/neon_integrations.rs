@@ -1686,7 +1686,7 @@ fn microblock_integration_test() {
                 sleep_ms(5_000);
                 continue;
             }
-            Some(tip) => break tip_info,
+            Some(_tip) => break tip_info,
         }
     };
 

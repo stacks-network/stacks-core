@@ -1536,7 +1536,6 @@ impl ConversationHttp {
                 Some(unconfirmed_state) => {
                     if unconfirmed_state.is_readable() {
                         // Check if underlying MARF trie exists before returning unconfirmed chain tip
-                        // let unconfirmed_state = self.unconfirmed_state.as_mut().unwrap();
                         let trie_exists = match unconfirmed_state
                             .clarity_inst
                             .trie_exists_for_block(&unconfirmed_state.unconfirmed_chain_tip)
@@ -1547,7 +1546,7 @@ impl ConversationHttp {
                                 warn!("Failed to load Stacks chain tip; error checking underlying trie");
                                 let response = HttpResponseType::ServerError(
                                     response_metadata,
-                                    format!("Failed to load Stacks chain tip"),
+                                    format!("Failed to load Stacks chain tip: {:?}", e),
                                 );
                                 return response.send(http, fd).and_then(|_| Ok(None));
                             }
