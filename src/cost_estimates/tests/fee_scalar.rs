@@ -200,9 +200,9 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 1,
-            medium: 1,
-            slow: 1
+            fast: 1f64,
+            medium: 1f64,
+            slow: 1f64
         }
     );
 
@@ -217,20 +217,20 @@ fn test_fee_estimator() {
         .expect("Should be able to process block receipt");
 
     // estimate should increase for "fast" and "medium":
-    // 10 * 1/2 + 1 * 1/2 = 5
+    // 10 * 1/2 + 1 * 1/2 = 5.5
     assert_eq!(
         estimator
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 5,
-            medium: 5,
-            slow: 1
+            fast: 5.5f64,
+            medium: 5.5f64,
+            slow: 1f64
         }
     );
 
     // estimate should increase for "fast" and "medium":
-    // new value: 10 * 1/2 + 5 * 1/2 = 7
+    // new value: 10 * 1/2 + 5.5 * 1/2 = 7.75
     estimator
         .notify_block(&double_tx_receipt)
         .expect("Should be able to process block receipt");
@@ -239,14 +239,14 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 7,
-            medium: 7,
-            slow: 1
+            fast: 7.75f64,
+            medium: 7.75f64,
+            slow: 1f64
         }
     );
 
     // estimate should increase for "fast" and "medium":
-    // new value: 10 * 1/2 + 7 * 1/2 = 8
+    // new value: 10 * 1/2 + 7.75 * 1/2 = 8.875
     estimator
         .notify_block(&double_tx_receipt)
         .expect("Should be able to process block receipt");
@@ -255,14 +255,14 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 8,
-            medium: 8,
-            slow: 1
+            fast: 8.875f64,
+            medium: 8.875f64,
+            slow: 1f64
         }
     );
 
     // estimate should increase for "fast" and "medium":
-    // new value: 10 * 1/2 + 8 * 1/2 = 9
+    // new value: 10 * 1/2 + 8.875 * 1/2 = 9.4375
     estimator
         .notify_block(&double_tx_receipt)
         .expect("Should be able to process block receipt");
@@ -271,17 +271,14 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 9,
-            medium: 9,
-            slow: 1
+            fast: 9.4375f64,
+            medium: 9.4375f64,
+            slow: 1f64
         }
     );
 
     // estimate should increase for "fast" and "medium":
-    // new value: 10 * 1/2 + 9 * 1/2 = 9
-    // note: we get a little "stuck" by the integer weighting here: 9/2 = 4.5, and 10/2 = 5, so we get stuck at 9,
-    //       even though if we had more accuracy, we'd move to 10 on the estimate. This isn't too damaging in practice:
-    //       fee rates are expressed in microstx, which should have much more resolution than this.
+    // new value: 10 * 1/2 + 9.4375 * 1/2 = 9
     estimator
         .notify_block(&double_tx_receipt)
         .expect("Should be able to process block receipt");
@@ -290,17 +287,17 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 9,
-            medium: 9,
-            slow: 1
+            fast: 9.71875f64,
+            medium: 9.71875f64,
+            slow: 1f64
         }
     );
 
     // make a large block receipt, and expect:
     //  measured fast = 950, medium = 500, slow = 50
-    //  new fast: 950/2 + 9/2 = 475 + 4 = 479
-    //  new medium: 500/2 + 9/2 = 250 + 4 = 254
-    //  new slow: 50/2 + 1/2 = 25 + 0 = 25
+    //  new fast: 950/2 + 9.71875/2 = 479.859375
+    //  new medium: 500/2 + 9.71875/2 = 254.859375
+    //  new slow: 50/2 + 1/2 = 25.5
 
     let mut receipts: Vec<_> = (0..100).map(|i| make_dummy_cc_tx(i * 10)).collect();
     let mut rng = rand::thread_rng();
@@ -315,9 +312,9 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 479,
-            medium: 254,
-            slow: 25
+            fast: 479.859375f64,
+            medium: 254.859375f64,
+            slow: 25.5f64
         }
     );
 }

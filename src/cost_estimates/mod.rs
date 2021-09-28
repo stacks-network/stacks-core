@@ -41,13 +41,25 @@ pub trait FeeEstimator {
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError>;
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 /// This struct is returned from fee rate estimators as the current best estimate for
 /// fee rates to include a transaction in a block.
 pub struct FeeRateEstimate {
-    pub fast: u64,
-    pub medium: u64,
-    pub slow: u64,
+    pub fast: f64,
+    pub medium: f64,
+    pub slow: f64,
+}
+
+fn saturating_f64_math(res: f64) -> f64 {
+    if res.is_finite() {
+        res
+    } else if res.is_infinite() && res.is_sign_positive() {
+        f64::MAX
+    } else if res.is_infinite() && res.is_sign_negative() {
+        f64::MIN
+    } else {
+        1f64
+    }
 }
 
 impl Mul<f64> for FeeRateEstimate {
@@ -55,9 +67,9 @@ impl Mul<f64> for FeeRateEstimate {
 
     fn mul(self, rhs: f64) -> FeeRateEstimate {
         FeeRateEstimate {
-            fast: (self.fast as f64 * rhs) as u64,
-            medium: (self.medium as f64 * rhs) as u64,
-            slow: (self.slow as f64 * rhs) as u64,
+            fast: saturating_f64_math(self.fast * rhs),
+            medium: saturating_f64_math(self.medium * rhs),
+            slow: saturating_f64_math(self.slow * rhs),
         }
     }
 }
@@ -67,9 +79,9 @@ impl Add for FeeRateEstimate {
 
     fn add(self, rhs: Self) -> FeeRateEstimate {
         FeeRateEstimate {
-            fast: self.fast.saturating_add(rhs.fast),
-            medium: self.medium.saturating_add(rhs.medium),
-            slow: self.slow.saturating_add(rhs.slow),
+            fast: saturating_f64_math(self.fast + rhs.fast),
+            medium: saturating_f64_math(self.medium + rhs.medium),
+            slow: saturating_f64_math(self.slow + rhs.slow),
         }
     }
 }
