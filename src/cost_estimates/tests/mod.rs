@@ -7,9 +7,9 @@ pub mod metrics;
 #[test]
 fn fee_rate_estimate_math_units() {
     let maximal_estimate = FeeRateEstimate {
-        fast: u64::MAX,
-        medium: u64::MAX,
-        slow: u64::MAX,
+        fast: f64::MAX,
+        medium: f64::MAX,
+        slow: f64::MAX,
     };
 
     assert_eq!(

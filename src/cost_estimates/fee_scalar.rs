@@ -90,9 +90,21 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
                 // because of integer math, we can end up with some edge effects
                 // when the estimate is < decay_rate_fraction.1, so just saturate
                 // on the low end at a rate of "1"
-                next_computed.fast = cmp::max(next_computed.fast, 1);
-                next_computed.medium = cmp::max(next_computed.medium, 1);
-                next_computed.slow = cmp::max(next_computed.slow, 1);
+                next_computed.fast = if next_computed.fast >= 1f64 {
+                    next_computed.fast
+                } else {
+                    1f64
+                };
+                next_computed.medium = if next_computed.medium >= 1f64 {
+                    next_computed.medium
+                } else {
+                    1f64
+                };
+                next_computed.slow = if next_computed.slow >= 1f64 {
+                    next_computed.slow
+                } else {
+                    1f64
+                };
 
                 next_computed
             }
@@ -120,9 +132,9 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
             sql,
             rusqlite::params![
                 SINGLETON_ROW_ID,
-                u64_to_sql(next_estimate.fast).unwrap_or(i64::MAX),
-                u64_to_sql(next_estimate.medium).unwrap_or(i64::MAX),
-                u64_to_sql(next_estimate.slow).unwrap_or(i64::MAX)
+                next_estimate.fast,
+                next_estimate.medium,
+                next_estimate.slow,
             ],
         )
         .expect("SQLite failure");
@@ -161,11 +173,23 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                             .from_cost_and_len(&tx_receipt.execution_cost, tx_size)
                     }
                 };
-                let fee_rate = cmp::max(1, fee / cmp::max(1, scalar_cost));
-                Some(fee_rate)
+                let fee_rate = fee as f64
+                    / if scalar_cost >= 1 {
+                        scalar_cost as f64
+                    } else {
+                        1f64
+                    };
+                if fee_rate >= 1f64 && fee_rate.is_finite() {
+                    Some(fee_rate)
+                } else {
+                    Some(1f64)
+                }
             })
             .collect();
-        all_fee_rates.sort();
+        all_fee_rates.sort_by(|a, b| {
+            a.partial_cmp(b)
+                .expect("BUG: Fee rates should be orderable: NaN and infinite values are filtered")
+        });
 
         let measures_len = all_fee_rates.len();
         if measures_len > 0 {
@@ -189,19 +213,14 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
         let sql = "SELECT fast, medium, slow FROM scalar_fee_estimator WHERE estimate_key = ?";
         self.db
             .query_row(sql, &[SINGLETON_ROW_ID], |row| {
-                let fast: i64 = row.get(0)?;
-                let medium: i64 = row.get(1)?;
-                let slow: i64 = row.get(2)?;
+                let fast: f64 = row.get(0)?;
+                let medium: f64 = row.get(1)?;
+                let slow: f64 = row.get(2)?;
                 Ok((fast, medium, slow))
             })
             .optional()
             .expect("SQLite failure")
-            .map(|(fast, medium, slow)| FeeRateEstimate {
-                fast: u64::try_from(fast).expect("DB corrupt, non-u64-valid estimate was stored"),
-                medium: u64::try_from(medium)
-                    .expect("DB corrupt, non-u64-valid estimate was stored"),
-                slow: u64::try_from(slow).expect("DB corrupt, non-u64-valid estimate was stored"),
-            })
+            .map(|(fast, medium, slow)| FeeRateEstimate { fast, medium, slow })
             .ok_or_else(|| EstimatorError::NoEstimateAvailable)
     }
 }
