@@ -1386,48 +1386,24 @@ mod tests {
             tx.set_tx_fee(123);
         }
 
-        let mut underfunded_txs = [
-            all_txs.pop().unwrap(),
-            all_txs.pop().unwrap(),
-            all_txs.pop().unwrap(),
-        ];
-        for tx in underfunded_txs.iter_mut() {
-            tx.set_tx_fee(0);
-        }
-
         for ix in 0..3 {
             let mut mempool_tx = mempool.tx_begin().unwrap();
 
             let block = &blocks_to_broadcast_in[ix];
             let good_tx = &txs[ix];
-            let underfunded_tx = &underfunded_txs[ix];
 
             let origin_address = StacksAddress {
                 version: 22,
-                bytes: Hash160::from_data(&[ix as u8; 32]),
-            };
-            let underfunded_origin_address = StacksAddress {
-                version: 26,
                 bytes: Hash160::from_data(&[ix as u8; 32]),
             };
             let sponsor_address = StacksAddress {
                 version: 22,
                 bytes: Hash160::from_data(&[0x80 | (ix as u8); 32]),
             };
-            let underfunded_sponsor_address = StacksAddress {
-                version: 26,
-                bytes: Hash160::from_data(&[0x80 | (ix as u8); 32]),
-            };
 
-            for (i, (tx, (origin, sponsor))) in [good_tx, underfunded_tx]
+            for (i, (tx, (origin, sponsor))) in [good_tx]
                 .iter()
-                .zip(
-                    [
-                        (origin_address, sponsor_address),
-                        (underfunded_origin_address, underfunded_sponsor_address),
-                    ]
-                    .iter(),
-                )
+                .zip([(origin_address, sponsor_address)].iter())
                 .enumerate()
             {
                 let txid = tx.txid();
@@ -1469,7 +1445,7 @@ mod tests {
         //
         // *'d blocks accept transactions,
         //   try to walk at b_4, we should be able to find
-        //   the transaction at b_1, and we should skip all underfunded transactions.
+        //   the transaction at b_1
 
         let mut mempool_settings = MemPoolWalkSettings::default();
         mempool_settings.min_tx_fee = 10;
@@ -1491,11 +1467,37 @@ mod tests {
                     )
                     .unwrap();
                 assert_eq!(
-                    count_txs, 2,
-                    "Mempool should find two transactions from b_2"
+                    count_txs, 3,
+                    "Mempool should find three transactions from b_2"
                 );
             },
         );
+
+        // Now that the mempool has iterated over those transactions, its view of the
+        //  nonce for the origin address should have changed. Now it should find *no* transactions.
+        chainstate.with_read_only_clarity_tx(
+            &NULL_BURN_STATE_DB,
+            &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
+            |clarity_conn| {
+                let mut count_txs = 0;
+                mempool
+                    .iterate_candidates::<_, ChainstateError, _>(
+                        clarity_conn,
+                        2,
+                        mempool_settings.clone(),
+                        |_, available_tx| {
+                            count_txs += 1;
+                            Ok(true)
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(count_txs, 0, "Mempool should find no transactions");
+            },
+        );
+
+        mempool
+            .reset_last_known_nonces()
+            .expect("Should be able to reset nonces");
 
         chainstate.with_read_only_clarity_tx(
             &NULL_BURN_STATE_DB,
@@ -1520,6 +1522,12 @@ mod tests {
             },
         );
 
+        mempool
+            .reset_last_known_nonces()
+            .expect("Should be able to reset nonces");
+
+        // The mempool iterator no longer does any consideration of what block accepted
+        //  the transaction, so b_3 should have the same view.
         chainstate.with_read_only_clarity_tx(
             &NULL_BURN_STATE_DB,
             &StacksBlockHeader::make_index_block_hash(&b_3.0, &b_3.1),
@@ -1537,11 +1545,15 @@ mod tests {
                     )
                     .unwrap();
                 assert_eq!(
-                    count_txs, 2,
-                    "Mempool should find two transactions from b_3"
+                    count_txs, 3,
+                    "Mempool should find three transactions from b_3"
                 );
             },
         );
+
+        mempool
+            .reset_last_known_nonces()
+            .expect("Should be able to reset nonces");
 
         chainstate.with_read_only_clarity_tx(
             &NULL_BURN_STATE_DB,
@@ -1565,6 +1577,10 @@ mod tests {
                 );
             },
         );
+
+        mempool
+            .reset_last_known_nonces()
+            .expect("Should be able to reset nonces");
 
         // let's test replace-across-fork while we're here.
         // first try to replace a tx in b_2 in b_1 - should fail because they are in the same fork
@@ -1612,14 +1628,14 @@ mod tests {
         mempool_tx.commit().unwrap();
 
         // now try replace-across-fork from b_2 to b_4
-        // check that the number of transactions at b_2 and b_4 starts at 2 each
+        // check that the number of transactions at b_2 and b_4 starts at 1 each
         assert_eq!(
             MemPoolDB::get_num_tx_at_block(&mempool.db, &b_4.0, &b_4.1).unwrap(),
-            2
+            1
         );
         assert_eq!(
             MemPoolDB::get_num_tx_at_block(&mempool.db, &b_2.0, &b_2.1).unwrap(),
-            2
+            1
         );
         let mut mempool_tx = mempool.tx_begin().unwrap();
         let block = &b_4;
@@ -1668,11 +1684,11 @@ mod tests {
         // after replace-across-fork, tx[1] should have moved from the b_2->b_5 fork to b_4
         assert_eq!(
             MemPoolDB::get_num_tx_at_block(&mempool.db, &b_4.0, &b_4.1).unwrap(),
-            3
+            2
         );
         assert_eq!(
             MemPoolDB::get_num_tx_at_block(&mempool.db, &b_2.0, &b_2.1).unwrap(),
-            1
+            0
         );
     }
 
