@@ -2001,13 +2001,14 @@ fn filter_low_fee_tx_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // first five accounts are blank
+    // First five accounts have a transaction. The miner will consider low fee transactions,
+    //  but rank by estimated fee rate.
     for i in 0..5 {
         let account = get_account(&http_origin, &spender_addrs[i]);
-        assert_eq!(account.nonce, 0);
+        assert_eq!(account.nonce, 1);
     }
 
-    // last five accounts have traction
+    // last five accounts have transaction
     for i in 5..10 {
         let account = get_account(&http_origin, &spender_addrs[i]);
         assert_eq!(account.nonce, 1);
@@ -2134,8 +2135,8 @@ fn mining_transactions_is_fair() {
         txs.push(tx);
     }
 
-    // spender 1 sends 1 tx
-    let tx = make_stacks_transfer(&spender_sks[1], 0, 1000, &recipient.into(), 1000);
+    // spender 1 sends 1 tx, that is roughly the middle rate among the spender[0] transactions
+    let tx = make_stacks_transfer(&spender_sks[1], 0, 20_000, &recipient.into(), 1000);
     txs.push(tx);
 
     let (mut conf, _) = neon_integration_test_conf();
