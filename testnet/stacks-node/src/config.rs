@@ -8,6 +8,7 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
+use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::{
     BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT,
@@ -15,6 +16,9 @@ use stacks::core::{
 };
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use stacks::cost_estimates::metrics::CostMetric;
+use stacks::cost_estimates::metrics::ProportionalDotProduct;
+use stacks::cost_estimates::CostEstimator;
+use stacks::cost_estimates::FeeEstimator;
 use stacks::cost_estimates::PessimisticEstimator;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
@@ -1140,6 +1144,43 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
             cost_metric: Some(cost_metric),
             log_error,
         }
+    }
+}
+
+impl Config {
+    pub fn make_cost_estimator(&self) -> Option<Box<dyn CostEstimator>> {
+        let cost_estimator: Box<dyn CostEstimator> =
+            match self.estimation.cost_estimator.as_ref()? {
+                CostEstimatorName::NaivePessimistic => Box::new(
+                    self.estimation
+                        .make_pessimistic_cost_estimator(self.get_chainstate_path()),
+                ),
+            };
+
+        Some(cost_estimator)
+    }
+
+    pub fn make_cost_metric(&self) -> Option<Box<dyn CostMetric>> {
+        let metric: Box<dyn CostMetric> = match self.estimation.cost_metric.as_ref()? {
+            CostMetricName::ProportionDotProduct => Box::new(ProportionalDotProduct::new(
+                MAX_BLOCK_LEN as u64,
+                self.block_limit.clone(),
+            )),
+        };
+
+        Some(metric)
+    }
+
+    pub fn make_fee_estimator(&self) -> Option<Box<dyn FeeEstimator>> {
+        let metric = self.make_cost_metric()?;
+        let fee_estimator: Box<dyn FeeEstimator> = match self.estimation.fee_estimator.as_ref()? {
+            FeeEstimatorName::ScalarFeeRate => Box::new(
+                self.estimation
+                    .make_scalar_fee_estimator(self.get_chainstate_path(), metric),
+            ),
+        };
+
+        Some(fee_estimator)
     }
 }
 

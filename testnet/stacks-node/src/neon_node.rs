@@ -27,7 +27,6 @@ use stacks::chainstate::stacks::db::{
 };
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
-use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::chainstate::stacks::{
     miner::BlockBuilderSettings, miner::StacksMicroblockBuilder, StacksBlockBuilder,
 };
@@ -39,7 +38,6 @@ use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::cost_estimates::metrics::CostMetric;
-use stacks::cost_estimates::metrics::ProportionalDotProduct;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::CostEstimator;
 use stacks::cost_estimates::UnitEstimator;
@@ -66,8 +64,6 @@ use stacks::vm::costs::ExecutionCost;
 use stacks::{burnchains::BurnchainSigner, chainstate::stacks::db::StacksHeaderInfo};
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
-use crate::config::CostEstimatorName;
-use crate::config::CostMetricName;
 use crate::run_loop::RegisteredKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
@@ -867,19 +863,11 @@ fn spawn_miner_relayer(
     let mut last_tenure_issue_time = 0;
 
     let relayer_handle = thread::Builder::new().name("relayer".to_string()).spawn(move || {
-        let mut cost_estimator: Box<dyn CostEstimator> = match config.estimation.cost_estimator {
-            Some(CostEstimatorName::NaivePessimistic) =>
-                Box::new(
-                    config.estimation
-                        .make_pessimistic_cost_estimator(config.get_chainstate_path())),
-            None => Box::new(UnitEstimator),
-        };
+        let mut cost_estimator = config.make_cost_estimator()
+            .unwrap_or_else(|| Box::new(UnitEstimator));
 
-        let metric: Box<dyn CostMetric> = match config.estimation.cost_metric {
-            Some(CostMetricName::ProportionDotProduct) =>
-                Box::new(ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, config.block_limit.clone())),
-            None => Box::new(UnitMetric),
-        };
+        let metric = config.make_cost_metric()
+            .unwrap_or_else(|| Box::new(UnitMetric));
 
         while let Ok(mut directive) = relay_channel.recv() {
             match directive {

@@ -475,7 +475,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
 
         mem_pool.reset_last_known_nonces()?;
-        mem_pool.estimate_tx_rates(estimator, metric, 100);
+        mem_pool.estimate_tx_rates(estimator, metric, 100)?;
 
         debug!(
             "Microblock transaction selection begins (child of {}), bytes so far: {}",

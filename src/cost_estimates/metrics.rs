@@ -9,6 +9,16 @@ pub trait CostMetric {
     fn from_len(&self, tx_len: u64) -> u64;
 }
 
+impl CostMetric for Box<dyn CostMetric> {
+    fn from_cost_and_len(&self, cost: &ExecutionCost, tx_len: u64) -> u64 {
+        self.as_ref().from_cost_and_len(cost, tx_len)
+    }
+
+    fn from_len(&self, tx_len: u64) -> u64 {
+        self.as_ref().from_len(tx_len)
+    }
+}
+
 pub const PROPORTION_RESOLUTION: u64 = 10_000;
 
 /// This metric calculates a single dimensional value for a transaction's
