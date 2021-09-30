@@ -3021,7 +3021,7 @@ pub mod test {
         appchain_client.sync_all_headers(&mut socket).unwrap();
         let light_client = LightClientDB::new(&appchain_client.headers_path, false).unwrap();
         let highest_header_height = light_client.get_highest_header_height().unwrap();
-        assert_eq!(highest_header_height, 2);
+        assert_eq!(highest_header_height, 12);
 
         let mining_hdr = light_client
             .read_block_header(highest_header_height)
@@ -3196,7 +3196,7 @@ pub mod test {
         appchain_client.sync_all_headers(&mut socket).unwrap();
         let light_client = LightClientDB::new(&appchain_client.headers_path, false).unwrap();
         let highest_header_height = light_client.get_highest_header_height().unwrap();
-        assert_eq!(highest_header_height, 2);
+        assert_eq!(highest_header_height, 12);
 
         let mining_hdr = light_client
             .read_block_header(highest_header_height)
