@@ -6,6 +6,7 @@ use address::AddressHashMode;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    POX_2_TESTNET_CODE,
 };
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
@@ -36,6 +37,8 @@ use vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
+use crate::core::POX_TESTNET_CYCLE_LENGTH;
+use crate::util::boot::boot_code_addr;
 use crate::{
     burnchains::PoxConstants,
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
@@ -62,6 +65,8 @@ lazy_static! {
         &FIRST_STACKS_BLOCK_HASH
     );
     pub static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
+    pub static ref POX_2_CONTRACT_TESTNET: QualifiedContractIdentifier =
+        boot_code_id("pox-2", false);
     pub static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
     pub static ref USER_KEYS: Vec<StacksPrivateKey> =
@@ -80,8 +85,8 @@ lazy_static! {
         &vec![StacksPublicKey::from_private(&MINER_KEY.clone())],
     )
     .unwrap();
-    pub static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
-    pub static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / 480;
+    static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
+    static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25;
 }
 
 impl From<&StacksPrivateKey> for StandardPrincipalData {
@@ -430,6 +435,1003 @@ impl HeadersDB for TestSimHeadersDB {
 }
 
 #[test]
+fn pox_2_contract_caller_units() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1];
+    let delegator = StacksPrivateKey::new();
+
+    let expected_unlock_height = POX_TESTNET_CYCLE_LENGTH * 4;
+
+    // execute past 2.1 epoch initialization
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
+            .unwrap()
+    });
+
+    let cc = boot_code_id("stack-through", false);
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(cc.clone(),
+                                "(define-public (cc-stack-stx (amount-ustx uint)
+                                                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                                                           (start-burn-ht uint)
+                                                           (lock-period uint))
+                                   (contract-call? .pox-2 stack-stx amount-ustx pox-addr start-burn-ht lock-period))",
+                                None)
+            .unwrap();
+
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string(),
+            "The stack-through contract isn't an allowed caller for POX_ADDR[1] in the PoX2 contract",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "allow-contract-caller",
+                &symbols_from_values(vec![
+                    cc.clone().into(),
+                    Value::none(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string(),
+            "USER[0] should be able to add stack-through as a contract caller in the PoX2 contract",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[0].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(expected_unlock_height)
+            )),
+            "The stack-through contract should be an allowed caller for POX_ADDR[0] in the PoX2 contract",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "disallow-contract-caller",
+                &symbols_from_values(vec![
+                    cc.clone().into(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string(),
+            "USER[0] should be able to remove stack-through as a contract caller in the PoX2 contract",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string(),
+            "After revocation, stack-through shouldn't be an allowed caller for User 0 in the PoX2 contract",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[2].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string(),
+            "After revocation, stack-through still shouldn't be an allowed caller for User 1 in the PoX2 contract",
+        );
+
+        let until_height = Value::UInt(burn_height.clone().expect_u128() + 1);
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "allow-contract-caller",
+                &symbols_from_values(vec![
+                    cc.clone().into(),
+                    Value::some(until_height).unwrap(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string(),
+            "User1 should be able to set an 'until-height' on a contract-caller allowance",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[0].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(expected_unlock_height)
+            )),
+            "The stack-through contract should be an allowed caller for User1 in the PoX2 contract",
+        );
+    });
+
+    sim.execute_next_block(|env| {
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+
+        // the contract caller allowance should now have expired:
+        //   (err 9) indicates the contract caller check failed
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                cc.clone(),
+                "cc-stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[2].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 9)".to_string(),
+            "After the `until-height` is reached, stack-through shouldn't be an allowed caller for User1",
+        );
+    });
+}
+
+#[test]
+fn pox_2_lock_extend_units() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1];
+    let delegator = StacksPrivateKey::new();
+
+    let reward_cycle_len = 5;
+    let expected_user_1_unlock = 4 * reward_cycle_len + 9 * reward_cycle_len;
+
+    // execute past 2.1 epoch initialization
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block(|env| {
+        env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
+            .unwrap();
+        env.execute_in_env(boot_code_addr(false).into(), None, |env| {
+            env.execute_contract(
+                POX_2_CONTRACT_TESTNET.deref(),
+                "set-burnchain-parameters",
+                &symbols_from_values(vec![
+                    Value::UInt(0),
+                    Value::UInt(1),
+                    Value::UInt(reward_cycle_len),
+                    Value::UInt(25),
+                    Value::UInt(0),
+                ]),
+                false,
+            )
+        })
+        .unwrap();
+    });
+
+    sim.execute_next_block(|env| {
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(3),
+                    POX_ADDRS[0].clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 26)".to_string(),
+            "Should not be able to call stack-extend before locked",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "Should be able to delegate",
+        );
+
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(*MIN_THRESHOLD - 1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                Value::UInt(*MIN_THRESHOLD - 1),
+                Value::UInt(3 * reward_cycle_len)
+            )),
+            "delegate-stack-stx should work okay",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(3),
+                    POX_ADDRS[0].clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 20)".to_string(),
+            "Cannot stack-extend while delegating",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(3),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(4 * reward_cycle_len)
+            )),
+            "User1 should be able to stack-stx",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(10),
+                    POX_ADDRS[2].clone(),
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 2)".to_string(),
+            "Should not be able to stack-extend to over 12 cycles in the future",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![
+                    Value::UInt(9),
+                    POX_ADDRS[2].clone(),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(expected_user_1_unlock),
+            )),
+            "Should be able to stack-extend to exactly 12 cycles in the future",
+        );
+
+        // check that entries exist for each cycle stacked
+        for cycle in 0..20 {
+            eprintln!("Cycle number = {}", cycle);
+            let empty_set = cycle < 1 || cycle >= 13;
+            let expected = if empty_set {
+                "(u0 u0)"
+            } else {
+                "(u1000000 u1)"
+            };
+            assert_eq!(
+                env.eval_read_only(
+                    &POX_2_CONTRACT_TESTNET,
+                    &format!("(list (default-to u0 (get total-ustx (map-get? reward-cycle-total-stacked {{ reward-cycle: u{} }})))
+                                    (default-to u0 (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: u{} }}))))",
+                             cycle, cycle))
+                    .unwrap()
+                    .0
+                    .to_string(),
+                expected
+            );
+            if !empty_set {
+                let expected_pox_addr = if cycle > 3 {
+                    &POX_ADDRS[2]
+                } else {
+                    &POX_ADDRS[1]
+                };
+                assert_eq!(
+                    env.eval_read_only(
+                        &POX_2_CONTRACT_TESTNET,
+                        &format!("(unwrap-panic (map-get? reward-cycle-pox-address-list {{ reward-cycle: u{}, index: u0 }}))",
+                                 cycle))
+                        .unwrap()
+                        .0,
+                    execute(&format!(
+                        "{{ pox-addr: {}, total-ustx: u{} }}",
+                        expected_pox_addr,
+                        1_000_000
+                    ))
+                );
+            }
+        }
+    });
+
+    // now, advance the chain until User1 is unlocked, and try to stack-extend
+    for _i in 0..expected_user_1_unlock {
+        sim.execute_next_block(|_| {});
+    }
+
+    sim.execute_next_block(|env| {
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-extend",
+                &symbols_from_values(vec![Value::UInt(3), POX_ADDRS[0].clone(),])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 26)".to_string(),
+            "Should not be able to call stack-extend after lock expired",
+        );
+    });
+}
+
+#[test]
+fn pox_2_delegate_extend_units() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1];
+    let delegator = StacksPrivateKey::new();
+
+    // execute past 2.1 epoch initialization
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block_as_conn(|conn| {
+        test_deploy_smart_contract(conn, &POX_2_CONTRACT_TESTNET, &POX_2_TESTNET_CODE).unwrap();
+
+        // set burnchain params based on old testnet settings (< 2.0.11.0)
+        conn.as_transaction(|tx| {
+            tx.run_contract_call(
+                &boot_code_addr(false).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.deref(),
+                "set-burnchain-parameters",
+                &[
+                    Value::UInt(0),
+                    Value::UInt(30),
+                    Value::UInt(150),
+                    Value::UInt(25),
+                    Value::UInt(0),
+                ],
+                |_, _| false,
+            )
+        })
+        .unwrap();
+    });
+
+    sim.execute_next_block(|env| {
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "Successfully setup delegate relationship between User0 and delegate",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(2 * USTX_PER_HOLDER),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "Successfully setup delegate relationship between User1 and delegate",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[1]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0.to_string(),
+            "(err 26)".to_string(),
+            "Should not be able to delegate-stack-extend before locking",
+        );
+
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    Value::UInt(*MIN_THRESHOLD - 1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                Value::UInt(*MIN_THRESHOLD - 1),
+                Value::UInt(450)
+            )),
+            "Delegate should successfully stack through delegation from User0",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-stx",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[1]).into(),
+                    Value::UInt(1),
+                    POX_ADDRS[1].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                Value::UInt(1),
+                Value::UInt(450)
+            )),
+            "Delegate should successfully stack through delegation from User1",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string(),
+            "Delegate should successfully aggregate commits for cycle 1",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(2)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(ok true)".to_string(),
+            "Delegate should successfully aggregate commits for cycle 2",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(3)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 4)".to_string(),
+            "Delegate does not have enough aggregate locked up for cycle 3",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[1]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(11)
+                ])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 2)",
+            "Delegate should not be able to extend over 12 cycles into future (current cycle is 0, previously stacked to 2, extend by 11 disallowed)",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[1]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[1]),
+                // unlock-burn-height should be 10 reward cycles greater than prior unlock height
+                Value::UInt(450 + 10 * 150),
+            )),
+            "Delegate should be able to extend 12 cycles into future (current cycle is 0, previously stacked to 2, extend by 10 allowed).",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(3)])
+            )
+            .unwrap()
+            .0
+            .to_string(),
+            "(err 11)".to_string(),
+            "Delegate still does not have enough aggregate locked up for cycle 3",
+        );
+
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "revoke-delegate-stx",
+                &[]
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully revokes delegation relationship",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0.to_string(),
+            "(err 9)".to_string(),
+            "Delegate cannot stack-extend for User0 after revocation",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(1),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::none()
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully re-inits delegation relationship with a `amount-ustx` = 1",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0.to_string(),
+            "(err 22)".to_string(),
+            "Delegate cannot stack-extend for User0 because it would require more than User0's allowed amount (1)",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "revoke-delegate-stx",
+                &[]
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully revokes delegation relationship",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(10_000_000),
+                    (&delegator).into(),
+                    Value::none(),
+                    Value::some(POX_ADDRS[2].clone()).unwrap(),
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully re-inits delegation relationship with a `pox-addr` = POX_ADDR[2]",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0.to_string(), "(err 23)".to_string(),
+            "Delegate cannot stack-extend for User0 at POX_ADDR[1] because User0 specified to use POX_ADDR[2]",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "revoke-delegate-stx",
+                &[]
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully revokes delegation relationship",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(10_000_000),
+                    (&delegator).into(),
+                    Value::some(Value::UInt(450 + 10 * 150 - 1)).unwrap(),
+                    Value::some(POX_ADDRS[1].clone()).unwrap(),
+                ])
+            )
+            .unwrap()
+            .0,
+            Value::okay_true(),
+            "User0 successfully re-inits delegation relationship with a `until-ht` one less than necessary for an extend-by-10",
+        );
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(10)
+                ])
+            )
+            .unwrap()
+            .0.to_string(), "(err 21)".to_string(),
+            "Delegate cannot stack-extend for User0 for 10 cycles",
+);
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "delegate-stack-extend",
+                &symbols_from_values(vec![
+                    (&USER_KEYS[0]).into(),
+                    POX_ADDRS[1].clone(),
+                    Value::UInt(9)
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                // unlock-burn-height should be 9 reward cycles greater than prior unlock height
+                Value::UInt(450 + 9 * 150),
+            )),
+            "Delegate successfully stack extends for User0 for 9 cycles",
+        );
+
+        for cycle in 3..12 {
+            assert_eq!(
+                env.execute_transaction(
+                    (&delegator).into(),
+                    None,
+                    POX_2_CONTRACT_TESTNET.clone(),
+                    "stack-aggregation-commit",
+                    &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(cycle)])
+                )
+                    .unwrap()
+                    .0
+                    .to_string(),
+                "(ok true)".to_string(),
+                "For cycles in [3, 12), delegate has enough to successfully aggregate commit",
+            );
+
+            // call a second time to make sure that the partial map reset.
+            assert_eq!(
+                env.execute_transaction(
+                    (&delegator).into(),
+                    None,
+                    POX_2_CONTRACT_TESTNET.clone(),
+                    "stack-aggregation-commit",
+                    &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(cycle)])
+                )
+                    .unwrap()
+                    .0
+                    .to_string(),
+                "(err 4)".to_string(),
+                "Delegate cannot aggregate commit a second time",
+            );
+
+        }
+
+        assert_eq!(
+            env.execute_transaction(
+                (&delegator).into(),
+                None,
+                POX_2_CONTRACT_TESTNET.clone(),
+                "stack-aggregation-commit",
+                &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(12)])
+            )
+                .unwrap()
+                .0
+                .to_string(),
+            "(err 11)".to_string(),
+            "At cycle 12, delegate cannot aggregate commit because only one stacker was extended by 10"
+        );
+
+        // check reward cycles [0, 20) for coherence
+        // for cycles [1, 11] ==> delegate successfully committed the minimum threshold and should appear in the reward set
+        // for all other cycles, reward set should be empty
+        for cycle in 0..20 {
+            eprintln!("Cycle number = {}, MIN_THRESHOLD  = {}", cycle, MIN_THRESHOLD.deref());
+            let empty_set = cycle < 1 || cycle >= 12;
+            let expected = if empty_set {
+                "(u0 u0)".into()
+            } else {
+                format!("(u{} u1)", MIN_THRESHOLD.deref())
+            };
+            assert_eq!(
+                env.eval_read_only(
+                    &POX_2_CONTRACT_TESTNET,
+                    &format!("(list (default-to u0 (get total-ustx (map-get? reward-cycle-total-stacked {{ reward-cycle: u{} }})))
+                                    (default-to u0 (get len (map-get? reward-cycle-pox-address-list-len {{ reward-cycle: u{} }}))))",
+                             cycle, cycle))
+                    .unwrap()
+                    .0
+                    .to_string(),
+                expected
+            );
+            if !empty_set {
+                let expected_pox_addr = &POX_ADDRS[1];
+
+                assert_eq!(
+                    env.eval_read_only(
+                        &POX_2_CONTRACT_TESTNET,
+                        &format!("(unwrap-panic (map-get? reward-cycle-pox-address-list {{ reward-cycle: u{}, index: u0 }}))",
+                                 cycle))
+                        .unwrap()
+                        .0,
+                    execute(&format!(
+                        "{{ pox-addr: {}, total-ustx: u{} }}",
+                        expected_pox_addr,
+                        MIN_THRESHOLD.deref(),
+                    ))
+                );
+            }
+        }
+    });
+}
+
+#[test]
 fn simple_epoch21_test() {
     let mut sim = ClarityTestSim::new();
     sim.epoch_bounds = vec![0, 3];
@@ -589,6 +1591,7 @@ fn recency_tests() {
 fn delegation_tests() {
     let mut sim = ClarityTestSim::new();
     let delegator = StacksPrivateKey::new();
+    const REWARD_CYCLE_LENGTH: u128 = 1050;
 
     sim.execute_next_block(|env| {
         env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET, None)
@@ -658,7 +1661,7 @@ fn delegation_tests() {
                 &symbols_from_values(vec![
                     Value::UInt(USTX_PER_HOLDER),
                     (&delegator).into(),
-                    Value::some(Value::UInt(300)).unwrap(),
+                    Value::some(Value::UInt(REWARD_CYCLE_LENGTH * 2)).unwrap(),
                     Value::none()
                 ])
             )
@@ -769,7 +1772,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(*MIN_THRESHOLD - 1),
-                Value::UInt(450)
+                Value::UInt(REWARD_CYCLE_LENGTH * 3)
             ))
         );
 
@@ -882,7 +1885,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[2]),
                 Value::UInt(*MIN_THRESHOLD - 1),
-                Value::UInt(300)
+                Value::UInt(REWARD_CYCLE_LENGTH * 2)
             ))
         );
 
@@ -989,7 +1992,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[3]),
                 Value::UInt(*MIN_THRESHOLD),
-                Value::UInt(450)
+                Value::UInt(REWARD_CYCLE_LENGTH * 3)
             ))
         );
 
@@ -1103,7 +2106,7 @@ fn delegation_tests() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[1]),
                 Value::UInt(*MIN_THRESHOLD),
-                Value::UInt(450)
+                Value::UInt(REWARD_CYCLE_LENGTH * 3)
             ))
         );
 

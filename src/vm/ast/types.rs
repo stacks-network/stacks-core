@@ -20,10 +20,10 @@ use vm::ast::errors::ParseResult;
 use vm::representations::{PreSymbolicExpression, SymbolicExpression, TraitDefinition};
 use vm::types::signatures::FunctionSignature;
 use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
-use vm::ClarityName;
+use vm::{ClarityName, ClarityVersion};
 
 pub trait BuildASTPass {
-    fn run_pass(contract_ast: &mut ContractAST) -> ParseResult<()>;
+    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

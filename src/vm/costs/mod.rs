@@ -1015,11 +1015,11 @@ impl ExecutionCost {
 
     pub fn max_value() -> ExecutionCost {
         Self {
-            runtime: u64::max_value(),
-            write_length: u64::max_value(),
-            read_count: u64::max_value(),
-            write_count: u64::max_value(),
-            read_length: u64::max_value(),
+            runtime: u64::MAX,
+            write_length: u64::MAX,
+            read_count: u64::MAX,
+            write_count: u64::MAX,
+            read_length: u64::MAX,
         }
     }
 
@@ -1103,14 +1103,8 @@ mod unit_tests {
 
     #[test]
     fn test_simple_overflows() {
-        assert_eq!(
-            u64::max_value().cost_overflow_add(1),
-            Err(CostErrors::CostOverflow)
-        );
-        assert_eq!(
-            u64::max_value().cost_overflow_mul(2),
-            Err(CostErrors::CostOverflow)
-        );
+        assert_eq!(u64::MAX.cost_overflow_add(1), Err(CostErrors::CostOverflow));
+        assert_eq!(u64::MAX.cost_overflow_mul(2), Err(CostErrors::CostOverflow));
     }
 
     #[test]
@@ -1133,7 +1127,7 @@ mod unit_tests {
             64,
             128,
             2_u64.pow(63),
-            u64::max_value(),
+            u64::MAX,
         ];
         let expected = [0, 1, 2, 3, 4, 5, 5, 6, 6, 6, 7, 63, 64];
         for (input, expected) in inputs.iter().zip(expected.iter()) {

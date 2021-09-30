@@ -309,7 +309,7 @@ pub struct ConversationP2P {
 
     pub data_url: UrlString, // where does this peer's data live?  Set to a 0-length string if not known.
 
-    // highest block height and consensus hash this peer has seen
+    // highest burnchain block height and burnchain block hash this peer has seen
     pub burnchain_tip_height: u64,
     pub burnchain_tip_burn_header_hash: BurnchainHeaderHash,
     pub burnchain_stable_tip_height: u64,
@@ -1335,7 +1335,7 @@ impl ConversationP2P {
             );
             match res {
                 Ok(hashes) => Ok(hashes),
-                Err(db_error::NotFoundError) => {
+                Err(db_error::NotFoundError) | Err(db_error::InvalidPoxSortition) => {
                     debug!(
                         "{:?}: Failed to load ancestor hashes from {}",
                         &_local_peer, &tip_snapshot.consensus_hash

@@ -180,7 +180,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
-            | AsContract | ElementAt | IndexOf | Map | Filter | Fold => {
+            | AsContract | ElementAt | IndexOf | Map | Filter | Fold | Slice => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe | IsStandard => {

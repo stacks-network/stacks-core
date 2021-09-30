@@ -1,4 +1,4 @@
-FROM rust:buster AS build
+FROM rust:bullseye AS build
 
 WORKDIR /build
 

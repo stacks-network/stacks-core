@@ -1600,8 +1600,8 @@ impl StacksChainState {
             block.block_hash(),
             parent_consensus_hash
         );
-        assert!(commit_burn < i64::max_value() as u64);
-        assert!(sortition_burn < i64::max_value() as u64);
+        assert!(commit_burn < i64::MAX as u64);
+        assert!(sortition_burn < i64::MAX as u64);
 
         let block_hash = block.block_hash();
         let index_block_hash =
@@ -1771,7 +1771,7 @@ impl StacksChainState {
         burn_supports: &Vec<UserBurnSupportOp>,
     ) -> Result<(), Error> {
         for burn_support in burn_supports.iter() {
-            assert!(burn_support.burn_fee < i64::max_value() as u64);
+            assert!(burn_support.burn_fee < i64::MAX as u64);
         }
 
         for burn_support in burn_supports.iter() {
@@ -6767,7 +6767,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_none());
@@ -6836,7 +6836,7 @@ pub mod test {
                     &block.block_hash()
                 ),
                 0,
-                u16::max_value()
+                u16::MAX
             )
             .unwrap()
             .unwrap(),
@@ -6935,7 +6935,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_some());
@@ -6947,7 +6947,7 @@ pub mod test {
                     &block.block_hash()
                 ),
                 0,
-                u16::max_value()
+                u16::MAX
             )
             .unwrap()
             .unwrap(),
@@ -6991,7 +6991,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_none());
@@ -7061,7 +7061,7 @@ pub mod test {
                     &block.block_hash()
                 ),
                 0,
-                u16::max_value()
+                u16::MAX
             )
             .unwrap()
             .unwrap(),
@@ -7197,7 +7197,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_some());
@@ -7209,7 +7209,7 @@ pub mod test {
                     &block.block_hash()
                 ),
                 0,
-                u16::max_value()
+                u16::MAX
             )
             .unwrap()
             .unwrap(),
@@ -7253,7 +7253,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_none());
@@ -7338,7 +7338,7 @@ pub mod test {
                 &block.block_hash()
             ),
             0,
-            u16::max_value()
+            u16::MAX
         )
         .unwrap()
         .is_none());
@@ -8515,7 +8515,7 @@ pub mod test {
                             &block.block_hash()
                         ),
                         0,
-                        u16::max_value()
+                        u16::MAX
                     )
                     .unwrap()
                     .unwrap()
@@ -8528,7 +8528,7 @@ pub mod test {
                     &chainstate.db(),
                     &StacksBlockHeader::make_index_block_hash(&consensus_hash, &block.block_hash()),
                     0,
-                    u16::max_value()
+                    u16::MAX
                 )
                 .unwrap()
                 .is_none());
@@ -9231,21 +9231,17 @@ pub mod test {
             for j in 0..(i + 1) {
                 assert!(
                     block_inv_all.has_ith_block(j as u16),
-                    format!(
-                        "Missing block {} from bitvec {}",
-                        j,
-                        to_hex(&block_inv_all.block_bitvec)
-                    )
+                    "Missing block {} from bitvec {}",
+                    j,
+                    to_hex(&block_inv_all.block_bitvec)
                 );
 
                 // microblocks not stored yet, so they should be marked absent
                 assert!(
                     !block_inv_all.has_ith_microblock_stream(j as u16),
-                    format!(
-                        "Have microblock {} from bitvec {}",
-                        j,
-                        to_hex(&block_inv_all.microblocks_bitvec)
-                    )
+                    "Have microblock {} from bitvec {}",
+                    j,
+                    to_hex(&block_inv_all.microblocks_bitvec)
                 );
             }
             for j in i + 1..blocks.len() {
@@ -9325,19 +9321,15 @@ pub mod test {
                 test_debug!("Test bit {} ({})", j, i);
                 assert!(
                     !block_inv_all.has_ith_block(j as u16),
-                    format!(
-                        "Have orphaned block {} from bitvec {}",
-                        j,
-                        to_hex(&block_inv_all.block_bitvec)
-                    )
+                    "Have orphaned block {} from bitvec {}",
+                    j,
+                    to_hex(&block_inv_all.block_bitvec)
                 );
                 assert!(
                     !block_inv_all.has_ith_microblock_stream(j as u16),
-                    format!(
-                        "Still have microblock {} from bitvec {}",
-                        j,
-                        to_hex(&block_inv_all.microblocks_bitvec)
-                    )
+                    "Still have microblock {} from bitvec {}",
+                    j,
+                    to_hex(&block_inv_all.microblocks_bitvec)
                 );
             }
             for j in (i + 1)..blocks.len() {

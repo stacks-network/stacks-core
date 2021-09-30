@@ -377,7 +377,7 @@ pub fn execute_against_version_and_network(
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
     global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        let parsed = ast::build_ast(&contract_id, program, &mut (), version)?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
 }
