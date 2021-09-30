@@ -16,11 +16,22 @@
 
 use super::contracts::type_check;
 use crate::clarity_vm::database::MemoryBackingStore;
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 use std::convert::TryInto;
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::type_checker::tests::mem_type_check;
 use vm::ast::parse;
 use vm::types::{QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature};
+use vm::ClarityVersion;
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn test_clarity_versions_assets(#[case] version: ClarityVersion) {}
 
 fn string_ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
@@ -101,13 +112,13 @@ const ASSET_NAMES: &str = "(define-constant burn-address 'SP00000000000000000000
             (nft-burn? names name tx-sender))
          ";
 
-#[test]
-fn test_names_tokens_contracts() {
+#[apply(test_clarity_versions_assets)]
+fn test_names_tokens_contracts(#[case] version: ClarityVersion) {
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
     let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
 
-    let mut tokens_contract = parse(&tokens_contract_id, FIRST_CLASS_TOKENS).unwrap();
-    let mut names_contract = parse(&names_contract_id, ASSET_NAMES).unwrap();
+    let mut tokens_contract = parse(&tokens_contract_id, FIRST_CLASS_TOKENS, version).unwrap();
+    let mut names_contract = parse(&names_contract_id, ASSET_NAMES, version).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 

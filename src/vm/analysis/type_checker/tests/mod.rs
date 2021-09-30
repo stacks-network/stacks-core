@@ -14,6 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::mem_type_check as mem_run_analysis;
 use vm::analysis::type_checker::{TypeChecker, TypeResult, TypingContext};
@@ -38,9 +42,16 @@ use vm::types::signatures::TypeSignature::OptionalType;
 use vm::types::Value::Sequence;
 
 use super::CheckResult;
+use vm::ClarityVersion;
 
 mod assets;
 pub mod contracts;
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn test_clarity_versions_type_checker(#[case] version: ClarityVersion) {}
 
 /// Backwards-compatibility shim for type_checker tests. Runs at Clarity2 version.
 pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
@@ -103,8 +114,8 @@ fn test_get_block_info() {
     }
 }
 
-#[test]
-fn test_define_trait() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_define_trait(#[case] version: ClarityVersion) {
     let good = [
         "(define-trait trait-1 ((get-1 (uint) (response uint uint))))",
         "(define-trait trait-1 ((get-1 () (response uint (buff 32)))))",
@@ -142,13 +153,13 @@ fn test_define_trait() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
 
-#[test]
-fn test_use_trait() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_use_trait(#[case] version: ClarityVersion) {
     let bad = [
         "(use-trait trait-1 ((get-1 (uint) (response uint uint))))",
         "(use-trait trait-1 ((get-1 uint)))",
@@ -164,13 +175,13 @@ fn test_use_trait() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
 
-#[test]
-fn test_impl_trait() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_impl_trait(#[case] version: ClarityVersion) {
     let bad = ["(impl-trait trait-1)", "(impl-trait)"];
     let bad_expected = [
         ParseErrors::ImplTraitBadSignature,
@@ -179,7 +190,7 @@ fn test_impl_trait() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -222,14 +233,20 @@ fn test_stx_ops() {
         "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
     ];
     let bad_expected = [
-        CheckErrors::TypeError(PrincipalType, SequenceType(BufferType(BufferLength(2)))),
+        CheckErrors::TypeError(
+            PrincipalType,
+            SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
+        ),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::IncorrectArgumentCount(3, 5),
         CheckErrors::TypeError(PrincipalType, UIntType),
         CheckErrors::TypeError(PrincipalType, BoolType),
         CheckErrors::TypeError(PrincipalType, OptionalType(Box::from(PrincipalType))),
         CheckErrors::IncorrectArgumentCount(3, 4),
-        CheckErrors::TypeError(PrincipalType, SequenceType(BufferType(BufferLength(2)))),
+        CheckErrors::TypeError(
+            PrincipalType,
+            SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
+        ),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::IncorrectArgumentCount(4, 5),
         CheckErrors::TypeError(PrincipalType, UIntType),
@@ -287,8 +304,8 @@ fn test_tx_sponsor() {
     }
 }
 
-#[test]
-fn test_destructuring_opts() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_destructuring_opts(#[case] version: ClarityVersion) {
     let good = [
         "(unwrap! (some 1) 2)",
         "(unwrap-err! (err 1) 2)",
@@ -338,7 +355,10 @@ fn test_destructuring_opts() {
     let bad = [
         (
             "(unwrap-err! (some 2) 2)",
-            CheckErrors::ExpectedResponseType(TypeSignature::from("(optional int)")),
+            CheckErrors::ExpectedResponseType(TypeSignature::from_string(
+                "(optional int)",
+                version,
+            )),
         ),
         (
             "(unwrap! (err 3) 2)",
@@ -406,7 +426,7 @@ fn test_destructuring_opts() {
         ("(match)", CheckErrors::RequiresAtLeastArguments(1, 0)),
         (
             "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
-            CheckErrors::BadMatchInput(TypeSignature::from("int")),
+            CheckErrors::BadMatchInput(TypeSignature::from_string("int", version)),
         ),
         (
             "(default-to 3 5)",
@@ -497,8 +517,8 @@ fn test_at_block() {
     }
 }
 
-#[test]
-fn test_trait_reference_unknown() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_trait_reference_unknown(#[case] version: ClarityVersion) {
     let bad = [(
         "(+ 1 <kvstore>)",
         ParseErrors::TraitReferenceUnknown("kvstore".to_string()),
@@ -506,7 +526,7 @@ fn test_trait_reference_unknown() {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter() {
-        let res = build_ast(&contract_identifier, bad_test, &mut ()).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -781,8 +801,8 @@ fn test_element_at() {
     }
 }
 
-#[test]
-fn test_eqs() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_eqs(#[case] version: ClarityVersion) {
     let good = [
         "(is-eq (list 1 2 3 4 5) (list 1 2 3 4 5 6 7))",
         "(is-eq (tuple (good 1) (bad 2)) (tuple (good 2) (bad 3)))",
@@ -800,7 +820,10 @@ fn test_eqs() {
     let bad_expected = [
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::TypeError(TypeSignature::list_of(IntType, 1).unwrap(), IntType),
-        CheckErrors::TypeError("(optional bool)".into(), "(optional int)".into()),
+        CheckErrors::TypeError(
+            TypeSignature::from_string("(optional bool)", version),
+            TypeSignature::from_string("(optional int)", version),
+        ),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -987,12 +1010,12 @@ fn test_buff_fold() {
     let good = [
         "(define-private (get-len (x (buff 1)) (acc uint)) (+ acc u1))
         (fold get-len 0x000102030405 u0)",
-        "(define-private (slice (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
+        "(define-private (get-slice (x (buff 1)) (acc (tuple (limit uint) (cursor uint) (data (buff 10)))))
             (if (< (get cursor acc) (get limit acc))
                 (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
                     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
                 acc))
-        (fold slice 0x00010203040506070809 (tuple (limit u5) (cursor u0) (data 0x)))"];
+        (fold get-slice 0x00010203040506070809 (tuple (limit u5) (cursor u0) (data 0x)))"];
     let expected = [
         "uint",
         "(tuple (cursor uint) (data (buff 10)) (limit uint))",
@@ -1070,6 +1093,139 @@ fn test_native_append() {
         CheckErrors::TypeError(IntType, UIntType),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::IncorrectArgumentCount(2, 1),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_slice_list() {
+    let good = [
+        "(slice (list 2 3 4 5 6 7 8) u0 u3)",
+        "(slice (list u0 u1 u2 u3 u4) u3 u2)",
+        "(slice (list 2 3 4 5 6 7 8) u0 u0)",
+        "(slice (list 2 3 4 5 6 7 8) u10 u3)",
+        "(slice (list) u0 u3)",
+    ];
+    let expected = [
+        "(list 7 int)",
+        "(list 5 uint)",
+        "(list 7 int)",
+        "(list 7 int)",
+        "(list 0 UnknownType)",
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    let bad = [
+        "(slice (list 2 3) 3 u4)",
+        "(slice (list 2 3) u3 4)",
+        "(slice (list u0) u1)",
+    ];
+
+    let bad_expected = [
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(3, 2),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_slice_buff() {
+    let good = [
+        "(slice 0x000102030405 u0 u3)",
+        "(slice 0x000102030405 u3 u2)",
+    ];
+    let expected = ["(buff 6)", "(buff 6)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    let bad = [
+        "(slice 0x000102030405 3 u4)",
+        "(slice 0x000102030405 u3 4)",
+        "(slice 0x000102030405 u1)",
+    ];
+
+    let bad_expected = [
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(3, 2),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_slice_ascii() {
+    let good = [
+        "(slice \"blockstack\" u4 u5)",
+        "(slice \"blockstack\" u0 u5)",
+    ];
+    let expected = ["(string-ascii 10)", "(string-ascii 10)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    let bad = [
+        "(slice \"blockstack\" 3 u4)",
+        "(slice \"blockstack\" u3 4)",
+        "(slice \"blockstack\" u1)",
+    ];
+
+    let bad_expected = [
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(3, 2),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_slice_utf8() {
+    let good = [
+        "(slice u\"blockstack\" u4 u5)",
+        "(slice u\"blockstack\" u4 u5)",
+    ];
+    let expected = ["(string-utf8 10)", "(string-utf8 10)"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    let bad = [
+        "(slice u\"blockstack\" 3 u4)",
+        "(slice u\"blockstack\" u3 4)",
+        "(slice u\"blockstack\" u1)",
+    ];
+
+    let bad_expected = [
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(3, 2),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
@@ -1322,12 +1478,12 @@ fn test_buffer_to_ints() {
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::TypeError(
-            SequenceType(BufferType(BufferLength(16))),
-            SequenceType(BufferType(BufferLength(17))),
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
+            SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::TypeError(
-            SequenceType(BufferType(BufferLength(16))),
-            SequenceType(StringType(ASCII(BufferLength(1)))),
+            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
+            SequenceType(StringType(ASCII(BufferLength::try_from(1_u32).unwrap()))),
         ),
     ];
 
@@ -1389,21 +1545,21 @@ fn test_string_to_ints() {
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::UnionTypeError(
             vec![IntType, UIntType],
-            SequenceType(BufferType(BufferLength(17))),
+            SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::UnionTypeError(
             vec![IntType, UIntType],
-            SequenceType(StringType(ASCII(BufferLength(1)))),
+            SequenceType(StringType(ASCII(BufferLength::try_from(1_u32).unwrap()))),
         ),
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::UnionTypeError(
             vec![IntType, UIntType],
-            SequenceType(BufferType(BufferLength(17))),
+            SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::UnionTypeError(
             vec![IntType, UIntType],
-            SequenceType(StringType(ASCII(BufferLength(1)))),
+            SequenceType(StringType(ASCII(BufferLength::try_from(1_u32).unwrap()))),
         ),
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::IncorrectArgumentCount(1, 0),
@@ -1412,7 +1568,7 @@ fn test_string_to_ints() {
                 TypeSignature::max_string_ascii(),
                 TypeSignature::max_string_utf8(),
             ],
-            SequenceType(BufferType(BufferLength(17))),
+            SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::UnionTypeError(
             vec![
@@ -1428,7 +1584,7 @@ fn test_string_to_ints() {
                 TypeSignature::max_string_ascii(),
                 TypeSignature::max_string_utf8(),
             ],
-            SequenceType(BufferType(BufferLength(17))),
+            SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::UnionTypeError(
             vec![
@@ -1449,8 +1605,8 @@ fn test_string_to_ints() {
     }
 }
 
-#[test]
-fn test_response_inference() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_response_inference(#[case] version: ClarityVersion) {
     let good = [
         "(define-private (foo (x int)) (err x))
                  (define-private (bar (x bool)) (ok x))
@@ -1485,7 +1641,10 @@ fn test_response_inference() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError("(response bool int)".into(), BoolType),
+        CheckErrors::TypeError(
+            TypeSignature::from_string("(response bool int)", version),
+            BoolType,
+        ),
         CheckErrors::ReturnTypesMustMatch(IntType, BoolType),
         CheckErrors::CouldNotDetermineResponseOkType,
     ];
@@ -1574,8 +1733,8 @@ fn test_factorial() {
     mem_type_check(contract).unwrap();
 }
 
-#[test]
-fn test_options() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_options(#[case] version: ClarityVersion) {
     let contract = "
          (define-private (foo (id (optional int)))
            (+ 1 (default-to 1 id)))
@@ -1604,7 +1763,8 @@ fn test_options() {
 
     assert!(match mem_type_check(contract).unwrap_err().err {
         CheckErrors::TypeError(t1, t2) => {
-            t1 == "(optional bool)".into() && t2 == "(optional int)".into()
+            t1 == TypeSignature::from_string("(optional bool)", version)
+                && t2 == TypeSignature::from_string("(optional int)", version)
         }
         _ => false,
     });
@@ -2302,12 +2462,12 @@ fn test_string_ascii_fold() {
     let good = [
         "(define-private (get-len (x (string-ascii 1)) (acc uint)) (+ acc u1))
         (fold get-len \"blockstack\" u0)",
-        "(define-private (slice (x (string-ascii 1)) (acc (tuple (limit uint) (cursor uint) (data (string-ascii 10)))))
+        "(define-private (get-slice (x (string-ascii 1)) (acc (tuple (limit uint) (cursor uint) (data (string-ascii 10)))))
             (if (< (get cursor acc) (get limit acc))
                 (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
                     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
                 acc))
-        (fold slice \"blockstack\" (tuple (limit u5) (cursor u0) (data \"\")))"];
+        (fold get-slice \"blockstack\" (tuple (limit u5) (cursor u0) (data \"\")))"];
     let expected = [
         "uint",
         "(tuple (cursor uint) (data (string-ascii 10)) (limit uint))",
@@ -2355,12 +2515,12 @@ fn test_string_utf8_fold() {
     let good = [
         "(define-private (get-len (x (string-utf8 1)) (acc uint)) (+ acc u1))
         (fold get-len u\"blockstack\" u0)",
-        "(define-private (slice (x (string-utf8 1)) (acc (tuple (limit uint) (cursor uint) (data (string-utf8 11)))))
+        "(define-private (get-slice (x (string-utf8 1)) (acc (tuple (limit uint) (cursor uint) (data (string-utf8 11)))))
             (if (< (get cursor acc) (get limit acc))
                 (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u11))))
                     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
                 acc))
-        (fold slice u\"blockstack\\u{1F926}\" (tuple (limit u5) (cursor u0) (data u\"\")))"];
+        (fold get-slice u\"blockstack\\u{1F926}\" (tuple (limit u5) (cursor u0) (data u\"\")))"];
     let expected = [
         "uint",
         "(tuple (cursor uint) (data (string-utf8 11)) (limit uint))",
@@ -2484,11 +2644,13 @@ fn test_comparison_types() {
             vec![
                 IntType,
                 UIntType,
-                SequenceType(StringType(ASCII(BufferLength(1048576)))),
+                SequenceType(StringType(ASCII(
+                    BufferLength::try_from(1048576_u32).unwrap(),
+                ))),
                 SequenceType(StringType(UTF8(
                     StringUTF8Length::try_from(262144_u32).unwrap(),
                 ))),
-                SequenceType(BufferType(BufferLength(1048576))),
+                SequenceType(BufferType(BufferLength::try_from(1048576_u32).unwrap())),
             ],
             PrincipalType,
         ),
@@ -2496,29 +2658,31 @@ fn test_comparison_types() {
             vec![
                 IntType,
                 UIntType,
-                SequenceType(StringType(ASCII(BufferLength(1048576)))),
+                SequenceType(StringType(ASCII(
+                    BufferLength::try_from(1048576_u32).unwrap(),
+                ))),
                 SequenceType(StringType(UTF8(
                     StringUTF8Length::try_from(262144_u32).unwrap(),
                 ))),
-                SequenceType(BufferType(BufferLength(1048576))),
+                SequenceType(BufferType(BufferLength::try_from(1048576_u32).unwrap())),
             ],
             SequenceType(ListType(ListTypeData::new_list(IntType, 3).unwrap())),
         ),
         CheckErrors::TypeError(
             SequenceType(StringType(UTF8(StringUTF8Length::try_from(3u32).unwrap()))),
-            SequenceType(StringType(ASCII(BufferLength(2)))),
+            SequenceType(StringType(ASCII(BufferLength::try_from(2_u32).unwrap()))),
         ),
         CheckErrors::TypeError(
-            SequenceType(StringType(ASCII(BufferLength(3)))),
-            SequenceType(BufferType(BufferLength(2))),
+            SequenceType(StringType(ASCII(BufferLength::try_from(3_u32).unwrap()))),
+            SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
         ),
         CheckErrors::TypeError(
-            SequenceType(BufferType(BufferLength(2))),
+            SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
             SequenceType(StringType(UTF8(StringUTF8Length::try_from(3u32).unwrap()))),
         ),
         CheckErrors::TypeError(
-            SequenceType(BufferType(BufferLength(2))),
-            SequenceType(StringType(ASCII(BufferLength(3)))),
+            SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
+            SequenceType(StringType(ASCII(BufferLength::try_from(3_u32).unwrap()))),
         ),
         CheckErrors::IncorrectArgumentCount(2, 0),
         CheckErrors::IncorrectArgumentCount(2, 1),

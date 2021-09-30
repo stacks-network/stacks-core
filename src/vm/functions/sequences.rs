@@ -311,3 +311,43 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
         Ok(Value::none())
     }
 }
+
+/// Executes the Clarity2 function `slice`.
+pub fn special_slice(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(3, args)?;
+
+    // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
+    // Set the input to runtime_cost to 0, since slicing is an O(1) operation.
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+
+    let seq = eval(&args[0], env, context)?;
+    let left_position = eval(&args[1], env, context)?;
+    let right_position = eval(&args[2], env, context)?;
+
+    let sliced_seq = match (seq, left_position, right_position) {
+        (Value::Sequence(seq), Value::UInt(left_position), Value::UInt(right_position)) => {
+            let (left_position, right_position) =
+                match (u32::try_from(left_position), u32::try_from(right_position)) {
+                    (Ok(left_position), Ok(right_position)) => (left_position, right_position),
+                    _ => return Ok(Value::none()),
+                };
+
+            // Perform bound checks. Not necessary to check if positions are less than 0 since the vars are unsigned.
+            if left_position as usize >= seq.len() || right_position as usize > seq.len() {
+                return Ok(Value::none());
+            }
+            if right_position < left_position {
+                return Ok(Value::none());
+            }
+
+            let seq_value = seq.slice(left_position as usize, right_position as usize)?;
+            Value::some(seq_value)
+        }
+        _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),
+    }?;
+    Ok(sliced_seq)
+}

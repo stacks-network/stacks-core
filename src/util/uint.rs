@@ -487,7 +487,7 @@ mod tests {
             "0x00000000000000000000000000000000000000000000000000000000deadbeef"
         );
         assert_eq!(
-            format!("{}", Uint256::from_u64(u64::max_value())),
+            format!("{}", Uint256::from_u64(u64::MAX)),
             "0x000000000000000000000000000000000000000000000000ffffffffffffffff"
         );
 

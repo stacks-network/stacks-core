@@ -14,6 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 use vm::types::signatures::{ListTypeData, SequenceSubtype};
 use vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
 use vm::types::{TypeSignature, Value};
@@ -21,7 +25,13 @@ use vm::types::{TypeSignature, Value};
 use std::convert::TryInto;
 use vm::analysis::errors::CheckError;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::execute;
+use vm::{execute, execute_v2, ClarityVersion};
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn test_clarity_versions_sequences(#[case] version: ClarityVersion) {}
 
 #[test]
 fn test_simple_list_admission() {
@@ -449,6 +459,103 @@ fn test_simple_map_append() {
 }
 
 #[test]
+fn test_slice_list() {
+    let tests = [
+        "(slice (list 2 3 4 5 6 7 8) u0 u3)",
+        "(slice (list u0 u1 u2 u3 u4) u3 u2)",
+        "(slice (list 2 3 4 5 6 7 8) u0 u0)",
+        "(slice (list u2 u3 u4 u5 u6 u7 u8) u3 u5)",
+        "(slice (list u2 u3 u4 u5 u6 u7 u8) u1 u11)",
+    ];
+
+    let expected = [
+        Value::some(Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(4)]).unwrap())
+            .unwrap(),
+        Value::none(),
+        Value::some(Value::list_from(vec![]).unwrap()).unwrap(),
+        Value::some(Value::list_from(vec![Value::UInt(5), Value::UInt(6)]).unwrap()).unwrap(),
+        Value::none(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
+    }
+}
+
+#[test]
+fn test_slice_buff() {
+    let tests = [
+        "(slice 0x000102030405 u0 u3)",
+        "(slice 0x000102030405 u3 u3)",
+        "(slice 0x000102030405 u3 u6)",
+        "(slice 0x000102030405 u3 u10)",
+        "(slice 0x000102030405 u10 u3)",
+        "(slice 0x u2 u3)",
+    ];
+
+    let expected = [
+        Value::some(Value::buff_from(vec![0, 1, 2]).unwrap()).unwrap(),
+        Value::some(Value::buff_from(vec![]).unwrap()).unwrap(),
+        Value::some(Value::buff_from(vec![3, 4, 5]).unwrap()).unwrap(),
+        Value::none(),
+        Value::none(),
+        Value::none(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
+    }
+}
+
+#[test]
+fn test_slice_ascii() {
+    let tests = [
+        "(slice \"blockstack\" u0 u5)",
+        "(slice \"blockstack\" u5 u10)",
+        "(slice \"blockstack\" u5 u5)",
+        "(slice \"blockstack\" u5 u0)",
+        "(slice \"blockstack\" u11 u3)",
+        "(slice \"\" u0 u3)",
+    ];
+
+    let expected = [
+        Value::some(Value::string_ascii_from_bytes("block".into()).unwrap()).unwrap(),
+        Value::some(Value::string_ascii_from_bytes("stack".into()).unwrap()).unwrap(),
+        Value::some(Value::string_ascii_from_bytes("".into()).unwrap()).unwrap(),
+        Value::none(),
+        Value::none(),
+        Value::none(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
+    }
+}
+
+#[test]
+fn test_slice_utf8() {
+    let tests = [
+        "(slice u\"hello \\u{1F98A}\" u0 u5)",
+        "(slice u\"hello \\u{1F98A}\" u6 u7)",
+        "(slice u\"hello \\u{1F98A}\" u6 u6)",
+        "(slice u\"hello \\u{1F98A}\" u11 u4)",
+        "(slice u\"\" u0 u3)",
+    ];
+
+    let expected = [
+        Value::some(Value::string_utf8_from_bytes("hello".into()).unwrap()).unwrap(),
+        Value::some(Value::string_utf8_from_bytes("🦊".into()).unwrap()).unwrap(),
+        Value::some(Value::string_utf8_from_bytes("".into()).unwrap()).unwrap(),
+        Value::none(),
+        Value::none(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
+    }
+}
+
+#[test]
 fn test_simple_list_concat() {
     let tests = [
         "(concat (list 1 2) (list 4 8))",
@@ -684,12 +791,12 @@ fn test_simple_folds_string() {
     let tests =
         ["(define-private (get-len (x (string-ascii 1)) (acc int)) (+ acc 1))
          (fold get-len \"blockstack\" 0)",
-        "(define-private (slice (x (string-ascii 1)) (acc (tuple (limit uint) (cursor uint) (data (string-ascii 10)))))
+        "(define-private (get-slice (x (string-ascii 1)) (acc (tuple (limit uint) (cursor uint) (data (string-ascii 10)))))
             (if (< (get cursor acc) (get limit acc))
                 (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
                     (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data))) 
                 acc))
-        (get data (fold slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\"))))"];
+        (get data (fold get-slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\"))))"];
 
     let expected = [
         Value::Int(10),
@@ -719,8 +826,8 @@ fn test_buff_len() {
     assert_eq!(expected, execute(test2).unwrap().unwrap());
 }
 
-#[test]
-fn test_construct_bad_list() {
+#[apply(test_clarity_versions_sequences)]
+fn test_construct_bad_list(#[case] version: ClarityVersion) {
     let test1 = "(list 1 2 3 true)";
     assert_eq!(
         execute(test1).unwrap_err(),
@@ -743,7 +850,7 @@ fn test_construct_bad_list() {
     );
     assert_eq!(
         execute(bad_high_order_list).unwrap_err(),
-        CheckErrors::TypeError(IntType, TypeSignature::from("(list 3 int)")).into()
+        CheckErrors::TypeError(IntType, TypeSignature::from_string("(list 3 int)", version)).into()
     );
 }
 

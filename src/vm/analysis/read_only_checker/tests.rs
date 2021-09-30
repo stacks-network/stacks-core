@@ -19,6 +19,13 @@ use vm::analysis::type_checker::tests::{contracts::type_check, mem_type_check};
 use vm::analysis::{CheckError, CheckErrors};
 use vm::ast::parse;
 use vm::types::QualifiedContractIdentifier;
+use vm::ClarityVersion;
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn test_clarity_versions_read_only_checker(#[case] version: ClarityVersion) {}
 
 #[test]
 fn test_argument_count_violations() {
@@ -174,8 +181,8 @@ fn test_nested_writing_closure() {
     }
 }
 
-#[test]
-fn test_contract_call_read_only_violations() {
+#[apply(test_clarity_versions_read_only_checker)]
+fn test_contract_call_read_only_violations(#[case] version: ClarityVersion) {
     let contract1 = "(define-map tokens { account: principal } { balance: int })
          (define-read-only (get-token-balance)
             (get balance (map-get? tokens (tuple (account tx-sender))) ))
@@ -193,9 +200,9 @@ fn test_contract_call_read_only_violations() {
     let contract_bad_caller_id = QualifiedContractIdentifier::local("bad_caller").unwrap();
     let contract_ok_caller_id = QualifiedContractIdentifier::local("ok_caller").unwrap();
 
-    let mut contract1 = parse(&contract_1_id, contract1).unwrap();
-    let mut bad_caller = parse(&contract_bad_caller_id, bad_caller).unwrap();
-    let mut ok_caller = parse(&contract_ok_caller_id, ok_caller).unwrap();
+    let mut contract1 = parse(&contract_1_id, contract1, version).unwrap();
+    let mut bad_caller = parse(&contract_bad_caller_id, bad_caller, version).unwrap();
+    let mut ok_caller = parse(&contract_ok_caller_id, ok_caller, version).unwrap();
 
     let mut marf = MemoryBackingStore::new();
 
