@@ -441,10 +441,11 @@ impl PoxConstants {
         first_block_height: u64,
         block_height: u64,
     ) -> Option<u64> {
-        if block_height < first_block_height {
-            return None;
-        }
-        Some((block_height - first_block_height) / (self.reward_cycle_length as u64))
+        Self::static_block_height_to_reward_cycle(
+            block_height,
+            first_block_height,
+            self.reward_cycle_length as u64,
+        )
     }
 
     pub fn is_in_prepare_phase(&self, first_block_height: u64, block_height: u64) -> bool {
@@ -460,6 +461,20 @@ impl PoxConstants {
             reward_index == 0
                 || reward_index > ((self.reward_cycle_length - self.prepare_length) as u64)
         }
+    }
+
+    /// Returns the active reward cycle at the given burn block height
+    /// * `first_block_ht` - the first burn block height that the Stacks network monitored
+    /// * `reward_cycle_len` - the length of each reward cycle in the network.
+    pub fn static_block_height_to_reward_cycle(
+        block_ht: u64,
+        first_block_ht: u64,
+        reward_cycle_len: u64,
+    ) -> Option<u64> {
+        if block_ht < first_block_ht {
+            return None;
+        }
+        Some((block_ht - first_block_ht) / (reward_cycle_len))
     }
 }
 
