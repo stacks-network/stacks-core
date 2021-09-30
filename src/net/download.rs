@@ -1228,7 +1228,9 @@ impl PeerNetwork {
         {
             test_debug!(
                 "{:?}: consider availability of {}/{:?}",
-                &self.local_peer, &consensus_hash, &block_hash_opt
+                &self.local_peer,
+                &consensus_hash,
+                &block_hash_opt
             );
 
             if (i as u64) >= scan_batch_size {
@@ -1269,7 +1271,9 @@ impl PeerNetwork {
                     // we already have this block stored to disk
                     test_debug!(
                         "{:?}: Already have anchored block {}/{}",
-                        &self.local_peer, &consensus_hash, &block_hash
+                        &self.local_peer,
+                        &consensus_hash,
+                        &block_hash
                     );
                     continue;
                 }
