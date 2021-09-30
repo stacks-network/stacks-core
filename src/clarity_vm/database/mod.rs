@@ -165,6 +165,8 @@ impl ClarityBackingStore for MemoryBackingStore {
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
         if height == 0 {
             Some(StacksBlockId::sentinel())
+        } else if height == 5 {
+            Some(StacksBlockId::from_hex("a731334e4a306e07a26d1b81f853692a96b22fabba3e69551afadeab61ad44b3").unwrap())
         } else {
             None
         }

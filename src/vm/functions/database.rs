@@ -594,9 +594,9 @@ pub fn special_get_block_info(
     };
 
     let current_block_height = env.global_context.database.get_current_block_height();
-    if height_value >= current_block_height {
-        return Ok(Value::none());
-    }
+    // if height_value >= current_block_height {
+    //     return Ok(Value::none());
+    // }
 
     let result = match block_info_prop {
         BlockInfoProperty::Time => {
