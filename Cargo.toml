@@ -110,8 +110,7 @@ sha2-asm = "0.5.3"
 
 [workspace]
 members = [
-    ".",
-    "clarity",
+    ".", 
     "stx-genesis",
     "testnet/stacks-node",
     "testnet/puppet-chain"]

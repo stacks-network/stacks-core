@@ -1463,8 +1463,7 @@ const TOKEN_TRANSFER: SpecialAPI = SpecialAPI {
     output_type: "(response bool uint)",
     signature: "(ft-transfer? token-name amount sender recipient)",
     description: "`ft-transfer?` is used to increase the token balance for the `recipient` principal for a token
-type defined using `define-fungible-token` by debiting the `sender` principal. In contrast to `stx-transfer?`, 
-any user can transfer the assets. When used, relevant guards need to be added.
+type defined using `define-fungible-token` by debiting the `sender` principal.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
@@ -1487,8 +1486,7 @@ const ASSET_TRANSFER: SpecialAPI = SpecialAPI {
     signature: "(nft-transfer? asset-class asset-identifier sender recipient)",
     description: "`nft-transfer?` is used to change the owner of an asset identified by `asset-identifier`
 from `sender` to `recipient`. The `asset-class` must have been defined by `define-non-fungible-token` and `asset-identifier`
-must be of the type specified in that definition. In contrast to `stx-transfer?`, any user can transfer the asset. 
-When used, relevant guards need to be added.
+must be of the type specified in that definition.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:

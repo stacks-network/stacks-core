@@ -1,4 +1,4 @@
-FROM rust:bullseye
+FROM rust:buster
 
 WORKDIR /src
 

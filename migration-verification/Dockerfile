@@ -1,4 +1,4 @@
-FROM rust:bullseye
+FROM rust:buster
 
 ### Install Node.js
 RUN apt-get update

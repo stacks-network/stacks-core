@@ -5,24 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Not Yet Released]
-
-This software update is a point-release to change the transaction selection
-logic in the default miner to prioritize by fee instead of nonce sequence.  This
-release's chainstate directory is compatible with chainstate directories from
-2.0.11.2.0.
-
-## Added
-
-- The node will enforce a soft deadline for mining a block, so that a node
-  operator can control how frequently their node attempts to mine a block
-regardless of how congested the mempool is.  The timeout parameters are
-controlled in the `[miner]` section of the node's config file (#2823).
-
-## Changed
-
-- Prioritize transaction inclusion in the mempool by transaction fee (#2823).
-
 ## [2.0.11.2.0]
 
 NOTE: This change resets the `testnet`. Users running a testnet node will need

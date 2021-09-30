@@ -5534,7 +5534,6 @@ pub mod test {
     use chainstate::stacks::db::test::*;
     use chainstate::stacks::db::*;
     use chainstate::stacks::miner::test::*;
-    use chainstate::stacks::miner::*;
     use chainstate::stacks::test::*;
     use chainstate::stacks::Error as chainstate_error;
     use chainstate::stacks::*;
@@ -9178,7 +9177,7 @@ pub mod test {
                         vrf_proof,
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
-                        BlockBuilderSettings::max_value(),
+                        ExecutionCost::max_value(),
                         None,
                     )
                     .unwrap();

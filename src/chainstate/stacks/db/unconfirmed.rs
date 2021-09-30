@@ -699,7 +699,6 @@ mod test {
                         consensus_hash.clone(),
                         peer.chainstate(),
                         &sort_iconn,
-                        BlockBuilderSettings::max_value(),
                     )
                     .unwrap();
 
@@ -928,7 +927,6 @@ mod test {
                     consensus_hash.clone(),
                     peer.chainstate(),
                     &sort_iconn,
-                    BlockBuilderSettings::max_value(),
                 )
                 .unwrap();
                 let mut microblocks = vec![];

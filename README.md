@@ -255,8 +255,6 @@ Officially supported platforms: `Linux 64-bit`, `MacOS 64-bit`, `Windows 64-bit`
 
 Platforms with second-tier status _(builds are provided but not tested)_: `Linux ARMv7`, `Linux ARM64`.
 
-For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
-
 ## Community
 
 Beyond this Github project,
@@ -271,6 +269,8 @@ The greater Blockstack community regularly hosts in-person
 videos from some of these meetups, as well as video tutorials to help new
 users get started and help developers wrap their heads around the system's
 design.
+
+For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
 
 ## Further Reading
 
@@ -315,43 +315,6 @@ You can automatically reformat your commit via:
 
 ```bash
 cargo fmt --all
-```
-
-## Mining
-
-Stacks tokens (STX) are mined by transferring BTC via PoX.  To run as a miner,
-you should make sure to add the following config fields to your config file:
-
-```
-[node]
-# Run as a miner
-miner = True
-# Bitcoin private key to spend
-seed = "YOUR PRIVATE KEY"
-# How long to wait for microblocks to arrive before mining a block to confirm them (in milliseconds)
-wait_time_for_microblocks = 10000
-# Run as a mock-miner, to test mining without spending BTC.
-# Mutually exclusive with `miner`.
-#mock_miner = True
-
-[miner]
-# Smallest allowed tx fee, in microSTX
-min_tx_fee = 100
-# Time to spend on the first attempt to make a block.
-# This can be small, so your node gets a block-commit into the Bitcoin mempool early.
-first_attempt_time_ms: 1000
-# Time to spend on subsequent attempts to make a block.
-# This can be bigger -- new block-commits will be RBF'ed.
-subsequent_attempt_time_ms: 60000
-```
-
-You can verify that your node is operating as a miner by checking its log output
-to verify that it was able to find its Bitcoin UTXOs:
-
-```bash
-$ head -n 100 /path/to/your/node/logs | grep -i utxo
-INFO [1630127492.031042] [testnet/stacks-node/src/run_loop/neon.rs:146] [main] Miner node: checking UTXOs at address: <redacted>
-INFO [1630127492.062652] [testnet/stacks-node/src/run_loop/neon.rs:164] [main] UTXOs found - will run as a Miner node
 ```
 
 ## Non-Consensus Breaking Release Process
