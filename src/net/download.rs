@@ -1226,7 +1226,7 @@ impl PeerNetwork {
         for (i, (consensus_hash, block_hash_opt, mut neighbors)) in
             availability.drain(..).enumerate()
         {
-            debug!(
+            test_debug!(
                 "{:?}: consider availability of {}/{:?}",
                 &self.local_peer, &consensus_hash, &block_hash_opt
             );
@@ -1267,7 +1267,7 @@ impl PeerNetwork {
                     &block_hash,
                 )? {
                     // we already have this block stored to disk
-                    debug!(
+                    test_debug!(
                         "{:?}: Already have anchored block {}/{}",
                         &self.local_peer, &consensus_hash, &block_hash
                     );
