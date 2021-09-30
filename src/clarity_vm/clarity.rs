@@ -68,6 +68,7 @@ use crate::util::strings::StacksString;
 use crate::vm::database::STXBalance;
 use crate::{
     burnchains::Burnchain,
+    burnchains::PoxConstants,
     clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
 };
 use crate::{
@@ -664,7 +665,7 @@ impl<'a> ClarityBlockConnection<'a> {
             let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
 
             let v1_unlock_height = self.burn_state_db.get_v1_unlock_height();
-            let pox_2_first_cycle = Burnchain::static_block_height_to_reward_cycle(
+            let pox_2_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
                 v1_unlock_height as u64,
                 first_block_height as u64,
                 pox_reward_cycle_length as u64,
