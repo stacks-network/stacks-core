@@ -454,14 +454,20 @@ pub struct BlockStreamData {
     offset: u64, // offset into whatever is being read (the blob, or the file in the chunk store)
     total_bytes: u64, // total number of bytes read.
 
+    // used for microblocks and headers
+    num_items_buf: [u8; 4],
+    num_items_ptr: usize,
+
     // used only for microblocks
     is_microblock: bool,
     microblock_hash: BlockHeaderHash,
     parent_index_block_hash: StacksBlockId,
     seq: u16, // only used for unconfirmed microblocks
     unconfirmed: bool,
-    num_mblocks_buf: [u8; 4],
-    num_mblocks_ptr: usize,
+
+    // used only for headers
+    is_headers: bool,
+    num_headers: u32,
 }
 
 pub const CHAINSTATE_VERSION: &'static str = "1";
