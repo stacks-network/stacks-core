@@ -2172,7 +2172,6 @@ pub mod test {
         pub initial_lockups: Vec<ChainstateAccountLockup>,
         pub spending_account: TestMiner,
         pub setup_code: String,
-        pub appchain: bool,
     }
 
     impl TestPeerConfig {
@@ -2218,7 +2217,6 @@ pub mod test {
                 initial_lockups: vec![],
                 spending_account: spending_account,
                 setup_code: "".into(),
-                appchain: false,
             }
         }
 
@@ -2442,7 +2440,7 @@ pub mod test {
                     });
                     receipts.push(receipt);
                 }
-                receipts
+                debug!("Bootup receipts: {:?}", &receipts);
             };
 
             let mut boot_data = ChainStateBootData::new(
@@ -2478,7 +2476,7 @@ pub mod test {
 
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
 
-            if !config.appchain {
+            {
                 // pre-populate burnchain, if running on bitcoin
                 let prev_snapshot = SortitionDB::get_first_block_snapshot(sortdb.conn()).unwrap();
                 let mut fork = TestBurnchainFork::new(
