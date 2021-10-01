@@ -971,6 +971,10 @@ impl BurnchainDB {
                 parent_block_hash: BurnchainHeaderHash::sentinel(),
             };
 
+            debug!(
+                "Instantiate burnchain DB at {}. First block header is {:?}",
+                path, &first_block_header
+            );
             db_tx.store_burnchain_db_entry(&first_block_header)?;
 
             let first_snapshot = BlockSnapshot::initial(
