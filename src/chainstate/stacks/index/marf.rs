@@ -101,12 +101,10 @@ impl SimpleTimeLogger {
         let print_events = vec![
             MarfEvents::first_read,
             MarfEvents::second_read,
+            MarfEvents::third_read,
+            MarfEvents::fourth_read,
             MarfEvents::finished,
         ];
-//        for event_type in &print_events {
-//            println!("event_type {:?}", event_type);
-//        }
-        // warn!("start_time {:?}", self.start_time);
         for event in &print_events {
             let other_time = self.times[*event as usize];
             let duration = other_time.duration_since(self.start_time);
@@ -1129,6 +1127,8 @@ impl<T: MarfTrieId> MARF<T> {
             _ => Err(e),
         });
 
+        // all time is used in here.
+        metrics.add_point(MarfEvents::second_read);
         // restore
         storage
             .open_block_maybe_id(&cur_block_hash, cur_block_id)
@@ -1141,8 +1141,10 @@ impl<T: MarfTrieId> MARF<T> {
                 e
             })?;
 
+        metrics.add_point(MarfEvents::third_read);
 
         let r = result.map(|option_result| option_result.map(|leaf| leaf.data));
+        metrics.add_point(MarfEvents::fourth_read);
         r
     }
 
