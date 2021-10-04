@@ -912,9 +912,11 @@ impl<T: MarfTrieId> MARF<T> {
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         path: &TriePath,
+        metrics: &mut SimpleTimeLogger,
     ) -> Result<(TrieCursor<T>, TrieNodeType), Error> {
         storage.open_block(block_hash)?;
 
+        metrics.add_point(MarfEvents::walk1);
         let mut cursor = TrieCursor::new(path, storage.root_trieptr());
 
         // walk to insertion point
@@ -1016,7 +1018,8 @@ impl<T: MarfTrieId> MARF<T> {
         // a NotFoundError _here_ means that a block didn't exist
         storage.open_block(block_hash)?;
         // a NotFoundError _here_ means that the key doesn't exist in this view
-        let (cursor, node) = MARF::walk(storage, block_hash, path)?;
+        let mut unused = SimpleTimeLogger::new();
+        let (cursor, node) = MARF::walk(storage, block_hash, path, &mut unused)?;
         // both of these get caught by get_by_key and turned into Ok(None)
         //   and a lot of downstream code seems to depend on that behavior, but
         //   should these two different cases be differentiable?
@@ -1056,7 +1059,7 @@ impl<T: MarfTrieId> MARF<T> {
         // a NotFoundError _here_ means that a block didn't exist
         storage.open_block(block_hash)?;
         // a NotFoundError _here_ means that the key doesn't exist in this view
-        let (cursor, node) = MARF::walk(storage, block_hash, path)?;
+        let (cursor, node) = MARF::walk(storage, block_hash, path, metrics)?;
         // both of these get caught by get_by_key and turned into Ok(None)
         //   and a lot of downstream code seems to depend on that behavior, but
         //   should these two different cases be differentiable?
