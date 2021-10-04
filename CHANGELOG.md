@@ -5,7 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Not Yet Released]
+## [Not yet released]
+
+## Added
+
+- FeeEstimator and CostEstimator interfaces. These can be controlled
+  via node configuration options. See the `README.md` for more
+  information on the configuration.
+
+## [2.0.11.3.0]
 
 This software update is a point-release to change the transaction selection
 logic in the default miner to prioritize by fee instead of nonce sequence.  This
