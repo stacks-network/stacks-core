@@ -69,13 +69,17 @@ struct WriteChainTip<T> {
     height: u32,
 }
 
-struct SimpleTimeLogger {
+pub struct SimpleTimeLogger {
     start_time:SystemTime,
     times:Vec<SystemTime>,
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum MarfEvents {
     first_read,
+    second_read,
+    third_read,
+    fourth_read,
     finished,
 }
 
@@ -87,61 +91,25 @@ impl SimpleTimeLogger {
         }
     }
 
-    fn add_point(&mut self) {
-        self.times.push(SystemTime::now());
-    }
-}
-
-pub struct MarfMetrics {
-    initial: SystemTime,
-    after_get_key: SystemTime,
-    ended: SystemTime,
-
-    time0: SystemTime,
-    time1: SystemTime,
-    time2: SystemTime,
-    time3: SystemTime,
-
-    end_time: SystemTime,
-}
-
-pub struct MarfMetrics2 {
-    start: SystemTime,
-    elements: Vec<SystemTime>,
-}
-
-impl MarfMetrics2 {
-    fn new_zero() -> MarfMetrics2 {
-        MarfMetrics2 { start: SystemTime::now(), elements: Vec::new() }
+    fn add_point(&mut self, event:MarfEvents) {
+        let idx = event as usize;
+        self.times[idx] = SystemTime::now();
     }
 
-    fn append(&mut self,other:SystemTime) {
-        self.elements.push(other);
-    }
-
-    fn print(&self) {
+    fn summarize(&self) {
         let mut ix = 0;
-        for time in &self.elements {
-            let diff = self.start.duration_since(*time).unwrap().as_millis();
+        let print_events = vec![
+            MarfEvents::first_read,
+            MarfEvents::second_read,
+            MarfEvents::finished,
+        ];
+        for event_type in print_events {
+            println!("event_type {:?}", event_type);
+        }
+        for time in &self.times {
+            let diff = self.start_time.duration_since(*time).unwrap().as_millis();
             println!("{}{}", ix, diff);
             ix += 1;
-        }
-    }
-}
-
-impl MarfMetrics {
-    fn new_zero() -> MarfMetrics {
-        MarfMetrics {
-            initial: SystemTime::now(),
-            after_get_key: SystemTime::now(),
-            ended: SystemTime::now(),
-
-            time0: SystemTime::now(),
-            time1: SystemTime::now(),
-            time2: SystemTime::now(),
-            time3: SystemTime::now(),
-
-            end_time: SystemTime::now(),
         }
     }
 }
@@ -162,57 +130,18 @@ pub trait MarfConnection<T: MarfTrieId> {
         &mut self,
         block_hash: &T,
         key: &str,
-        metrics: &mut MarfMetrics,
+        metrics: &mut SimpleTimeLogger,
     ) -> Result<Option<MARFValue>, Error> {
         let result = self.with_conn(|c| {
             let r = MARF::get_by_key(c, block_hash, key, &mut *metrics);
-            metrics.after_get_key = SystemTime::now();
             r
         });
-
-        let end_time = SystemTime::now();
-        let diffx = (metrics.initial.duration_since(metrics.initial))
-            .unwrap()
-            .as_millis();
-        println!("metrics initial {} ", diffx);
-
-        {
-            let diffx = (metrics.time0.duration_since(metrics.initial))
-                .unwrap()
-                .as_millis();
-            println!("metrics 0 {} ", diffx);
-        }
-        {
-            let diffx = (metrics.time1.duration_since(metrics.initial))
-                .unwrap()
-                .as_millis();
-            println!("metrics 1 {} ", diffx);
-        }
-        {
-            let diffx = (metrics.time2.duration_since(metrics.initial))
-                .unwrap()
-                .as_millis();
-            println!("metrics 2 {} ", diffx);
-        }
-        {
-            let diffx = (metrics.time3.duration_since(metrics.initial))
-                .unwrap()
-                .as_millis();
-            println!("metrics 3 {} ", diffx);
-        }
-
-        {
-            let diffx = (metrics.end_time.duration_since(metrics.initial))
-                .unwrap()
-                .as_millis();
-            println!("metrics end_time {} ", diffx);
-        }
 
         result
     }
 
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
-        let mut unused = MarfMetrics::new_zero();
+        let mut unused = SimpleTimeLogger::new();
         self.get_with_metrics(block_hash, key, &mut unused)
     }
 
@@ -222,7 +151,7 @@ pub trait MarfConnection<T: MarfTrieId> {
         key: &str,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         self.with_conn(|conn| {
-            let mut metrics = MarfMetrics::new_zero();
+            let mut metrics = SimpleTimeLogger::new();
             let marf_value = match MARF::get_by_key(conn, block_hash, key, &mut metrics)? {
                 None => return Ok(None),
                 Some(x) => x,
@@ -1174,18 +1103,17 @@ impl<T: MarfTrieId> MARF<T> {
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         key: &str,
-        metrics: &mut MarfMetrics,
+        metrics: &mut SimpleTimeLogger,
     ) -> Result<Option<MARFValue>, Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
         let path = TriePath::from_key(key);
 
-        metrics.time0 = SystemTime::now();
+        metrics.add_point(MarfEvents::first_read);
         let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
             Error::NotFoundError => Ok(None),
             _ => Err(e),
         });
-        metrics.time1 = SystemTime::now();
 
         // restore
         storage
@@ -1199,10 +1127,8 @@ impl<T: MarfTrieId> MARF<T> {
                 e
             })?;
 
-        metrics.time2 = SystemTime::now();
 
         let r = result.map(|option_result| option_result.map(|leaf| leaf.data));
-        metrics.time3 = SystemTime::now();
         r
     }
 
@@ -1222,7 +1148,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
 
         let marf_value = if block_hash == current_block_hash {
-            let mut unused = MarfMetrics::new_zero();
+            let mut unused = SimpleTimeLogger::new();
             MARF::get_by_key(
                 storage,
                 current_block_hash,
@@ -1230,7 +1156,7 @@ impl<T: MarfTrieId> MARF<T> {
                 &mut unused,
             )?
         } else {
-            let mut unused = MarfMetrics::new_zero();
+            let mut unused = SimpleTimeLogger::new();
             MARF::get_by_key(storage, current_block_hash, &hash_key, &mut unused)?
         };
 
@@ -1280,7 +1206,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
 
-        let mut metrics = MarfMetrics::new_zero();
+        let mut metrics = SimpleTimeLogger::new();
         MARF::get_by_key(storage, current_block_hash, &height_key, &mut metrics)
             .map(|option_result| option_result.map(T::from))
     }
@@ -1374,7 +1300,7 @@ impl<T: MarfTrieId> MARF<T> {
         key: &str,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         let mut conn = self.storage.connection();
-        let mut metrics = MarfMetrics::new_zero();
+        let mut metrics = SimpleTimeLogger::new();
         let marf_value = match MARF::get_by_key(&mut conn, block_hash, key, &mut metrics)? {
             None => return Ok(None),
             Some(x) => x,
