@@ -103,17 +103,17 @@ impl SimpleTimeLogger {
             MarfEvents::second_read,
             MarfEvents::finished,
         ];
-        for event_type in &print_events {
-            println!("event_type {:?}", event_type);
-        }
-        warn!("start_time {:?}", self.start_time);
+//        for event_type in &print_events {
+//            println!("event_type {:?}", event_type);
+//        }
+        // warn!("start_time {:?}", self.start_time);
         for event in &print_events {
             let other_time = self.times[*event as usize];
             let duration = other_time.duration_since(self.start_time);
             match duration {
                 Ok(d) => {
-                        let diff = d.as_micros();
-                        println!("{}{}", ix, diff);
+                        let diff = d.as_nanos();
+                        println!("event {:?} {}", event, diff);
                 }
                 Err(e) => {
                     warn!("e: {}", e);
@@ -146,6 +146,7 @@ pub trait MarfConnection<T: MarfTrieId> {
             let r = MARF::get_by_key(c, block_hash, key, &mut *metrics);
             r
         });
+        println!("call finished");
         metrics.add_point(MarfEvents::finished);
 
         result
