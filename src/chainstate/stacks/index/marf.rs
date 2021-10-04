@@ -22,6 +22,9 @@ use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::DerefMut;
 use std::path::PathBuf;
 
+use std::thread::sleep;
+use std::time::{Duration, SystemTime};
+
 use rusqlite::{Connection, Transaction};
 use sha2::Digest;
 
@@ -66,6 +69,83 @@ struct WriteChainTip<T> {
     height: u32,
 }
 
+struct SimpleTimeLogger {
+    start_time:SystemTime,
+    times:Vec<SystemTime>,
+}
+
+pub enum MarfEvents {
+    first_read,
+    finished,
+}
+
+impl SimpleTimeLogger {
+    fn new() -> SimpleTimeLogger {
+        return SimpleTimeLogger {
+            start_time: SystemTime::now(),
+            times: vec![SystemTime::now(); 100],
+        }
+    }
+
+    fn add_point(&mut self) {
+        self.times.push(SystemTime::now());
+    }
+}
+
+pub struct MarfMetrics {
+    initial: SystemTime,
+    after_get_key: SystemTime,
+    ended: SystemTime,
+
+    time0: SystemTime,
+    time1: SystemTime,
+    time2: SystemTime,
+    time3: SystemTime,
+
+    end_time: SystemTime,
+}
+
+pub struct MarfMetrics2 {
+    start: SystemTime,
+    elements: Vec<SystemTime>,
+}
+
+impl MarfMetrics2 {
+    fn new_zero() -> MarfMetrics2 {
+        MarfMetrics2 { start: SystemTime::now(), elements: Vec::new() }
+    }
+
+    fn append(&mut self,other:SystemTime) {
+        self.elements.push(other);
+    }
+
+    fn print(&self) {
+        let mut ix = 0;
+        for time in &self.elements {
+            let diff = self.start.duration_since(*time).unwrap().as_millis();
+            println!("{}{}", ix, diff);
+            ix += 1;
+        }
+    }
+}
+
+impl MarfMetrics {
+    fn new_zero() -> MarfMetrics {
+        MarfMetrics {
+            initial: SystemTime::now(),
+            after_get_key: SystemTime::now(),
+            ended: SystemTime::now(),
+
+            time0: SystemTime::now(),
+            time1: SystemTime::now(),
+            time2: SystemTime::now(),
+            time3: SystemTime::now(),
+
+            end_time: SystemTime::now(),
+        }
+    }
+}
+
 ///
 /// This trait defines functions that are defined for both
 ///  MARF structs and MarfTransactions
@@ -78,8 +158,62 @@ pub trait MarfConnection<T: MarfTrieId> {
     fn sqlite_conn(&self) -> &Connection;
 
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
+    fn get_with_metrics(
+        &mut self,
+        block_hash: &T,
+        key: &str,
+        metrics: &mut MarfMetrics,
+    ) -> Result<Option<MARFValue>, Error> {
+        let result = self.with_conn(|c| {
+            let r = MARF::get_by_key(c, block_hash, key, &mut *metrics);
+            metrics.after_get_key = SystemTime::now();
+            r
+        });
+
+        let end_time = SystemTime::now();
+        let diffx = (metrics.initial.duration_since(metrics.initial))
+            .unwrap()
+            .as_millis();
+        println!("metrics initial {} ", diffx);
+
+        {
+            let diffx = (metrics.time0.duration_since(metrics.initial))
+                .unwrap()
+                .as_millis();
+            println!("metrics 0 {} ", diffx);
+        }
+        {
+            let diffx = (metrics.time1.duration_since(metrics.initial))
+                .unwrap()
+                .as_millis();
+            println!("metrics 1 {} ", diffx);
+        }
+        {
+            let diffx = (metrics.time2.duration_since(metrics.initial))
+                .unwrap()
+                .as_millis();
+            println!("metrics 2 {} ", diffx);
+        }
+        {
+            let diffx = (metrics.time3.duration_since(metrics.initial))
+                .unwrap()
+                .as_millis();
+            println!("metrics 3 {} ", diffx);
+        }
+
+        {
+            let diffx = (metrics.end_time.duration_since(metrics.initial))
+                .unwrap()
+                .as_millis();
+            println!("metrics end_time {} ", diffx);
+        }
+
+        result
+    }
+
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
-        self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
+        let mut unused = MarfMetrics::new_zero();
+        self.get_with_metrics(block_hash, key, &mut unused)
     }
 
     fn get_with_proof(
@@ -88,7 +222,8 @@ pub trait MarfConnection<T: MarfTrieId> {
         key: &str,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         self.with_conn(|conn| {
-            let marf_value = match MARF::get_by_key(conn, block_hash, key)? {
+            let mut metrics = MarfMetrics::new_zero();
+            let marf_value = match MARF::get_by_key(conn, block_hash, key, &mut metrics)? {
                 None => return Ok(None),
                 Some(x) => x,
             };
@@ -253,7 +388,6 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         }
     }
 
-    #[cfg(test)]
     fn commit_tx(self) {
         self.storage.commit_tx()
     }
@@ -530,7 +664,6 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    #[cfg(test)]
     pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         let mut tx = self.begin_tx()?;
         tx.begin(chain_tip, next_chain_tip)?;
@@ -1041,15 +1174,18 @@ impl<T: MarfTrieId> MARF<T> {
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
         key: &str,
+        metrics: &mut MarfMetrics,
     ) -> Result<Option<MARFValue>, Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
         let path = TriePath::from_key(key);
 
+        metrics.time0 = SystemTime::now();
         let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
             Error::NotFoundError => Ok(None),
             _ => Err(e),
         });
+        metrics.time1 = SystemTime::now();
 
         // restore
         storage
@@ -1063,7 +1199,11 @@ impl<T: MarfTrieId> MARF<T> {
                 e
             })?;
 
-        result.map(|option_result| option_result.map(|leaf| leaf.data))
+        metrics.time2 = SystemTime::now();
+
+        let r = result.map(|option_result| option_result.map(|leaf| leaf.data));
+        metrics.time3 = SystemTime::now();
+        r
     }
 
     pub fn get_block_height_miner_tip(
@@ -1082,9 +1222,16 @@ impl<T: MarfTrieId> MARF<T> {
         }
 
         let marf_value = if block_hash == current_block_hash {
-            MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY)?
+            let mut unused = MarfMetrics::new_zero();
+            MARF::get_by_key(
+                storage,
+                current_block_hash,
+                OWN_BLOCK_HEIGHT_KEY,
+                &mut unused,
+            )?
         } else {
-            MARF::get_by_key(storage, current_block_hash, &hash_key)?
+            let mut unused = MarfMetrics::new_zero();
+            MARF::get_by_key(storage, current_block_hash, &hash_key, &mut unused)?
         };
 
         Ok(marf_value.map(u32::from))
@@ -1133,7 +1280,8 @@ impl<T: MarfTrieId> MARF<T> {
 
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
 
-        MARF::get_by_key(storage, current_block_hash, &height_key)
+        let mut metrics = MarfMetrics::new_zero();
+        MARF::get_by_key(storage, current_block_hash, &height_key, &mut metrics)
             .map(|option_result| option_result.map(T::from))
     }
 
@@ -1226,7 +1374,8 @@ impl<T: MarfTrieId> MARF<T> {
         key: &str,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         let mut conn = self.storage.connection();
-        let marf_value = match MARF::get_by_key(&mut conn, block_hash, key)? {
+        let mut metrics = MarfMetrics::new_zero();
+        let marf_value = match MARF::get_by_key(&mut conn, block_hash, key, &mut metrics)? {
             None => return Ok(None),
             Some(x) => x,
         };

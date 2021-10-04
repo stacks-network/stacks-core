@@ -8,13 +8,18 @@ use std::{env, time::Instant};
 
 use rand::Rng;
 
-use blockstack_lib::clarity_vm::database::marf::MarfedKV;
+use blockstack_lib::types::proof::ClarityMarfTrieId;
+use crate::blockstack_lib::clarity_vm::database::marf::MarfedKV;
+// use blockstack_lib::clarity_vm::database::marf::MarfedKV;
 use blockstack_lib::types::chainstate::{StacksAddress, StacksBlockId};
-use blockstack_lib::types::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
+use blockstack_lib::types::chainstate::BlockHeaderHash;
+use blockstack_lib::types::chainstate::{VRFSeed};
+use blockstack_lib::types::chainstate::{ BurnchainHeaderHash};
 use blockstack_lib::util::boot::boot_code_id;
+use blockstack_lib::clarity_vm::clarity::ClarityInstance;
 use blockstack_lib::{
     chainstate::{self, stacks::index::MarfTrieId},
-    vm::clarity::ClarityInstance,
+    // vm::clarity::ClarityInstance,
     vm::costs::ExecutionCost,
     vm::{
         database::{HeadersDB, NULL_BURN_STATE_DB},

@@ -93,13 +93,11 @@ macro_rules! impl_clarity_marf_trie_id {
 impl_clarity_marf_trie_id!(BurnchainHeaderHash);
 impl_clarity_marf_trie_id!(StacksBlockId);
 impl_clarity_marf_trie_id!(SortitionId);
-#[cfg(test)]
 impl_clarity_marf_trie_id!(BlockHeaderHash);
 
 impl MarfTrieId for SortitionId {}
 impl MarfTrieId for StacksBlockId {}
 impl MarfTrieId for BurnchainHeaderHash {}
-#[cfg(test)]
 impl MarfTrieId for BlockHeaderHash {}
 
 impl TrieHash {

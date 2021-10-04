@@ -7,11 +7,16 @@ use std::fs;
 
 use rand::prelude::*;
 
+use blockstack_lib::types::proof::ClarityMarfTrieId;
+
+use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::{marf::MARF, storage::TrieFileStorage};
 use blockstack_lib::types::chainstate::MARFValue;
-use blockstack_lib::types::BlockHeaderHash;
+// use blockstack_lib::types::BlockHeaderHash;
+use blockstack_lib::types::chainstate::BlockHeaderHash;
 use criterion::Criterion;
 
+/// Runs
 fn benchmark_marf_usage(
     filename: &str,
     blocks: u32,
@@ -19,13 +24,18 @@ fn benchmark_marf_usage(
     reads_per_block: u32,
     batch: bool,
 ) {
+    println!(
+        "xblocks {} {} {}",
+        blocks, writes_per_block, reads_per_block
+    );
     if fs::metadata(filename).is_ok() {
         fs::remove_file(filename).unwrap();
     };
-    let f = TrieFileStorage::new(filename).unwrap();
+    // let f = TrieFileStorage::new(filename).unwrap();
+    let f = TrieFileStorage::open(filename).unwrap();
     let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
     let mut marf = MARF::from_storage(f);
-    marf.begin(&TrieFileStorage::block_sentinel(), &block_header)
+    marf.begin(&BlockHeaderHash::sentinel(), &block_header)
         .unwrap();
 
     let mut rng = rand::thread_rng();
@@ -57,7 +67,7 @@ fn benchmark_marf_usage(
 
         for _k in 0..reads_per_block {
             let (key, value) = values.as_slice().choose(&mut rng).unwrap();
-            assert_eq!(marf.get(&block_header, key).unwrap().unwrap(), *value);
+            assert_eq!(marf.get(&block_header, key,).unwrap().unwrap(), *value);
         }
 
         let mut next_block_header = (i + 1).to_le_bytes().to_vec();
@@ -72,7 +82,8 @@ fn benchmark_marf_usage(
 }
 
 fn benchmark_marf_read(filename: &str, reads: u32, block: u32, writes_per_block: u32) {
-    let f = TrieFileStorage::new(filename).unwrap();
+    // let f = TrieFileStorage::new(filename).unwrap();
+    let f = TrieFileStorage::open(filename).unwrap();
     let mut block_header = block.to_le_bytes().to_vec();
     block_header.resize(32, 0);
     let block_header = BlockHeaderHash::from_bytes(block_header.as_slice()).unwrap();
@@ -90,31 +101,34 @@ fn benchmark_marf_read(filename: &str, reads: u32, block: u32, writes_per_block:
 }
 
 pub fn basic_usage_benchmark(c: &mut Criterion) {
-    c.bench_function("marf_setup_1000b_5kW", |b| {
-        b.iter(|| benchmark_marf_usage("/tmp/db.1k.sqlite", 1000, 5000, 0, false))
+    c.bench_function("marf_setup_1b_5W", |b| {
+        b.iter(|| benchmark_marf_usage("/tmp/db.1k.sqlite", 10, 50, 50, false))
     });
-    c.bench_function("marf_setup_400b_5kW", |b| {
-        b.iter(|| benchmark_marf_usage("/tmp/db.400.sqlite", 1000, 5000, 0, false))
-    });
-    c.bench_function("marf_read_1000b_1kW", |b| {
-        b.iter(|| benchmark_marf_read("/tmp/db.1k.sqlite", 1000, 1000, 5000))
-    });
-    c.bench_function("marf_read_400b_1kW", |b| {
-        b.iter(|| benchmark_marf_read("/tmp/db.400.sqlite", 1000, 400, 5000))
-    });
-
-    c.bench_function("marf_usage_1b_10kW_0kR", |b| {
-        b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z.sqlite", 1, 10000, 0, false))
-    });
-    c.bench_function("marf_usage_10b_1kW_2kR", |b| {
-        b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z.sqlite", 10, 1000, 2000, false))
-    });
-    c.bench_function("marf_usage_100b_5kW_20kR", |b| {
-        b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z.sqlite", 20, 5000, 20000, false))
-    });
-    c.bench_function("marf_usage_batches_10b_1kW_2kR", |b| {
-        b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z.sqlite", 10, 1000, 2000, true))
-    });
+    //    c.bench_function("marf_setup_1000b_5kW", |b| {
+    //        b.iter(|| benchmark_marf_usage("/tmp/db.1k.sqlite", 1000, 5000, 0, false))
+    //    });
+    //    c.bench_function("marf_setup_400b_5kW", |b| {
+    //        b.iter(|| benchmark_marf_usage("/tmp/db.400.sqlite", 1000, 5000, 0, false))
+    //    });
+    //    c.bench_function("marf_read_1000b_1kW", |b| {
+    //        b.iter(|| benchmark_marf_read("/tmp/db.1k.sqlite", 1000, 1000, 5000))
+    //    });
+    //    c.bench_function("marf_read_400b_1kW", |b| {
+    //        b.iter(|| benchmark_marf_read("/tmp/db.400.sqlite", 1000, 400, 5000))
+    //    });
+    //
+    //    c.bench_function("marf_usage_1b_10kW_0kR", |b| {
+    //        b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z.sqlite", 1, 10000, 0, false))
+    //    });
+    //    c.bench_function("marf_usage_10b_1kW_2kR", |b| {
+    //        b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z.sqlite", 10, 1000, 2000, false))
+    //    });
+    //    c.bench_function("marf_usage_100b_5kW_20kR", |b| {
+    //        b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z.sqlite", 20, 5000, 20000, false))
+    //    });
+    //    c.bench_function("marf_usage_batches_10b_1kW_2kR", |b| {
+    //        b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z.sqlite", 10, 1000, 2000, true))
+    //    });
 }
 
 pub fn scaling_read_ratio(_c: &mut Criterion) {}

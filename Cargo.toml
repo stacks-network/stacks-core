@@ -34,14 +34,6 @@ path = "src/blockstack_cli.rs"
 name = "marf_bench"
 harness = false
 
-[[bench]]
-name = "large_contract_bench"
-harness = false
-
-[[bench]]
-name = "block_limits"
-harness = false
-
 [dependencies]
 rand = "=0.7.2"
 rand_chacha = "=0.2.2"
@@ -92,7 +84,7 @@ features = ["std"]
 assert-json-diff = "1.0.0"
 # a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
-# criterion = "0.3"
+criterion = "0.3"
 stx_genesis = { package = "stx-genesis", path = "./stx-genesis/."}
 
 [features]
