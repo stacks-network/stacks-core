@@ -80,7 +80,14 @@ pub enum MarfEvents {
     second_read,
     third_read,
     fourth_read,
+    fifth_read,
+    sixth_read,
+    seventh_read,
+    eighth_read,
     finished,
+    walk1,
+    walk2,
+    walk3,
 }
 
 impl SimpleTimeLogger {
@@ -103,7 +110,14 @@ impl SimpleTimeLogger {
             MarfEvents::second_read,
             MarfEvents::third_read,
             MarfEvents::fourth_read,
+            MarfEvents::fifth_read,
+            MarfEvents::sixth_read,
+            MarfEvents::seventh_read,
+            MarfEvents::eighth_read,
             MarfEvents::finished,
+    MarfEvents::walk1,
+    MarfEvents::walk2,
+    MarfEvents::walk3,
         ];
         for event in &print_events {
             let other_time = self.times[*event as usize];
@@ -1030,6 +1044,50 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
+    pub fn get_path_metrics(
+        storage: &mut TrieStorageConnection<T>,
+        block_hash: &T,
+        path: &TriePath,
+        metrics: &mut SimpleTimeLogger,
+    ) -> Result<Option<TrieLeaf>, Error> {
+
+        // Note: almost all the time happens between 'fifth' and 'sixth'
+        metrics.add_point(MarfEvents::fifth_read);
+        // a NotFoundError _here_ means that a block didn't exist
+        storage.open_block(block_hash)?;
+        // a NotFoundError _here_ means that the key doesn't exist in this view
+        let (cursor, node) = MARF::walk(storage, block_hash, path)?;
+        // both of these get caught by get_by_key and turned into Ok(None)
+        //   and a lot of downstream code seems to depend on that behavior, but
+        //   should these two different cases be differentiable?
+
+        if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
+            trace!("cursor.block_hashes = {:?}", &cursor.block_hashes);
+            trace!("cursor.node_ptrs = {:?}", cursor.node_ptrs);
+            assert!(false);
+        }
+
+        metrics.add_point(MarfEvents::sixth_read);
+        assert!(cursor.eop());
+
+        // out of path and reached the end.
+        match node {
+            TrieNodeType::Leaf(data) => {
+        metrics.add_point(MarfEvents::seventh_read);
+                // found!
+                return Ok(Some(data));
+            }
+            _ => {
+        metrics.add_point(MarfEvents::eighth_read);
+                // Trie invariant violation -- a full path reached a non-leaf
+                return Err(Error::CorruptionError(
+                    "Path reached a non-leaf".to_string(),
+                ));
+            }
+        }
+
+    }
+
     fn do_insert_leaf(
         storage: &mut TrieStorageTransaction<T>,
         block_hash: &T,
@@ -1122,7 +1180,7 @@ impl<T: MarfTrieId> MARF<T> {
         let path = TriePath::from_key(key);
 
         metrics.add_point(MarfEvents::first_read);
-        let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
+        let result = MARF::get_path_metrics(storage, block_hash, &path, metrics).or_else(|e| match e {
             Error::NotFoundError => Ok(None),
             _ => Err(e),
         });
