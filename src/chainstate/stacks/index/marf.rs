@@ -88,6 +88,11 @@ pub enum MarfEvents {
     walk1,
     walk2,
     walk3,
+
+    walk_point0,
+    walk_point1,
+    walk_point2,
+    walk_point3,
 }
 
 impl SimpleTimeLogger {
@@ -118,6 +123,10 @@ impl SimpleTimeLogger {
     MarfEvents::walk1,
     MarfEvents::walk2,
     MarfEvents::walk3,
+    MarfEvents::walk_point0,
+    MarfEvents::walk_point1,
+    MarfEvents::walk_point2,
+    MarfEvents::walk_point3,
         ];
         for event in &print_events {
             let other_time = self.times[*event as usize];
@@ -922,7 +931,19 @@ impl<T: MarfTrieId> MARF<T> {
         // walk to insertion point
         let (mut node, _) = Trie::read_root(storage)?;
 
+        let mut i = 0;
         for _ in 0..(cursor.path.len() + 1) {
+                println!("walk from {}", i);
+                if i == 0 {
+                    metrics.add_point(MarfEvents::walk_point0);
+                } else if i == 1 {
+                    metrics.add_point(MarfEvents::walk_point1);
+                } else if i == 2 {
+                    metrics.add_point(MarfEvents::walk_point2);
+                } else if i == 3 {
+                    metrics.add_point(MarfEvents::walk_point3);
+                }
+                i += 1;
             match Trie::walk_from(storage, &node, &mut cursor) {
                 Ok(node_info_opt) => {
                     match node_info_opt {
