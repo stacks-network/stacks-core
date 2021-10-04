@@ -74,7 +74,7 @@ pub struct SimpleTimeLogger {
     times:Vec<SystemTime>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum MarfEvents {
     first_read,
     second_read,
@@ -103,12 +103,22 @@ impl SimpleTimeLogger {
             MarfEvents::second_read,
             MarfEvents::finished,
         ];
-        for event_type in print_events {
+        for event_type in &print_events {
             println!("event_type {:?}", event_type);
         }
-        for time in &self.times {
-            let diff = self.start_time.duration_since(*time).unwrap().as_millis();
-            println!("{}{}", ix, diff);
+        warn!("start_time {:?}", self.start_time);
+        for event in &print_events {
+            let other_time = self.times[*event as usize];
+            let duration = other_time.duration_since(self.start_time);
+            match duration {
+                Ok(d) => {
+                        let diff = d.as_micros();
+                        println!("{}{}", ix, diff);
+                }
+                Err(e) => {
+                    warn!("e: {}", e);
+                }
+            }
             ix += 1;
         }
     }
@@ -136,13 +146,16 @@ pub trait MarfConnection<T: MarfTrieId> {
             let r = MARF::get_by_key(c, block_hash, key, &mut *metrics);
             r
         });
+        metrics.add_point(MarfEvents::finished);
 
         result
     }
 
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
-        let mut unused = SimpleTimeLogger::new();
-        self.get_with_metrics(block_hash, key, &mut unused)
+        let mut metrics = SimpleTimeLogger::new();
+        let r = self.get_with_metrics(block_hash, key, &mut metrics);
+            metrics.summarize();
+                r
     }
 
     fn get_with_proof(
