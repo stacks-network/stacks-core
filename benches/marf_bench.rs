@@ -53,6 +53,7 @@ fn benchmark_marf_usage(
                 batch_keys.push(key.clone());
                 batch_vals.push(MARFValue(value.clone()));
                 values.push((key, MARFValue(value)));
+                println!("write {} {}", i, k);
             }
             marf.insert_batch(&batch_keys, batch_vals).unwrap();
         } else {
@@ -62,12 +63,14 @@ fn benchmark_marf_usage(
                 rng.fill_bytes(&mut value);
                 marf.insert(&key, MARFValue(value.clone())).unwrap();
                 values.push((key, MARFValue(value)));
+                println!("write {} {}", i, k);
             }
         }
 
         for _k in 0..reads_per_block {
             let (key, value) = values.as_slice().choose(&mut rng).unwrap();
             assert_eq!(marf.get(&block_header, key,).unwrap().unwrap(), *value);
+                println!("read {} {}", i, _k);
         }
 
         let mut next_block_header = (i + 1).to_le_bytes().to_vec();
@@ -102,7 +105,7 @@ fn benchmark_marf_read(filename: &str, reads: u32, block: u32, writes_per_block:
 
 pub fn basic_usage_benchmark(c: &mut Criterion) {
     c.bench_function("marf_setup_1b_5W", |b| {
-        b.iter(|| benchmark_marf_usage("/tmp/db.1k.sqlite", 10, 50, 50, false))
+        b.iter(|| benchmark_marf_usage("/tmp/db.1k.sqlite", 1000, 500, 500, false))
     });
     //    c.bench_function("marf_setup_1000b_5kW", |b| {
     //        b.iter(|| benchmark_marf_usage("/tmp/db.1k.sqlite", 1000, 5000, 0, false))

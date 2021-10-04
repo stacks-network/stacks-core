@@ -93,6 +93,9 @@ pub enum MarfEvents {
     walk_point1,
     walk_point2,
     walk_point3,
+    walk_point4,
+    walk_point5,
+    walk_point6,
 }
 
 impl SimpleTimeLogger {
@@ -109,7 +112,6 @@ impl SimpleTimeLogger {
     }
 
     fn summarize(&self) {
-        let mut ix = 0;
         let print_events = vec![
             MarfEvents::first_read,
             MarfEvents::second_read,
@@ -127,6 +129,9 @@ impl SimpleTimeLogger {
     MarfEvents::walk_point1,
     MarfEvents::walk_point2,
     MarfEvents::walk_point3,
+    MarfEvents::walk_point4,
+    MarfEvents::walk_point5,
+    MarfEvents::walk_point6,
         ];
         for event in &print_events {
             let other_time = self.times[*event as usize];
@@ -140,7 +145,6 @@ impl SimpleTimeLogger {
                     warn!("e: {}", e);
                 }
             }
-            ix += 1;
         }
     }
 }
@@ -933,7 +937,6 @@ impl<T: MarfTrieId> MARF<T> {
 
         let mut i = 0;
         for _ in 0..(cursor.path.len() + 1) {
-                println!("walk from {}", i);
                 if i == 0 {
                     metrics.add_point(MarfEvents::walk_point0);
                 } else if i == 1 {
@@ -942,6 +945,12 @@ impl<T: MarfTrieId> MARF<T> {
                     metrics.add_point(MarfEvents::walk_point2);
                 } else if i == 3 {
                     metrics.add_point(MarfEvents::walk_point3);
+                } else if i == 4 {
+                    metrics.add_point(MarfEvents::walk_point4);
+                } else if i == 5 {
+                    metrics.add_point(MarfEvents::walk_point5);
+                } else if i == 6 {
+                    metrics.add_point(MarfEvents::walk_point6);
                 }
                 i += 1;
             match Trie::walk_from(storage, &node, &mut cursor) {
