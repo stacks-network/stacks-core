@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use util::db::sql_pragma;
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
@@ -796,6 +797,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         };
 
         let mut db = Connection::open_with_flags(db_path, open_flags)?;
+        // sql_pragma(&db, "PRAGMA journal_mode = WAL;")?;
+        sql_pragma(&db, "PRAGMA mmap_size=268435456;")?;
         db.busy_handler(Some(tx_busy_handler))?;
 
         let db_path = db_path.to_string();
@@ -840,7 +843,6 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         Ok(ret)
     }
 
-    #[cfg(test)]
     pub fn new_memory() -> Result<TrieFileStorage<T>, Error> {
         TrieFileStorage::open(":memory:")
     }

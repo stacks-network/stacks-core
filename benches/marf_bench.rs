@@ -33,6 +33,7 @@ fn benchmark_marf_usage(
     };
     // let f = TrieFileStorage::new(filename).unwrap();
     let f = TrieFileStorage::open(filename).unwrap();
+    // let f = TrieFileStorage::new_memory().unwrap();
     let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
     let mut marf = MARF::from_storage(f);
     marf.begin(&BlockHeaderHash::sentinel(), &block_header)

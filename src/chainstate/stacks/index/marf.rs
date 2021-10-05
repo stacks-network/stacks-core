@@ -81,6 +81,8 @@ pub enum MarfEvents {
     third_read,
     fourth_read,
     fifth_read,
+    p5a,
+    p5b,
     sixth_read,
     seventh_read,
     eighth_read,
@@ -96,6 +98,11 @@ pub enum MarfEvents {
     walk_point4,
     walk_point5,
     walk_point6,
+
+    special1,
+    special2,
+    special3,
+    special4,
 }
 
 static mut global_start_time: Option<SystemTime> = None;
@@ -132,6 +139,9 @@ impl SimpleTimeLogger {
             MarfEvents::third_read,
             MarfEvents::fourth_read,
             MarfEvents::fifth_read,
+            MarfEvents::p5a,
+            MarfEvents::p5b,
+            MarfEvents::special1,
             MarfEvents::sixth_read,
             MarfEvents::seventh_read,
             MarfEvents::eighth_read,
@@ -147,7 +157,7 @@ impl SimpleTimeLogger {
             MarfEvents::walk_point5,
             MarfEvents::walk_point6,
         ];
-        const do_print_events: bool = true;
+        const do_print_events: bool = false;
         if do_print_events {
             for event in &print_events {
                 let other_time = self.times[*event as usize];
@@ -956,6 +966,9 @@ impl<T: MarfTrieId> MARF<T> {
     /// Walk down this MARF at the given block hash, resolving backptrs to previous tries.
     /// Return the cursor and the last node visited.
     /// s will point to the block in which the leaf was found, or the last block visited.
+    ///
+    ///
+    /// NOTE: This is definitely where things come from.
     fn walk(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
@@ -972,6 +985,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         let mut i = 0;
         for _ in 0..(cursor.path.len() + 1) {
+            // println!("i {}", i);
             if i == 0 {
                 metrics.add_point(MarfEvents::walk_point0);
             } else if i == 1 {
@@ -988,7 +1002,20 @@ impl<T: MarfTrieId> MARF<T> {
                 metrics.add_point(MarfEvents::walk_point6);
             }
             i += 1;
-            match Trie::walk_from(storage, &node, &mut cursor) {
+
+            let a = SystemTime::now();
+            let walk_from_r = Trie::walk_from(storage, &node, &mut cursor);
+            let b = SystemTime::now();
+            let duration = b.duration_since(a);
+            match duration {
+                Ok(d) => {
+                    let diff = d.as_nanos();
+                }
+                Err(e) => {
+                    warn!("e: {}", e);
+                }
+            }
+            match walk_from_r {
                 Ok(node_info_opt) => {
                     match node_info_opt {
                         Some((_, next_node, _)) => {
@@ -1026,10 +1053,24 @@ impl<T: MarfTrieId> MARF<T> {
                                     return Err(Error::NotFoundError);
                                 }
                                 CursorError::BackptrEncountered(ptr) => {
+                                    // warn!("OH NO");
                                     // at intermediate node whose child is not present in this trie.
                                     // try to shunt to the prior node that has the child itself.
+                                    //
+                                    let a = SystemTime::now();
+
+                                    // NOTE: THIs is a  big time sink.
                                     let (next_node, _, next_node_ptr, _) =
                                         MARF::walk_backptr(storage, &node, ptr.chr(), &mut cursor)?;
+                                    let b = SystemTime::now();
+                                    let duration = b.duration_since(a);
+                                    match duration {
+                                        Ok(d) => {
+                                        }
+                                        Err(e) => {
+                                            warn!("e: {}", e);
+                                        }
+                                    }
 
                                     // finish taking the step
                                     cursor.repair_backptr_finish(
@@ -1122,12 +1163,19 @@ impl<T: MarfTrieId> MARF<T> {
         metrics.add_point(MarfEvents::fifth_read);
         // a NotFoundError _here_ means that a block didn't exist
         storage.open_block(block_hash)?;
+        metrics.add_point(MarfEvents::p5a);
+
+        //
+        //
+        // NOTE: This is where all the time is spent! For sure.
         // a NotFoundError _here_ means that the key doesn't exist in this view
+        //
         let (cursor, node) = MARF::walk(storage, block_hash, path, metrics)?;
         // both of these get caught by get_by_key and turned into Ok(None)
         //   and a lot of downstream code seems to depend on that behavior, but
         //   should these two different cases be differentiable?
 
+        metrics.add_point(MarfEvents::p5b);
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("cursor.block_hashes = {:?}", &cursor.block_hashes);
             trace!("cursor.node_ptrs = {:?}", cursor.node_ptrs);

@@ -32,6 +32,7 @@ use chainstate::stacks::index::node::{
 use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use chainstate::stacks::index::Error;
 use chainstate::stacks::index::{MarfTrieId, TrieHasher};
+use std::time::{Duration, SystemTime};
 use util::hash::to_hex;
 use util::log;
 use util::macros::is_trace;
@@ -98,7 +99,20 @@ impl Trie {
         node: &TrieNodeType,
         cursor: &mut TrieCursor<T>,
     ) -> Result<Option<(TriePtr, TrieNodeType, TrieHash)>, Error> {
-        match cursor.walk(node, &storage.get_cur_block()) {
+        let a = SystemTime::now();
+        let r = cursor.walk(node, &storage.get_cur_block());
+        let b = SystemTime::now();
+        let duration = b.duration_since(a);
+        match duration {
+            Ok(d) => {
+                let diff = d.as_micros();
+                // println!("event {:?} {}", "walk time", diff);
+            }
+            Err(e) => {
+                warn!("e: {}", e);
+            }
+        }
+        match r {
             Ok(ptr_opt) => {
                 match ptr_opt {
                     None => {
