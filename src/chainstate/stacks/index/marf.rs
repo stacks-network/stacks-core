@@ -98,7 +98,8 @@ pub enum MarfEvents {
     walk_point6,
 }
 
-static mut TOTAL_EXAMPLES: u32 = 0;
+static mut global_start_time: Option<SystemTime> = None;
+static mut TOTAL_EXAMPLES: u128 = 0;
 impl SimpleTimeLogger {
     fn new() -> SimpleTimeLogger {
         return SimpleTimeLogger {
@@ -113,16 +114,15 @@ impl SimpleTimeLogger {
     }
 
     fn summarize(&self) {
-        let skip_summarize = false;
-        if skip_summarize {
-            return;
-        }
         unsafe {
+            if (global_start_time.is_none()) {
+                global_start_time = Some(SystemTime::now());
+            }
             TOTAL_EXAMPLES += 1;
             if TOTAL_EXAMPLES % 1000 != 0 {
                 return;
             }
-            println!("TOTAL_EXAMPLES {}", TOTAL_EXAMPLES);
+            // println!("TOTAL_EXAMPLES {}", TOTAL_EXAMPLES);
         }
 
         let print_events = vec![
@@ -146,16 +146,33 @@ impl SimpleTimeLogger {
             MarfEvents::walk_point5,
             MarfEvents::walk_point6,
         ];
+        const do_print_events:bool = false;
+        if do_print_events {
         for event in &print_events {
             let other_time = self.times[*event as usize];
             let duration = other_time.duration_since(self.start_time);
             match duration {
                 Ok(d) => {
-                    let diff = d.as_nanos();
+                    let diff = d.as_micros();
                     println!("event {:?} {}", event, diff);
                 }
                 Err(e) => {
                     warn!("e: {}", e);
+                }
+            }
+        }
+        }
+        let current_time = SystemTime::now();
+        unsafe {
+            let total_duration = current_time.duration_since(global_start_time.unwrap());
+            match total_duration {
+                Ok(d) => {
+                    let diff = d.as_secs();
+                    let average = TOTAL_EXAMPLES as f32 / diff as f32;
+                    info!("stats"; "reads" => TOTAL_EXAMPLES, "time" => diff, "average" => average );
+                }
+                Err(e) => {
+                    warn!("total_duration e: {}", e);
                 }
             }
         }
@@ -1132,6 +1149,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
+    /// Add `leaf_value`
     fn do_insert_leaf(
         storage: &mut TrieStorageTransaction<T>,
         block_hash: &T,
@@ -1363,6 +1381,8 @@ impl<T: MarfTrieId> MARF<T> {
         let last = keys.len() - 1;
         let mut progress = 0;
         let eta_enabled = keys.len() > 10_000;
+
+        // For each key, insert life in a batch.
         let mut result = keys[0..last]
             .iter()
             .enumerate()
