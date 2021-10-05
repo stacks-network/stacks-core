@@ -70,8 +70,8 @@ struct WriteChainTip<T> {
 }
 
 pub struct SimpleTimeLogger {
-    start_time:SystemTime,
-    times:Vec<SystemTime>,
+    start_time: SystemTime,
+    times: Vec<SystemTime>,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -98,20 +98,33 @@ pub enum MarfEvents {
     walk_point6,
 }
 
+static mut TOTAL_EXAMPLES: u32 = 0;
 impl SimpleTimeLogger {
     fn new() -> SimpleTimeLogger {
         return SimpleTimeLogger {
             start_time: SystemTime::now(),
             times: vec![SystemTime::now(); 100],
-        }
+        };
     }
 
-    fn add_point(&mut self, event:MarfEvents) {
+    fn add_point(&mut self, event: MarfEvents) {
         let idx = event as usize;
         self.times[idx] = SystemTime::now();
     }
 
     fn summarize(&self) {
+        let skip_summarize = false;
+        if skip_summarize {
+            return;
+        }
+        unsafe {
+            TOTAL_EXAMPLES += 1;
+            if TOTAL_EXAMPLES % 1000 != 0 {
+                return;
+            }
+            println!("TOTAL_EXAMPLES {}", TOTAL_EXAMPLES);
+        }
+
         let print_events = vec![
             MarfEvents::first_read,
             MarfEvents::second_read,
@@ -122,24 +135,24 @@ impl SimpleTimeLogger {
             MarfEvents::seventh_read,
             MarfEvents::eighth_read,
             MarfEvents::finished,
-    MarfEvents::walk1,
-    MarfEvents::walk2,
-    MarfEvents::walk3,
-    MarfEvents::walk_point0,
-    MarfEvents::walk_point1,
-    MarfEvents::walk_point2,
-    MarfEvents::walk_point3,
-    MarfEvents::walk_point4,
-    MarfEvents::walk_point5,
-    MarfEvents::walk_point6,
+            MarfEvents::walk1,
+            MarfEvents::walk2,
+            MarfEvents::walk3,
+            MarfEvents::walk_point0,
+            MarfEvents::walk_point1,
+            MarfEvents::walk_point2,
+            MarfEvents::walk_point3,
+            MarfEvents::walk_point4,
+            MarfEvents::walk_point5,
+            MarfEvents::walk_point6,
         ];
         for event in &print_events {
             let other_time = self.times[*event as usize];
             let duration = other_time.duration_since(self.start_time);
             match duration {
                 Ok(d) => {
-                        let diff = d.as_nanos();
-                        println!("event {:?} {}", event, diff);
+                    let diff = d.as_nanos();
+                    println!("event {:?} {}", event, diff);
                 }
                 Err(e) => {
                     warn!("e: {}", e);
@@ -171,7 +184,6 @@ pub trait MarfConnection<T: MarfTrieId> {
             let r = MARF::get_by_key(c, block_hash, key, &mut *metrics);
             r
         });
-        println!("call finished");
         metrics.add_point(MarfEvents::finished);
 
         result
@@ -180,8 +192,8 @@ pub trait MarfConnection<T: MarfTrieId> {
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
         let mut metrics = SimpleTimeLogger::new();
         let r = self.get_with_metrics(block_hash, key, &mut metrics);
-            metrics.summarize();
-                r
+        metrics.summarize();
+        r
     }
 
     fn get_with_proof(
@@ -298,6 +310,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         if let Some(_tip) = self.open_chain_tip.take() {
             self.storage.flush()?;
         }
+        // NOTE: Calls commit.
         self.storage.commit_tx();
         Ok(())
     }
@@ -937,22 +950,22 @@ impl<T: MarfTrieId> MARF<T> {
 
         let mut i = 0;
         for _ in 0..(cursor.path.len() + 1) {
-                if i == 0 {
-                    metrics.add_point(MarfEvents::walk_point0);
-                } else if i == 1 {
-                    metrics.add_point(MarfEvents::walk_point1);
-                } else if i == 2 {
-                    metrics.add_point(MarfEvents::walk_point2);
-                } else if i == 3 {
-                    metrics.add_point(MarfEvents::walk_point3);
-                } else if i == 4 {
-                    metrics.add_point(MarfEvents::walk_point4);
-                } else if i == 5 {
-                    metrics.add_point(MarfEvents::walk_point5);
-                } else if i == 6 {
-                    metrics.add_point(MarfEvents::walk_point6);
-                }
-                i += 1;
+            if i == 0 {
+                metrics.add_point(MarfEvents::walk_point0);
+            } else if i == 1 {
+                metrics.add_point(MarfEvents::walk_point1);
+            } else if i == 2 {
+                metrics.add_point(MarfEvents::walk_point2);
+            } else if i == 3 {
+                metrics.add_point(MarfEvents::walk_point3);
+            } else if i == 4 {
+                metrics.add_point(MarfEvents::walk_point4);
+            } else if i == 5 {
+                metrics.add_point(MarfEvents::walk_point5);
+            } else if i == 6 {
+                metrics.add_point(MarfEvents::walk_point6);
+            }
+            i += 1;
             match Trie::walk_from(storage, &node, &mut cursor) {
                 Ok(node_info_opt) => {
                     match node_info_opt {
@@ -1083,7 +1096,6 @@ impl<T: MarfTrieId> MARF<T> {
         path: &TriePath,
         metrics: &mut SimpleTimeLogger,
     ) -> Result<Option<TrieLeaf>, Error> {
-
         // Note: almost all the time happens between 'fifth' and 'sixth'
         metrics.add_point(MarfEvents::fifth_read);
         // a NotFoundError _here_ means that a block didn't exist
@@ -1106,19 +1118,18 @@ impl<T: MarfTrieId> MARF<T> {
         // out of path and reached the end.
         match node {
             TrieNodeType::Leaf(data) => {
-        metrics.add_point(MarfEvents::seventh_read);
+                metrics.add_point(MarfEvents::seventh_read);
                 // found!
                 return Ok(Some(data));
             }
             _ => {
-        metrics.add_point(MarfEvents::eighth_read);
+                metrics.add_point(MarfEvents::eighth_read);
                 // Trie invariant violation -- a full path reached a non-leaf
                 return Err(Error::CorruptionError(
                     "Path reached a non-leaf".to_string(),
                 ));
             }
         }
-
     }
 
     fn do_insert_leaf(
@@ -1213,10 +1224,11 @@ impl<T: MarfTrieId> MARF<T> {
         let path = TriePath::from_key(key);
 
         metrics.add_point(MarfEvents::first_read);
-        let result = MARF::get_path_metrics(storage, block_hash, &path, metrics).or_else(|e| match e {
-            Error::NotFoundError => Ok(None),
-            _ => Err(e),
-        });
+        let result =
+            MARF::get_path_metrics(storage, block_hash, &path, metrics).or_else(|e| match e {
+                Error::NotFoundError => Ok(None),
+                _ => Err(e),
+            });
 
         // all time is used in here.
         metrics.add_point(MarfEvents::second_read);
