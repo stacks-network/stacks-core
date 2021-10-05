@@ -99,7 +99,8 @@ pub enum MarfEvents {
 }
 
 static mut global_start_time: Option<SystemTime> = None;
-static mut TOTAL_EXAMPLES: u128 = 0;
+static mut TOTAL_READS: u128 = 0;
+static mut TOTAL_WRITES: u128 = 0;
 impl SimpleTimeLogger {
     fn new() -> SimpleTimeLogger {
         return SimpleTimeLogger {
@@ -118,11 +119,11 @@ impl SimpleTimeLogger {
             if (global_start_time.is_none()) {
                 global_start_time = Some(SystemTime::now());
             }
-            TOTAL_EXAMPLES += 1;
-            if TOTAL_EXAMPLES % 1000 != 0 {
+            TOTAL_READS += 1;
+            if TOTAL_READS % 1000 != 0 {
                 return;
             }
-            // println!("TOTAL_EXAMPLES {}", TOTAL_EXAMPLES);
+            // println!("TOTAL_READS {}", TOTAL_READS);
         }
 
         let print_events = vec![
@@ -146,21 +147,21 @@ impl SimpleTimeLogger {
             MarfEvents::walk_point5,
             MarfEvents::walk_point6,
         ];
-        const do_print_events:bool = false;
+        const do_print_events: bool = true;
         if do_print_events {
-        for event in &print_events {
-            let other_time = self.times[*event as usize];
-            let duration = other_time.duration_since(self.start_time);
-            match duration {
-                Ok(d) => {
-                    let diff = d.as_micros();
-                    println!("event {:?} {}", event, diff);
-                }
-                Err(e) => {
-                    warn!("e: {}", e);
+            for event in &print_events {
+                let other_time = self.times[*event as usize];
+                let duration = other_time.duration_since(self.start_time);
+                match duration {
+                    Ok(d) => {
+                        let diff = d.as_micros();
+                        println!("event {:?} {}", event, diff);
+                    }
+                    Err(e) => {
+                        warn!("e: {}", e);
+                    }
                 }
             }
-        }
         }
         let current_time = SystemTime::now();
         unsafe {
@@ -168,8 +169,8 @@ impl SimpleTimeLogger {
             match total_duration {
                 Ok(d) => {
                     let diff = d.as_secs();
-                    let average = TOTAL_EXAMPLES as f32 / diff as f32;
-                    info!("stats"; "reads" => TOTAL_EXAMPLES, "time" => diff, "average" => average );
+                    let average = TOTAL_READS as f32 / diff as f32;
+                    info!("stats"; "TOTAL_READS" => TOTAL_READS, "TOTAL_TIME" => diff, "reads/s" => average, "TOTAL_WRITES" => TOTAL_WRITES );
                 }
                 Err(e) => {
                     warn!("total_duration e: {}", e);
@@ -213,6 +214,7 @@ pub trait MarfConnection<T: MarfTrieId> {
         r
     }
 
+    /// Gets the value assosciated with `key`.
     fn get_with_proof(
         &mut self,
         block_hash: &T,
@@ -220,10 +222,13 @@ pub trait MarfConnection<T: MarfTrieId> {
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         self.with_conn(|conn| {
             let mut metrics = SimpleTimeLogger::new();
+            // Step 1: Get the value.
             let marf_value = match MARF::get_by_key(conn, block_hash, key, &mut metrics)? {
                 None => return Ok(None),
                 Some(x) => x,
             };
+
+            // Step 2: Get the proof.
             let proof = TrieMerkleProof::from_raw_entry(conn, key, &marf_value, block_hash)?;
             Ok(Some((marf_value, proof)))
         })
@@ -1242,6 +1247,7 @@ impl<T: MarfTrieId> MARF<T> {
         let path = TriePath::from_key(key);
 
         metrics.add_point(MarfEvents::first_read);
+        // Step 1; Determine the "path".
         let result =
             MARF::get_path_metrics(storage, block_hash, &path, metrics).or_else(|e| match e {
                 Error::NotFoundError => Ok(None),
@@ -1459,6 +1465,9 @@ impl<T: MarfTrieId> MARF<T> {
         keys: &Vec<String>,
         values: Vec<MARFValue>,
     ) -> Result<(), Error> {
+        unsafe {
+            TOTAL_WRITES += 1;
+        }
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }
@@ -1480,6 +1489,10 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     pub fn insert(&mut self, key: &str, value: MARFValue) -> Result<(), Error> {
+        unsafe {
+            TOTAL_WRITES += 1;
+        }
+
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }
