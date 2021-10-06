@@ -1332,19 +1332,19 @@ impl BitcoinRegtestController {
     ) -> Result<BurnchainTip, BurnchainControllerError> {
         warn!("wait_for_sortitions");
         loop {
-        warn!("wait_for_sortitions");
+            warn!("wait_for_sortitions");
             let canonical_burnchain_tip = self
                 .burnchain_db
                 .as_ref()
                 .expect("BurnchainDB not opened")
                 .get_canonical_chain_tip()
                 .unwrap();
-        warn!("wait_for_sortitions");
+            warn!("wait_for_sortitions");
             let canonical_sortition_tip =
                 SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn()).unwrap();
-        warn!("wait_for_sortitions");
+            warn!("wait_for_sortitions");
             if canonical_burnchain_tip.block_height == canonical_sortition_tip.block_height {
-        warn!("wait_for_sortitions");
+                warn!("wait_for_sortitions");
                 let (_, state_transition) = self
                     .sortdb_ref()
                     .get_sortition_result(&canonical_sortition_tip.sortition_id)
@@ -1356,7 +1356,7 @@ impl BitcoinRegtestController {
                     state_transition,
                 });
             } else if let Some(height_to_wait) = height_to_wait {
-        warn!("wait_for_sortitions");
+                warn!("wait_for_sortitions");
                 if canonical_sortition_tip.block_height >= height_to_wait {
                     let (_, state_transition) = self
                         .sortdb_ref()
@@ -1374,7 +1374,7 @@ impl BitcoinRegtestController {
             if !self.should_keep_running() {
                 return Err(BurnchainControllerError::CoordinatorClosed);
             }
-        warn!("sleeping:wait_for_sortitions");
+            warn!("sleeping:wait_for_sortitions");
             // yield some time
             sleep_ms(100);
         }

@@ -309,25 +309,25 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator, FE: FeeEstimator>
 
         warn!("brown dog");
         loop {
-        warn!("brown dog");
+            warn!("brown dog");
             // timeout so that we handle Ctrl-C a little gracefully
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
-        warn!("brown dog");
+                    warn!("brown dog");
                     debug!("Received new stacks block notice");
                     if let Err(e) = inst.handle_new_stacks_block() {
                         warn!("Error processing new stacks block: {:?}", e);
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
-        warn!("brown dog");
+                    warn!("brown dog");
                     debug!("Received new burn block notice");
                     if let Err(e) = inst.handle_new_burnchain_block() {
                         warn!("Error processing new burn block: {:?}", e);
                     }
                 }
                 CoordinatorEvents::STOP => {
-        warn!("brown dog");
+                    warn!("brown dog");
                     debug!("Received stop notice");
                     return;
                 }
@@ -585,7 +585,7 @@ impl<
 
         warn!("blue");
         for unprocessed_block in sortitions_to_process.into_iter() {
-        warn!("blue");
+            warn!("blue");
             let BurnchainBlockData { header, ops } = unprocessed_block;
 
             // calculate paid rewards during this burnchain block if we announce

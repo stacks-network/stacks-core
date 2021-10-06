@@ -129,7 +129,7 @@ impl RunLoop {
         }
 
         warn!("checkpoint"); // init a burnchain
-        // Initialize and start the burnchain.
+                             // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
             Some(coordinator_senders.clone()),
@@ -267,7 +267,7 @@ impl RunLoop {
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
             .spawn(move || {
-        warn!("checkpoint");
+                warn!("checkpoint");
                 let cost_estimator = match moved_estimator_config.cost_estimator {
                     Some(CostEstimatorName::NaivePessimistic) => Some(
                         moved_estimator_config
@@ -276,7 +276,7 @@ impl RunLoop {
                     None => None,
                 };
 
-        warn!("checkpoint");
+                warn!("checkpoint");
                 let metric = match moved_estimator_config.cost_metric {
                     Some(CostMetricName::ProportionDotProduct) => Some(
                         ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, moved_block_limit),
@@ -284,7 +284,7 @@ impl RunLoop {
                     None => None,
                 };
 
-        warn!("checkpoint");
+                warn!("checkpoint");
                 let fee_estimator = match moved_estimator_config.fee_estimator {
                     Some(FeeEstimatorName::ScalarFeeRate) => {
                         let metric = metric
@@ -296,7 +296,7 @@ impl RunLoop {
                     }
                     None => None,
                 };
-        warn!("checkpoint");
+                warn!("checkpoint");
 
                 ChainsCoordinator::run(
                     chain_state_db,
@@ -308,7 +308,7 @@ impl RunLoop {
                     cost_estimator,
                     fee_estimator,
                 );
-        warn!("checkpoint");
+                warn!("checkpoint");
             })
             .unwrap();
 
@@ -349,7 +349,7 @@ impl RunLoop {
         );
         warn!("checkpoint");
         let mut node = if is_miner {
-        warn!("checkpoint");
+            warn!("checkpoint");
             node.into_initialized_leader_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
@@ -361,7 +361,7 @@ impl RunLoop {
                 should_keep_running.clone(),
             )
         } else {
-        warn!("checkpoint");
+            warn!("checkpoint");
             node.into_initialized_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),

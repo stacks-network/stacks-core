@@ -1206,7 +1206,6 @@ impl Burnchain {
             // Until the `end_block` reaches `db_height`.
             while end_block < db_height {
                 if let Some(ref should_keep_running) = should_keep_running {
-
                     // If we should not keep running, then return that CoordinatorClosed.
                     if !should_keep_running.load(Ordering::SeqCst) {
                         return Err(burnchain_error::CoordinatorClosed);
@@ -1289,7 +1288,7 @@ impl Burnchain {
         let total = sync_height - self.first_block_height;
         let progress = (end_block - self.first_block_height) as f32 / total as f32 * 100.;
 
-        // this is the thing they print, i thought this would be 
+        // this is the thing they print, i thought this would be
         info!(
             "Syncing Bitcoin blocks: {:.1}% ({} to {} out of {})",
             progress, start_block, end_block, sync_height
