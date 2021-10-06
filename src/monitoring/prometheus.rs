@@ -166,6 +166,14 @@ lazy_static! {
         labels! {"handler".to_string() => "all".to_string(),}
     )).unwrap();
 
+    pub static ref MARF_READ_TIME_HISTOGRAM: Histogram = register_histogram!(histogram_opts!(
+        "stacks_node_marf_read_time_histogram",
+        "Time (seconds) measuring read latency",
+        vec![300.0, 600.0, 900.0, 1200.0, 1500.0, 1800.0, 2100.0, 2400.0, 2700.0, 3000.0, 3600.0, 4200.0, 4800.0, 6000.0],
+        labels! {"handler".to_string() => "all".to_string(),}
+    )).unwrap();
+
+
     pub static ref COMPUTED_RELATIVE_MINER_SCORE: Gauge = register_gauge!(opts!(
         "stacks_node_computed_relative_miner_score",
         "Percentage of the u256 range that this miner is assigned in a particular round of sortition"
