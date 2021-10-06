@@ -22,6 +22,7 @@ use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::DerefMut;
 use std::path::PathBuf;
 
+use monitoring::log_marf_read_time;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime};
 
@@ -122,8 +123,12 @@ impl SimpleTimeLogger {
     }
 
     fn summarize(&self) {
+                let finish_time = self.times[MarfEvents::finished as usize];
+                let start_time = self.start_time;
+                let duration = finish_time.duration_since(start_time).unwrap().as_micros();
+                log_marf_read_time(duration as f64);
         unsafe {
-            if (global_start_time.is_none()) {
+            if global_start_time.is_none() {
                 global_start_time = Some(SystemTime::now());
             }
             TOTAL_READS += 1;
