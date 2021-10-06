@@ -109,14 +109,17 @@ impl RunLoop {
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mut mine_start: u64) {
+        warn!("testnet loop");
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
             .expect("Run loop already started, can only start once after initialization.");
 
+        warn!("checkpoint"); // sync with whether we should keep running.. who else controls this?
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let keep_running_writer = should_keep_running.clone();
 
+        warn!("checkpoint"); // graceful termination handler
         let install = termination::set_handler(move || {
             info!("Graceful termination request received, will complete the ongoing runloop cycles and terminate");
             keep_running_writer.store(false, Ordering::SeqCst);
@@ -125,6 +128,7 @@ impl RunLoop {
             error!("Error setting termination handler - {}", e);
         }
 
+        warn!("checkpoint"); // init a burnchain
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
@@ -172,6 +176,7 @@ impl RunLoop {
             false
         };
 
+        warn!("checkpoint");
         let burnchain_config = burnchain.get_burnchain();
         let mut target_burnchain_block_height = 1.max(burnchain_config.first_block_height);
 
@@ -184,6 +189,7 @@ impl RunLoop {
             }
         };
 
+        warn!("checkpoint");
         let mainnet = self.config.is_mainnet();
         let chainid = self.config.burnchain.chain_id;
         let block_limit = self.config.block_limit.clone();
@@ -199,6 +205,7 @@ impl RunLoop {
         for observer in self.config.events_observers.iter() {
             event_dispatcher.register_observer(observer, should_keep_running.clone());
         }
+        warn!("checkpoint");
 
         let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
 
@@ -216,6 +223,7 @@ impl RunLoop {
         let coordinator_burnchain_config = burnchain_config.clone();
 
         let (attachments_tx, attachments_rx) = sync_channel(1);
+        warn!("checkpoint");
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
@@ -236,6 +244,7 @@ impl RunLoop {
             get_bulk_initial_names: Some(Box::new(move || get_names(use_test_genesis_data))),
         };
 
+        warn!("checkpoint");
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
             mainnet,
             chainid,
@@ -244,17 +253,21 @@ impl RunLoop {
             block_limit,
         )
         .unwrap();
+        warn!("checkpoint");
         coordinator_dispatcher.dispatch_boot_receipts(receipts);
+        warn!("checkpoint");
 
         let atlas_config = AtlasConfig::default(mainnet);
         let moved_atlas_config = atlas_config.clone();
         let moved_estimator_config = self.config.estimation.clone();
         let moved_chainstate_path = self.config.get_chainstate_path();
         let moved_block_limit = self.config.block_limit.clone();
+        warn!("checkpoint");
 
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
             .spawn(move || {
+        warn!("checkpoint");
                 let cost_estimator = match moved_estimator_config.cost_estimator {
                     Some(CostEstimatorName::NaivePessimistic) => Some(
                         moved_estimator_config
@@ -263,6 +276,7 @@ impl RunLoop {
                     None => None,
                 };
 
+        warn!("checkpoint");
                 let metric = match moved_estimator_config.cost_metric {
                     Some(CostMetricName::ProportionDotProduct) => Some(
                         ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, moved_block_limit),
@@ -270,6 +284,7 @@ impl RunLoop {
                     None => None,
                 };
 
+        warn!("checkpoint");
                 let fee_estimator = match moved_estimator_config.fee_estimator {
                     Some(FeeEstimatorName::ScalarFeeRate) => {
                         let metric = metric
@@ -281,6 +296,7 @@ impl RunLoop {
                     }
                     None => None,
                 };
+        warn!("checkpoint");
 
                 ChainsCoordinator::run(
                     chain_state_db,
@@ -292,18 +308,22 @@ impl RunLoop {
                     cost_estimator,
                     fee_estimator,
                 );
+        warn!("checkpoint");
             })
             .unwrap();
 
+        warn!("checkpoint");
         // We announce a new burn block so that the chains coordinator
         // can resume prior work and handle eventual unprocessed sortitions
         // stored during a previous session.
         coordinator_senders.announce_new_burn_block();
 
+        warn!("checkpoint");
         let mut burnchain_tip = burnchain
             .wait_for_sortitions(None)
             .expect("Unable to get burnchain tip");
 
+        warn!("checkpoint");
         let chainstate_path = self.config.get_chainstate_path_str();
         let mut pox_watchdog = PoxSyncWatchdog::new(
             mainnet,
@@ -316,6 +336,9 @@ impl RunLoop {
             should_keep_running.clone(),
         )
         .unwrap();
+        warn!("checkpoint");
+
+        // Now we are setting up nodes, after the chains coordinator has already run.
 
         // setup genesis
         let node = NeonGenesisNode::new(
@@ -324,7 +347,9 @@ impl RunLoop {
             burnchain_config.clone(),
             Box::new(|_| {}),
         );
+        warn!("checkpoint");
         let mut node = if is_miner {
+        warn!("checkpoint");
             node.into_initialized_leader_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
@@ -336,6 +361,7 @@ impl RunLoop {
                 should_keep_running.clone(),
             )
         } else {
+        warn!("checkpoint");
             node.into_initialized_node(
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
@@ -347,6 +373,7 @@ impl RunLoop {
                 should_keep_running.clone(),
             )
         };
+        warn!("checkpoint");
 
         // TODO (hack) instantiate the sortdb in the burnchain
         let sortdb = burnchain.sortdb_mut();
@@ -370,16 +397,19 @@ impl RunLoop {
                 }
             }
         };
+        warn!("checkpoint");
 
         // Start the runloop
         trace!("Begin run loop");
         self.bump_blocks_processed();
 
+        warn!("prometheus_bind {:?}", self.config.node.prometheus_bind);
         let prometheus_bind = self.config.node.prometheus_bind.clone();
         if let Some(prometheus_bind) = prometheus_bind {
             thread::Builder::new()
                 .name("prometheus".to_string())
                 .spawn(move || {
+                    warn!("start_serving_monitoring_metrics");
                     start_serving_monitoring_metrics(prometheus_bind);
                 })
                 .unwrap();

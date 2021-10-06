@@ -169,6 +169,9 @@ fn main() {
         || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "mainnet"
     {
+        // Note: we need to get here.
+        //
+        warn!("RunLoop::new");
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(None, mine_start.unwrap_or(0));
     } else {

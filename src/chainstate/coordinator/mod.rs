@@ -274,17 +274,21 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator, FE: FeeEstimator>
         let stacks_blocks_processed = comms.stacks_blocks_processed.clone();
         let sortitions_processed = comms.sortitions_processed.clone();
 
+        warn!("brown dog");
         let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
         let burnchain_blocks_db =
             BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
 
+        warn!("brown dog");
         let canonical_sortition_tip =
             SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
 
+        warn!("brown dog");
         let arc_notices = ArcCounterCoordinatorNotices {
             stacks_blocks_processed,
             sortitions_processed,
         };
+        warn!("brown dog");
 
         let mut inst = ChainsCoordinator {
             canonical_chain_tip: None,
@@ -303,22 +307,27 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator, FE: FeeEstimator>
             atlas_config,
         };
 
+        warn!("brown dog");
         loop {
+        warn!("brown dog");
             // timeout so that we handle Ctrl-C a little gracefully
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
+        warn!("brown dog");
                     debug!("Received new stacks block notice");
                     if let Err(e) = inst.handle_new_stacks_block() {
                         warn!("Error processing new stacks block: {:?}", e);
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
+        warn!("brown dog");
                     debug!("Received new burn block notice");
                     if let Err(e) = inst.handle_new_burnchain_block() {
                         warn!("Error processing new burn block: {:?}", e);
                     }
                 }
                 CoordinatorEvents::STOP => {
+        warn!("brown dog");
                     debug!("Received stop notice");
                     return;
                 }
@@ -540,6 +549,7 @@ impl<
         let mut cursor = canonical_burnchain_tip.block_hash.clone();
         let mut sortitions_to_process = VecDeque::new();
 
+        warn!("blue");
         // We halt the ancestry research as soon as we find a processed parent
         let mut last_processed_ancestor = loop {
             if let Some(found_sortition) = self.sortition_db.is_sortition_processed(&cursor)? {
@@ -561,6 +571,7 @@ impl<
             sortitions_to_process.push_front(current_block);
             cursor = parent;
         };
+        warn!("blue");
 
         let burn_header_hashes: Vec<_> = sortitions_to_process
             .iter()
@@ -572,7 +583,9 @@ impl<
             burn_header_hashes.join(", ")
         );
 
+        warn!("blue");
         for unprocessed_block in sortitions_to_process.into_iter() {
+        warn!("blue");
             let BurnchainBlockData { header, ops } = unprocessed_block;
 
             // calculate paid rewards during this burnchain block if we announce
