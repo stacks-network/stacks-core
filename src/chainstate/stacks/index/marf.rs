@@ -123,10 +123,11 @@ impl SimpleTimeLogger {
     }
 
     fn summarize(&self) {
-                let finish_time = self.times[MarfEvents::finished as usize];
-                let start_time = self.start_time;
-                let duration = finish_time.duration_since(start_time).unwrap().as_micros();
-                log_marf_read_time(duration as f64);
+        let finish_time = self.times[MarfEvents::finished as usize];
+        let start_time = self.start_time;
+        let duration = finish_time.duration_since(start_time).unwrap().as_micros();
+        log_marf_read_time(duration as f64);
+
         unsafe {
             if global_start_time.is_none() {
                 global_start_time = Some(SystemTime::now());
@@ -1070,8 +1071,7 @@ impl<T: MarfTrieId> MARF<T> {
                                     let b = SystemTime::now();
                                     let duration = b.duration_since(a);
                                     match duration {
-                                        Ok(d) => {
-                                        }
+                                        Ok(d) => {}
                                         Err(e) => {
                                             warn!("e: {}", e);
                                         }

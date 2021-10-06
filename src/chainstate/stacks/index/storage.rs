@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use util::db::sql_pragma;
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
@@ -28,6 +27,7 @@ use std::ops::{Deref, DerefMut};
 use std::os;
 use std::path::{Path, PathBuf};
 use std::{cmp, error};
+use util::db::sql_pragma;
 
 use regex::Regex;
 use rusqlite::{
