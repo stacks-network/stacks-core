@@ -226,6 +226,7 @@ pub fn log_transaction_processed(
 #[allow(unused_variables)]
 pub fn log_marf_read_time(time: f64) {
     #[cfg(feature = "monitoring_prom")]
+    warn!("log_marf_read_time");
     prometheus::MARF_READ_TIME_HISTOGRAM.observe(time);
 }
 

@@ -577,6 +577,7 @@ impl Burnchain {
         Ok(())
     }
 
+    /// Make some changes to the chainstate.
     fn setup_chainstate<I: BurnchainIndexer>(
         &self,
         indexer: &mut I,
@@ -854,6 +855,8 @@ impl Burnchain {
         burnchain_db: &mut BurnchainDB,
         block: &BurnchainBlock,
     ) -> Result<BurnchainBlockHeader, burnchain_error> {
+        let bt = backtrace::Backtrace::new();
+        warn!("bt {:?}", bt);
         debug!(
             "Process block {} {}",
             block.block_height(),
@@ -1156,21 +1159,29 @@ impl Burnchain {
     where
         I: BurnchainIndexer + 'static,
     {
+        // set up some stuff
         self.setup_chainstate(indexer)?;
+
+        // coneect to the database
         let (_, mut burnchain_db) = self.connect_db(
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
         )?;
+
+        // canonical chain tip is the longest one
         let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
             error!("Failed to query burn chain tip from burn DB: {}", e);
             e
         })?;
 
+        // Figure out the bitcoin height.
         let db_height = burn_chain_tip.block_height;
 
-        // handle reorgs
+        // Sync and understand if there was a reorg.
         let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
+
+        // if we did a reorg, drop the headers
         if did_reorg {
             // a reorg happened
             warn!(
@@ -1185,12 +1196,18 @@ impl Burnchain {
 
         // fetch all headers, no matter what
         let mut end_block = indexer.sync_headers(sync_height, None)?;
+
+        // If we did a re-org, let's wait for some new things.
         if did_reorg && sync_height > 0 {
             // a reorg happened, and the last header fetched
             // is on a smaller fork than the one we just
             // invalidated. Wait for more blocks.
+            //
+            // Until the `end_block` reaches `db_height`.
             while end_block < db_height {
                 if let Some(ref should_keep_running) = should_keep_running {
+
+                    // If we should not keep running, then return that CoordinatorClosed.
                     if !should_keep_running.load(Ordering::SeqCst) {
                         return Err(burnchain_error::CoordinatorClosed);
                     }
@@ -1212,6 +1229,8 @@ impl Burnchain {
             sync_height, end_block, db_height
         );
 
+        // `target_block_height_opt` is an input to this function
+        // we are deciding if this is a "Some" value
         if let Some(target_block_height) = target_block_height_opt {
             // `target_block_height` is used as a hint, but could also be completely off
             // in certain situations. This function is directly reading the
@@ -1222,8 +1241,12 @@ impl Burnchain {
                     "Will download up to max burn block height {}",
                     target_block_height
                 );
+
+                // use `target_block_height` as an end height, instead of whatever we though it
+                // was.
                 end_block = target_block_height;
             } else {
+                // end_block >= `target_block_height`, so just use that
                 debug!(
                     "Ignoring target block height {} considered as irrelevant",
                     target_block_height
@@ -1231,6 +1254,7 @@ impl Burnchain {
             }
         }
 
+        // `max_blocks_opt`  is a function input.
         if let Some(max_blocks) = max_blocks_opt {
             if start_block + max_blocks < end_block {
                 debug!(
@@ -1238,10 +1262,12 @@ impl Burnchain {
                     max_blocks,
                     start_block + max_blocks
                 );
+                // still figuring out the end_block
                 end_block = start_block + max_blocks;
             }
         }
 
+        // nothing to do in this case
         if end_block < start_block {
             // nothing to do -- go get the burnchain block data at that height
             let mut hdrs = indexer.read_headers(end_block, end_block + 1)?;
@@ -1262,6 +1288,8 @@ impl Burnchain {
 
         let total = sync_height - self.first_block_height;
         let progress = (end_block - self.first_block_height) as f32 / total as f32 * 100.;
+
+        // this is the thing they print, i thought this would be 
         info!(
             "Syncing Bitcoin blocks: {:.1}% ({} to {} out of {})",
             progress, start_block, end_block, sync_height
@@ -1275,6 +1303,7 @@ impl Burnchain {
         let mut downloader = indexer.downloader();
         let mut parser = indexer.parser();
 
+        // myself.. why do we want this?
         let myself = self.clone();
 
         // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
