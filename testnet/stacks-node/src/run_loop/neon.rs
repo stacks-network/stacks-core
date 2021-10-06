@@ -318,9 +318,13 @@ impl RunLoop {
         // stored during a previous session.
         coordinator_senders.announce_new_burn_block();
 
+        //
+        //
+        // Note: This is where we get stuck.
         warn!("checkpoint");
         let mut burnchain_tip = burnchain
-            .wait_for_sortitions(None)
+            // .wait_for_sortitions(None)
+            .wait_for_sortitions(Some(600000))
             .expect("Unable to get burnchain tip");
 
         warn!("checkpoint");
@@ -402,7 +406,6 @@ impl RunLoop {
         // Start the runloop
         trace!("Begin run loop");
         self.bump_blocks_processed();
-
         warn!("prometheus_bind {:?}", self.config.node.prometheus_bind);
         let prometheus_bind = self.config.node.prometheus_bind.clone();
         if let Some(prometheus_bind) = prometheus_bind {

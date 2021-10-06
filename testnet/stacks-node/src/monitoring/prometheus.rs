@@ -6,9 +6,13 @@ use stacks::prometheus::{gather, Encoder, TextEncoder};
 use http_types::{Body, Response, StatusCode};
 
 pub fn start_serving_prometheus_metrics(bind_address: String) {
+    warn!("burger");
+    warn!("whistle");
     let addr = bind_address.clone();
 
+    warn!("whistle");
     async_std::task::block_on(async {
+    warn!("whistle");
         let listener = TcpListener::bind(addr)
             .await
             .expect("Prometheus monitoring: unable to bind address");
@@ -18,10 +22,13 @@ pub fn start_serving_prometheus_metrics(bind_address: String) {
                 .local_addr()
                 .expect("Prometheus monitoring: unable to get addr")
         );
+    warn!("whistle");
         info!("Prometheus monitoring: server listening on {}", addr);
 
         let mut incoming = listener.incoming();
+    warn!("whistle");
         while let Some(stream) = incoming.next().await {
+    warn!("whistle");
             let stream = match stream {
                 Ok(stream) => stream,
                 Err(err) => {
@@ -32,12 +39,15 @@ pub fn start_serving_prometheus_metrics(bind_address: String) {
                     continue;
                 }
             };
+    warn!("whistle");
             let addr = addr.clone();
 
+    warn!("whistle");
             task::spawn(async {
                 if let Err(err) = accept(addr, stream).await {
                     eprintln!("{}", err);
                 }
+    warn!("whistle");
             });
         }
     });
