@@ -592,6 +592,8 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         keys: &Vec<String>,
         values: Vec<MARFValue>,
     ) -> Result<(), Error> {
+        // Note: This is another MARF insert point.
+        //
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }

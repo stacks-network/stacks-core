@@ -181,6 +181,8 @@ impl RunLoop {
         let mut target_burnchain_block_height = 1.max(burnchain_config.first_block_height);
         warn!("burnchain_config {:?}", burnchain_config);
 
+        warn!("burnchain_config: {:?}", burnchain_config);
+
         info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
         match burnchain.start(Some(target_burnchain_block_height)) {
             Ok(_) => {}
@@ -324,8 +326,8 @@ impl RunLoop {
         // Note: This is where we get stuck.
         warn!("checkpoint");
         let mut burnchain_tip = burnchain
-            // .wait_for_sortitions(None)
-            .wait_for_sortitions(Some(600000))
+            .wait_for_sortitions(None)
+            // .wait_for_sortitions(Some(600000))
             .expect("Unable to get burnchain tip");
 
         warn!("checkpoint");
