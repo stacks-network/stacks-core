@@ -120,10 +120,10 @@ pub struct ConsiderTransaction {
 }
 
 enum ConsiderTransactionResult {
-    NO_TRANSACTIONS,
-    UPDATE_NONCES(Vec<StacksAddress>),
+    NoTransactions,
+    UpdateNonces(Vec<StacksAddress>),
     /// This transaction should be considered for inclusion in the block.
-    CONSIDER(ConsiderTransaction),
+    Consider(ConsiderTransaction),
 }
 
 impl std::fmt::Display for MemPoolDropReason {
@@ -284,8 +284,8 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);",
 ];
 
-const MEMPOOL_SCHEMA_2_TEST: &'static str = "
-   SELECT name FROM sqlite_master WHERE type='table' AND name='fee_estimates'
+const MEMPOOL_SCHEMA_VERSIONED_TEST: &'static str = "
+   SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'
 ";
 
 const MEMPOOL_SCHEMA_2: &'static [&'static str] = &[
@@ -304,6 +304,12 @@ const MEMPOOL_SCHEMA_2: &'static [&'static str] = &[
     ALTER TABLE mempool ADD COLUMN last_known_sponsor_nonce INTEGER;
     "#,
     "CREATE INDEX fee_by_txid ON fee_estimates(txid);",
+    r#"
+    CREATE TABLE schema_version (version NUMBER, PRIMARY KEY (version));
+    "#,
+    r#"
+    INSERT INTO schema_version (version) VALUES (2)
+    "#,
 ];
 
 pub struct MemPoolDB {
@@ -465,7 +471,11 @@ impl MemPoolDB {
             MemPoolDB::instantiate_mempool_db(&mut conn)?;
         }
 
-        MemPoolDB::apply_schema_2_if_needed(&mut conn)?;
+        let version = MemPoolDB::get_schema_version(&conn)?.unwrap_or(1);
+
+        if version < 2 {
+            MemPoolDB::apply_schema_2(&mut conn)?;
+        }
 
         Ok(MemPoolDB {
             db: conn,
@@ -476,19 +486,33 @@ impl MemPoolDB {
         })
     }
 
-    fn apply_schema_2_if_needed(conn: &mut DBConn) -> Result<(), db_error> {
-        let tx = conn.transaction()?;
-        let needs_to_apply = tx
-            .query_row(MEMPOOL_SCHEMA_2_TEST, rusqlite::NO_PARAMS, |row| {
+    fn get_schema_version(conn: &DBConn) -> Result<Option<i64>, db_error> {
+        let is_versioned = conn
+            .query_row(MEMPOOL_SCHEMA_VERSIONED_TEST, rusqlite::NO_PARAMS, |row| {
                 row.get::<_, String>(0)
             })
             .optional()?
-            .is_none();
+            .is_some();
+        if !is_versioned {
+            return Ok(None);
+        }
 
-        if needs_to_apply {
-            for sql_exec in MEMPOOL_SCHEMA_2 {
-                tx.execute_batch(sql_exec)?;
-            }
+        let version = conn
+            .query_row(
+                "SELECT MAX(version) FROM schema_version",
+                rusqlite::NO_PARAMS,
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        Ok(version)
+    }
+
+    fn apply_schema_2(conn: &mut DBConn) -> Result<(), db_error> {
+        let tx = conn.transaction()?;
+
+        for sql_exec in MEMPOOL_SCHEMA_2 {
+            tx.execute_batch(sql_exec)?;
         }
 
         tx.commit()?;
@@ -549,7 +573,7 @@ impl MemPoolDB {
                 Some(tx) => (tx, false),
                 None => match query_row(&self.db, select_no_estimate, rusqlite::NO_PARAMS)? {
                     Some(tx) => (tx, true),
-                    None => return Ok(ConsiderTransactionResult::NO_TRANSACTIONS),
+                    None => return Ok(ConsiderTransactionResult::NoTransactions),
                 },
             };
 
@@ -562,9 +586,9 @@ impl MemPoolDB {
         }
 
         if !needs_nonces.is_empty() {
-            Ok(ConsiderTransactionResult::UPDATE_NONCES(needs_nonces))
+            Ok(ConsiderTransactionResult::UpdateNonces(needs_nonces))
         } else {
-            Ok(ConsiderTransactionResult::CONSIDER(ConsiderTransaction {
+            Ok(ConsiderTransactionResult::Consider(ConsiderTransaction {
                 tx: next_tx,
                 update_estimate,
             }))
@@ -670,11 +694,11 @@ impl MemPoolDB {
             }
 
             match self.get_next_tx_to_consider()? {
-                ConsiderTransactionResult::NO_TRANSACTIONS => {
+                ConsiderTransactionResult::NoTransactions => {
                     debug!("No more transactions to consider in mempool");
                     break;
                 }
-                ConsiderTransactionResult::UPDATE_NONCES(addresses) => {
+                ConsiderTransactionResult::UpdateNonces(addresses) => {
                     let mut last_addr = None;
                     for address in addresses.into_iter() {
                         debug!("Update nonce"; "address" => %address);
@@ -690,7 +714,7 @@ impl MemPoolDB {
                         last_addr = Some(address)
                     }
                 }
-                ConsiderTransactionResult::CONSIDER(consider) => {
+                ConsiderTransactionResult::Consider(consider) => {
                     debug!("Consider mempool transaction";
                            "txid" => %consider.tx.tx.txid(),
                            "origin_addr" => %consider.tx.metadata.origin_address,
