@@ -200,9 +200,9 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 1f64,
-            medium: 1f64,
-            slow: 1f64
+            high: 1f64,
+            middle: 1f64,
+            low: 1f64
         }
     );
 
@@ -216,20 +216,20 @@ fn test_fee_estimator() {
         .notify_block(&double_tx_receipt)
         .expect("Should be able to process block receipt");
 
-    // estimate should increase for "fast" and "medium":
+    // estimate should increase for "high" and "middle":
     // 10 * 1/2 + 1 * 1/2 = 5.5
     assert_eq!(
         estimator
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 5.5f64,
-            medium: 5.5f64,
-            slow: 1f64
+            high: 5.5f64,
+            middle: 5.5f64,
+            low: 1f64
         }
     );
 
-    // estimate should increase for "fast" and "medium":
+    // estimate should increase for "high" and "middle":
     // new value: 10 * 1/2 + 5.5 * 1/2 = 7.75
     estimator
         .notify_block(&double_tx_receipt)
@@ -239,13 +239,13 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 7.75f64,
-            medium: 7.75f64,
-            slow: 1f64
+            high: 7.75f64,
+            middle: 7.75f64,
+            low: 1f64
         }
     );
 
-    // estimate should increase for "fast" and "medium":
+    // estimate should increase for "high" and "middle":
     // new value: 10 * 1/2 + 7.75 * 1/2 = 8.875
     estimator
         .notify_block(&double_tx_receipt)
@@ -255,13 +255,13 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 8.875f64,
-            medium: 8.875f64,
-            slow: 1f64
+            high: 8.875f64,
+            middle: 8.875f64,
+            low: 1f64
         }
     );
 
-    // estimate should increase for "fast" and "medium":
+    // estimate should increase for "high" and "middle":
     // new value: 10 * 1/2 + 8.875 * 1/2 = 9.4375
     estimator
         .notify_block(&double_tx_receipt)
@@ -271,13 +271,13 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 9.4375f64,
-            medium: 9.4375f64,
-            slow: 1f64
+            high: 9.4375f64,
+            middle: 9.4375f64,
+            low: 1f64
         }
     );
 
-    // estimate should increase for "fast" and "medium":
+    // estimate should increase for "high" and "middle":
     // new value: 10 * 1/2 + 9.4375 * 1/2 = 9
     estimator
         .notify_block(&double_tx_receipt)
@@ -287,17 +287,17 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 9.71875f64,
-            medium: 9.71875f64,
-            slow: 1f64
+            high: 9.71875f64,
+            middle: 9.71875f64,
+            low: 1f64
         }
     );
 
     // make a large block receipt, and expect:
-    //  measured fast = 950, medium = 500, slow = 50
-    //  new fast: 950/2 + 9.71875/2 = 479.859375
-    //  new medium: 500/2 + 9.71875/2 = 254.859375
-    //  new slow: 50/2 + 1/2 = 25.5
+    //  measured high = 950, middle = 500, low = 50
+    //  new high: 950/2 + 9.71875/2 = 479.859375
+    //  new middle: 500/2 + 9.71875/2 = 254.859375
+    //  new low: 50/2 + 1/2 = 25.5
 
     let mut receipts: Vec<_> = (0..100).map(|i| make_dummy_cc_tx(i * 10)).collect();
     let mut rng = rand::thread_rng();
@@ -312,9 +312,9 @@ fn test_fee_estimator() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            fast: 479.859375f64,
-            medium: 254.859375f64,
-            slow: 25.5f64
+            high: 479.859375f64,
+            middle: 254.859375f64,
+            low: 25.5f64
         }
     );
 }

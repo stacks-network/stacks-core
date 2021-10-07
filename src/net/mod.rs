@@ -76,11 +76,13 @@ use vm::{
 };
 
 use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
+use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use crate::types::StacksPublicKeyBuffer;
 use crate::util::hash::Sha256Sum;
+use crate::vm::costs::ExecutionCost;
 
 use self::dns::*;
 pub use self::http::StacksHttp;
@@ -1024,6 +1026,31 @@ pub struct RPCPoxInfoData {
     pub next_reward_cycle_in: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCFeeEstimate {
+    pub high: u64,
+    pub middle: u64,
+    pub low: u64,
+}
+
+impl RPCFeeEstimate {
+    pub fn estimate_fees(scalar: u64, fee_rates: FeeRateEstimate) -> RPCFeeEstimate {
+        let estimated_fees_f64 = fee_rates * (scalar as f64);
+        RPCFeeEstimate {
+            high: estimated_fees_f64.high as u64,
+            middle: estimated_fees_f64.middle as u64,
+            low: estimated_fees_f64.low as u64,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCFeeEstimateResponse {
+    pub estimated_cost: ExecutionCost,
+    pub estimated_fees: RPCFeeEstimate,
+    pub estimated_fee_rates: FeeRateEstimate,
+}
+
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
 #[repr(u8)]
 pub enum HttpVersion {
@@ -1370,6 +1397,7 @@ pub enum HttpResponseType {
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
     OptionsPreflight(HttpResponseMetadata),
+    TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, serde_json::Value),

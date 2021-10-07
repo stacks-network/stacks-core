@@ -31,6 +31,11 @@ use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
 
 use crate::codec::StacksMessageCodec;
+use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::CostEstimator;
+use crate::cost_estimates::FeeEstimator;
+use crate::net::RPCFeeEstimate;
+use crate::net::RPCFeeEstimateResponse;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
 use burnchains::*;
@@ -120,6 +125,9 @@ pub struct RPCHandlerArgs<'a> {
     pub exit_at_block_height: Option<&'a u64>,
     pub genesis_chainstate_hash: Sha256Sum,
     pub event_observer: Option<&'a dyn MemPoolEventDispatcher>,
+    pub cost_estimator: Option<&'a dyn CostEstimator>,
+    pub fee_estimator: Option<&'a dyn FeeEstimator>,
+    pub cost_metric: Option<&'a dyn CostMetric>,
 }
 
 pub struct ConversationHttp {
@@ -168,6 +176,17 @@ impl fmt::Debug for ConversationHttp {
             self.conn_id,
             self.pending_request.is_some()
         )
+    }
+}
+
+impl<'a> RPCHandlerArgs<'a> {
+    pub fn get_estimators_ref(
+        &self,
+    ) -> Option<(&dyn CostEstimator, &dyn FeeEstimator, &dyn CostMetric)> {
+        match (self.cost_estimator, self.fee_estimator, self.cost_metric) {
+            (Some(a), Some(b), Some(c)) => Some((a, b, c)),
+            _ => None,
+        }
     }
 }
 
@@ -1575,6 +1594,63 @@ impl ConversationHttp {
             format!("Failed to load Stacks chain tip"),
         );
         response.send(http, fd).and_then(|_| Ok(None))
+    }
+
+    fn handle_post_fee_rate_estimate<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        tx: &TransactionPayload,
+        handler_args: &RPCHandlerArgs,
+        estimated_len: u64,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        if let Some((cost_estimator, fee_estimator, metric)) = handler_args.get_estimators_ref() {
+            let estimated_cost = match cost_estimator.estimate_cost(tx) {
+                Ok(x) => x,
+                Err(e) => {
+                    debug!(
+                        "Estimator RPC endpoint failed to estimate tx: {}",
+                        tx.name()
+                    );
+                    return HttpResponseType::BadRequestJSON(response_metadata, e.into_json())
+                        .send(http, fd);
+                }
+            };
+            let scalar_cost = metric.from_cost_and_len(&estimated_cost, estimated_len);
+            let fee_rates = match fee_estimator.get_rate_estimates() {
+                Ok(x) => x,
+                Err(e) => {
+                    debug!(
+                        "Estimator RPC endpoint failed to estimate fees for tx: {}",
+                        tx.name()
+                    );
+                    return HttpResponseType::BadRequestJSON(response_metadata, e.into_json())
+                        .send(http, fd);
+                }
+            };
+
+            let estimated_fees = RPCFeeEstimate::estimate_fees(scalar_cost, fee_rates.clone());
+
+            let response = HttpResponseType::TransactionFeeEstimation(
+                response_metadata,
+                RPCFeeEstimateResponse {
+                    estimated_cost,
+                    estimated_fees,
+                    estimated_fee_rates: fee_rates,
+                },
+            );
+            response.send(http, fd)
+        } else {
+            let response = HttpResponseType::BadRequestJSON(
+                response_metadata,
+                json!({
+                    "error": "Fee and Cost Estimation not configured on this Stacks node",
+                    "reason": "CostEstimationDisabled",
+                }),
+            );
+            response.send(http, fd)
+        }
     }
 
     /// Handle a transaction.  Directly submit it to the mempool so the client can see any

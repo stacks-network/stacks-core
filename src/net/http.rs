@@ -3504,6 +3504,7 @@ impl HttpResponseType {
             HttpResponseType::GetAttachment(ref md, _) => md,
             HttpResponseType::GetAttachmentsInv(ref md, _) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
+            HttpResponseType::TransactionFeeEstimation(ref md, _) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -3582,6 +3583,10 @@ impl HttpResponseType {
             HttpResponseType::GetAccount(ref md, ref account_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, account_data)?;
+            }
+            HttpResponseType::TransactionFeeEstimation(ref md, ref data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
             }
             HttpResponseType::GetContractABI(ref md, ref data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
@@ -3872,6 +3877,9 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::ServerError(_, _) => "HTTP(500)",
                 HttpResponseType::ServiceUnavailable(_, _) => "HTTP(503)",
                 HttpResponseType::Error(_, _, _) => "HTTP(other)",
+                HttpResponseType::TransactionFeeEstimation(_, _) => {
+                    "HTTP(TransactionFeeEstimation)"
+                }
             },
         }
     }
