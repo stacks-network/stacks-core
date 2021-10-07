@@ -34,16 +34,13 @@ use std::sync::Mutex;
 use util::db::Error as DatabaseError;
 use util::uint::{Uint256, Uint512};
 
-#[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
-#[cfg(feature = "monitoring_prom")]
 lazy_static! {
     static ref GLOBAL_BURNCHAIN_SIGNER: Mutex<Option<BurnchainSigner>> = Mutex::new(None);
 }
 
 pub fn increment_rpc_calls_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::RPC_CALL_COUNTER.inc();
 }
 
@@ -54,77 +51,62 @@ pub fn instrument_http_request_handler<F, R>(
 where
     F: FnOnce(HttpRequestType) -> Result<R, net_error>,
 {
-    #[cfg(feature = "monitoring_prom")]
     increment_rpc_calls_counter();
 
-    #[cfg(feature = "monitoring_prom")]
     let timer = prometheus::new_rpc_call_timer(req.get_path());
 
     let res = handler(req);
 
-    #[cfg(feature = "monitoring_prom")]
     timer.stop_and_record();
 
     res
 }
 
 pub fn increment_stx_blocks_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::STX_BLOCKS_RECEIVED_COUNTER.inc();
 }
 
 pub fn increment_stx_micro_blocks_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::STX_MICRO_BLOCKS_RECEIVED_COUNTER.inc();
 }
 
 pub fn increment_stx_blocks_served_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::STX_BLOCKS_SERVED_COUNTER.inc();
 }
 
 pub fn increment_stx_micro_blocks_served_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::STX_MICRO_BLOCKS_SERVED_COUNTER.inc();
 }
 
 pub fn increment_stx_confirmed_micro_blocks_served_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::STX_CONFIRMED_MICRO_BLOCKS_SERVED_COUNTER.inc();
 }
 
 pub fn increment_txs_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::TXS_RECEIVED_COUNTER.inc();
 }
 
 pub fn increment_btc_blocks_received_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::BTC_BLOCKS_RECEIVED_COUNTER.inc();
 }
 
 pub fn increment_btc_ops_sent_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::BTC_OPS_SENT_COUNTER.inc();
 }
 
 pub fn increment_stx_blocks_processed_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::STX_BLOCKS_PROCESSED_COUNTER.inc();
 }
 
 pub fn increment_stx_blocks_mined_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::STX_BLOCKS_MINED_COUNTER.inc();
 }
 
 pub fn increment_warning_emitted_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::WARNING_EMITTED_COUNTER.inc();
 }
 
 pub fn increment_errors_emitted_counter() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::ERRORS_EMITTED_COUNTER.inc();
 }
 
@@ -172,7 +154,6 @@ fn txid_tracking_db_contains(conn: &DBConn, txid: &Txid) -> Result<bool, Databas
 
 #[allow(unused_variables)]
 pub fn mempool_accepted(txid: &Txid, chainstate_root_path: &str) -> Result<(), DatabaseError> {
-    #[cfg(feature = "monitoring_prom")]
     {
         let tracking_db = txid_tracking_db(chainstate_root_path)?;
 
@@ -192,7 +173,6 @@ pub fn log_transaction_processed(
     txid: &Txid,
     chainstate_root_path: &str,
 ) -> Result<(), DatabaseError> {
-    #[cfg(feature = "monitoring_prom")]
     {
         let mempool_db_path = MemPoolDB::db_path(chainstate_root_path)?;
         let mempool_conn =
@@ -231,73 +211,61 @@ pub fn log_marf_read_time(time: f64) {
 
 #[allow(unused_variables)]
 pub fn update_active_miners_count_gauge(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::ACTIVE_MINERS_COUNT_GAUGE.set(value);
 }
 
 #[allow(unused_variables)]
 pub fn update_stacks_tip_height(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::STACKS_TIP_HEIGHT_GAUGE.set(value);
 }
 
 #[allow(unused_variables)]
 pub fn update_burnchain_height(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::BURNCHAIN_HEIGHT_GAUGE.set(value);
 }
 
 #[allow(unused_variables)]
 pub fn update_inbound_neighbors(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::INBOUND_NEIGHBORS_GAUGE.set(value);
 }
 
 #[allow(unused_variables)]
 pub fn update_outbound_neighbors(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::OUTBOUND_NEIGHBORS_GAUGE.set(value);
 }
 
 #[allow(unused_variables)]
 pub fn update_inbound_bandwidth(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::INBOUND_BANDWIDTH_GAUGE.add(value);
 }
 
 #[allow(unused_variables)]
 pub fn update_outbound_bandwidth(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::OUTBOUND_BANDWIDTH_GAUGE.add(value);
 }
 
 #[allow(unused_variables)]
 pub fn update_inbound_rpc_bandwidth(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::INBOUND_RPC_BANDWIDTH_GAUGE.add(value);
 }
 
 #[allow(unused_variables)]
 pub fn update_outbound_rpc_bandwidth(value: i64) {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::OUTBOUND_RPC_BANDWIDTH_GAUGE.add(value);
 }
 
 #[allow(unused_variables)]
 pub fn increment_msg_counter(name: String) {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::MSG_COUNTER_VEC
         .with_label_values(&[&name])
         .inc();
 }
 
 pub fn increment_stx_mempool_gc() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::STX_MEMPOOL_GC.inc();
 }
 
 pub fn increment_contract_calls_processed() {
-    #[cfg(feature = "monitoring_prom")]
     prometheus::CONTRACT_CALLS_PROCESSED_COUNT.inc();
 }
 
@@ -360,7 +328,6 @@ pub fn test_convert_uint256_to_f64() {
 
 #[allow(unused_variables)]
 pub fn update_computed_relative_miner_score(value: Uint256) {
-    #[cfg(feature = "monitoring_prom")]
     {
         let percentage = convert_uint256_to_f64_percentage(value, 7);
         prometheus::COMPUTED_RELATIVE_MINER_SCORE.set(percentage);
@@ -369,7 +336,6 @@ pub fn update_computed_relative_miner_score(value: Uint256) {
 
 #[allow(unused_variables)]
 pub fn update_computed_miner_commitment(value: u128) {
-    #[cfg(feature = "monitoring_prom")]
     {
         let high_bits = (value >> 64) as u64;
         let low_bits = value as u64;
@@ -380,7 +346,6 @@ pub fn update_computed_miner_commitment(value: u128) {
 
 #[allow(unused_variables)]
 pub fn update_miner_current_median_commitment(value: u128) {
-    #[cfg(feature = "monitoring_prom")]
     {
         let high_bits = (value >> 64) as u64;
         let low_bits = value as u64;
@@ -393,7 +358,6 @@ pub fn update_miner_current_median_commitment(value: u128) {
 /// Fails if there are multiple attempts to set this variable.
 #[allow(unused_variables)]
 pub fn set_burnchain_signer(signer: BurnchainSigner) -> Result<(), SetGlobalBurnchainSignerError> {
-    #[cfg(feature = "monitoring_prom")]
     {
         let mut signer_mutex = GLOBAL_BURNCHAIN_SIGNER.lock().unwrap();
         if signer_mutex.is_some() {
@@ -406,7 +370,6 @@ pub fn set_burnchain_signer(signer: BurnchainSigner) -> Result<(), SetGlobalBurn
 }
 
 pub fn get_burnchain_signer() -> Option<BurnchainSigner> {
-    #[cfg(feature = "monitoring_prom")]
     {
         return GLOBAL_BURNCHAIN_SIGNER.lock().unwrap().clone();
     }

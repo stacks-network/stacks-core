@@ -463,7 +463,6 @@ fn bitcoind_integration_test() {
     assert_eq!(account.nonce, 1);
 
     // query for prometheus metrics
-    #[cfg(feature = "monitoring_prom")]
     {
         let prom_http_origin = format!("http://{}", prom_bind);
         let client = reqwest::blocking::Client::new();

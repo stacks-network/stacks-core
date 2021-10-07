@@ -6,8 +6,5 @@ mod prometheus;
 
 pub fn start_serving_monitoring_metrics(bind_address: String) {
     info!("Start serving prometheus metrics {}", bind_address);
-    info!("2Start serving prometheus metrics {}", bind_address);
-    #[cfg(feature = "monitoring_prom")]
-    info!("3Start serving prometheus metrics {}", bind_address);
     prometheus::start_serving_prometheus_metrics(bind_address);
 }
