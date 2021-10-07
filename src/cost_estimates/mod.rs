@@ -109,7 +109,7 @@ pub fn estimate_fee_rate<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
 ///  payload. `FeeRateEstimator` implementations estimate the network's current fee rate.
 ///  Clients interested in determining the fee to be paid for a transaction must used both
 ///  whereas miners only need to use a `CostEstimator`
-pub trait CostEstimator {
+pub trait CostEstimator: Send {
     /// This method is invoked by the `stacks-node` to update the cost estimator with a new
     ///  cost measurement. The given `tx` had a measured cost of `actual_cost`.
     fn notify_event(

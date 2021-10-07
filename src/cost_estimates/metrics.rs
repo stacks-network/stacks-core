@@ -4,7 +4,7 @@ use crate::vm::costs::ExecutionCost;
 
 /// This trait defines metrics used to convert `ExecutionCost` and tx_len usage into single-dimensional
 /// metrics that can be used to compute a fee rate.
-pub trait CostMetric {
+pub trait CostMetric: Send {
     fn from_cost_and_len(&self, cost: &ExecutionCost, tx_len: u64) -> u64;
     fn from_len(&self, tx_len: u64) -> u64;
 }

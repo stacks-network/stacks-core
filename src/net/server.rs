@@ -710,7 +710,6 @@ mod test {
     use net::*;
     use std::cell::RefCell;
 
-    use crate::chainstate::coordinator::tests::get_chainstate_path_str;
     use crate::types::chainstate::BurnchainHeaderHash;
     use burnchains::Burnchain;
     use burnchains::BurnchainView;
@@ -766,15 +765,15 @@ mod test {
         let mut peer_config = TestPeerConfig::new(test_name, peer_p2p, peer_http);
         peer_config.connection_opts = conn_opts;
 
-        let test_path = TestPeer::test_path(&peer_config);
-        let network_id = peer_config.network_id;
-        let chainstate_path = get_chainstate_path_str(&test_path);
-
+        let mut peer = TestPeer::new(peer_config);
+        let view = peer.get_burnchain_view().unwrap();
         let (http_sx, http_rx) = sync_channel(1);
+
+        let network_id = peer.config.network_id;
+        let chainstate_path = peer.chainstate_path.clone();
 
         let (num_events_sx, num_events_rx) = sync_channel(1);
         let http_thread = thread::spawn(move || {
-            let mut peer = TestPeer::new(peer_config);
             let view = peer.get_burnchain_view().unwrap();
             loop {
                 test_debug!("http wakeup");
