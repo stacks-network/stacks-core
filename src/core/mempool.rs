@@ -583,6 +583,11 @@ impl MemPoolDB {
         Ok(rows)
     }
 
+    pub fn get_num_txs(conn: &DBConn) -> Result<Option<u64>, db_error> {
+        let sql = "SELECT count(*) FROM mempool";
+        query_row(conn, &sql, NO_PARAMS)
+    }
+
     /// Get all transactions at a specific block
     #[cfg(test)]
     pub fn get_num_tx_at_block(

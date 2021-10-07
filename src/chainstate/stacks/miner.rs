@@ -1718,6 +1718,7 @@ impl StacksBlockBuilder {
         );
 
         if let Some(q) = *PROFILING_ENABLED {
+            let mempool_size = MemPoolDB::get_num_txs(mempool.conn())?;
             info!(
                 "Profiler: {}",
                 json!({
@@ -1726,6 +1727,7 @@ impl StacksBlockBuilder {
                     "details": {
                         "block_header_hash": block.block_hash(),
                         "mining_time": ts_end.saturating_sub(ts_start),
+                        "mempool_size": mempool_size.map_or("none".to_string(), |size| size.to_string()),
                     }
                 })
                 .to_string()
