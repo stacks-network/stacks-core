@@ -24,9 +24,16 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
+fn get_mmap() -> bool {
+    env::var("STACKS_LOG_JSON") == Ok("1".into())
+}
+
 lazy_static! {
     pub static ref LOGGER: Logger = make_logger();
+    pub static use_mmap:bool = get_mmap();
 }
+
+
 struct TermFormat<D: Decorator> {
     decorator: D,
     pretty_print: bool,

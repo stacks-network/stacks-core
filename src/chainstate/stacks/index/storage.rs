@@ -762,6 +762,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         readonly: bool,
         unconfirmed: bool,
     ) -> Result<TrieFileStorage<T>, Error> {
+        warn!("we called open_opts");
         let mut create_flag = false;
         let open_flags = if db_path != ":memory:" {
             match fs::metadata(db_path) {
