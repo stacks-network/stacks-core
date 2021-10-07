@@ -1,0 +1,16 @@
+WARN [1633635487.915450] [src/burnchains/burnchain.rs:1235] [main] Sync'ed headers from 703996 to 703996. DB at 679988
+WARN [1633635487.915455] [src/burnchains/burnchain.rs:1242] [main] target_block_height_opt Some(666050)
+WARN [1633635487.915462] [src/burnchains/burnchain.rs:1248] [main] target_block_height 666050
+WARN [1633635487.915468] [src/burnchains/burnchain.rs:1249] [main] start_block 679988
+WARN [1633635487.915471] [src/burnchains/burnchain.rs:1250] [main] end_block 703996
+DEBG [1633635487.915478] [src/burnchains/burnchain.rs:1262] [main] Ignoring target block height 666050 considered as irrelevant
+WARN [1633635487.915487] [src/burnchains/burnchain.rs:1267] [main] end_block 703996
+WARN [1633635487.915493] [src/burnchains/burnchain.rs:1272] [main] if check
+WARN [1633635487.915497] [src/burnchains/burnchain.rs:1274] [main] if check
+DEBG [1633635487.915501] [src/burnchains/burnchain.rs:1275] [main] Will download only 2100 blocks (up to block height 682088)
+WARN [1633635487.915506] [src/burnchains/burnchain.rs:1282] [main] end_block 682088
+WARN [1633635487.915510] [src/burnchains/burnchain.rs:1286] [main] end_block 682088
+WARN [1633635487.915517] [src/burnchains/burnchain.rs:1287] [main] start_block 679988
+WARN [1633635487.915521] [src/burnchains/burnchain.rs:1303] [main] start_block 679988
+WARN [1633635487.915526] [src/burnchains/burnchain.rs:1304] [main] end_block 682088
+WARN [1633635487.915532] [src/burnchains/burnchain.rs:1305] [main] db_height 679988

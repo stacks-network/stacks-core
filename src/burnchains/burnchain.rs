@@ -1159,6 +1159,7 @@ impl Burnchain {
     where
         I: BurnchainIndexer + 'static,
     {
+        warn!("target_block_height_opt {:?}", target_block_height_opt);
         // set up some stuff
         self.setup_chainstate(indexer)?;
 

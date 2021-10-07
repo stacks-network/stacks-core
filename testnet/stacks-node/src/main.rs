@@ -179,6 +179,7 @@ fn main() {
     }
 }
 
+
 fn version() -> String {
     stacks::version_string(
         "stacks-node",
