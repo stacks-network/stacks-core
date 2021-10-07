@@ -126,6 +126,9 @@ impl SimpleTimeLogger {
         let finish_time = self.times[MarfEvents::finished as usize];
         let start_time = self.start_time;
         let duration = finish_time.duration_since(start_time).unwrap().as_micros();
+        unsafe {
+        warn!("log_marf_read_time"; "duration(us)" => duration, "total_writes" => TOTAL_WRITES);
+        }
         log_marf_read_time(duration as f64);
 
         unsafe {

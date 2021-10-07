@@ -855,8 +855,6 @@ impl Burnchain {
         burnchain_db: &mut BurnchainDB,
         block: &BurnchainBlock,
     ) -> Result<BurnchainBlockHeader, burnchain_error> {
-        let bt = backtrace::Backtrace::new();
-        warn!("bt {:?}", bt);
         debug!(
             "Process block {} {}",
             block.block_height(),
