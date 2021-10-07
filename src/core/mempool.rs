@@ -58,9 +58,12 @@ use clarity_vm::clarity::ClarityConnection;
 
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::codec::StacksMessageCodec;
+use crate::cost_estimates;
 use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::EstimatorError;
+use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
 
@@ -307,6 +310,8 @@ pub struct MemPoolDB {
     db: DBConn,
     path: String,
     admitter: MemPoolAdmitter,
+    cost_estimator: Box<dyn CostEstimator>,
+    metric: Box<dyn CostMetric>,
 }
 
 pub struct MemPoolTx<'a> {
@@ -400,12 +405,25 @@ impl MemPoolDB {
             .map(String::from)
     }
 
+    #[cfg(test)]
+    pub fn open_test(
+        mainnet: bool,
+        chain_id: u32,
+        chainstate_path: &str,
+    ) -> Result<MemPoolDB, db_error> {
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
+        MemPoolDB::open(mainnet, chain_id, chainstate_path, estimator, metric)
+    }
+
     /// Open the mempool db within the chainstate directory.
     /// The chainstate must be instantiated already.
     pub fn open(
         mainnet: bool,
         chain_id: u32,
         chainstate_path: &str,
+        cost_estimator: Box<dyn CostEstimator>,
+        metric: Box<dyn CostMetric>,
     ) -> Result<MemPoolDB, db_error> {
         match fs::metadata(chainstate_path) {
             Ok(md) => {
@@ -453,6 +471,8 @@ impl MemPoolDB {
             db: conn,
             path: db_path,
             admitter,
+            cost_estimator,
+            metric,
         })
     }
 
@@ -573,17 +593,12 @@ impl MemPoolDB {
     }
 
     /// Add estimated fee rates to the mempool rate table using
-    /// the supplied `CostMetric` and `CostEstimator`. Will update
+    /// the mempool's configured `CostMetric` and `CostEstimator`. Will update
     /// at most `max_updates` entries in the database before returning.
     ///
     /// Returns `Ok(number_updated)` on success
-    pub fn estimate_tx_rates<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
-        &mut self,
-        estimator: &CE,
-        metric: &CM,
-        max_updates: u32,
-    ) -> Result<u32, db_error> {
-        let sql_tx = self.tx_begin()?;
+    pub fn estimate_tx_rates(&mut self, max_updates: u32) -> Result<u32, db_error> {
+        let sql_tx = tx_begin_immediate(&mut self.db)?;
         let txs: Vec<MemPoolTxInfo> = query_rows(
             &sql_tx,
             "SELECT * FROM mempool as m LEFT OUTER JOIN fee_estimates as f ON
@@ -593,8 +608,13 @@ impl MemPoolDB {
         let mut updated = 0;
         for tx_to_estimate in txs {
             let txid = tx_to_estimate.tx.txid();
-            let cost_estimate = match estimator.estimate_cost(&tx_to_estimate.tx.payload) {
-                Ok(x) => x,
+            let estimator_result = cost_estimates::estimate_fee_rate(
+                &tx_to_estimate.tx,
+                self.cost_estimator.as_ref(),
+                self.metric.as_ref(),
+            );
+            let fee_rate_f64 = match estimator_result {
+                Ok(x) => Some(x),
                 Err(EstimatorError::NoEstimateAvailable) => continue,
                 Err(e) => {
                     warn!("Error while estimating mempool tx rate";
@@ -603,9 +623,6 @@ impl MemPoolDB {
                     continue;
                 }
             };
-            let metric_estimate =
-                metric.from_cost_and_len(&cost_estimate, tx_to_estimate.tx.tx_len());
-            let fee_rate_f64 = tx_to_estimate.tx.get_tx_fee() as f64 / metric_estimate as f64;
 
             sql_tx.execute(
                 "INSERT OR REPLACE INTO fee_estimates(txid, fee_rate) VALUES (?, ?)",
@@ -629,7 +646,7 @@ impl MemPoolDB {
     ///
     ///  Returns the number of transactions considered on success.
     pub fn iterate_candidates<F, E, C>(
-        &self,
+        &mut self,
         clarity_tx: &mut C,
         _tip_height: u64,
         settings: MemPoolWalkSettings,
@@ -637,7 +654,7 @@ impl MemPoolDB {
     ) -> Result<u64, E>
     where
         C: ClarityConnection,
-        F: FnMut(&mut C, &ConsiderTransaction) -> Result<bool, E>,
+        F: FnMut(&mut C, &ConsiderTransaction, &mut dyn CostEstimator) -> Result<bool, E>,
         E: From<db_error> + From<ChainstateError>,
     {
         let start_time = Instant::now();
@@ -683,7 +700,7 @@ impl MemPoolDB {
                            "size" => consider.tx.metadata.len);
                     total_considered += 1;
 
-                    if !todo(clarity_tx, &consider)? {
+                    if !todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
                         debug!("Mempool iteration early exit from iterator");
                         break;
                     }
@@ -1045,6 +1062,7 @@ impl MemPoolDB {
         tx: &StacksTransaction,
         do_admission_checks: bool,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        fee_rate_estimate: Option<f64>,
     ) -> Result<(), MemPoolRejection> {
         test_debug!(
             "Mempool submit {} at {}/{}",
@@ -1112,6 +1130,13 @@ impl MemPoolDB {
             event_observer,
         )?;
 
+        mempool_tx
+            .execute(
+                "INSERT OR REPLACE INTO fee_estimates(txid, fee_rate) VALUES (?, ?)",
+                rusqlite::params![&txid, fee_rate_estimate],
+            )
+            .map_err(db_error::from)?;
+
         if let Err(e) = monitoring::mempool_accepted(&txid, &chainstate.root_path) {
             warn!("Failed to monitor TX receive: {:?}", e; "txid" => %txid);
         }
@@ -1128,7 +1153,27 @@ impl MemPoolDB {
         tx: &StacksTransaction,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), MemPoolRejection> {
+        let estimator_result = cost_estimates::estimate_fee_rate(
+            tx,
+            self.cost_estimator.as_ref(),
+            self.metric.as_ref(),
+        );
+
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
+
+        let fee_rate = match estimator_result {
+            Ok(x) => Some(x),
+            Err(EstimatorError::NoEstimateAvailable) => None,
+            Err(e) => {
+                warn!("Error while estimating mempool tx rate";
+                      "txid" => %tx.txid(),
+                      "error" => ?e);
+                return Err(MemPoolRejection::Other(
+                    "Failed to estimate mempool tx rate".into(),
+                ));
+            }
+        };
+
         MemPoolDB::tx_submit(
             &mut mempool_tx,
             chainstate,
@@ -1137,12 +1182,15 @@ impl MemPoolDB {
             tx,
             true,
             event_observer,
+            fee_rate,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
     }
 
     /// Directly submit to the mempool, and don't do any admissions checks.
+    /// This method is only used during testing, but because it is used by the
+    ///  integration tests, it cannot be marked #[cfg(test)].
     pub fn submit_raw(
         &mut self,
         chainstate: &mut StacksChainState,
@@ -1153,7 +1201,27 @@ impl MemPoolDB {
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(MemPoolRejection::DeserializationFailure)?;
 
+        let estimator_result = cost_estimates::estimate_fee_rate(
+            &tx,
+            self.cost_estimator.as_ref(),
+            self.metric.as_ref(),
+        );
+
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
+
+        let fee_rate = match estimator_result {
+            Ok(x) => Some(x),
+            Err(EstimatorError::NoEstimateAvailable) => None,
+            Err(e) => {
+                warn!("Error while estimating mempool tx rate";
+                      "txid" => %tx.txid(),
+                      "error" => ?e);
+                return Err(MemPoolRejection::Other(
+                    "Failed to estimate mempool tx rate".into(),
+                ));
+            }
+        };
+
         MemPoolDB::tx_submit(
             &mut mempool_tx,
             chainstate,
@@ -1162,6 +1230,7 @@ impl MemPoolDB {
             &tx,
             false,
             None,
+            fee_rate,
         )?;
         mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
         Ok(())
@@ -1263,7 +1332,7 @@ mod tests {
     fn mempool_db_init() {
         let _chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_init");
         let chainstate_path = chainstate_path("mempool_db_init");
-        let _mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+        let _mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     }
 
     fn make_block(
@@ -1367,7 +1436,7 @@ mod tests {
         let b_4 = make_block(&mut chainstate, ConsensusHash([0x4; 20]), &b_3, 4, 3);
 
         let chainstate_path = chainstate_path("mempool_walk_over_fork");
-        let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+        let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
         let mut all_txs = codec_all_transactions(
             &TransactionVersion::Testnet,
@@ -1460,7 +1529,7 @@ mod tests {
                         clarity_conn,
                         2,
                         mempool_settings.clone(),
-                        |_, available_tx| {
+                        |_, available_tx, _| {
                             count_txs += 1;
                             Ok(true)
                         },
@@ -1485,7 +1554,7 @@ mod tests {
                         clarity_conn,
                         2,
                         mempool_settings.clone(),
-                        |_, available_tx| {
+                        |_, available_tx, _| {
                             count_txs += 1;
                             Ok(true)
                         },
@@ -1509,7 +1578,7 @@ mod tests {
                         clarity_conn,
                         3,
                         mempool_settings.clone(),
-                        |_, available_tx| {
+                        |_, available_tx, _| {
                             count_txs += 1;
                             Ok(true)
                         },
@@ -1538,7 +1607,7 @@ mod tests {
                         clarity_conn,
                         2,
                         mempool_settings.clone(),
-                        |_, available_tx| {
+                        |_, available_tx, _| {
                             count_txs += 1;
                             Ok(true)
                         },
@@ -1565,7 +1634,7 @@ mod tests {
                         clarity_conn,
                         3,
                         mempool_settings.clone(),
-                        |_, available_tx| {
+                        |_, available_tx, _| {
                             count_txs += 1;
                             Ok(true)
                         },
@@ -1718,7 +1787,7 @@ mod tests {
         let b_3 = make_block(&mut chainstate, ConsensusHash([0x3; 20]), &b_1, 1, 1);
 
         let chainstate_path = chainstate_path("mempool_do_not_replace_tx");
-        let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+        let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
         let mut txs = codec_all_transactions(
             &TransactionVersion::Testnet,
@@ -1815,7 +1884,7 @@ mod tests {
         let mut chainstate =
             instantiate_chainstate(false, 0x80000000, "mempool_db_load_store_replace_tx");
         let chainstate_path = chainstate_path("mempool_db_load_store_replace_tx");
-        let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+        let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
         let mut txs = codec_all_transactions(
             &TransactionVersion::Testnet,
@@ -2064,7 +2133,7 @@ mod tests {
     fn mempool_db_test_rbf() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_test_rbf");
         let chainstate_path = chainstate_path("mempool_db_test_rbf");
-        let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+        let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
         // create initial transaction
         let mut mempool_tx = mempool.tx_begin().unwrap();

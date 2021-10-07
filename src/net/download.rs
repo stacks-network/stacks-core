@@ -3668,13 +3668,10 @@ pub mod test {
                                         Some(microblock_stream[i - 1].header.clone());
 
                                     let mut mempool =
-                                        MemPoolDB::open(false, 0x80000000, &chainstate_path)
+                                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path)
                                             .unwrap();
                                     let coinbase_tx =
                                         make_coinbase_with_nonce(miner, i, (i + 2) as u64);
-
-                                    let mut estimator = UnitEstimator;
-                                    let metric = UnitMetric;
 
                                     let (anchored_block, block_size, block_execution_cost) =
                                         StacksBlockBuilder::build_anchored_block(
@@ -3688,8 +3685,6 @@ pub mod test {
                                             &coinbase_tx,
                                             BlockBuilderSettings::max_value(),
                                             None,
-                                            &mut estimator,
-                                            &metric,
                                         )
                                         .unwrap();
                                     (anchored_block, vec![])

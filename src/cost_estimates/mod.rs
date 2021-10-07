@@ -20,6 +20,9 @@ pub mod pessimistic;
 #[cfg(test)]
 pub mod tests;
 
+use crate::chainstate::stacks::StacksTransaction;
+
+use self::metrics::CostMetric;
 pub use self::pessimistic::PessimisticEstimator;
 
 /// This trait is for implementation of *fee rate* estimation: estimators should
@@ -84,6 +87,18 @@ impl Add for FeeRateEstimate {
             slow: saturating_f64_math(self.slow + rhs.slow),
         }
     }
+}
+
+/// Given a cost estimator and a scalar metric, estimate the fee rate for
+///  the provided transaction
+pub fn estimate_fee_rate<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
+    tx: &StacksTransaction,
+    estimator: &CE,
+    metric: &CM,
+) -> Result<f64, EstimatorError> {
+    let cost_estimate = estimator.estimate_cost(&tx.payload)?;
+    let metric_estimate = metric.from_cost_and_len(&cost_estimate, tx.tx_len());
+    Ok(tx.get_tx_fee() as f64 / metric_estimate as f64)
 }
 
 /// This trait is for implementation of *execution cost* estimation. CostEstimators

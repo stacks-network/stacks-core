@@ -448,12 +448,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
         return self.make_next_microblock(txs_included, miner_key);
     }
 
-    pub fn mine_next_microblock<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
+    pub fn mine_next_microblock(
         &mut self,
         mem_pool: &mut MemPoolDB,
         miner_key: &Secp256k1PrivateKey,
-        estimator: &mut CE,
-        metric: &CM,
     ) -> Result<StacksMicroblock, Error> {
         let mut txs_included = vec![];
         let mempool_settings = self.settings.mempool_settings.clone();
@@ -475,7 +473,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
 
         mem_pool.reset_last_known_nonces()?;
-        mem_pool.estimate_tx_rates(estimator, metric, 100)?;
+        mem_pool.estimate_tx_rates(100)?;
 
         debug!(
             "Microblock transaction selection begins (child of {}), bytes so far: {}",
@@ -489,7 +487,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     &mut clarity_tx,
                     self.anchor_block_height,
                     mempool_settings.clone(),
-                    |clarity_tx, to_consider| {
+                    |clarity_tx, to_consider, estimator| {
                         let mempool_tx = &to_consider.tx;
                         let update_estimator = to_consider.update_estimate;
 
@@ -1444,7 +1442,7 @@ impl StacksBlockBuilder {
 
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
-    pub fn build_anchored_block<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
+    pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
         burn_dbconn: &SortitionDBConn,
         mempool: &mut MemPoolDB,
@@ -1455,8 +1453,6 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        estimator: &mut CE,
-        metric: &CM,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         let execution_budget = settings.execution_cost;
         let mempool_settings = settings.mempool_settings;
@@ -1496,7 +1492,7 @@ impl StacksBlockBuilder {
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
         mempool.reset_last_known_nonces()?;
-        mempool.estimate_tx_rates(estimator, metric, 100)?;
+        mempool.estimate_tx_rates(100)?;
 
         let mut considered = HashSet::new(); // txids of all transactions we looked at
         let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
@@ -1520,7 +1516,7 @@ impl StacksBlockBuilder {
                     &mut epoch_tx,
                     tip_height,
                     mempool_settings.clone(),
-                    |epoch_tx, to_consider| {
+                    |epoch_tx, to_consider, estimator| {
                         let txinfo = &to_consider.tx;
                         let update_estimator = to_consider.update_estimate;
 
@@ -6453,12 +6449,10 @@ pub mod test {
                         }
                     };
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                     let coinbase_tx = make_coinbase(miner, tenure_id);
-
-                    let mut estimator = UnitEstimator;
-                    let metric = UnitMetric;
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
@@ -6471,8 +6465,6 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
-                        &mut estimator,
-                        &metric,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -6562,7 +6554,8 @@ pub mod test {
                     let parent_header_hash = parent_tip.anchored_header.block_hash();
                     let parent_consensus_hash = parent_tip.consensus_hash.clone();
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
@@ -6587,9 +6580,6 @@ pub mod test {
                             .unwrap();
                     }
 
-                    let mut estimator = UnitEstimator;
-                    let metric = UnitMetric;
-
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
@@ -6601,8 +6591,6 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
-                        &mut estimator,
-                        &metric,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -6705,7 +6693,8 @@ pub mod test {
                     let parent_header_hash = parent_tip.anchored_header.block_hash();
                     let parent_consensus_hash = parent_tip.consensus_hash.clone();
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
@@ -6730,9 +6719,6 @@ pub mod test {
                             .unwrap();
                     }
 
-                    let mut estimator = UnitEstimator;
-                    let metric = UnitMetric;
-
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
@@ -6749,8 +6735,6 @@ pub mod test {
                             ..BlockBuilderSettings::max_value()
                         },
                         None,
-                        &mut estimator,
-                        &metric,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -6847,7 +6831,8 @@ pub mod test {
                     let parent_header_hash = parent_tip.anchored_header.block_hash();
                     let parent_consensus_hash = parent_tip.consensus_hash.clone();
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
@@ -6897,9 +6882,6 @@ pub mod test {
                         sender_nonce += 1;
                     }
 
-                    let mut estimator = UnitEstimator;
-                    let metric = UnitMetric;
-
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
@@ -6911,8 +6893,6 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
-                        &mut estimator,
-                        &metric,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -7046,7 +7026,8 @@ pub mod test {
                     let parent_consensus_hash = parent_tip.consensus_hash.clone();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                     if tenure_id > 0 {
                         let mut expensive_part = vec![];
@@ -7130,9 +7111,6 @@ pub mod test {
                         runtime: 3350,
                     };
 
-                    let mut estimator = UnitEstimator;
-                    let metric = UnitMetric;
-
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
@@ -7144,8 +7122,6 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::limited(execution_cost),
                         None,
-                        &mut estimator,
-                        &metric,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -7208,7 +7184,8 @@ pub mod test {
             1,
             "test_build_anchored_blocks_multiple_chaintips_blank",
         );
-        let mut blank_mempool = MemPoolDB::open(false, 1, &blank_chainstate.root_path).unwrap();
+        let mut blank_mempool =
+            MemPoolDB::open_test(false, 1, &blank_chainstate.root_path).unwrap();
 
         let first_stacks_block_height = {
             let sn =
@@ -7257,7 +7234,8 @@ pub mod test {
                     let parent_consensus_hash = parent_tip.consensus_hash.clone();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                     if tenure_id > 0 {
                         let contract = "
@@ -7293,9 +7271,6 @@ pub mod test {
                             &mut mempool
                         };
 
-                        let mut estimator = UnitEstimator;
-                        let metric = UnitMetric;
-
                         StacksBlockBuilder::build_anchored_block(
                             chainstate,
                             &sortdb.index_conn(),
@@ -7307,8 +7282,6 @@ pub mod test {
                             &coinbase_tx,
                             BlockBuilderSettings::limited(execution_cost),
                             None,
-                            &mut estimator,
-                            &metric,
                         )
                         .unwrap()
                     };
@@ -7404,10 +7377,8 @@ pub mod test {
                     let parent_consensus_hash = parent_tip.consensus_hash.clone();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
-
-                    let mut estimator = UnitEstimator;
-                    let metric = UnitMetric;
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
@@ -7420,8 +7391,6 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
-                        &mut estimator,
-                        &metric,
                     )
                     .unwrap();
 
@@ -7553,7 +7522,8 @@ pub mod test {
                     let parent_consensus_hash = parent_tip.consensus_hash.clone();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                     if tenure_id == 2 {
                         let contract = "
@@ -7613,9 +7583,6 @@ pub mod test {
                         sleep_ms(2000);
                     }
 
-                    let mut estimator = UnitEstimator;
-                    let metric = UnitMetric;
-
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
@@ -7627,8 +7594,6 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
-                        &mut estimator,
-                        &metric,
                     )
                     .unwrap();
 
@@ -7781,16 +7746,12 @@ pub mod test {
                     miner.set_nonce(miner.get_nonce() - ((bad_block_tenure - bad_block_ancestor_tenure) as u64));
                 }
 
-                let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
-                let mut estimator = UnitEstimator;
-                let metric = UnitMetric;
-
-                let mut anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None,
-                        &mut estimator,
-                    &metric,
+                let mut anchored_block = StacksBlockBuilder::build_anchored_block(
+                    chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None,
                 ).unwrap();
 
                 if tenure_id == bad_block_tenure {
@@ -7930,7 +7891,8 @@ pub mod test {
                     let parent_tip_ch = parent_tip.consensus_hash.clone();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                     if tenure_id == 2 {
                         let contract = "
@@ -8052,7 +8014,7 @@ pub mod test {
                         sleep_ms(2000);
                     }
 
-                    let mut estimator = UnitEstimator;
+                    let estimator = UnitEstimator;
                     let metric = UnitMetric;
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
@@ -8066,8 +8028,6 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
-                        &mut estimator,
-                        &metric,
                     )
                     .unwrap();
 
@@ -8196,7 +8156,7 @@ pub mod test {
                     let parent_index_hash = StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
                     let parent_size = parent_tip.anchored_block_size;
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                     let expected_parent_microblock_opt =
                         if tenure_id > 0 {
@@ -8325,10 +8285,6 @@ pub mod test {
 
                     let mblock_pubkey_hash = Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privks[tenure_id]));
 
-
-                                    let mut estimator = UnitEstimator;
-                                    let metric = UnitMetric;
-
                     let (anchored_block, block_size, block_execution_cost) = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
@@ -8340,8 +8296,6 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
-                        &mut estimator,
-                        &metric,
                     )
                     .unwrap();
 
@@ -8529,7 +8483,7 @@ pub mod test {
                     let parent_index_hash = StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
                     let parent_size = parent_tip.anchored_block_size;
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                     let (expected_parent_microblock_opt, fork_1, fork_2) =
                         if tenure_id == 1 {
@@ -8753,10 +8707,6 @@ pub mod test {
                             .unwrap();
                     }
 
-
-                                    let mut estimator = UnitEstimator;
-                                    let metric = UnitMetric;
-
                     let (anchored_block, block_size, block_execution_cost) = StacksBlockBuilder::build_anchored_block(
                         chainstate,
                         &sortdb.index_conn(),
@@ -8768,8 +8718,6 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
-                        &mut estimator,
-                        &metric,
                     )
                     .unwrap();
 
@@ -9028,7 +8976,7 @@ pub mod test {
             runtime: 5_000_000_000,
         };
 
-        let mut mempool = MemPoolDB::open(false, chain_id, &chainstate.root_path).unwrap();
+        let mut mempool = MemPoolDB::open_test(false, chain_id, &chainstate.root_path).unwrap();
 
         let txs_to_push = vec![
             StacksTransaction::new(
@@ -9179,9 +9127,6 @@ pub mod test {
 
             let coinbase_tx = tx_signer.get_tx().unwrap();
 
-            let mut estimator = UnitEstimator;
-            let metric = UnitMetric;
-
             let (block, _cost, _size) = StacksBlockBuilder::build_anchored_block(
                 &chainstate,
                 &burndb.index_conn(),
@@ -9193,8 +9138,6 @@ pub mod test {
                 &coinbase_tx,
                 BlockBuilderSettings::limited(execution_limit.clone()),
                 None,
-                &mut estimator,
-                &metric,
             )
             .unwrap();
 

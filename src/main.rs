@@ -456,8 +456,11 @@ simulating a miner.
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
 
-        let mut mempool_db =
-            MemPoolDB::open(true, chain_id, &chain_state_path).expect("Failed to open mempool db");
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
+
+        let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
+            .expect("Failed to open mempool db");
 
         let stacks_block = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
         let parent_header = StacksChainState::get_anchored_block_header_info(
@@ -488,9 +491,6 @@ simulating a miner.
         settings.max_miner_time_ms = max_time;
         settings.mempool_settings.min_tx_fee = min_fee;
 
-        let mut estimator = UnitEstimator;
-        let metric = UnitMetric;
-
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
             &sort_db.index_conn(),
@@ -502,8 +502,6 @@ simulating a miner.
             &coinbase_tx,
             settings,
             None,
-            &mut estimator,
-            &metric,
         );
 
         let stop = get_epoch_time_ms();

@@ -11,8 +11,6 @@ use stacks::chainstate::stacks::{
     StacksPrivateKey, StacksPublicKey, StacksTransaction,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::cost_estimates::metrics::UnitMetric;
-use stacks::cost_estimates::UnitEstimator;
 use stacks::types::chainstate::VRFSeed;
 use stacks::util::hash::Hash160;
 use stacks::util::vrf::VRFProof;
@@ -86,8 +84,6 @@ impl<'a> Tenure {
         )
         .unwrap();
 
-        let mut estimator = UnitEstimator;
-        let metric = UnitMetric;
         let (anchored_block, _, _) = StacksBlockBuilder::build_anchored_block(
             &mut chain_state,
             burn_dbconn,
@@ -99,8 +95,6 @@ impl<'a> Tenure {
             &self.coinbase_tx,
             BlockBuilderSettings::limited(self.config.block_limit.clone()),
             None,
-            &mut estimator,
-            &metric,
         )
         .unwrap();
 
