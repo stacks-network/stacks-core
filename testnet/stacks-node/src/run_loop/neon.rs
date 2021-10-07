@@ -179,6 +179,7 @@ impl RunLoop {
         warn!("checkpoint");
         let burnchain_config = burnchain.get_burnchain();
         let mut target_burnchain_block_height = 1.max(burnchain_config.first_block_height);
+        warn!("burnchain_config {:?}", burnchain_config);
 
         info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
         match burnchain.start(Some(target_burnchain_block_height)) {

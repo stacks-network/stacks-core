@@ -1157,6 +1157,7 @@ impl Burnchain {
     where
         I: BurnchainIndexer + 'static,
     {
+                warn!("target_block_height_opt {:?}", target_block_height_opt);
         // set up some stuff
         self.setup_chainstate(indexer)?;
 
@@ -1175,9 +1176,12 @@ impl Burnchain {
 
         // Figure out the bitcoin height.
         let db_height = burn_chain_tip.block_height;
+        warn!("db_height {:?}", db_height);
 
         // Sync and understand if there was a reorg.
         let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
+        warn!("sync_height {:?}", sync_height);
+        warn!("did_reorg {:?}", did_reorg);
 
         // if we did a reorg, drop the headers
         if did_reorg {
@@ -1194,15 +1198,18 @@ impl Burnchain {
 
         // fetch all headers, no matter what
         let mut end_block = indexer.sync_headers(sync_height, None)?;
+        warn!("indexer.sync_headers:end_block {}", end_block);
 
         // If we did a re-org, let's wait for some new things.
         if did_reorg && sync_height > 0 {
+            warn!("waiting for new things");
             // a reorg happened, and the last header fetched
             // is on a smaller fork than the one we just
             // invalidated. Wait for more blocks.
             //
             // Until the `end_block` reaches `db_height`.
             while end_block < db_height {
+                warn!("end_block {} db_height {}", end_block, db_height);
                 if let Some(ref should_keep_running) = should_keep_running {
                     // If we should not keep running, then return that CoordinatorClosed.
                     if !should_keep_running.load(Ordering::SeqCst) {
@@ -1211,28 +1218,36 @@ impl Burnchain {
                 }
                 let end_height = target_block_height_opt.unwrap_or(0).max(db_height);
                 info!("Burnchain reorg happened at height {} invalidating chain tip {} but only {} headers presents on canonical chain. Retry in 2s", sync_height, db_height, end_block);
+                warn!("sleeping!");
                 thread::sleep(Duration::from_millis(2000));
+                warn!("sync_height {} end_height {}", sync_height, end_height);
                 end_block = indexer.sync_headers(sync_height, Some(end_height))?;
             }
         }
 
         let mut start_block = sync_height;
+            warn!("db_height {} start_block {}", db_height, start_block);
         if db_height < start_block {
             start_block = db_height;
         }
+            warn!("db_height {} start_block {}", db_height, start_block);
 
-        debug!(
+        warn!(
             "Sync'ed headers from {} to {}. DB at {}",
             sync_height, end_block, db_height
         );
 
         // `target_block_height_opt` is an input to this function
         // we are deciding if this is a "Some" value
+        warn!("target_block_height_opt {:?}", target_block_height_opt);
         if let Some(target_block_height) = target_block_height_opt {
             // `target_block_height` is used as a hint, but could also be completely off
             // in certain situations. This function is directly reading the
             // headers and syncing with the bitcoin-node, and the interval of blocks
             // to download computed here should be considered as our source of truth.
+            warn!("target_block_height {:?}", target_block_height);
+            warn!("start_block {:?}", start_block);
+            warn!("end_block {:?}", end_block);
             if target_block_height > start_block && target_block_height < end_block {
                 debug!(
                     "Will download up to max burn block height {}",
@@ -1249,11 +1264,14 @@ impl Burnchain {
                     target_block_height
                 );
             }
+            warn!("end_block {}", end_block);
         }
 
         // `max_blocks_opt`  is a function input.
         if let Some(max_blocks) = max_blocks_opt {
+            warn!("if check");
             if start_block + max_blocks < end_block {
+            warn!("if check");
                 debug!(
                     "Will download only {} blocks (up to block height {})",
                     max_blocks,
@@ -1261,11 +1279,15 @@ impl Burnchain {
                 );
                 // still figuring out the end_block
                 end_block = start_block + max_blocks;
+                warn!("end_block {:?}", end_block);
             }
         }
 
+                warn!("end_block {:?}", end_block);
+                warn!("start_block {:?}", start_block);
         // nothing to do in this case
         if end_block < start_block {
+            warn!("if check");
             // nothing to do -- go get the burnchain block data at that height
             let mut hdrs = indexer.read_headers(end_block, end_block + 1)?;
             if let Some(hdr) = hdrs.pop() {
@@ -1278,10 +1300,15 @@ impl Burnchain {
             }
         }
 
+                warn!("start_block {:?}", start_block);
+                warn!("end_block {:?}", end_block);
+                warn!("db_height {:?}", db_height);
         if start_block == db_height && db_height == end_block {
+            warn!("if check");
             // all caught up
             return Ok(burn_chain_tip);
         }
+            return Ok(burn_chain_tip);
 
         let total = sync_height - self.first_block_height;
         let progress = (end_block - self.first_block_height) as f32 / total as f32 * 100.;
@@ -1292,6 +1319,7 @@ impl Burnchain {
             progress, start_block, end_block, sync_height
         );
 
+        warn!("we are starting the chains");
         // synchronize
         let (downloader_send, downloader_recv) = sync_channel(1);
         let (parser_send, parser_recv) = sync_channel(1);
@@ -1345,6 +1373,7 @@ impl Burnchain {
         let parse_thread: thread::JoinHandle<Result<(), burnchain_error>> = thread::Builder::new()
             .name("burnchain-parser".to_string())
             .spawn(move || {
+                warn!("target_block_height_opt {:?}", target_block_height_opt);
                 while let Ok(Some(ipc_block)) = parser_recv.recv() {
                     debug!("Try recv next block");
 
