@@ -169,7 +169,7 @@ lazy_static! {
     pub static ref MARF_READ_TIME_HISTOGRAM: Histogram = register_histogram!(histogram_opts!(
         "stacks_node_marf_read_time_histogram",
         "Time (seconds) measuring read latency",
-        vec![300.0, 600.0, 900.0, 1200.0, 1500.0, 1800.0, 2100.0, 2400.0, 2700.0, 3000.0, 3600.0, 4200.0, 4800.0, 6000.0],
+        vec![0.0, 100.0, 200.0, 300.0, 400.0, 600.0, 800.0, 1000.0, 1250.0, 1500.0, 1750.0, 2000.0, 2250.0,2500.0,],
         labels! {"handler".to_string() => "all".to_string(),}
     )).unwrap();
 
