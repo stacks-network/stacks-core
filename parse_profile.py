@@ -4,6 +4,10 @@ import json
 import numpy as np
 import sys
 
+import matplotlib.pyplot as plt  # To visualize
+import pandas as pd  # To read data
+from sklearn.linear_model import LinearRegression
+
 ## Question Docs
 # Q1: How long does it take How long does it take an already-synchronized miner
 #     to broadcast their first good commitment to a new block (i.e., one that builds on the previous winner)?
@@ -113,13 +117,16 @@ def process_events(events):
             block_processing_times.append((event["details"]["timestamp"], event["details"]["start_timestamp"], elapsed))
         # Q7
         elif name == "Node starting up":
-            node_start_time = event["details"]["timestamp"]
+            node_start_time = event["timestamp"]
         elif name == "Node fully caught up":
             if node_startup_time == None and node_start_time != None:
-                node_startup_time = (node_start_time, event["details"]["timestamp"], event["details"]["timestamp"] - node_start_time)
+                node_startup_time = (node_start_time, event["timestamp"], event["timestamp"] - node_start_time)
         # Q8
         elif name == "Miner assembled block":
-            mining_times.append((event["details"]["block_header_hash"], event["details"]["mining_time"]))
+            mempool_size = None
+            if "mempool_size" in event["details"]:
+                mempool_size = event["details"]["mempool_size"]
+            mining_times.append((event["details"]["block_header_hash"], event["details"]["mining_time"], mempool_size))
 
     return (block_tenure_stats, unmatched_block_tenure, tx_costs, block_limit, block_tx_data, microblock_limit_hit,
             anchored_block_limit_hit, block_processing_times, node_startup_time, mining_times)
@@ -458,20 +465,29 @@ def compute_q7(node_startup_data, raw_data_dir):
 
 # Q8: How long does it take a miner to assemble a block?
 def compute_q8(mining_data, raw_data_dir):
-    mining_times = [mining_time for (_, mining_time) in mining_data]
-    data = np.array(mining_times)
-    f_perc = np.percentile(data, 5)
-    avg = np.percentile(data, 50)
-    nf_perc = np.percentile(data, 95)
+    mempool_sizes = np.array([size for (_, _, size) in mining_data])
+    mining_times = np.array([mining_time for (_, mining_time, _) in mining_data])
+    f_perc = np.percentile(mining_times, 5)
+    avg = np.percentile(mining_times, 50)
+    nf_perc = np.percentile(mining_times, 95)
 
     print("\nAnswering Q8: amount of time (in ms) to mine a block")
     print("5th percentile:", f_perc)
     print("50th percentile:", avg)
     print("95th percentile:", nf_perc)
-    print("Num values:", len(mining_times))
+    print("Num values:", len(mining_data))
+
+    # do linear regression to compare the mempool size to the mining times
+    linear_regressor = LinearRegression()
+    linear_regressor.fit(mempool_sizes, mining_times)
+    Y_pred = linear_regressor.predict(mempool_sizes)
+
+    plt.scatter(mempool_sizes, mining_times)
+    plt.plot(mempool_sizes, Y_pred, color='red')
+    plt.show()
 
     file_path = raw_data_dir + "/" +"q8.csv"
-    headers = ["block_header_hash", "mining_time (ms)"]
+    headers = ["block_header_hash", "mining_time (ms)", "mempool_size"]
     with open(file_path, 'w') as f:
         writer = csv.writer(f)
         writer.writerow(headers)
@@ -493,7 +509,7 @@ def compute_stats_from_log_file(file_name="sample_logs.txt", raw_data_dir="raw_d
     compute_q5a(anchored_block_limit_hit, len(mining_times), raw_data_dir)
     compute_q5b(microblock_limit_hit, raw_data_dir)
     compute_q6(block_processing_times, raw_data_dir)
-    compute_q7(node_startup_time)
+    compute_q7(node_startup_time, raw_data_dir)
     compute_q8(mining_times, raw_data_dir)
 
 ##### Call computation functions

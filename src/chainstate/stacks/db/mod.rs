@@ -500,8 +500,6 @@ impl<'a> ChainstateTx<'a> {
             let mut all_events = HashMap::new();
 
             for tx_receipt in events.iter() {
-                info!("exec cost: {:?}", tx_receipt.execution_cost);
-                info!("tx events: {:?}", tx_receipt.events);
                 let serialized_events: String = tx_receipt
                     .events
                     .iter()

@@ -123,7 +123,7 @@ impl RunLoop {
             error!("Error setting termination handler - {}", e);
         }
 
-        if let Some(q) = *PROFILING_ENABLED {
+        if let Some(_) = *PROFILING_ENABLED {
             info!(
                 "Profiler: {}",
                 json!({
