@@ -1,6 +1,7 @@
 FROM stacks-node:integrations
 
+ARG test_name
 ENV BITCOIND_TEST 1
 
-RUN cargo test -- --test-threads 1 --ignored "$TEST_NAME"
+RUN cargo test -- --test-threads 1 --ignored "$test_name"
 
