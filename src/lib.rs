@@ -125,3 +125,4 @@ pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
         std::env::consts::ARCH
     )
 }
+
