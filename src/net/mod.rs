@@ -2237,7 +2237,7 @@ pub mod test {
     impl<'a> TestPeer<'a> {
         pub fn test_path(config: &TestPeerConfig) -> String {
             format!(
-                "/tmp/blockstack-test-peer-{}-{}",
+                "/tmp/stacks-node-tests/units-test-peer/{}-{}",
                 &config.test_name, config.server_port
             )
         }

@@ -37,6 +37,7 @@ use rusqlite::types::{
 };
 use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
@@ -401,6 +402,15 @@ where
 /// rusqlite does not like this).
 pub fn sql_pragma(conn: &Connection, pragma_stmt: &str) -> Result<(), Error> {
     conn.query_row_and_then(pragma_stmt, NO_PARAMS, |_row| Ok(()))
+}
+
+/// Returns true if the database table `table_name` exists in the active
+///  database of the provided SQLite connection.
+pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_error> {
+    let sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=?";
+    conn.query_row(sql, &[table_name], |row| row.get::<_, String>(0))
+        .optional()
+        .map(|r| r.is_some())
 }
 
 /// Set up an on-disk database with a MARF index if they don't exist yet.

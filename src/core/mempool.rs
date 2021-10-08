@@ -66,6 +66,7 @@ use crate::cost_estimates::EstimatorError;
 use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
+use crate::util::db::table_exists;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
@@ -284,10 +285,6 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);",
 ];
 
-const MEMPOOL_SCHEMA_VERSIONED_TEST: &'static str = "
-   SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'
-";
-
 const MEMPOOL_SCHEMA_2: &'static [&'static str] = &[
     r#"
     CREATE TABLE fee_estimates(
@@ -471,11 +468,14 @@ impl MemPoolDB {
             MemPoolDB::instantiate_mempool_db(&mut conn)?;
         }
 
-        let version = MemPoolDB::get_schema_version(&conn)?.unwrap_or(1);
+        let tx = conn.transaction()?;
+        let version = MemPoolDB::get_schema_version(&tx)?.unwrap_or(1);
 
         if version < 2 {
-            MemPoolDB::apply_schema_2(&mut conn)?;
+            MemPoolDB::apply_schema_2(&tx)?;
         }
+
+        tx.commit()?;
 
         Ok(MemPoolDB {
             db: conn,
@@ -487,12 +487,7 @@ impl MemPoolDB {
     }
 
     fn get_schema_version(conn: &DBConn) -> Result<Option<i64>, db_error> {
-        let is_versioned = conn
-            .query_row(MEMPOOL_SCHEMA_VERSIONED_TEST, rusqlite::NO_PARAMS, |row| {
-                row.get::<_, String>(0)
-            })
-            .optional()?
-            .is_some();
+        let is_versioned = table_exists(conn, "schema_version")?;
         if !is_versioned {
             return Ok(None);
         }
@@ -508,14 +503,10 @@ impl MemPoolDB {
         Ok(version)
     }
 
-    fn apply_schema_2(conn: &mut DBConn) -> Result<(), db_error> {
-        let tx = conn.transaction()?;
-
+    fn apply_schema_2(tx: &Transaction) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_2 {
             tx.execute_batch(sql_exec)?;
         }
-
-        tx.commit()?;
 
         Ok(())
     }
