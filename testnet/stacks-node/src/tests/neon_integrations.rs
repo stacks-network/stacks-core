@@ -2128,7 +2128,7 @@ fn mining_transactions_is_fair() {
         let tx = make_stacks_transfer(
             &spender_sks[0],
             i,
-            2000 + (i as u64),
+            2000 * (i as u64 + 1),
             &recipient.into(),
             1000,
         );

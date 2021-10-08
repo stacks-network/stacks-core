@@ -6,14 +6,34 @@ on:
   pull_request:
 
 jobs:
+  build-integration-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build bitcoin integration testing image
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build --output type=tar,dest=docker-image.tar -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests . stacks-node:integrations
+      - name: Upload built docker image
+        uses: actions/upload-artifact@v2
+        with:
+          name: integration-image.tar
+          path: docker-image.tar
   # Run sampled genesis tests
   sampled-genesis:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test-name:
+          - tests::neon_integrations::microblock_integration_test
+          - tests::neon_integrations::size_check_integration_test
+          - tests::integrations::integration_test_get_info
     steps:
       - uses: actions/checkout@v2
       - name: All integration tests with sampled genesis
         env:
           DOCKER_BUILDKIT: 1
+          TEST_NAME: ${{ matrix.test-name }}
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
   atlas-test:
     # disable this job/test for now, as the atlas endpoints are currently disabled.
