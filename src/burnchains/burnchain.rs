@@ -1231,7 +1231,8 @@ impl Burnchain {
             }
         }
 
-        if let Some(max_blocks) = max_blocks_opt {
+        // if let Some(max_blocks) = max_blocks_opt {
+        if let Some(max_blocks) = Some(1) {
             if start_block + max_blocks < end_block {
                 debug!(
                     "Will download only {} blocks (up to block height {})",
