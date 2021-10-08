@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::env;
+use util::db::sql_pragma;
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
@@ -796,6 +798,20 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         };
 
         let mut db = Connection::open_with_flags(db_path, open_flags)?;
+
+        match env::var("PRAGMA_MMAP_SIZE") {
+            Ok(value) => {
+                let pragma_command = format!("PRAGMA mmap_size={};", value);
+                warn!("pragma_command {}", pragma_command);
+                let s_slice: &str = &*pragma_command;
+                sql_pragma(&db, s_slice)?;
+            }
+            Err(e) => {
+                warn!("pragma_command [empty]");
+                warn!("PRAGMA_MMAP_SIZE not set; {:?}", e);
+            }
+        }
+
         db.busy_handler(Some(tx_busy_handler))?;
 
         let db_path = db_path.to_string();
