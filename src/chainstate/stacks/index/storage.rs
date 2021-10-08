@@ -14,11 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::env;
-use util::db::sql_pragma;
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
+use std::env;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -29,6 +28,7 @@ use std::ops::{Deref, DerefMut};
 use std::os;
 use std::path::{Path, PathBuf};
 use std::{cmp, error};
+use util::db::sql_pragma;
 
 use regex::Regex;
 use rusqlite::{
@@ -722,6 +722,7 @@ pub struct TrieFileStorage<T: MarfTrieId> {
     pub test_genesis_block: Option<T>,
 }
 
+static mut already_logged: bool = false;
 impl<T: MarfTrieId> TrieFileStorage<T> {
     pub fn connection<'a>(&'a mut self) -> TrieStorageConnection<'a, T> {
         TrieStorageConnection {
@@ -799,17 +800,28 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
         let mut db = Connection::open_with_flags(db_path, open_flags)?;
 
+        //        let bt = backtrace::Backtrace::new();
+        //        warn!("bt {:?}", bt);
+
         match env::var("PRAGMA_MMAP_SIZE") {
             Ok(value) => {
                 let pragma_command = format!("PRAGMA mmap_size={};", value);
-                warn!("pragma_command {}", pragma_command);
+                unsafe {
+                    if !already_logged {
+                        warn!("pragma_command {}", pragma_command);
+                    }
+                    already_logged = true;
+                }
                 let s_slice: &str = &*pragma_command;
                 sql_pragma(&db, s_slice)?;
             }
-            Err(e) => {
-                warn!("pragma_command [empty]");
-                warn!("PRAGMA_MMAP_SIZE not set; {:?}", e);
-            }
+            Err(e) => unsafe {
+                if !already_logged {
+                    warn!("pragma_command [empty]");
+                    warn!("PRAGMA_MMAP_SIZE not set; {:?}", e);
+                }
+                already_logged = true;
+            },
         }
 
         db.busy_handler(Some(tx_busy_handler))?;

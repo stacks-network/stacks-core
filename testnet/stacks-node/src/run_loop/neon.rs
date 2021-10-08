@@ -397,6 +397,7 @@ impl RunLoop {
             block_height
         );
 
+        // Note: This is the main loop of the thread!
         loop {
             // Orchestrating graceful termination
             if !should_keep_running.load(Ordering::SeqCst) {
