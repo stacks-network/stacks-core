@@ -159,6 +159,7 @@ impl SqliteConnection {
 
 impl SqliteConnection {
     pub fn initialize_conn(conn: &Connection) -> Result<()> {
+        warn!("calling journal_mode");
         conn.query_row("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| Ok(()))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 

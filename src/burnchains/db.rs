@@ -218,6 +218,7 @@ impl BurnchainDB {
 
         if create_flag {
             let db_tx = db.tx_begin()?;
+            warn!("calling journal_mode");
             sql_pragma(&db_tx.sql_tx, "PRAGMA journal_mode = WAL;")?;
             db_tx.sql_tx.execute_batch(BURNCHAIN_DB_INITIAL_SCHEMA)?;
 

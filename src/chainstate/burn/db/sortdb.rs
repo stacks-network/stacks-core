@@ -2101,6 +2101,7 @@ impl SortitionDB {
     ) -> Result<(), db_error> {
         debug!("Instantiate SortDB");
 
+        warn!("calling journal_mode");
         sql_pragma(self.conn(), "PRAGMA journal_mode = WAL;")?;
 
         let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;

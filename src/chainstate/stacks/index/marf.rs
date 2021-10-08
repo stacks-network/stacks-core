@@ -24,6 +24,7 @@ use std::path::PathBuf;
 
 use rusqlite::{Connection, Transaction};
 use sha2::Digest;
+use std::time::{Duration, SystemTime};
 
 use chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash, read_root_hash};
 use chainstate::stacks::index::node::{
@@ -79,7 +80,14 @@ pub trait MarfConnection<T: MarfTrieId> {
 
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
-        self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
+        self.with_conn(|c| {
+            let start = SystemTime::now();
+            let r = MARF::get_by_key(c, block_hash, key);
+            let end = SystemTime::now();
+            let duration = end.duration_since(start).unwrap().as_micros();
+            info!("MARF read"; "db" => c.db_path , "time_micros" => duration);
+            r
+        })
     }
 
     fn get_with_proof(

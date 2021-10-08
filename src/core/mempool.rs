@@ -332,6 +332,7 @@ impl MemPoolTxInfo {
 
 impl MemPoolDB {
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
+        warn!("calling journal_mode");
         sql_pragma(conn, "PRAGMA journal_mode = WAL;")?;
 
         let tx = tx_begin_immediate(conn)?;

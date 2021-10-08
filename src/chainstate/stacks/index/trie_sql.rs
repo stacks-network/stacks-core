@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS block_extension_locks (block_hash TEXT PRIMARY KEY);
 ";
 
 pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
+    warn!("calling journal_mode");
     sql_pragma(conn, "PRAGMA journal_mode = WAL;")?;
 
     let tx = tx_begin_immediate(conn)?;
