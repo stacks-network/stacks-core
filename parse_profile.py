@@ -383,7 +383,7 @@ def compute_q5a(block_limit_hit_data, total_blocks_mined, raw_data_dir):
     print("Num of total blocks:", total_blocks_mined)
     print("Percent breakdown of which limit is hit:", percent_per_dim)
 
-    file_path = raw_data_dir + "/" +"q5.json"
+    file_path = raw_data_dir + "/" +"q5a.json"
     with open(file_path, 'w') as f:
         json.dump(log_data, f)
 
@@ -447,7 +447,7 @@ def compute_q6(processing_times, raw_data_dir):
 
 # Q7: No logging - how long does it take to start a non-sidecar follower from genesis?
 def compute_q7(node_startup_data, raw_data_dir):
-    print("\nAnswering Q7: amount of time (in secs) to start a node from genesis")
+    print("\nAnswering Q7: amount of time (in secs) to start a node (answers will vary based on chainstate dir)")
     print("Elapsed time (secs): ", node_startup_data[2])
 
     file_path = raw_data_dir + "/" +"q7.csv"
