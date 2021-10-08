@@ -1,12 +1,11 @@
 from collections import Counter, defaultdict
 import csv
 import json
+import matplotlib.pyplot as plt
 import numpy as np
+import os
 import sys
 
-import matplotlib.pyplot as plt  # To visualize
-import pandas as pd  # To read data
-from sklearn.linear_model import LinearRegression
 
 ## Question Docs
 # Q1: How long does it take How long does it take an already-synchronized miner
@@ -20,6 +19,23 @@ from sklearn.linear_model import LinearRegression
 # Q6: How long does it take a follower to process an epoch? (logs time in `append_block`)
 # Q7: No logging - how long does it take to start a non-sidecar follower from genesis?
 # Q8: How long does it take a miner to assemble a block?
+
+# Prerequisites: Need to have numpy & matplotlib installed (can install with `pip install _`)
+
+## How to run it
+#   - Run the stacks node (to collect mining data you will have to make sure the node is set up for mock mining)
+#       - collect logs during run. Here's the command I use (it collects debug logs, but does not display them in
+#         std out - this is useful for debugging):
+#       STACKS_LOG_DEBUG=1 ./target/release/stacks-node start --config=testnet/stacks-node/conf/mock-miner-mainnet.toml 2>&1 | tee -i -a "stacks-stats.log" | grep -v "DEBG"
+#   - Grep the relevant lines into a separate file (this just makes this Python program run faster):
+#       grep "Profiler" stacks-stats.log > grepped-stacks-stats.log
+#   - Run this Python program:
+#       python3 parse_profile.py grepped-stacks-stats.log
+
+# Output
+#   - Results of computation appear in std out.
+#   - Raw data files will appear in the directory `raw_data` - the name of this directory is customizable.
+#   - Plot that correlates the mempool size to the mining time will appear in that same directory.
 
 def parse_logs(file_name):
     events = []
@@ -98,14 +114,14 @@ def process_events(events):
             )
             block_tx_data[burn_height] = data
         # Q5a
-        elif name == "Full block":
+        elif name == "Anchored block limit hit":
             anchored_block_limit_hit.append(BlockLimitHit(
                 event["details"]["exceeded_dimensions"],
                 event["details"]["parent_tip_height"],
                 event["details"]["block_limit_hit"],
             ))
         # Q5b
-        elif name == "Full microblock":
+        elif name == "Microblock limit hit":
             microblock_limit_hit.append(MicroblockLimitHit(
                 event["details"]["exceeded_dimensions"],
                 event["details"]["anchored_block_tip_height"],
@@ -252,25 +268,6 @@ def compute_q1_and_q2(data, raw_data_dir):
             row = [data[0], data[1], data[2]]
             writer.writerow(row)
 
-## Test for Q1/ Q2
-## test case:
-#     dummy_block_data = [BlockProduction(2, 5, 2, false), BlockProduction(2, 3, 2, false), BlockProduction(2, 6, 2, true)]
-#     compute_q1(dummy_block_data, dummy_can_chain)
-## expected ans:
-#     Answering Q1: What is the average time a synchronized miner takes to broadcast a block commitment?
-#     Average:  1.0
-#     Answering Q2: What is the average time a synchronized miner takes to broadcast their first good block commitment?
-#     Average:  4.0
-
-## test case:
-#     dummy_block_data = [BlockProduction(2, 5, 2, False), BlockProduction(2, 3, 2, False), BlockProduction(2, 6, 2, True),
-#                         BlockProduction(10, 12, 3, False), BlockProduction(10, 13, 3, True), BlockProduction(10, 12, 3, True)]
-#     compute_q1(dummy_block_data)
-## expected ans:
-#     Answering Q1: What is the average time a synchronized miner takes to broadcast a block commitment?
-#     Average:  1.5
-#     Answering Q2: What is the average time a synchronized miner takes to broadcast their first good block commitment?
-#     Average:  3.0
 
 # Q3:  What distribution of transactions are limited by runtime, read count, write count, etc.?
 # tx_cost_data - a list of ExecutionCost structs (each represents the cost of one transaction
@@ -306,20 +303,6 @@ def compute_q3(tx_cost_data, block_limit, raw_data_dir):
         writer.writerow(headers)
 
         writer.writerows(log_data)
-
-## test case:
-## runtime, read_count, read_length, write_count, write_length
-# dummy_data = [ExecutionCost(32, 34, 10, 10, 13),
-#               ExecutionCost(32, 43, 10, 10, 25),
-#               ExecutionCost(32, 16, 10, 55, 17),
-#               ExecutionCost(32, 12, 33, 10, 22),
-#               ExecutionCost(32, 19, 39, 9, 27)]
-# compute_q3(dummy_data)
-# expected answer
-# Answering Q3: Determine distribution of transactions limited by each cost dimension.
-# read_count 40.0
-# write_count 20.0
-# read_length 40.0
 
 
 class BlockTxData:
@@ -372,30 +355,37 @@ class BlockLimitHit:
 
 # Q5a: If an anchored block's cost limit is hit, this logs which dimension it was.
 # Stats from miner regarding when the block limit is hit for anchored blocks.
-# block_limit_hit_data - a list of maps of the following form:
+# block_limit_hit_data - a list of BlockLimitHit structs (defined above).
 # { "exceeded_dimensions": _,
 #  "parent_tip_height": _,
 #  "block_limit_hit": _ }
 def compute_q5a(block_limit_hit_data, total_blocks_mined, raw_data_dir):
+    log_data = []
     exceeded_dimension_counter = defaultdict(int)
     total_limits_hit = 0
+    num_full_blocks = 0
     for lim_hit in block_limit_hit_data:
+        if lim_hit.block_limit_hit == "CONTRACT_LIMIT_HIT":
+            num_full_blocks += 1
         exceeded_dimensions = lim_hit.exceeded_dimensions.split(";")
         for dim in exceeded_dimensions:
             exceeded_dimension_counter[dim] += 1
             total_limits_hit += 1
+        log_data.append({"exceeded_dimensions": lim_hit.exceeded_dimensions,
+                         "parent_tip_height": lim_hit.parent_tip_height,
+                         "block_limit_hit_state": lim_hit.block_limit_hit})
     percent_per_dim = {}
     for cost_dim, num_hits in exceeded_dimension_counter.items():
         percent_per_dim[cost_dim] = num_hits/total_limits_hit * 100
 
     print("\nAnswering Q5a: stats on full blocks")
-    print("Num of full blocks:", len(block_limit_hit_data))
+    print("Num of full blocks:", num_full_blocks)
     print("Num of total blocks:", total_blocks_mined)
     print("Percent breakdown of which limit is hit:", percent_per_dim)
 
     file_path = raw_data_dir + "/" +"q5.json"
     with open(file_path, 'w') as f:
-        json.dump(block_limit_hit_data, f)
+        json.dump(log_data, f)
 
 class MicroblockLimitHit:
     def __init__(self, exceeded_dimensions, anchor_block_tip_height, sequence_number):
@@ -410,6 +400,7 @@ class MicroblockLimitHit:
 # "anchor_block_tip_height": _,
 # "sequence_number": _ }
 def compute_q5b(microblock_limit_hit_data, raw_data_dir):
+    log_data = []
     exceeded_dimension_counter = defaultdict(int)
     total_limits_hit = 0
     for lim_hit in microblock_limit_hit_data:
@@ -417,6 +408,9 @@ def compute_q5b(microblock_limit_hit_data, raw_data_dir):
         for dim in exceeded_dimensions:
             exceeded_dimension_counter[dim] += 1
             total_limits_hit += 1
+        log_data.append({"exceeded_dimensions": lim_hit.exceeded_dimensions,
+                         "anchor_block_tip_height": lim_hit.anchor_block_tip_height,
+                         "sequence_number": lim_hit.sequence_number})
     percent_per_dim = {}
     for cost_dim, num_hits in exceeded_dimension_counter.items():
         percent_per_dim[cost_dim] = num_hits/total_limits_hit * 100
@@ -427,7 +421,7 @@ def compute_q5b(microblock_limit_hit_data, raw_data_dir):
 
     file_path = raw_data_dir + "/" +"q5b.json"
     with open(file_path, 'w') as f:
-        json.dump(microblock_limit_hit_data, f)
+        json.dump(log_data, f)
 
 # Q6: How long does it take a follower to process an epoch? (logs time in `append_block`)
 def compute_q6(processing_times, raw_data_dir):
@@ -465,8 +459,8 @@ def compute_q7(node_startup_data, raw_data_dir):
 
 # Q8: How long does it take a miner to assemble a block?
 def compute_q8(mining_data, raw_data_dir):
-    mempool_sizes = np.array([size for (_, _, size) in mining_data])
-    mining_times = np.array([mining_time for (_, mining_time, _) in mining_data])
+    mempool_sizes = np.array([int(size) for (_, _, size) in mining_data]).reshape(-1, 1)
+    mining_times = np.array([int(mining_time) for (_, mining_time, _) in mining_data]).reshape(-1, 1)
     f_perc = np.percentile(mining_times, 5)
     avg = np.percentile(mining_times, 50)
     nf_perc = np.percentile(mining_times, 95)
@@ -478,13 +472,21 @@ def compute_q8(mining_data, raw_data_dir):
     print("Num values:", len(mining_data))
 
     # do linear regression to compare the mempool size to the mining times
-    linear_regressor = LinearRegression()
-    linear_regressor.fit(mempool_sizes, mining_times)
-    Y_pred = linear_regressor.predict(mempool_sizes)
-
-    plt.scatter(mempool_sizes, mining_times)
-    plt.plot(mempool_sizes, Y_pred, color='red')
+    m, b = np.polyfit(mempool_sizes[:, 0], mining_times[:, 0], 1)
+    plt.plot(mempool_sizes[:, 0], m*mempool_sizes[:, 0] + b, color="red")
+    plt.scatter(mempool_sizes[:, 0], mining_times[:, 0])
+    plt.xlabel("mempool size")
+    plt.ylabel("mining times (ms)")
+    plt.title("Correlation between mempool size and mining time")
+    plt.tight_layout()
+    fig_path = raw_data_dir + '/mempool_mining.png'
+    plt.savefig(fig_path, dpi=300)
     plt.show()
+
+    print("Correlation of mempool size to mining size:")
+    print("     m:", m)
+    print("     b:", b)
+    print("Plot saved at", fig_path)
 
     file_path = raw_data_dir + "/" +"q8.csv"
     headers = ["block_header_hash", "mining_time (ms)", "mempool_size"]
@@ -502,6 +504,9 @@ def compute_stats_from_log_file(file_name="sample_logs.txt", raw_data_dir="raw_d
     print("Number of created blocks with no matching burn blocks: ", len(unmatched_block_tenure))
 
     print("Starting computation of block stats...")
+
+    if not os.path.exists(raw_data_dir):
+        os.makedirs(raw_data_dir)
 
     compute_q1_and_q2(block_tenure_stats, raw_data_dir)
     compute_q3(tx_costs, block_limit, raw_data_dir)
