@@ -447,7 +447,7 @@ def compute_q6(processing_times, raw_data_dir):
 
 # Q7: No logging - how long does it take to start a non-sidecar follower from genesis?
 def compute_q7(node_startup_data, raw_data_dir):
-    print("\nAnswering Q7: amount of time (in secs) to start a node (answers will vary based on chainstate dir)")
+    print("\nAnswering Q7: amount of time (in secs) to start a node/ sync to burnchain tip (answers will vary based on chainstate dir)")
     print("Elapsed time (secs): ", node_startup_data[2])
 
     file_path = raw_data_dir + "/" +"q7.csv"
