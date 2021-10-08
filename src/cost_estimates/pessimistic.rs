@@ -226,27 +226,6 @@ impl CostEstimator for PessimisticEstimator {
         tx: &TransactionPayload,
         actual_cost: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
-        if false {
-            // only log the estimate error if an estimate could be constructed
-            if let Ok(estimated_cost) = self.estimate_cost(tx) {
-                let estimated_scalar = estimated_cost
-                    .proportion_dot_product(&BLOCK_LIMIT_MAINNET, PROPORTION_RESOLUTION);
-                let actual_scalar =
-                    actual_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET, PROPORTION_RESOLUTION);
-                info!("PessimisticEstimator received event";
-                      "key" => %PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost),
-                      "estimate" => estimated_scalar,
-                      "actual" => actual_scalar,
-                      "estimate_err" => (estimated_scalar as i64 - actual_scalar as i64),
-                      "estimate_err_pct" => (estimated_scalar as i64 - actual_scalar as i64)/(cmp::max(1, actual_scalar as i64)),);
-                for field in CostField::ALL.iter() {
-                    info!("New data event received";
-                          "key" => %PessimisticEstimator::get_estimate_key(tx, field),
-                          "value" => field.select_key(actual_cost));
-                }
-            }
-        }
-
         let sql_tx = tx_begin_immediate_sqlite(&mut self.db)?;
         for field in CostField::ALL.iter() {
             let key = PessimisticEstimator::get_estimate_key(tx, field);
