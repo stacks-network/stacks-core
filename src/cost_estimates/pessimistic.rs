@@ -226,7 +226,7 @@ impl CostEstimator for PessimisticEstimator {
         tx: &TransactionPayload,
         actual_cost: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
-        if self.log_error {
+        if false {
             // only log the estimate error if an estimate could be constructed
             if let Ok(estimated_cost) = self.estimate_cost(tx) {
                 let estimated_scalar = estimated_cost
