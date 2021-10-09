@@ -2147,6 +2147,9 @@ fn mining_transactions_is_fair() {
         });
     }
 
+    // don't RBF!
+    conf.burnchain.max_rbf = 1;
+
     // all transactions have high-enough fees...
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = u64::max_value();
@@ -2200,7 +2203,6 @@ fn mining_transactions_is_fair() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // the lower-fee origin should *not* be the last transaction added
     let blocks = test_observer::get_blocks();
 
     let mut found_sender_1 = false;

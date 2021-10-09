@@ -1110,7 +1110,7 @@ impl Default for FeeEstimationConfig {
             cost_estimator: Some(CostEstimatorName::default()),
             fee_estimator: Some(FeeEstimatorName::default()),
             cost_metric: Some(CostMetricName::default()),
-            log_error: true,
+            log_error: false,
         }
     }
 }
@@ -1137,7 +1137,7 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
             .cost_metric
             .map(CostMetricName::panic_parse)
             .unwrap_or_default();
-        let log_error = f.log_error.unwrap_or(true);
+        let log_error = f.log_error.unwrap_or(false);
         Self {
             cost_estimator: Some(cost_estimator),
             fee_estimator: Some(fee_estimator),

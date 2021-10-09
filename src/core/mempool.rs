@@ -551,7 +551,7 @@ impl MemPoolDB {
     }
 
     fn get_next_tx_to_consider(&self) -> Result<ConsiderTransactionResult, db_error> {
-        let select_estimate = "SELECT * FROM mempool LEFT OUTER JOIN fee_estimates as f WHERE
+        let select_estimate = "SELECT * FROM mempool LEFT OUTER JOIN fee_estimates as f ON mempool.txid = f.txid WHERE
                    ((origin_nonce = last_known_origin_nonce AND
                      sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
                    AND f.fee_rate IS NOT NULL ORDER BY f.fee_rate DESC LIMIT 1";
