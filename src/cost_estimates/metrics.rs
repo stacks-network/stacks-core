@@ -53,7 +53,7 @@ impl ProportionalDotProduct {
         //  use MIN(1, self/block_limit) to guard against self > block_limit
         let len_proportion = PROPORTION_RESOLUTION as f64
             * 1_f64.min(tx_len as f64 / 1_f64.max(self.block_size_limit as f64));
-        len_proportion as u64
+        cmp::max(len_proportion as u64, 1)
     }
 }
 

@@ -1018,7 +1018,8 @@ impl ExecutionCost {
         ]
         .iter()
         .fold(0, |acc, dim| {
-            acc.checked_add(*dim as u64).unwrap_or(u64::MAX)
+            acc.checked_add(cmp::max(*dim as u64, 1))
+                .unwrap_or(u64::MAX)
         })
     }
 

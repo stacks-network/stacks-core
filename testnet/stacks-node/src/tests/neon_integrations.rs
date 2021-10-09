@@ -2125,13 +2125,7 @@ fn mining_transactions_is_fair() {
 
     // spender 0 sends 20 txs, at over 2000 uSTX tx fee
     for i in 0..20 {
-        let tx = make_stacks_transfer(
-            &spender_sks[0],
-            i,
-            2000 * (i as u64 + 1),
-            &recipient.into(),
-            1000,
-        );
+        let tx = make_stacks_transfer(&spender_sks[0], i, 2000 * (21 - i), &recipient.into(), 1000);
         txs.push(tx);
     }
 
@@ -2146,9 +2140,6 @@ fn mining_transactions_is_fair() {
             amount: 1049230,
         });
     }
-
-    // don't RBF!
-    conf.burnchain.max_rbf = 1;
 
     // all transactions have high-enough fees...
     conf.miner.min_tx_fee = 1;
