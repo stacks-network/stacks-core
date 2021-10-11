@@ -238,9 +238,9 @@ pub fn new_test_conf() -> Config {
 
     let mut conf = Config::default();
     conf.node.working_dir = format!(
-        "/tmp/stacks-node-tests/{}-{}",
-        get_epoch_time_secs(),
-        to_hex(&buf)
+        "/tmp/stacks-node-tests/integrations-neon/{}-{}",
+        to_hex(&buf),
+        get_epoch_time_secs()
     );
     conf.node.seed =
         hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();

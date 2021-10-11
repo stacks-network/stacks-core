@@ -2125,13 +2125,7 @@ fn mining_transactions_is_fair() {
 
     // spender 0 sends 20 txs, at over 2000 uSTX tx fee
     for i in 0..20 {
-        let tx = make_stacks_transfer(
-            &spender_sks[0],
-            i,
-            2000 + (i as u64),
-            &recipient.into(),
-            1000,
-        );
+        let tx = make_stacks_transfer(&spender_sks[0], i, 2000 * (21 - i), &recipient.into(), 1000);
         txs.push(tx);
     }
 
@@ -2200,7 +2194,6 @@ fn mining_transactions_is_fair() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // the lower-fee origin should *not* be the last transaction added
     let blocks = test_observer::get_blocks();
 
     let mut found_sender_1 = false;
