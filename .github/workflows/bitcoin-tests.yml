@@ -58,6 +58,7 @@ jobs:
       - name: Load docker image
         run: docker load -i integration-image.tar && rm integration-image.tar
       - name: All integration tests with sampled genesis
+        timeout-minutes: 30
         env:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}

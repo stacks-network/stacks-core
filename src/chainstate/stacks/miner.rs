@@ -1655,16 +1655,19 @@ impl StacksBlockBuilder {
         let ts_end = get_epoch_time_ms();
 
         debug!(
-            "Miner: mined anchored block {} height {} with {} txs, parent block {}, parent microblock {} ({}), size {}, consumed {:?}, in {}ms",
-            block.block_hash(),
-            block.header.total_work.work,
-            block.txs.len(),
-            &block.header.parent_block,
-            &block.header.parent_microblock,
-            block.header.parent_microblock_sequence,
-            size,
-            &consumed,
-            ts_end.saturating_sub(ts_start);
+            "Miner: mined anchored block";
+            "block_hash" => %block.block_hash(),
+            "height" => block.header.total_work.work,
+            "tx_count" => block.txs.len(),
+            "parent_stacks_block_hash" => %block.header.parent_block,
+            "parent_stacks_microblock" => %block.header.parent_microblock,
+            "parent_stacks_microblock_seq" => block.header.parent_microblock_sequence,
+            "block_size" => size,
+            "execution_consumed" => %consumed,
+            "assembly_time_ms" => ts_end.saturating_sub(ts_start),
+            "tx_fees_microstacks" => block.txs.iter().fold(0, |agg: u64, tx| {
+                agg.saturating_add(tx.get_tx_fee())
+            })
         );
 
         Ok((block, consumed, size))
