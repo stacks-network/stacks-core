@@ -93,6 +93,7 @@ pub mod deps;
 
 pub mod clarity;
 
+pub mod cost_estimates;
 pub mod monitoring;
 pub mod types;
 

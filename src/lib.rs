@@ -95,6 +95,8 @@ pub mod clarity;
 pub mod monitoring;
 pub mod types;
 
+pub mod cost_estimates;
+
 // set via _compile-time_ envars
 const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
 const GIT_COMMIT: Option<&'static str> = option_env!("GIT_COMMIT");
