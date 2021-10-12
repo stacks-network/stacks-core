@@ -589,6 +589,8 @@ impl ConversationHttp {
         chainstate: &StacksChainState,
         handler_args: &RPCHandlerArgs,
     ) -> Result<(), net_error> {
+        let bt = backtrace::Backtrace::new();
+        warn!("bt {:?}", bt);
         let response_metadata = HttpResponseMetadata::from(req);
         let pi = RPCPeerInfoData::from_network(
             network,
