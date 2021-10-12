@@ -76,7 +76,16 @@ pub fn tuple_get(
     }
 }
 
-pub fn tuple_merge(base: Value, update: Value) -> Result<Value> {
+pub fn tuple_merge(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    let base = eval(&args[0], env, context)?;
+    let update = eval(&args[1], env, context)?;
+
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
         _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&base))),
@@ -88,5 +97,8 @@ pub fn tuple_merge(base: Value, update: Value) -> Result<Value> {
     }?;
 
     let combined = TupleData::shallow_merge(initial_values, new_values)?;
+
+    runtime_cost(ClarityCostFunction::TupleMerge, env, combined.len())?;
+
     Ok(Value::Tuple(combined))
 }

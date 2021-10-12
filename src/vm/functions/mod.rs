@@ -258,11 +258,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             DeleteEntry => SpecialFunction("special_delete-entry", &database::special_delete_entry),
             TupleCons => SpecialFunction("special_tuple", &tuples::tuple_cons),
             TupleGet => SpecialFunction("special_get-tuple", &tuples::tuple_get),
-            TupleMerge => NativeFunction(
-                "native_merge-tuple",
-                NativeHandle::DoubleArg(&tuples::tuple_merge),
-                ClarityCostFunction::TupleMerge,
-            ),
+            TupleMerge => SpecialFunction("special_merge-tuple", &tuples::tuple_merge),
             Begin => NativeFunction(
                 "native_begin",
                 NativeHandle::MoreArg(&native_begin),
