@@ -50,8 +50,7 @@ jobs:
           - tests::neon_integrations::filter_long_runtime_tx_integration_test
           - tests::neon_integrations::mining_transactions_is_fair
     steps:
-      - uses: actions/checkout@v2
-      - name: Download math result for job 1
+      - name: Download docker image
         uses: actions/download-artifact@v2
         with:
           name: integration-image.tar
@@ -67,9 +66,23 @@ jobs:
     # disable this job/test for now, as the atlas endpoints are currently disabled.
     if: ${{ true }}
     runs-on: ubuntu-latest
+    needs:
+      - build-integration-image
+    strategy:
+      matrix:
+        test-name:
+          - tests::neon_integrations::atlas_integration_test
+          - tests::neon_integrations::atlas_stress_integration_test
     steps:
-      - uses: actions/checkout@v2
-      - name: All integration tests with sampled genesis
+      - name: Download docker image
+        uses: actions/download-artifact@v2
+        with:
+          name: integration-image.tar
+      - name: Load docker image
+        run: docker load -i integration-image.tar && rm integration-image.tar
+      - name: Atlas integration tests
+        timeout-minutes: 40
         env:
           DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.atlas-test .
+          TEST_NAME: ${{ matrix.test-name }}
+        run: docker build --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
