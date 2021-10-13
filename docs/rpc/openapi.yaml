@@ -335,10 +335,10 @@ paths:
           description: Estimated fees for the transaction
           content:
             application/json:
-            schema:
-              $ref: ./api/core-node/post-fee-transaction-response.schema.json
-            example:
-              $ref: ./api/core-node/post-fee-transaction-response.example.json
+              schema:
+                $ref: ./api/core-node/post-fee-transaction-response.schema.json
+              example:
+                $ref: ./api/core-node/post-fee-transaction-response.example.json
 
   /v2/fees/transfer:
     get:
