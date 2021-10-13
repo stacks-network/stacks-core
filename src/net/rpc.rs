@@ -24,6 +24,7 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
+use std::time::Instant;
 use std::{convert::TryFrom, fmt};
 
 use rand::prelude::*;
@@ -1600,8 +1601,8 @@ impl ConversationHttp {
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
-        tx: &TransactionPayload,
         handler_args: &RPCHandlerArgs,
+        tx: &TransactionPayload,
         estimated_len: u64,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
@@ -1637,11 +1638,14 @@ impl ConversationHttp {
                 RPCFeeEstimateResponse {
                     estimated_cost,
                     estimated_fees,
+                    estimated_cost_scalar: scalar_cost,
                     estimated_fee_rates: fee_rates,
+                    cost_scalar_change_by_byte: metric.change_per_byte(),
                 },
             );
             response.send(http, fd)
         } else {
+            debug!("Fee and cost estimation not configured on this stacks node");
             let response = HttpResponseType::BadRequestJSON(
                 response_metadata,
                 json!({
@@ -2085,6 +2089,17 @@ impl ConversationHttp {
                         contract_name,
                     )?;
                 }
+                None
+            }
+            HttpRequestType::FeeRateEstimate(ref _md, ref tx, estimated_len) => {
+                ConversationHttp::handle_post_fee_rate_estimate(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    handler_opts,
+                    tx,
+                    estimated_len,
+                )?;
                 None
             }
             HttpRequestType::CallReadOnlyFunction(
@@ -2585,9 +2600,14 @@ impl ConversationHttp {
                     // new request
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
+                    let start_time = Instant::now();
+                    let path = req.get_path();
                     let msg_opt = monitoring::instrument_http_request_handler(req, |req| {
                         self.handle_request(req, network, sortdb, chainstate, mempool, handler_args)
                     })?;
+
+                    debug!("Processed HTTPRequest"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis());
+
                     if let Some(msg) = msg_opt {
                         ret.push(msg);
                     }

@@ -7,6 +7,9 @@ use crate::vm::costs::ExecutionCost;
 pub trait CostMetric: Send {
     fn from_cost_and_len(&self, cost: &ExecutionCost, tx_len: u64) -> u64;
     fn from_len(&self, tx_len: u64) -> u64;
+    /// Should return the amount that a metric result will change per
+    ///  additional byte in the transaction length
+    fn change_per_byte(&self) -> f64;
 }
 
 impl CostMetric for Box<dyn CostMetric> {
@@ -16,6 +19,10 @@ impl CostMetric for Box<dyn CostMetric> {
 
     fn from_len(&self, tx_len: u64) -> u64 {
         self.as_ref().from_len(tx_len)
+    }
+
+    fn change_per_byte(&self) -> f64 {
+        self.as_ref().change_per_byte()
     }
 }
 
@@ -68,6 +75,10 @@ impl CostMetric for ProportionalDotProduct {
     fn from_len(&self, tx_len: u64) -> u64 {
         self.calculate_len_proportion(tx_len)
     }
+
+    fn change_per_byte(&self) -> f64 {
+        (PROPORTION_RESOLUTION as f64) / 1_f64.max(self.block_size_limit as f64)
+    }
 }
 
 impl CostMetric for UnitMetric {
@@ -77,5 +88,9 @@ impl CostMetric for UnitMetric {
 
     fn from_len(&self, _tx_len: u64) -> u64 {
         1
+    }
+
+    fn change_per_byte(&self) -> f64 {
+        0f64
     }
 }

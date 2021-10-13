@@ -276,6 +276,71 @@ paths:
               example:
                 $ref: ./api/core-node/get-account-data.example.json
 
+  /v2/fees/transaction:
+    post:
+      summary: Get approximate fees for the given transaction
+      tags:
+        - Fees
+      description: |
+        Get an estimated fee for that supplied transaction.  This
+        estimates the execution cost of the transaction, the current
+        fee rate of the network, and returns estimates for fee
+        amounts.
+
+        * `transaction_payload` is a hex-encoded serialization of
+          the TransactionPayload for the transaction.
+        * `estimated_len` is an optional argument that provides the
+          endpoint 
+
+        If the node cannot provide an estimate for the transaction
+        (e.g., if the node has never seen a contract-call for the
+        given contract and function) or if estimation is not
+        configured on this node, a 400 response is returned.
+
+        The 200 response contains the following data:
+
+        * `estimated_cost` - the estimated multi-dimensional cost of
+          executing the Clarity VM on the provided transaction.
+        * `estimated_cost_scalar` - an integer that captures the total
+          proportion of the block limit that a transaction would be
+          estimated to consume. This value is multiplied by a fee rate
+          to suggest the total fee amount to be paid by the node. This
+          incorporates the estimated transaction length.
+        * `cost_scalar_change_by_byte` - a float value that indicates how
+          much the `estimated_cost_scalar` value would increase for every
+          additional byte in the final transaction.
+        * `estimated_fee_rates` - three estimated values for the current
+          fee rates in the network
+        * `estimated_fees` - three estimated values for the total fee that
+          the given transaction should pay. These values are the result of
+          computing: `estimated_fee_rates` x `estimated_cost_scalar`
+
+
+        Note: If the final transaction's byte size is larger than
+        supplied to `estimated_len`, then applications should increase
+        this fee amount by:
+
+          `fee_rate` x `cost_scalar_change_by_byte` x (`final_size` - `estimated_size`)
+
+      description:  
+      operationId: post_fee_transaction
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: ./api/core-node/post-fee-transaction.schema.json
+            example:
+              $ref: ./api/core-node/post-fee-transaction.example.json
+      responses:
+        200:
+          description: Estimated fees for the transaction
+          content:
+            application/json:
+            schema:
+              $ref: ./api/core-node/post-fee-transaction-response.schema.json
+            example:
+              $ref: ./api/core-node/post-fee-transaction-response.example.json
+
   /v2/fees/transfer:
     get:
       summary: Get estimated fee

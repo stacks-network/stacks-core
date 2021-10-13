@@ -69,6 +69,11 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
                     Err(e)
                 }
             })?;
+
+        db.query_row("PRAGMA journal_mode = WAL;", rusqlite::NO_PARAMS, |_row| {
+            Ok(())
+        })?;
+
         Ok(Self {
             db,
             metric,
@@ -84,7 +89,6 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
 
     fn instantiate_db(tx: &SqlTransaction) -> Result<(), SqliteError> {
         if !Self::db_already_instantiated(tx)? {
-            tx.pragma_update(None, "journal_mode", &"WAL".to_string())?;
             tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
         }
 

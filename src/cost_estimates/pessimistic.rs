@@ -193,6 +193,9 @@ impl PessimisticEstimator {
                     Err(e)
                 }
             })?;
+        db.query_row("PRAGMA journal_mode = WAL;", rusqlite::NO_PARAMS, |_row| {
+            Ok(())
+        })?;
         Ok(PessimisticEstimator { db, log_error })
     }
 
@@ -204,7 +207,6 @@ impl PessimisticEstimator {
 
     fn instantiate_db(tx: &SqliteTransaction) -> Result<(), SqliteError> {
         if !Self::db_already_instantiated(tx)? {
-            tx.pragma_update(None, "journal_mode", &"WAL".to_string())?;
             tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
         }
 

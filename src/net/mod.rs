@@ -50,6 +50,7 @@ use chainstate::stacks::index::Error as marf_error;
 use chainstate::stacks::Error as chainstate_error;
 use chainstate::stacks::{
     Error as chain_error, StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
+    TransactionPayload,
 };
 use clarity_vm::clarity::Error as clarity_error;
 use codec::Error as codec_error;
@@ -1047,8 +1048,10 @@ impl RPCFeeEstimate {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCFeeEstimateResponse {
     pub estimated_cost: ExecutionCost,
+    pub estimated_cost_scalar: u64,
     pub estimated_fees: RPCFeeEstimate,
     pub estimated_fee_rates: FeeRateEstimate,
+    pub cost_scalar_change_by_byte: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -1207,6 +1210,13 @@ pub struct CallReadOnlyRequestBody {
     pub arguments: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct FeeRateEstimateRequestBody {
+    #[serde(default)]
+    pub estimated_len: Option<u64>,
+    pub transaction_payload: String,
+}
+
 /// Items in the NeighborsInfo -- combines NeighborKey and NeighborAddress
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCNeighbor {
@@ -1269,6 +1279,7 @@ pub enum HttpRequestType {
         Option<StacksBlockId>,
         bool,
     ),
+    FeeRateEstimate(HttpRequestMetadata, TransactionPayload, u64),
     CallReadOnlyFunction(
         HttpRequestMetadata,
         StacksAddress,

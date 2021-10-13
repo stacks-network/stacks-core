@@ -8,14 +8,15 @@ use stacks::burnchains::Address;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
 };
+use stacks::chainstate::stacks::{TokenTransferMemo, TransactionContractCall, TransactionPayload};
 use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::net::GetIsTraitImplementedResponse;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
-use stacks::util::hash::hex_bytes;
 use stacks::util::hash::Sha256Sum;
+use stacks::util::hash::{hex_bytes, to_hex};
 use stacks::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},
@@ -820,6 +821,139 @@ fn integration_test_get_info() {
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert!(!res.is_implemented);
+
+
+                // perform some tests of the fee rate interface
+                let path = format!("{}/v2/fees/transaction", &http_origin);
+
+                let tx_payload =
+                    TransactionPayload::TokenTransfer(contract_addr.clone().into(), 10_000_000, TokenTransferMemo([0; 34]));
+
+                let payload_data = tx_payload.serialize_to_vec();
+                let payload_hex = to_hex(&payload_data);
+
+                eprintln!("Test: POST {}", path);
+
+                let body = json!({ "transaction_payload": payload_hex.clone() });
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .expect("Should be able to post")
+                    .json::<serde_json::Value>()
+                    .expect("Failed to parse result into JSON");
+
+                eprintln!("{}", res);
+
+                // destruct the json result
+                //  estimated_cost for transfers should be 0 -- their cost is just in their length
+                let estimated_cost = res.get("estimated_cost").expect("Response should have estimated_cost field");
+                assert_eq!(estimated_cost.get("read_count").unwrap().as_u64().unwrap(), 0);
+                assert_eq!(estimated_cost.get("read_length").unwrap().as_u64().unwrap(), 0);
+                assert_eq!(estimated_cost.get("write_count").unwrap().as_u64().unwrap(), 0);
+                assert_eq!(estimated_cost.get("write_length").unwrap().as_u64().unwrap(), 0);
+                assert_eq!(estimated_cost.get("runtime").unwrap().as_u64().unwrap(), 0);
+
+                // the estimated scalar should still be non-zero, because the length of the tx goes into this field.
+                assert!(res.get("estimated_cost_scalar").unwrap().as_u64().unwrap() > 0);
+                let estimated_fee_rates = res.get("estimated_fee_rates").expect("Should have an estimated_fee_rates field");
+                let estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field");
+
+                assert!(estimated_fee_rates.get("high").is_some(), "Should have 'high' field");
+                assert!(estimated_fee_rates.get("low").is_some(), "Should have 'low' field");
+                assert!(estimated_fee_rates.get("middle").is_some(), "Should have 'middle' field");
+                assert!(estimated_fees.get("high").is_some(), "Should have 'high' field");
+                assert!(estimated_fees.get("low").is_some(), "Should have 'low' field");
+                assert!(estimated_fees.get("middle").is_some(), "Should have 'middle' field");
+
+                let tx_payload = TransactionPayload::from(TransactionContractCall {
+                    address: contract_addr.clone(),
+                    contract_name: "get-info".into(),
+                    function_name: "update-info".into(),
+                    function_args: vec![],
+                });
+
+                let payload_data = tx_payload.serialize_to_vec();
+                let payload_hex = to_hex(&payload_data);
+
+                eprintln!("Test: POST {}", path);
+
+                let body = json!({ "transaction_payload": payload_hex.clone() });
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .expect("Should be able to post")
+                    .json::<serde_json::Value>()
+                    .expect("Failed to parse result into JSON");
+
+                eprintln!("{}", res);
+
+                // destruct the json result
+                //  estimated_cost for transfers should be non-zero
+                let estimated_cost = res.get("estimated_cost").expect("Response should have estimated_cost field");
+                assert!(estimated_cost.get("read_count").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("read_length").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("write_count").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("write_length").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("runtime").unwrap().as_u64().unwrap() > 0);
+
+                let estimated_cost_scalar = res.get("estimated_cost_scalar").unwrap().as_u64().unwrap();
+                assert!(estimated_cost_scalar > 0);
+
+                let estimated_fee_rates = res.get("estimated_fee_rates").expect("Should have an estimated_fee_rates field");
+                let estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field");
+
+                assert!(estimated_fee_rates.get("high").is_some(), "Should have 'high' field");
+                assert!(estimated_fee_rates.get("low").is_some(), "Should have 'low' field");
+                assert!(estimated_fee_rates.get("middle").is_some(), "Should have 'middle' field");
+                assert!(estimated_fees.get("high").is_some(), "Should have 'high' field");
+                assert!(estimated_fees.get("low").is_some(), "Should have 'low' field");
+                assert!(estimated_fees.get("middle").is_some(), "Should have 'middle' field");
+
+                let tx_payload = TransactionPayload::from(TransactionContractCall {
+                    address: contract_addr.clone(),
+                    contract_name: "get-info".into(),
+                    function_name: "update-info".into(),
+                    function_args: vec![],
+                });
+
+                let payload_data = tx_payload.serialize_to_vec();
+                let payload_hex = to_hex(&payload_data);
+
+                let body = json!({ "transaction_payload": payload_hex.clone(), "estimated_len": 1550 });
+                info!("POST body\n {}", body);
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .expect("Should be able to post")
+                    .json::<serde_json::Value>()
+                    .expect("Failed to parse result into JSON");
+
+                info!("{}", res);
+
+                // destruct the json result
+                //  estimated_cost for transfers should be non-zero
+                let estimated_cost = res.get("estimated_cost").expect("Response should have estimated_cost field");
+                assert!(estimated_cost.get("read_count").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("read_length").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("write_count").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("write_length").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("runtime").unwrap().as_u64().unwrap() > 0);
+
+                let new_estimated_cost_scalar = res.get("estimated_cost_scalar").unwrap().as_u64().unwrap();
+                assert!(estimated_cost_scalar > 0);
+                assert!(new_estimated_cost_scalar > estimated_cost_scalar, "New scalar estimate should be higher because of the tx length increase");
+
+                let new_estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field");
+
+                assert!(new_estimated_fees.get("high").unwrap().as_u64().unwrap() >= estimated_fees.get("high").unwrap().as_u64().unwrap(),
+                        "Supplying an estimated tx length should increase the estimated fees");
+                assert!(new_estimated_fees.get("low").unwrap().as_u64().unwrap() >= estimated_fees.get("low").unwrap().as_u64().unwrap(),
+                        "Supplying an estimated tx length should increase the estimated fees");
+                assert!(new_estimated_fees.get("middle").unwrap().as_u64().unwrap() >= estimated_fees.get("middle").unwrap().as_u64().unwrap(),
+                        "Supplying an estimated tx length should increase the estimated fees");
             },
             _ => {},
         }
