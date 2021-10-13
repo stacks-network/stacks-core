@@ -65,6 +65,12 @@ fn saturating_f64_math(res: f64) -> f64 {
     }
 }
 
+impl FeeRateEstimate {
+    pub fn to_vec(self) -> Vec<f64> {
+        vec![self.low, self.middle, self.high]
+    }
+}
+
 impl Mul<f64> for FeeRateEstimate {
     type Output = FeeRateEstimate;
 

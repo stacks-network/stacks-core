@@ -25,23 +25,15 @@
       }
     },
     "estimated_fee_rates": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["high", "low", "middle"],
-      "properties": {
-        "high": { "type": "number" },
-        "low": { "type": "number" },
-        "middle": { "type": "number" }
+      "type": "array",
+      "items": {
+        "type": "number"
       }
     },
     "estimated_fees": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["high", "low", "middle"],
-      "properties": {
-        "high": { "type": "integer" },
-        "low": { "type": "integer" },
-        "middle": { "type": "integer" }
+      "type": "array",
+      "items": {
+        "type": "integer"
       }
     }
   }

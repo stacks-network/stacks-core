@@ -856,15 +856,16 @@ fn integration_test_get_info() {
 
                 // the estimated scalar should still be non-zero, because the length of the tx goes into this field.
                 assert!(res.get("estimated_cost_scalar").unwrap().as_u64().unwrap() > 0);
-                let estimated_fee_rates = res.get("estimated_fee_rates").expect("Should have an estimated_fee_rates field");
-                let estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field");
 
-                assert!(estimated_fee_rates.get("high").is_some(), "Should have 'high' field");
-                assert!(estimated_fee_rates.get("low").is_some(), "Should have 'low' field");
-                assert!(estimated_fee_rates.get("middle").is_some(), "Should have 'middle' field");
-                assert!(estimated_fees.get("high").is_some(), "Should have 'high' field");
-                assert!(estimated_fees.get("low").is_some(), "Should have 'low' field");
-                assert!(estimated_fees.get("middle").is_some(), "Should have 'middle' field");
+                let estimated_fee_rates = res.get("estimated_fee_rates").expect("Should have an estimated_fee_rates field")
+                    .as_array()
+                    .expect("Fees should be array");
+                let estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field")
+                    .as_array()
+                    .expect("Fees should be array");
+
+                assert!(estimated_fee_rates.len() == 3, "Fee rates should be length 3 array");
+                assert!(estimated_fees.len() == 3, "Fees should be length 3 array");
 
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
                     address: contract_addr.clone(),
@@ -901,15 +902,15 @@ fn integration_test_get_info() {
                 let estimated_cost_scalar = res.get("estimated_cost_scalar").unwrap().as_u64().unwrap();
                 assert!(estimated_cost_scalar > 0);
 
-                let estimated_fee_rates = res.get("estimated_fee_rates").expect("Should have an estimated_fee_rates field");
-                let estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field");
+                let estimated_fee_rates = res.get("estimated_fee_rates").expect("Should have an estimated_fee_rates field")
+                    .as_array()
+                    .expect("Fees should be array");
+                let estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field")
+                    .as_array()
+                    .expect("Fees should be array");
 
-                assert!(estimated_fee_rates.get("high").is_some(), "Should have 'high' field");
-                assert!(estimated_fee_rates.get("low").is_some(), "Should have 'low' field");
-                assert!(estimated_fee_rates.get("middle").is_some(), "Should have 'middle' field");
-                assert!(estimated_fees.get("high").is_some(), "Should have 'high' field");
-                assert!(estimated_fees.get("low").is_some(), "Should have 'low' field");
-                assert!(estimated_fees.get("middle").is_some(), "Should have 'middle' field");
+                assert!(estimated_fee_rates.len() == 3, "Fee rates should be length 3 array");
+                assert!(estimated_fees.len() == 3, "Fees should be length 3 array");
 
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
                     address: contract_addr.clone(),
@@ -946,13 +947,15 @@ fn integration_test_get_info() {
                 assert!(estimated_cost_scalar > 0);
                 assert!(new_estimated_cost_scalar > estimated_cost_scalar, "New scalar estimate should be higher because of the tx length increase");
 
-                let new_estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field");
+                let new_estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field")
+                    .as_array()
+                    .expect("Fees should be array");
 
-                assert!(new_estimated_fees.get("high").unwrap().as_u64().unwrap() >= estimated_fees.get("high").unwrap().as_u64().unwrap(),
+                assert!(new_estimated_fees[2].as_u64().unwrap() >= estimated_fees[2].as_u64().unwrap(),
                         "Supplying an estimated tx length should increase the estimated fees");
-                assert!(new_estimated_fees.get("low").unwrap().as_u64().unwrap() >= estimated_fees.get("low").unwrap().as_u64().unwrap(),
+                assert!(new_estimated_fees[0].as_u64().unwrap() >= estimated_fees[0].as_u64().unwrap(),
                         "Supplying an estimated tx length should increase the estimated fees");
-                assert!(new_estimated_fees.get("middle").unwrap().as_u64().unwrap() >= estimated_fees.get("middle").unwrap().as_u64().unwrap(),
+                assert!(new_estimated_fees[1].as_u64().unwrap() >= estimated_fees[1].as_u64().unwrap(),
                         "Supplying an estimated tx length should increase the estimated fees");
             },
             _ => {},

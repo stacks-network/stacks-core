@@ -50,6 +50,7 @@ jobs:
           - tests::neon_integrations::filter_long_runtime_tx_integration_test
           - tests::neon_integrations::mining_transactions_is_fair
     steps:
+      - uses: actions/checkout@v2
       - name: Download docker image
         uses: actions/download-artifact@v2
         with:
@@ -74,6 +75,7 @@ jobs:
           - tests::neon_integrations::atlas_integration_test
           - tests::neon_integrations::atlas_stress_integration_test
     steps:
+      - uses: actions/checkout@v2
       - name: Download docker image
         uses: actions/download-artifact@v2
         with:

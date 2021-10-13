@@ -322,7 +322,6 @@ paths:
 
           `fee_rate` x `cost_scalar_change_by_byte` x (`final_size` - `estimated_size`)
 
-      description:  
       operationId: post_fee_transaction
       requestBody:
         content:

@@ -1631,7 +1631,8 @@ impl ConversationHttp {
                 }
             };
 
-            let estimated_fees = RPCFeeEstimate::estimate_fees(scalar_cost, fee_rates.clone());
+            let estimated_fees =
+                RPCFeeEstimate::estimate_fees(scalar_cost, fee_rates.clone()).to_vec();
 
             let response = HttpResponseType::TransactionFeeEstimation(
                 response_metadata,
@@ -1639,7 +1640,7 @@ impl ConversationHttp {
                     estimated_cost,
                     estimated_fees,
                     estimated_cost_scalar: scalar_cost,
-                    estimated_fee_rates: fee_rates,
+                    estimated_fee_rates: fee_rates.to_vec(),
                     cost_scalar_change_by_byte: metric.change_per_byte(),
                 },
             );
