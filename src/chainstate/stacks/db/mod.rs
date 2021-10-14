@@ -103,8 +103,8 @@ lazy_static! {
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
-    pub clarity_state: ClarityInstance,   // has a ClarityInstance, so the schedule polarity should be the same
-    pub state_index: MARF<StacksBlockId>,  // note: this isn't tied to a time
+    pub clarity_state: ClarityInstance, // has a ClarityInstance, so the schedule polarity should be the same
+    pub state_index: MARF<StacksBlockId>, // note: this isn't tied to a time
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
@@ -1372,13 +1372,7 @@ impl StacksChainState {
         path_str: &str,
         block_limit: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(
-            mainnet,
-            chain_id,
-            path_str,
-            None,
-            block_limit,
-        )
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, block_limit)
     }
 
     pub fn open_and_exec(
@@ -1444,6 +1438,7 @@ impl StacksChainState {
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
+        // Note: One ClarityInstance per StacksChainState.
         let clarity_state = ClarityInstance::new(mainnet, vm_state, block_limit_schedule.clone());
 
         let mut chainstate = StacksChainState {

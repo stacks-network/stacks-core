@@ -622,7 +622,7 @@ fn spawn_peer(
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
-    let block_limit = config.block_limit_schedule;
+    let block_limit = config.block_limit_schedule.clone();
     let exit_at_block_height = config.burnchain.process_exit_at_block_height;
 
     this.bind(p2p_sock, rpc_sock).unwrap();
@@ -1797,6 +1797,7 @@ impl InitializedNeonNode {
             }
         }
 
+        let block_limit = config.block_limit_schedule.cost_schedule[0].clone();
         let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
             chain_state,
             &burn_db.index_conn(),
@@ -1806,7 +1807,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            config.block_limit_schedule.cost_schedule[0].clone(),
+            block_limit,
             Some(event_observer),
         ) {
             Ok(block) => block,

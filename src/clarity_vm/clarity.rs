@@ -310,6 +310,11 @@ impl ClarityInstance {
 
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            //
+            //
+            // Note: This block is a function of the block height.
+            //
+            // Note: This is a conversion into a specific cost. are there others?
             let block_limit = self.block_limit_schedule.cost_schedule[0].clone();
             Some(
                 LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db)

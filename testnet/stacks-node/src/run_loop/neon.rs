@@ -184,7 +184,7 @@ impl RunLoop {
 
         let mainnet = self.config.is_mainnet();
         let chainid = self.config.burnchain.chain_id;
-        let block_limit = self.config.block_limit_schedule.cost_schedule[0].clone();
+        let block_limit = self.config.block_limit_schedule.clone();
         let initial_balances = self
             .config
             .initial_balances
@@ -239,7 +239,7 @@ impl RunLoop {
             chainid,
             &chainstate_path,
             Some(&mut boot_data),
-            ExecutionCostSchedule::from_cost(block_limit),
+            block_limit,
         )
         .unwrap();
         coordinator_dispatcher.dispatch_boot_receipts(receipts);
