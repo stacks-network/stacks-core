@@ -943,6 +943,11 @@ pub struct ExecutionCost {
     pub runtime: u64,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+pub struct ExecutionCostSchedule {
+    pub cost_schedule: Vec<ExecutionCost>,
+}
+
 impl fmt::Display for ExecutionCost {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{{\"runtime\": {}, \"write_len\": {}, \"write_cnt\": {}, \"read_len\": {}, \"read_cnt\": {}}}",

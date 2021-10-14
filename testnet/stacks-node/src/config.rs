@@ -17,7 +17,7 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::vm::costs::ExecutionCost;
+use stacks::vm::costs::{ExecutionCost, ExecutionCostSchedule};
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
@@ -277,7 +277,7 @@ pub struct Config {
     pub initial_balances: Vec<InitialBalance>,
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
-    pub block_limit: ExecutionCost,
+    pub block_limit_schedule: ExecutionCostSchedule,
 }
 
 lazy_static! {
@@ -713,6 +713,9 @@ impl Config {
         };
 
         let block_limit = BLOCK_LIMIT_MAINNET.clone();
+        let block_limit_schedule = ExecutionCostSchedule {
+            cost_schedule: vec![block_limit],
+        };
 
         Config {
             node,
@@ -720,7 +723,7 @@ impl Config {
             initial_balances,
             events_observers,
             connection_options,
-            block_limit,
+            block_limit_schedule,
         }
     }
 
@@ -826,6 +829,9 @@ impl std::default::Default for Config {
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let block_limit = HELIUM_BLOCK_LIMIT.clone();
+        let block_limit_schedule = ExecutionCostSchedule {
+            cost_schedule: vec![block_limit],
+        };
 
         Config {
             burnchain,
@@ -833,7 +839,7 @@ impl std::default::Default for Config {
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
-            block_limit,
+            block_limit_schedule,
         }
     }
 }

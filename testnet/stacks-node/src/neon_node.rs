@@ -622,7 +622,7 @@ fn spawn_peer(
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
-    let block_limit = config.block_limit.clone();
+    let block_limit = config.block_limit_schedule.cost_schedule[0].clone();
     let exit_at_block_height = config.burnchain.process_exit_at_block_height;
 
     this.bind(p2p_sock, rpc_sock).unwrap();
@@ -820,7 +820,7 @@ fn spawn_miner_relayer(
         is_mainnet,
         chain_id,
         &stacks_chainstate_path,
-        config.block_limit.clone(),
+        config.block_limit_schedule.cost_schedule[0].clone(),
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
@@ -1805,7 +1805,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            config.block_limit.clone(),
+            config.block_limit_schedule.cost_schedule[0].clone(),
             Some(event_observer),
         ) {
             Ok(block) => block,
@@ -1845,7 +1845,7 @@ impl InitializedNeonNode {
                     vrf_proof.clone(),
                     mblock_pubkey_hash,
                     &coinbase_tx,
-                    config.block_limit.clone(),
+                    config.block_limit_schedule.cost_schedule[0].clone(),
                     Some(event_observer),
                 ) {
                     Ok(block) => block,
@@ -2055,7 +2055,7 @@ impl NeonGenesisNode {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
-            config.block_limit.clone(),
+            config.block_limit_schedule.cost_schedule[0].clone(),
         ) {
             Ok(res) => res,
             Err(err) => panic!(
