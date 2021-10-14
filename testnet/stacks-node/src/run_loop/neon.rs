@@ -26,6 +26,8 @@ use crate::{
     NeonGenesisNode,
 };
 
+use stacks::vm::costs::ExecutionCostSchedule;
+
 use super::RunLoopCallbacks;
 
 /// Coordinating a node running in neon mode.
@@ -237,7 +239,7 @@ impl RunLoop {
             chainid,
             &chainstate_path,
             Some(&mut boot_data),
-            block_limit,
+            ExecutionCostSchedule::from_cost(block_limit),
         )
         .unwrap();
         coordinator_dispatcher.dispatch_boot_receipts(receipts);

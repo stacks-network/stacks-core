@@ -1091,6 +1091,15 @@ impl ExecutionCost {
     }
 }
 
+impl ExecutionCostSchedule {
+    /// Creates a schedule from a single cost.
+    pub fn from_cost(cost: ExecutionCost) -> ExecutionCostSchedule {
+        ExecutionCostSchedule {
+            cost_schedule: vec![cost],
+        }
+    }
+}
+
 // ONLY WORKS IF INPUT IS u64
 fn int_log2(input: u64) -> Option<u64> {
     63_u32.checked_sub(input.leading_zeros()).map(|floor_log| {

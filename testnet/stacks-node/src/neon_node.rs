@@ -2055,7 +2055,7 @@ impl NeonGenesisNode {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
-            config.block_limit_schedule.cost_schedule[0].clone(),
+            config.block_limit_schedule.clone(),
         ) {
             Ok(res) => res,
             Err(err) => panic!(

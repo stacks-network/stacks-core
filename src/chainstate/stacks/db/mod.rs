@@ -68,7 +68,7 @@ use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
-use vm::costs::{ExecutionCost, LimitedCostTracker};
+use vm::costs::{ExecutionCost, ExecutionCostSchedule, LimitedCostTracker};
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
 };
@@ -106,7 +106,7 @@ pub struct StacksChainState {
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
-    pub block_limit: ExecutionCost,
+    pub block_limit_schedule: ExecutionCostSchedule,
     pub unconfirmed_state: Option<UnconfirmedState>,
 }
 
@@ -1323,7 +1323,7 @@ impl StacksChainState {
             chain_id,
             path_str,
             None,
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::from_cost(ExecutionCost::max_value()),
         )
     }
 
@@ -1339,7 +1339,13 @@ impl StacksChainState {
         &self,
         budget: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(self.mainnet, self.chain_id, &self.root_path, None, budget)
+        StacksChainState::open_and_exec(
+            self.mainnet,
+            self.chain_id,
+            &self.root_path,
+            None,
+            ExecutionCostSchedule::from_cost(budget),
+        )
     }
 
     pub fn open_testnet<F>(
@@ -1348,7 +1354,13 @@ impl StacksChainState {
         boot_data: Option<&mut ChainStateBootData>,
         block_limit: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(false, chain_id, path_str, boot_data, block_limit)
+        StacksChainState::open_and_exec(
+            false,
+            chain_id,
+            path_str,
+            boot_data,
+            ExecutionCostSchedule::from_cost(block_limit),
+        )
     }
 
     pub fn open_with_block_limit(
@@ -1357,7 +1369,13 @@ impl StacksChainState {
         path_str: &str,
         block_limit: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, block_limit)
+        StacksChainState::open_and_exec(
+            mainnet,
+            chain_id,
+            path_str,
+            None,
+            ExecutionCostSchedule::from_cost(block_limit),
+        )
     }
 
     pub fn open_and_exec(
@@ -1365,7 +1383,7 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
-        block_limit: ExecutionCost,
+        block_limit_schedule: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         let path = PathBuf::from(path_str);
 
@@ -1423,7 +1441,7 @@ impl StacksChainState {
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(mainnet, vm_state, block_limit.clone());
+        let clarity_state = ClarityInstance::new(mainnet, vm_state, block_limit_schedule.clone());
 
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
@@ -1434,7 +1452,7 @@ impl StacksChainState {
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
-            block_limit: block_limit,
+            block_limit_schedule,
             unconfirmed_state: None,
         };
 

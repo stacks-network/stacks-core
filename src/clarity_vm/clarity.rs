@@ -32,7 +32,7 @@ use vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
 use vm::ast;
 use vm::ast::{errors::ParseError, errors::ParseErrors, ContractAST};
 use vm::contexts::{AssetMap, Environment, OwnedEnvironment};
-use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
+use vm::costs::{CostTracker, ExecutionCost, ExecutionCostSchedule, LimitedCostTracker};
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
@@ -89,7 +89,7 @@ use crate::{
 ///
 pub struct ClarityInstance {
     datastore: MarfedKV,
-    block_limit: ExecutionCost,
+    block_limit_schedule: ExecutionCostSchedule,
     mainnet: bool,
 }
 
@@ -276,10 +276,14 @@ impl ClarityBlockConnection<'_> {
 }
 
 impl ClarityInstance {
-    pub fn new(mainnet: bool, datastore: MarfedKV, block_limit: ExecutionCost) -> ClarityInstance {
+    pub fn new(
+        mainnet: bool,
+        datastore: MarfedKV,
+        block_limit_schedule: ExecutionCostSchedule,
+    ) -> ClarityInstance {
         ClarityInstance {
             datastore,
-            block_limit,
+            block_limit_schedule,
             mainnet,
         }
     }
@@ -306,8 +310,9 @@ impl ClarityInstance {
 
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            let block_limit = self.block_limit_schedule.cost_schedule[0].clone();
             Some(
-                LimitedCostTracker::new(self.mainnet, self.block_limit.clone(), &mut clarity_db)
+                LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db)
                     .expect("FAIL: problem instantiating cost tracking"),
             )
         };
@@ -427,8 +432,9 @@ impl ClarityInstance {
 
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            let block_limit = self.block_limit_schedule.cost_schedule[0].clone();
             Some(
-                LimitedCostTracker::new(self.mainnet, self.block_limit.clone(), &mut clarity_db)
+                LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db)
                     .expect("FAIL: problem instantiating cost tracking"),
             )
         };
