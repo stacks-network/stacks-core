@@ -1797,7 +1797,7 @@ impl InitializedNeonNode {
             }
         }
 
-        let block_limit = config.block_limit_schedule.cost_schedule[0].clone();
+        let block_limit = config.block_limit_schedule.cost_schedule[0].clone(); // Note: Can get burnblock height here by adding input.
         let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
             chain_state,
             &burn_db.index_conn(),
@@ -1847,7 +1847,7 @@ impl InitializedNeonNode {
                     vrf_proof.clone(),
                     mblock_pubkey_hash,
                     &coinbase_tx,
-                    config.block_limit_schedule.cost_schedule[0].clone(),
+                    config.block_limit_schedule.cost_schedule[0].clone(), // can get burnblock height here by adding input
                     Some(event_observer),
                 ) {
                     Ok(block) => block,

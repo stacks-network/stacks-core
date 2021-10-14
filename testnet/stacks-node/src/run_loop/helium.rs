@@ -151,6 +151,7 @@ impl RunLoop {
 
         // Start the runloop
         round_index = 1;
+        // this is the mainloop.. it calls "tenure.run"
         loop {
             if expected_num_rounds == round_index {
                 return Ok(());
@@ -165,6 +166,7 @@ impl RunLoop {
                         &chain_tip,
                         &mut tenure,
                     );
+                    // note: where do we get the burnchain height for this one?
                     tenure.run(&burnchain.sortdb_ref().index_conn())
                 }
                 None => None,

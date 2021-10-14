@@ -1098,6 +1098,14 @@ impl ExecutionCostSchedule {
             cost_schedule: vec![cost],
         }
     }
+
+    /// Chooses an `ExecutionCost` according to the current `burnblock_height`.
+    pub fn choose_current_limit(
+        burnblock_height: u32,
+        choices: &Vec<ExecutionCost>,
+    ) -> &ExecutionCost {
+        &choices[0]
+    }
 }
 
 // ONLY WORKS IF INPUT IS u64

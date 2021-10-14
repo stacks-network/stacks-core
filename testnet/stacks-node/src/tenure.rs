@@ -93,7 +93,7 @@ impl<'a> Tenure {
             self.vrf_proof.clone(),
             self.microblock_pubkeyhash.clone(),
             &self.coinbase_tx,
-            self.config.block_limit_schedule.cost_schedule[0].clone(),
+            self.config.block_limit_schedule.cost_schedule[0].clone(), // can use burnchain_tip
             None,
         )
         .unwrap();
