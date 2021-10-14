@@ -85,6 +85,8 @@ use crate::util::hash::Sha256Sum;
 use self::dns::*;
 pub use self::http::StacksHttp;
 
+use core::StacksEpoch;
+
 pub mod asn;
 pub mod atlas;
 pub mod chat;
@@ -2268,6 +2270,7 @@ pub mod test {
                 config.burnchain.first_block_height,
                 &config.burnchain.first_block_hash,
                 0,
+                &StacksEpoch::unit_test(config.burnchain.first_block_height),
                 true,
             )
             .unwrap();

@@ -66,6 +66,7 @@ use util::secp256k1::Secp256k1PublicKey;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksBlockHeader;
 use crate::types::StacksPublicKeyBuffer;
+use core::StacksEpoch;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -2376,6 +2377,7 @@ mod test {
             burnchain.first_block_height,
             &burnchain.first_block_hash,
             get_epoch_time_secs(),
+            &StacksEpoch::unit_test(burnchain.first_block_height),
             true,
         )
         .unwrap();

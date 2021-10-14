@@ -78,6 +78,7 @@ use util::vrf::VRFPublicKey;
 
 use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
+use burnchains::bitcoin::indexer::{get_bitcoin_stacks_epochs, BitcoinIndexer};
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -626,6 +627,9 @@ impl Burnchain {
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
+        let epochs =
+            get_bitcoin_stacks_epochs(BitcoinNetworkType::try_from(self.network_id).unwrap());
+
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
 
@@ -634,6 +638,7 @@ impl Burnchain {
             self.first_block_height,
             &first_block_header_hash,
             first_block_header_timestamp,
+            &epochs,
             readwrite,
         )?;
         let burnchaindb = BurnchainDB::connect(

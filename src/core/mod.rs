@@ -19,6 +19,7 @@ use burnchains::Burnchain;
 use burnchains::Error as burnchain_error;
 use chainstate::burn::ConsensusHash;
 use chainstate::coordinator::comm::CoordinatorCommunication;
+use std::convert::TryFrom;
 use util::log;
 use vm::costs::ExecutionCost;
 
@@ -27,6 +28,10 @@ use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 pub use self::mempool::MemPoolDB;
 
 pub mod mempool;
+
+use std::cmp::Ord;
+use std::cmp::Ordering;
+use std::cmp::PartialOrd;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
@@ -67,6 +72,9 @@ pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10;
 pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
 
 pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 700_000;
+
+pub const STACKS_EPOCH_MAX: u64 = i64::MAX as u64;
+
 pub const MAINNET_2_0_GENESIS_ROOT_HASH: &str =
     "9653c92b1ad726e2dc17862a3786f7438ab9239c16dd8e7aaba8b0b5c34b52af";
 
@@ -144,3 +152,143 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
 
     env::var(fault_name) == Ok("1".to_string())
 }
+
+#[repr(u32)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+pub enum StacksEpochId {
+    Epoch10 = 0x01000,
+    Epoch20 = 0x02000,
+    Epoch2_05 = 0x02005,
+}
+
+impl PartialOrd for StacksEpochId {
+    fn partial_cmp(&self, other: &StacksEpochId) -> Option<Ordering> {
+        (*self as u32).partial_cmp(&(*other as u32))
+    }
+}
+
+impl Ord for StacksEpochId {
+    fn cmp(&self, other: &StacksEpochId) -> Ordering {
+        (*self as u32).cmp(&(*other as u32))
+    }
+}
+
+impl TryFrom<u32> for StacksEpochId {
+    type Error = &'static str;
+
+    fn try_from(value: u32) -> Result<StacksEpochId, Self::Error> {
+        match value {
+            x if x == StacksEpochId::Epoch10 as u32 => Ok(StacksEpochId::Epoch10),
+            x if x == StacksEpochId::Epoch20 as u32 => Ok(StacksEpochId::Epoch20),
+            x if x == StacksEpochId::Epoch2_05 as u32 => Ok(StacksEpochId::Epoch2_05),
+            _ => Err("Invalid epoch"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StacksEpoch {
+    pub epoch_id: StacksEpochId,
+    pub start_height: u64,
+    pub end_height: u64,
+}
+
+impl StacksEpoch {
+    #[cfg(test)]
+    pub fn unit_test(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+        vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: first_burnchain_height,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: first_burnchain_height,
+                end_height: STACKS_EPOCH_MAX,
+            },
+        ]
+    }
+
+    pub fn all(first_burnchain_height: u64, epoch_2_05_block_height: u64) -> Vec<StacksEpoch> {
+        vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: first_burnchain_height,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: first_burnchain_height,
+                end_height: epoch_2_05_block_height,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: epoch_2_05_block_height,
+                end_height: STACKS_EPOCH_MAX,
+            },
+        ]
+    }
+}
+
+// StacksEpochs are ordered by start block height
+impl PartialOrd for StacksEpoch {
+    fn partial_cmp(&self, other: &StacksEpoch) -> Option<Ordering> {
+        self.start_height.partial_cmp(&other.start_height)
+    }
+}
+
+impl Ord for StacksEpoch {
+    fn cmp(&self, other: &StacksEpoch) -> Ordering {
+        self.start_height.cmp(&other.start_height)
+    }
+}
+
+pub const STACKS_EPOCHS_MAINNET: &[StacksEpoch] = &[
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch10,
+        start_height: 0,
+        end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+    },
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch20,
+        start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+        end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+    },
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch2_05,
+        start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+        end_height: STACKS_EPOCH_MAX,
+    },
+];
+
+pub const STACKS_EPOCHS_TESTNET: &[StacksEpoch] = &[
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch10,
+        start_height: 0,
+        end_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+    },
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch20,
+        start_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+        end_height: STACKS_EPOCH_MAX,
+    }, // TODO: add Epoch2_05 when its start height is decided
+];
+
+pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch10,
+        start_height: 0,
+        end_height: 0,
+    },
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch20,
+        start_height: 0,
+        end_height: 1000,
+    },
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch2_05,
+        start_height: 1000,
+        end_height: STACKS_EPOCH_MAX,
+    },
+];
