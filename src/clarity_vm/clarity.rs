@@ -306,6 +306,8 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
+        let bt = backtrace::Backtrace::new();
+        warn!("begin_block:bt {:?}", bt);
         let mut datastore = self.datastore.begin(current, next);
 
         let cost_track = {
@@ -433,6 +435,8 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
+        let bt = backtrace::Backtrace::new();
+        warn!("begin_unconfirmed:bt {:?}", bt);
         let mut datastore = self.datastore.begin_unconfirmed(current);
 
         let cost_track = {
