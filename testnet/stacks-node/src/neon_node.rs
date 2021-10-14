@@ -622,7 +622,7 @@ fn spawn_peer(
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
-    let block_limit = config.block_limit_schedule.cost_schedule[0].clone();
+    let block_limit = config.block_limit_schedule;
     let exit_at_block_height = config.burnchain.process_exit_at_block_height;
 
     this.bind(p2p_sock, rpc_sock).unwrap();
@@ -630,6 +630,7 @@ fn spawn_peer(
     let sortdb =
         SortitionDB::open(&burn_db_path, false, pox_constants).map_err(NetError::DBError)?;
 
+    // One StacksChainState per thread.
     let (mut chainstate, _) = StacksChainState::open_with_block_limit(
         is_mainnet,
         config.burnchain.chain_id,
@@ -820,7 +821,7 @@ fn spawn_miner_relayer(
         is_mainnet,
         chain_id,
         &stacks_chainstate_path,
-        config.block_limit_schedule.cost_schedule[0].clone(),
+        config.block_limit_schedule.clone(),
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 

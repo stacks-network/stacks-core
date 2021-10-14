@@ -62,6 +62,7 @@ use blockstack_lib::{
     core::MemPoolDB,
     util::{hash::Hash160, vrf::VRFProof},
     vm::costs::ExecutionCost,
+    vm::costs::ExecutionCostSchedule,
 };
 use blockstack_lib::{
     net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
@@ -794,7 +795,7 @@ simulating a miner.
             0x80000000,
             new_chainstate_path,
             Some(&mut boot_data),
-            argon_block_limit,
+            ExecutionCostSchedule::from_cost(argon_block_limit),
         )
         .unwrap();
 
@@ -862,7 +863,7 @@ simulating a miner.
             false,
             0x80000000,
             new_chainstate_path,
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::from_cost(ExecutionCost::max_value()),
         )
         .unwrap();
 

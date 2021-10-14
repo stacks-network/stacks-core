@@ -97,11 +97,14 @@ lazy_static! {
         std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
 }
 
+//Should this have a fixed block limit or a list of them?
+//
+//Note: it has a fixed state_index, suggesting that this is tied to a poitn in time.
 pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
-    pub clarity_state: ClarityInstance,
-    pub state_index: MARF<StacksBlockId>,
+    pub clarity_state: ClarityInstance,   // has a ClarityInstance, so the schedule polarity should be the same
+    pub state_index: MARF<StacksBlockId>,  // note: this isn't tied to a time
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
@@ -1367,14 +1370,14 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
-        block_limit: ExecutionCost,
+        block_limit: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(
             mainnet,
             chain_id,
             path_str,
             None,
-            ExecutionCostSchedule::from_cost(block_limit),
+            block_limit,
         )
     }
 
