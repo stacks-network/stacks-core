@@ -95,6 +95,7 @@ impl<'a> Tenure {
             &self.coinbase_tx,
             BlockBuilderSettings::limited(self.config.block_limit.clone()),
             None,
+            0, // oh no.. where does this come from?
         )
         .unwrap();
 

@@ -1830,6 +1830,7 @@ impl InitializedNeonNode {
             &coinbase_tx,
             config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
             Some(event_observer),
+            0, // can use BlockSnapshot
         ) {
             Ok(block) => block,
             Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {
@@ -1870,6 +1871,7 @@ impl InitializedNeonNode {
                     &coinbase_tx,
                     config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
                     Some(event_observer),
+                    0, // look at BlockSnapshot
                 ) {
                     Ok(block) => block,
                     Err(e) => {
