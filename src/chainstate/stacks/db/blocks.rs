@@ -4336,8 +4336,6 @@ impl StacksChainState {
             ));
 
             let block_lim = ExecutionCostSchedule::choose_limit_by_height(&block_limit, parent_burn_block_height);
-            use core::BLOCK_LIMIT_MAINNET;
-            // let block_limit = ExecutionCostSchedule::choose_limit_by_height(parent_burn_block_height);
             let mut clarity_tx = StacksChainState::chainstate_block_begin(
                 chainstate_tx,
                 clarity_instance,
