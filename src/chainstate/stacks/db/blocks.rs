@@ -4247,7 +4247,7 @@ impl StacksChainState {
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleTx,
-        parent_chain_tip: &StacksHeaderInfo,
+        parent_chain_tip: &StacksHeaderInfo, // has height!
         chain_tip_consensus_hash: &ConsensusHash,
         chain_tip_burn_header_hash: &BurnchainHeaderHash,
         chain_tip_burn_header_height: u32,

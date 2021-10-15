@@ -305,6 +305,7 @@ impl ClarityInstance {
         next: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
+        block_limit: ExecutionCost,
     ) -> ClarityBlockConnection<'a> {
         let bt = backtrace::Backtrace::new();
         warn!("begin_block:bt {:?}", bt);
@@ -312,12 +313,6 @@ impl ClarityInstance {
 
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
-            //
-            //
-            // Note: This block is a function of the block height.
-            //
-            // Note: This is a conversion into a specific cost. are there others?
-            let block_limit = self.block_limit_schedule.cost_schedule[0].clone(); // we have ClarityDatabase, can get clarity epoch key
             Some(
                 LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db)
                     .expect("FAIL: problem instantiating cost tracking"),

@@ -1855,11 +1855,13 @@ impl StacksChainState {
             parent_block
         );
 
+        use core::BLOCK_LIMIT_MAINNET;
         let inner_clarity_tx = clarity_instance.begin_block(
             &parent_index_block,
             &new_index_block,
             headers_db,
             burn_dbconn,
+BLOCK_LIMIT_MAINNET,
         );
 
         test_debug!("Got clarity TX!");
