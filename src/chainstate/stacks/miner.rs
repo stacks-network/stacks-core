@@ -177,6 +177,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
             StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
                 .ok_or(Error::NoSuchBlockError)?;
 
+        let block_limit =
+            ExecutionCostSchedule::choose_limit_by_height(&settings.execution_cost_schedule, 0);
         // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
         //  the chainstate, but will lose the reference to the clarity_tx before the Drop handler for StacksMicroblockBuilder
         //  could take over.
@@ -186,6 +188,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             &anchor_block,
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
+            block_limit.clone(),
         );
 
         debug!(
@@ -1120,6 +1123,7 @@ impl StacksBlockBuilder {
         &mut self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionDBConn,
+        block_limit: ExecutionCost,
     ) -> Result<ClarityTx<'a>, Error> {
         let mainnet = chainstate.config().mainnet;
 
@@ -1198,6 +1202,7 @@ impl StacksBlockBuilder {
             &parent_header_hash,
             &new_consensus_hash,
             &new_block_hash,
+            block_limit,
         );
 
         let matured_miner_rewards_opt = StacksChainState::find_mature_miner_rewards(
@@ -1467,7 +1472,9 @@ impl StacksBlockBuilder {
 
         let ts_start = get_epoch_time_ms();
 
-        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
+        use core::BLOCK_LIMIT_MAINNET;
+        let mut epoch_tx =
+            builder.epoch_begin(&mut chainstate, burn_dbconn, BLOCK_LIMIT_MAINNET)?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
         let mut considered = HashSet::new(); // txids of all transactions we looked at
