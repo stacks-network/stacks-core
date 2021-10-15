@@ -1786,7 +1786,8 @@ impl StacksChainState {
         burn_dbconn: &'a dyn BurnStateDB,
         tip: &StacksBlockId,
     ) -> ClarityTx<'a> {
-        let inner_clarity_tx = clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn);
+        use core::BLOCK_LIMIT_MAINNET;
+        let inner_clarity_tx = clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn, BLOCK_LIMIT_MAINNET);
         ClarityTx {
             block: inner_clarity_tx,
             config: conf,
