@@ -1839,7 +1839,7 @@ impl InitializedNeonNode {
                 };
 
                 // try again
-        // NOTE: compute here
+                // NOTE: compute here
                 match StacksBlockBuilder::build_anchored_block(
                     chain_state,
                     &burn_db.index_conn(),

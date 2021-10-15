@@ -1586,7 +1586,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-        block_limit:u64,
+        block_limit: u64,
     ) -> ClarityTx<'a> {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
@@ -1790,7 +1790,8 @@ impl StacksChainState {
         tip: &StacksBlockId,
     ) -> ClarityTx<'a> {
         use core::BLOCK_LIMIT_MAINNET;
-        let inner_clarity_tx = clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn, BLOCK_LIMIT_MAINNET);
+        let inner_clarity_tx =
+            clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn, BLOCK_LIMIT_MAINNET);
         ClarityTx {
             block: inner_clarity_tx,
             config: conf,
@@ -1832,7 +1833,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-        block_height:u64,
+        block_height: u64,
     ) -> ClarityTx<'a> {
         // mix consensus hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the pair is)
@@ -1866,7 +1867,7 @@ impl StacksChainState {
             &new_index_block,
             headers_db,
             burn_dbconn,
-BLOCK_LIMIT_MAINNET,
+            BLOCK_LIMIT_MAINNET,
         );
 
         test_debug!("Got clarity TX!");

@@ -946,6 +946,7 @@ pub struct ExecutionCost {
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct ExecutionCostSchedule {
     pub cost_schedule: Vec<ExecutionCost>,
+    pub height_until: Vec<u64>,
 }
 
 impl fmt::Display for ExecutionCost {
@@ -1096,15 +1097,16 @@ impl ExecutionCostSchedule {
     pub fn from_cost(cost: ExecutionCost) -> ExecutionCostSchedule {
         ExecutionCostSchedule {
             cost_schedule: vec![cost],
+            height_until: vec![],
         }
     }
 
     /// Chooses an `ExecutionCost` according to the current `burnblock_height`.
-    pub fn choose_current_limit(
+    pub fn choose_limit_by_height(
         burnblock_height: u32,
-        choices: &Vec<ExecutionCost>,
+        schedule: &ExecutionCostSchedule,
     ) -> &ExecutionCost {
-        &choices[0]
+        &schedule.cost_schedule[0]
     }
 }
 

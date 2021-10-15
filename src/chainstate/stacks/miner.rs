@@ -1053,7 +1053,7 @@ impl StacksBlockBuilder {
         &mut self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionDBConn,
-        block_limit:u64,
+        block_limit: u64,
     ) -> Result<ClarityTx<'a>, Error> {
         let mainnet = chainstate.config().mainnet;
 

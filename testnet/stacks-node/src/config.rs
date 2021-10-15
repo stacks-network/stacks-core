@@ -715,6 +715,7 @@ impl Config {
         let block_limit = BLOCK_LIMIT_MAINNET.clone();
         let block_limit_schedule = ExecutionCostSchedule {
             cost_schedule: vec![block_limit],
+            height_until: vec![],
         };
 
         Config {
@@ -831,6 +832,7 @@ impl std::default::Default for Config {
         let block_limit = HELIUM_BLOCK_LIMIT.clone();
         let block_limit_schedule = ExecutionCostSchedule {
             cost_schedule: vec![block_limit],
+            height_until: vec![],
         };
 
         Config {
