@@ -106,7 +106,7 @@ pub struct StacksChainState {
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
-    pub block_limit: ExecutionCost,
+    pub block_limit: ExecutionCostSchedule,
     pub unconfirmed_state: Option<UnconfirmedState>,
 }
 
@@ -1322,7 +1322,7 @@ impl StacksChainState {
             chain_id,
             path_str,
             None,
-            ExecutionCostSchedule::max_value(),
+            ExecutionCostSchedule::from_cost(ExecutionCost::max_value()),
         )
     }
 
@@ -1422,7 +1422,7 @@ impl StacksChainState {
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(mainnet, vm_state, block_limit.clone());
+        let clarity_state = ClarityInstance::new(mainnet, vm_state);
 
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
@@ -1433,7 +1433,7 @@ impl StacksChainState {
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
-            block_limit: block_limit,
+            block_limit,
             unconfirmed_state: None,
         };
 
@@ -1769,7 +1769,9 @@ impl StacksChainState {
         burn_dbconn: &'a dyn BurnStateDB,
         tip: &StacksBlockId,
     ) -> ClarityTx<'a> {
-        let inner_clarity_tx = clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn);
+        use core::BLOCK_LIMIT_MAINNET;
+        let inner_clarity_tx =
+            clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn, &BLOCK_LIMIT_MAINNET);
         ClarityTx {
             block: inner_clarity_tx,
             config: conf,
@@ -1838,11 +1840,13 @@ impl StacksChainState {
             parent_block
         );
 
+        use core::BLOCK_LIMIT_MAINNET;
         let inner_clarity_tx = clarity_instance.begin_block(
             &parent_index_block,
             &new_index_block,
             headers_db,
             burn_dbconn,
+            &BLOCK_LIMIT_MAINNET,
         );
 
         test_debug!("Got clarity TX!");
@@ -1915,7 +1919,7 @@ impl StacksChainState {
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
         user_burns: &Vec<StagingUserBurnSupport>,
-        anchor_block_cost: &ExecutionCostSchedule,
+        anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
@@ -1965,7 +1969,7 @@ impl StacksChainState {
             headers_tx,
             &parent_hash,
             &new_tip_info,
-            anchor_block_cost,
+            &anchor_block_cost,
         )?;
         StacksChainState::insert_miner_payment_schedule(headers_tx, block_reward, user_burns)?;
 

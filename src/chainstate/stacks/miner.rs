@@ -60,9 +60,9 @@ pub struct BlockBuilderSettings {
 }
 
 impl BlockBuilderSettings {
-    pub fn limited(execution_cost: ExecutionCost) -> BlockBuilderSettings {
+    pub fn limited(execution_cost: ExecutionCostSchedule) -> BlockBuilderSettings {
         BlockBuilderSettings {
-            execution_cost_schedule: ExecutionCostSchedule::from_cost(execution_cost),
+            execution_cost_schedule: execution_cost,
             max_miner_time_ms: u64::max_value(),
             mempool_settings: MemPoolWalkSettings::default(),
         }
@@ -1429,7 +1429,7 @@ impl StacksBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
-        let execution_budget = settings.execution_cost_schedule.cost[0].clone();
+        let execution_budget = settings.execution_cost_schedule; // .cost[0].clone();
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;
 

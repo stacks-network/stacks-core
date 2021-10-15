@@ -64,7 +64,6 @@ use crate::util::boot::boot_code_id;
 ///
 pub struct ClarityInstance {
     datastore: MarfedKV,
-    block_limit: ExecutionCost,
     mainnet: bool,
 }
 
@@ -236,12 +235,8 @@ impl ClarityBlockConnection<'_> {
 }
 
 impl ClarityInstance {
-    pub fn new(mainnet: bool, datastore: MarfedKV, block_limit: ExecutionCost) -> ClarityInstance {
-        ClarityInstance {
-            datastore,
-            block_limit,
-            mainnet,
-        }
+    pub fn new(mainnet: bool, datastore: MarfedKV) -> ClarityInstance {
+        ClarityInstance { datastore, mainnet }
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -261,13 +256,14 @@ impl ClarityInstance {
         next: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
+        block_limit: &ExecutionCost,
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin(current, next);
 
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(self.mainnet, self.block_limit.clone(), &mut clarity_db)
+                LimitedCostTracker::new(self.mainnet, block_limit.clone(), &mut clarity_db)
                     .expect("FAIL: problem instantiating cost tracking"),
             )
         };
@@ -379,13 +375,14 @@ impl ClarityInstance {
         current: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
+        block_limit: &ExecutionCost,
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin_unconfirmed(current);
 
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(self.mainnet, self.block_limit.clone(), &mut clarity_db)
+                LimitedCostTracker::new(self.mainnet, block_limit.clone(), &mut clarity_db)
                     .expect("FAIL: problem instantiating cost tracking"),
             )
         };

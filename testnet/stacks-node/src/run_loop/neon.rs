@@ -250,7 +250,7 @@ impl RunLoop {
         let moved_atlas_config = atlas_config.clone();
         let moved_estimator_config = self.config.estimation.clone();
         let moved_chainstate_path = self.config.get_chainstate_path();
-        let moved_block_limit = self.config.block_limit.clone();
+        let moved_block_limit = self.config.block_limit.cost[0].clone();
 
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
