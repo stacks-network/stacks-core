@@ -161,6 +161,7 @@ impl UnconfirmedState {
         chainstate: &StacksChainState,
         burn_dbconn: &dyn BurnStateDB,
         mblocks: Vec<StacksMicroblock>,
+        block_limit: &ExecutionCost,
     ) -> Result<ProcessedUnconfirmedState, Error> {
         if self.last_mblock_seq == u16::MAX {
             // drop them -- nothing to do
@@ -204,6 +205,7 @@ impl UnconfirmedState {
                 &mut self.clarity_inst,
                 burn_dbconn,
                 &self.confirmed_chain_tip,
+                block_limit.clone(),
             );
 
             clarity_tx.reset_cost(cur_cost);
@@ -325,6 +327,7 @@ impl UnconfirmedState {
         &mut self,
         chainstate: &StacksChainState,
         burn_dbconn: &dyn BurnStateDB,
+        block_limit: &ExecutionCost,
     ) -> Result<ProcessedUnconfirmedState, Error> {
         assert!(
             !self.readonly,
@@ -337,7 +340,9 @@ impl UnconfirmedState {
         }
 
         match self.load_child_microblocks(chainstate)? {
-            Some(microblocks) => self.append_microblocks(chainstate, burn_dbconn, microblocks),
+            Some(microblocks) => {
+                self.append_microblocks(chainstate, burn_dbconn, microblocks, block_limit)
+            }
             None => Ok(Default::default()),
         }
     }

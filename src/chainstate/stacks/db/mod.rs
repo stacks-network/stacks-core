@@ -1768,10 +1768,10 @@ impl StacksChainState {
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'a dyn BurnStateDB,
         tip: &StacksBlockId,
+        block_limit: ExecutionCost,
     ) -> ClarityTx<'a> {
-        use core::BLOCK_LIMIT_MAINNET;
         let inner_clarity_tx =
-            clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn, &BLOCK_LIMIT_MAINNET);
+            clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn, block_limit);
         ClarityTx {
             block: inner_clarity_tx,
             config: conf,
@@ -1782,6 +1782,7 @@ impl StacksChainState {
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
+        block_limit: ExecutionCost,
     ) -> Option<ClarityTx<'a>> {
         let conf = self.config();
         if let Some(ref mut unconfirmed) = self.unconfirmed_state {
@@ -1796,6 +1797,7 @@ impl StacksChainState {
                 &mut unconfirmed.clarity_inst,
                 burn_dbconn,
                 &unconfirmed.confirmed_chain_tip,
+                block_limit,
             ))
         } else {
             debug!("Unconfirmed state is not instantiated; cannot begin unconfirmed Clarity Tx");
