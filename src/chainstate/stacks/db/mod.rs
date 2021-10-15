@@ -1573,6 +1573,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
+            0 as u64,
         )
     }
 
@@ -1596,6 +1597,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
+            0 as u64,
         )
     }
 
@@ -1829,6 +1831,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
+        block_height:u64,
     ) -> ClarityTx<'a> {
         // mix consensus hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the pair is)
