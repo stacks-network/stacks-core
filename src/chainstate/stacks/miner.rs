@@ -1053,6 +1053,7 @@ impl StacksBlockBuilder {
         &mut self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionDBConn,
+        block_limit:u64,
     ) -> Result<ClarityTx<'a>, Error> {
         let mainnet = chainstate.config().mainnet;
 
@@ -1133,7 +1134,7 @@ impl StacksBlockBuilder {
             &parent_header_hash,
             &new_consensus_hash,
             &new_block_hash,
-            0,
+            block_limit,
         );
 
         let matured_miner_rewards_opt = StacksChainState::find_mature_miner_rewards(
@@ -1369,6 +1370,7 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         execution_budget: ExecutionCost,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        block_limit:u64,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
         } else {
@@ -1400,7 +1402,7 @@ impl StacksBlockBuilder {
 
         let ts_start = get_epoch_time_ms();
 
-        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
+        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn, 0)?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
         let mut considered = HashSet::new(); // txids of all transactions we looked at

@@ -95,6 +95,7 @@ impl<'a> Tenure {
             &self.coinbase_tx,
             self.config.block_limit_schedule.cost_schedule[0].clone(), // can use burnchain_tip
             None,
+            0,
         )
         .unwrap();
 
