@@ -1545,7 +1545,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-        block_limit_schedule: ExecutionCost,
+        block_limit: ExecutionCost,
     ) -> ClarityTx<'a> {
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(
@@ -1557,7 +1557,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
-            block_limit_schedule,
+            block_limit,
         )
     }
 
@@ -1819,7 +1819,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-        block_limit_schedule: ExecutionCost,
+        block_limit: ExecutionCost,
     ) -> ClarityTx<'a> {
         // mix consensus hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the pair is)
@@ -1852,7 +1852,7 @@ impl StacksChainState {
             &new_index_block,
             headers_db,
             burn_dbconn,
-            block_limit_schedule,
+            block_limit,
         );
 
         test_debug!("Got clarity TX!");
