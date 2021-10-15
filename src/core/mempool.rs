@@ -569,7 +569,7 @@ impl MemPoolDB {
                      sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
                    AND f.fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
         query_row(&self.db, select_no_estimate, rusqlite::NO_PARAMS)
-            .map(|opt_tx| opt_tx.map(|tx| (tx, false)))
+            .map(|opt_tx| opt_tx.map(|tx| (tx, true)))
     }
 
     /// Select the next TX to consider from the pool of transactions with cost estimates.
