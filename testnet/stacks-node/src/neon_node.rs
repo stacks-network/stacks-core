@@ -1797,6 +1797,7 @@ impl InitializedNeonNode {
             }
         }
 
+        // NOTE: compute here
         let block_limit = config.block_limit_schedule.cost_schedule[0].clone(); // Note: Can get burnblock height here by adding input.
         let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
             chain_state,
@@ -1839,6 +1840,7 @@ impl InitializedNeonNode {
                 };
 
                 // try again
+        // NOTE: compute here
                 match StacksBlockBuilder::build_anchored_block(
                     chain_state,
                     &burn_db.index_conn(),
