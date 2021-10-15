@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use chainstate::burn::ConsensusHash;
 use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
@@ -82,6 +83,8 @@ pub struct ClarityDatabase<'a> {
     burn_state_db: &'a dyn BurnStateDB,
 }
 
+/// Has access to information internal to the Stacks blockchain. For example, it
+/// can be used to recover arbitrary values given a `StacksBlockId`.
 pub trait HeadersDB {
     fn get_stacks_block_header_hash_for_block(
         &self,
@@ -93,6 +96,7 @@ pub trait HeadersDB {
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash>;
 }
 
 /// The `BurnStateDB` is for interacting with the "burn chain". At this point
@@ -111,25 +115,11 @@ pub trait BurnStateDB {
     ) -> Option<BurnchainHeaderHash>;
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
 
-    // Returns None if no such `BlockSnapshot` can be found.
-    fn get_snapshot_for_block_id(&self, block_id:&StacksBlockId) -> Option<BlockSnapshot> {
-        let consensus_hash = match self.get_consensus_hash_for_block(block_id) {
-            None => { return None;},
-            Some(val) => val
-        };
-        let snapshot = match self.get_block_snapshot_from_consensus_hash(consensus_hash) {
-            None => { return None;},
-            Some(val) => val
-        };
-        let block_height = match self.get_burn_block_height(&snapshot.sortition_id) {
-            None => { return None;},
-            Some(val) => val
-        };
-    }
-
-//    fn get_sortition_for_block_id(&self, block_id:&StacksBlockId) -> Option<SortitionId> {
-//        get_snapshot_for_block_id(block_id).sorition_id;
-//    }
+    /// Returns `None` if no such sortition can be found.
+    fn get_sortition_id_for_consensus(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId>;
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -153,6 +143,9 @@ impl HeadersDB for &dyn HeadersDB {
     }
     fn get_miner_address(&self, bhh: &StacksBlockId) -> Option<StacksAddress> {
         (*self).get_miner_address(bhh)
+    }
+    fn get_consensus_hash_for_block(&self, bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        (*self).get_consensus_hash_for_block(bhh)
     }
 }
 
@@ -191,6 +184,10 @@ impl BurnStateDB for &dyn BurnStateDB {
 
     fn get_pox_rejection_fraction(&self) -> u64 {
         (*self).get_pox_rejection_fraction()
+    }
+
+    fn get_sortition_id_for_consensus(&self, consensus:&ConsensusHash) -> Option<SortitionId> {
+        (*self).get_sortition_id_for_consensus(consensus)
     }
 }
 
@@ -270,6 +267,11 @@ impl HeadersDB for NullHeadersDB {
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
     }
+
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        None
+    }
+
 }
 
 impl BurnStateDB for NullBurnStateDB {
@@ -311,6 +313,13 @@ impl BurnStateDB for NullBurnStateDB {
 
     fn get_pox_rejection_fraction(&self) -> u64 {
         panic!("NullBurnStateDB should not return PoX info");
+    }
+
+    fn get_sortition_id_for_consensus(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        None
     }
 }
 

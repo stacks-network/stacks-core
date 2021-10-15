@@ -17,6 +17,7 @@ use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
+use chainstate::burn::ConsensusHash;
 
 use core::StacksEpoch;
 
@@ -51,6 +52,10 @@ impl HeadersDB for DBConn {
 
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         get_miner_info(self, id_bhh).map(|x| x.address)
+    }
+
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        get_stacks_header_info(self, id_bhh).map(|x| x.consensus_hash)
     }
 }
 
