@@ -1093,7 +1093,7 @@ impl ExecutionCost {
 }
 
 impl ExecutionCostSchedule {
-    /// Creates a schedule from a single cost.
+    /// Creates a schedule from a single cost. For convenience in debugging.
     pub fn from_cost(cost: ExecutionCost) -> ExecutionCostSchedule {
         ExecutionCostSchedule {
             cost_schedule: vec![cost],

@@ -14,6 +14,7 @@ use stacks::core::mempool::MemPoolDB;
 use stacks::types::chainstate::VRFSeed;
 use stacks::util::hash::Hash160;
 use stacks::util::vrf::VRFProof;
+use stacks::vm::costs::ExecutionCostSchedule;
 
 pub struct TenureArtifacts {
     pub anchored_block: StacksBlock,
@@ -84,6 +85,9 @@ impl<'a> Tenure {
         )
         .unwrap();
 
+        let block_limit_schedule = self.config.block_limit_schedule.clone();
+        let block_limit = ExecutionCostSchedule::choose_limit_by_height(0, &block_limit_schedule);
+
         // NOTE: compute here
         let (anchored_block, _, _) = StacksBlockBuilder::build_anchored_block(
             &mut chain_state,
@@ -94,7 +98,7 @@ impl<'a> Tenure {
             self.vrf_proof.clone(),
             self.microblock_pubkeyhash.clone(),
             &self.coinbase_tx,
-            self.config.block_limit_schedule.cost_schedule[0].clone(), // can use burnchain_tip
+            block_limit.clone(),
             None,
         )
         .unwrap();

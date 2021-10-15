@@ -47,6 +47,7 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, NetworkResult, PeerAddress,
 };
+use stacks::vm::costs::ExecutionCostSchedule;
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader, VRFSeed,
 };
@@ -622,7 +623,7 @@ fn spawn_peer(
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
-    let block_limit = config.block_limit_schedule.clone();
+    let block_limit_schedule = config.block_limit_schedule.clone();
     let exit_at_block_height = config.burnchain.process_exit_at_block_height;
 
     this.bind(p2p_sock, rpc_sock).unwrap();
@@ -635,7 +636,7 @@ fn spawn_peer(
         is_mainnet,
         config.burnchain.chain_id,
         &stacks_chainstate_path,
-        block_limit,
+        block_limit_schedule,
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
@@ -1798,7 +1799,8 @@ impl InitializedNeonNode {
         }
 
         // NOTE: compute here
-        let block_limit = config.block_limit_schedule.cost_schedule[0].clone(); // Note: Can get burnblock height here by adding input.
+        let block_limit_schedule = &config.block_limit_schedule;
+        let block_limit = ExecutionCostSchedule::choose_limit_by_height(0, block_limit_schedule);
         let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
             chain_state,
             &burn_db.index_conn(),
@@ -1808,7 +1810,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            block_limit,
+            block_limit.clone(),
             Some(event_observer),
         ) {
             Ok(block) => block,
