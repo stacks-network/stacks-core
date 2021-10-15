@@ -52,8 +52,8 @@ use crate::{
     },
 };
 
-use chainstate::burn::BlockSnapshot;
 use crate::types::proof::TrieMerkleProof;
+use chainstate::burn::BlockSnapshot;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
@@ -116,10 +116,8 @@ pub trait BurnStateDB {
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
 
     /// Returns `None` if no such sortition can be found.
-    fn get_sortition_id_for_consensus(
-        &self,
-        consensus_hash: &ConsensusHash,
-    ) -> Option<SortitionId>;
+    fn get_sortition_id_for_consensus(&self, consensus_hash: &ConsensusHash)
+        -> Option<SortitionId>;
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -186,7 +184,7 @@ impl BurnStateDB for &dyn BurnStateDB {
         (*self).get_pox_rejection_fraction()
     }
 
-    fn get_sortition_id_for_consensus(&self, consensus:&ConsensusHash) -> Option<SortitionId> {
+    fn get_sortition_id_for_consensus(&self, consensus: &ConsensusHash) -> Option<SortitionId> {
         (*self).get_sortition_id_for_consensus(consensus)
     }
 }
@@ -271,7 +269,6 @@ impl HeadersDB for NullHeadersDB {
     fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
         None
     }
-
 }
 
 impl BurnStateDB for NullBurnStateDB {

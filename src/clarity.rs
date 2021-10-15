@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use chainstate::burn::ConsensusHash;
 use std::convert::TryInto;
 use std::env;
 use std::fs;
@@ -603,6 +604,9 @@ impl HeadersDB for CLIHeadersDB {
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
+    }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        panic!("Not implemented.")
     }
 }
 

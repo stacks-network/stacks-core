@@ -129,6 +129,13 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     fn get_pox_rejection_fraction(&self) -> u64 {
         self.context.pox_constants.pox_rejection_fraction
     }
+
+    fn get_sortition_id_for_consensus(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        panic!("Not implemented.");
+    }
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
@@ -174,6 +181,13 @@ impl BurnStateDB for SortitionDBConn<'_> {
 
     fn get_pox_rejection_fraction(&self) -> u64 {
         self.context.pox_constants.pox_rejection_fraction
+    }
+
+    fn get_sortition_id_for_consensus(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        panic!("Not implemented.");
     }
 }
 
