@@ -22,7 +22,7 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::vm::costs::ExecutionCost;
+use stacks::vm::costs::{ExecutionCost, ExecutionCostSchedule};
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
@@ -285,7 +285,7 @@ pub struct Config {
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
     pub miner: MinerConfig,
-    pub block_limit: ExecutionCost,
+    pub block_limit_schedule: ExecutionCostSchedule,
     pub estimation: FeeEstimationConfig,
 }
 
@@ -735,7 +735,7 @@ impl Config {
             None => HELIUM_DEFAULT_CONNECTION_OPTIONS.clone(),
         };
 
-        let block_limit = BLOCK_LIMIT_MAINNET.clone();
+        let block_limit_schedule = ExecutionCostSchedule::from_cost(BLOCK_LIMIT_MAINNET.clone());
 
         let estimation = match config_file.fee_estimation {
             Some(f) => FeeEstimationConfig::from(f),
@@ -748,7 +748,7 @@ impl Config {
             initial_balances,
             events_observers,
             connection_options,
-            block_limit,
+            block_limit_schedule,
             estimation,
             miner,
         }
@@ -844,7 +844,7 @@ impl Config {
 
     pub fn make_block_builder_settings(&self, attempt: u64) -> BlockBuilderSettings {
         BlockBuilderSettings {
-            execution_cost: self.block_limit.clone(),
+            execution_cost_schedule: self.block_limit_schedule.clone(),
             max_miner_time_ms: if attempt <= 1 {
                 // first attempt to mine a block -- do so right away
                 self.miner.first_attempt_time_ms
@@ -878,7 +878,7 @@ impl std::default::Default for Config {
         };
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
-        let block_limit = HELIUM_BLOCK_LIMIT.clone();
+        let block_limit_schedule = ExecutionCost::from_cost(HELIUM_BLOCK_LIMIT.clone());
         let estimation = FeeEstimationConfig::default();
 
         Config {
@@ -887,7 +887,7 @@ impl std::default::Default for Config {
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
-            block_limit,
+            block_limit_schedule,
             estimation,
             miner: MinerConfig::default(),
         }

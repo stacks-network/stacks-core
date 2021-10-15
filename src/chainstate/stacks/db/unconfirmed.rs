@@ -95,7 +95,7 @@ impl UnconfirmedState {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
         let clarity_instance =
-            ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
+            ClarityInstance::new(chainstate.mainnet, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -128,7 +128,7 @@ impl UnconfirmedState {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
         let clarity_instance =
-            ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
+            ClarityInstance::new(chainstate.mainnet, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -198,6 +198,7 @@ impl UnconfirmedState {
         let mut new_bytes = 0;
         let mut num_new_mblocks = 0;
 
+        use core::BLOCK_LIMIT_MAINNET;
         if mblocks.len() > 0 {
             let cur_cost = self.cost_so_far.clone();
             let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
@@ -206,6 +207,7 @@ impl UnconfirmedState {
                 &mut self.clarity_inst,
                 burn_dbconn,
                 &self.confirmed_chain_tip,
+                BLOCK_LIMIT_MAINNET,
             );
 
             clarity_tx.reset_cost(cur_cost);

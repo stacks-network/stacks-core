@@ -4623,6 +4623,7 @@ impl StacksChainState {
             x => Some(microblocks[x - 1].header.clone()),
         };
 
+        use core::BLOCK_LIMIT_MAINNET;
         let new_tip = StacksChainState::advance_tip(
             &mut chainstate_tx.tx,
             &parent_chain_tip.anchored_header,
@@ -4635,7 +4636,7 @@ impl StacksChainState {
             microblock_tail_opt,
             &scheduled_miner_reward,
             user_burns,
-            &block_execution_cost,
+            BLOCK_LIMIT_MAINNET,
             block_size,
         )
         .expect("FATAL: failed to advance chain tip");

@@ -68,7 +68,7 @@ use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
-use vm::costs::{ExecutionCost, LimitedCostTracker};
+use vm::costs::{ExecutionCost, ExecutionCostSchedule, LimitedCostTracker};
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
 };
@@ -106,7 +106,7 @@ pub struct StacksChainState {
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
-    pub block_limit: ExecutionCost,
+    pub block_limit: ExecutionCostSchedule,
     pub unconfirmed_state: Option<UnconfirmedState>,
 }
 
@@ -1322,7 +1322,7 @@ impl StacksChainState {
             chain_id,
             path_str,
             None,
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
     }
 
@@ -1336,7 +1336,7 @@ impl StacksChainState {
     /// parameters, but with a block limit
     pub fn reopen_limited(
         &self,
-        budget: ExecutionCost,
+        budget: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(self.mainnet, self.chain_id, &self.root_path, None, budget)
     }
@@ -1345,7 +1345,7 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
-        block_limit: ExecutionCost,
+        block_limit: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(false, chain_id, path_str, boot_data, block_limit)
     }
@@ -1354,7 +1354,7 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
-        block_limit: ExecutionCost,
+        block_limit: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, block_limit)
     }
@@ -1364,7 +1364,7 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
-        block_limit: ExecutionCost,
+        block_limit: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         let path = PathBuf::from(path_str);
 
@@ -1422,7 +1422,7 @@ impl StacksChainState {
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(mainnet, vm_state, block_limit.clone());
+        let clarity_state = ClarityInstance::new(mainnet, vm_state);
 
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
@@ -1768,8 +1768,9 @@ impl StacksChainState {
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'a dyn BurnStateDB,
         tip: &StacksBlockId,
+        block_limit:ExecutionCost,
     ) -> ClarityTx<'a> {
-        let inner_clarity_tx = clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn);
+        let inner_clarity_tx = clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn, block_limit);
         ClarityTx {
             block: inner_clarity_tx,
             config: conf,
@@ -1780,6 +1781,7 @@ impl StacksChainState {
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
+        block_limit:ExecutionCost,
     ) -> Option<ClarityTx<'a>> {
         let conf = self.config();
         if let Some(ref mut unconfirmed) = self.unconfirmed_state {
@@ -1794,6 +1796,7 @@ impl StacksChainState {
                 &mut unconfirmed.clarity_inst,
                 burn_dbconn,
                 &unconfirmed.confirmed_chain_tip,
+                block_limit,
             ))
         } else {
             debug!("Unconfirmed state is not instantiated; cannot begin unconfirmed Clarity Tx");
@@ -1838,11 +1841,13 @@ impl StacksChainState {
             parent_block
         );
 
+        use core::BLOCK_LIMIT_MAINNET;
         let inner_clarity_tx = clarity_instance.begin_block(
             &parent_index_block,
             &new_index_block,
             headers_db,
             burn_dbconn,
+BLOCK_LIMIT_MAINNET,
         );
 
         test_debug!("Got clarity TX!");
@@ -2036,7 +2041,7 @@ pub mod test {
             chain_id,
             &path,
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
         .unwrap()
         .0
@@ -2142,7 +2147,7 @@ pub mod test {
             0x80000000,
             &path,
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
         .unwrap()
         .0;
@@ -2237,7 +2242,7 @@ pub mod test {
             0x000000001,
             &path,
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
         .unwrap()
         .0;

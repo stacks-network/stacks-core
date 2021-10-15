@@ -927,6 +927,33 @@ pub struct ExecutionCost {
     pub runtime: u64,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+pub struct ExecutionCostSchedule {
+    pub cost_limit:Vec<ExecutionCost>,
+    pub expiry_height:Vec<u64>,
+}
+
+impl ExecutionCostSchedule {
+    pub fn max_value() -> ExecutionCostSchedule {
+        panic!("hi")
+    }
+    /// Creates a schedule from a single cost. For convenience in debugging.
+    pub fn from_cost(cost: ExecutionCost) -> ExecutionCostSchedule {
+        ExecutionCostSchedule {
+            cost_limit: vec![cost],
+            expiry_height: vec![],
+        }
+    }
+
+    /// Chooses an `ExecutionCost` according to the current `burnblock_height`.
+    pub fn choose_limit_by_height(
+        burnblock_height: u32,
+        schedule: &ExecutionCostSchedule,
+    ) -> &ExecutionCost {
+        &schedule.cost_limit[0]
+    }
+}
+
 impl fmt::Display for ExecutionCost {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{{\"runtime\": {}, \"write_len\": {}, \"write_cnt\": {}, \"read_len\": {}, \"read_cnt\": {}}}",
