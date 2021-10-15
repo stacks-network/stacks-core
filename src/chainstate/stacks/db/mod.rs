@@ -106,7 +106,7 @@ pub struct StacksChainState {
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
-    pub block_limit: ExecutionCostSchedule,
+    pub block_limit_schedule: ExecutionCostSchedule,
     pub unconfirmed_state: Option<UnconfirmedState>,
 }
 
@@ -1364,7 +1364,7 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
-        block_limit: ExecutionCostSchedule,
+        block_limit_schedule: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         let path = PathBuf::from(path_str);
 
@@ -1433,7 +1433,7 @@ impl StacksChainState {
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
-            block_limit,
+            block_limit_schedule,
             unconfirmed_state: None,
         };
 
