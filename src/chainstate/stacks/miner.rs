@@ -252,9 +252,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 return Err(Error::NoSuchBlockError)?;
             };
 
-        use core::BLOCK_LIMIT_MAINNET;
+        let block_limit = ExecutionCostSchedule::choose_limit_by_height(&settings.execution_cost_schedule, block_height as u32);
         let mut clarity_tx = chainstate
-            .begin_unconfirmed(burn_dbconn, BLOCK_LIMIT_MAINNET)
+            .begin_unconfirmed(burn_dbconn, block_limit.clone())
             .ok_or_else(|| {
                 warn!(
                     "Failed to begin-unconfirmed on {}/{}",
