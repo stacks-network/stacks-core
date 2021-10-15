@@ -27,6 +27,7 @@ jobs:
     needs:
       - build-integration-image
     strategy:
+      fail-fast: false
       matrix:
         test-name:
           - tests::neon_integrations::microblock_integration_test

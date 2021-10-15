@@ -503,6 +503,9 @@ impl Config {
                 subsequent_attempt_time_ms: miner
                     .subsequent_attempt_time_ms
                     .unwrap_or(miner_default_config.subsequent_attempt_time_ms),
+                probability_no_estimate_tx: miner
+                    .probability_no_estimate_tx
+                    .unwrap_or(miner_default_config.probability_no_estimate_tx),
             },
             None => miner_default_config,
         };
@@ -865,6 +868,7 @@ impl Config {
                     // second or later attempt to mine a block -- give it some time
                     self.miner.subsequent_attempt_time_ms
                 },
+                consider_no_estimate_tx_prob: self.miner.probability_no_estimate_tx,
             },
         }
     }
@@ -1336,6 +1340,7 @@ pub struct MinerConfig {
     pub min_tx_fee: u64,
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
+    pub probability_no_estimate_tx: u8,
 }
 
 impl MinerConfig {
@@ -1344,6 +1349,7 @@ impl MinerConfig {
             min_tx_fee: 1,
             first_attempt_time_ms: 1_000,
             subsequent_attempt_time_ms: 60_000,
+            probability_no_estimate_tx: 5,
         }
     }
 }
@@ -1440,6 +1446,7 @@ pub struct MinerConfigFile {
     pub min_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
+    pub probability_no_estimate_tx: Option<u8>,
 }
 
 #[derive(Clone, Deserialize, Default)]

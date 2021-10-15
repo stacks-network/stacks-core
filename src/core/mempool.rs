@@ -21,6 +21,8 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 
+use rand::distributions::Uniform;
+use rand::prelude::Distribution;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::Error as SqliteError;
@@ -172,6 +174,10 @@ pub struct MemPoolWalkSettings {
     /// Maximum amount of time a miner will spend walking through mempool transactions, in
     /// milliseconds.  This is a soft deadline.
     pub max_walk_time_ms: u64,
+    /// Probability percentage to consider a transaction which has not received a cost estimate.
+    /// That is, with x%, when picking the next transaction to include a block, select one that
+    /// either failed to get a cost estimate or has not been estimated yet.
+    pub consider_no_estimate_tx_prob: u8,
 }
 
 impl MemPoolWalkSettings {
@@ -179,12 +185,14 @@ impl MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 1,
             max_walk_time_ms: u64::max_value(),
+            consider_no_estimate_tx_prob: 5,
         }
     }
     pub fn zero() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
             min_tx_fee: 0,
             max_walk_time_ms: u64::max_value(),
+            consider_no_estimate_tx_prob: 5,
         }
     }
 }
@@ -550,23 +558,59 @@ impl MemPoolDB {
         Ok(())
     }
 
-    fn get_next_tx_to_consider(&self) -> Result<ConsiderTransactionResult, db_error> {
-        let select_estimate = "SELECT * FROM mempool LEFT OUTER JOIN fee_estimates as f ON mempool.txid = f.txid WHERE
-                   ((origin_nonce = last_known_origin_nonce AND
-                     sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
-                   AND f.fee_rate IS NOT NULL ORDER BY f.fee_rate DESC LIMIT 1";
+    /// Select the next TX to consider from the pool of transactions without cost estimates.
+    /// If a transaction is found, returns Some object containing the transaction and a boolean indicating
+    ///  whether or not the miner should propagate transaction receipts back to the estimator.
+    fn get_next_tx_to_consider_no_estimate(
+        &self,
+    ) -> Result<Option<(MemPoolTxInfo, bool)>, db_error> {
         let select_no_estimate = "SELECT * FROM mempool LEFT JOIN fee_estimates as f ON mempool.txid = f.txid WHERE
                    ((origin_nonce = last_known_origin_nonce AND
                      sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
                    AND f.fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
-        let (next_tx, update_estimate): (MemPoolTxInfo, bool) =
-            match query_row(&self.db, select_estimate, rusqlite::NO_PARAMS)? {
-                Some(tx) => (tx, false),
-                None => match query_row(&self.db, select_no_estimate, rusqlite::NO_PARAMS)? {
-                    Some(tx) => (tx, true),
+        query_row(&self.db, select_no_estimate, rusqlite::NO_PARAMS)
+            .map(|opt_tx| opt_tx.map(|tx| (tx, false)))
+    }
+
+    /// Select the next TX to consider from the pool of transactions with cost estimates.
+    /// If a transaction is found, returns Some object containing the transaction and a boolean indicating
+    ///  whether or not the miner should propagate transaction receipts back to the estimator.
+    fn get_next_tx_to_consider_with_estimate(
+        &self,
+    ) -> Result<Option<(MemPoolTxInfo, bool)>, db_error> {
+        let select_estimate = "SELECT * FROM mempool LEFT OUTER JOIN fee_estimates as f ON mempool.txid = f.txid WHERE
+                   ((origin_nonce = last_known_origin_nonce AND
+                     sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
+                   AND f.fee_rate IS NOT NULL ORDER BY f.fee_rate DESC LIMIT 1";
+        query_row(&self.db, select_estimate, rusqlite::NO_PARAMS)
+            .map(|opt_tx| opt_tx.map(|tx| (tx, false)))
+    }
+
+    /// * `start_with_no_estimate` - Pass `true` to make this function
+    ///   start by considering transactions without a cost
+    ///   estimate, and if none are found, use transactions with a cost estimate.
+    ///   Pass `false` for the opposite behavior.
+    fn get_next_tx_to_consider(
+        &self,
+        start_with_no_estimate: bool,
+    ) -> Result<ConsiderTransactionResult, db_error> {
+        let (next_tx, update_estimate): (MemPoolTxInfo, bool) = if start_with_no_estimate {
+            match self.get_next_tx_to_consider_no_estimate()? {
+                Some(result) => result,
+                None => match self.get_next_tx_to_consider_with_estimate()? {
+                    Some(result) => result,
                     None => return Ok(ConsiderTransactionResult::NoTransactions),
                 },
-            };
+            }
+        } else {
+            match self.get_next_tx_to_consider_with_estimate()? {
+                Some(result) => result,
+                None => match self.get_next_tx_to_consider_no_estimate()? {
+                    Some(result) => result,
+                    None => return Ok(ConsiderTransactionResult::NoTransactions),
+                },
+            }
+        };
 
         let mut needs_nonces = vec![];
         if next_tx.metadata.last_known_origin_nonce.is_none() {
@@ -677,6 +721,9 @@ impl MemPoolDB {
 
         debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
+        let tx_consideration_sampler = Uniform::new(0, 100);
+        let mut rng = rand::thread_rng();
+
         loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
                 debug!("Mempool iteration deadline exceeded";
@@ -684,7 +731,10 @@ impl MemPoolDB {
                 break;
             }
 
-            match self.get_next_tx_to_consider()? {
+            let start_with_no_estimate =
+                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob;
+
+            match self.get_next_tx_to_consider(start_with_no_estimate)? {
                 ConsiderTransactionResult::NoTransactions => {
                     debug!("No more transactions to consider in mempool");
                     break;
@@ -1183,9 +1233,7 @@ impl MemPoolDB {
                 warn!("Error while estimating mempool tx rate";
                       "txid" => %tx.txid(),
                       "error" => ?e);
-                return Err(MemPoolRejection::Other(
-                    "Failed to estimate mempool tx rate".into(),
-                ));
+                return Err(MemPoolRejection::EstimatorError(e));
             }
         };
 
@@ -1485,41 +1533,35 @@ mod tests {
                 bytes: Hash160::from_data(&[0x80 | (ix as u8); 32]),
             };
 
-            for (i, (tx, (origin, sponsor))) in [good_tx]
-                .iter()
-                .zip([(origin_address, sponsor_address)].iter())
-                .enumerate()
-            {
-                let txid = tx.txid();
-                let tx_bytes = tx.serialize_to_vec();
-                let tx_fee = tx.get_tx_fee();
+            let txid = good_tx.txid();
+            let tx_bytes = good_tx.serialize_to_vec();
+            let tx_fee = good_tx.get_tx_fee();
 
-                let height = 1 + ix as u64;
+            let height = 1 + ix as u64;
 
-                let origin_nonce = 0; // (2 * ix + i) as u64;
-                let sponsor_nonce = 0; // (2 * ix + i) as u64;
+            let origin_nonce = 0; // (2 * ix + i) as u64;
+            let sponsor_nonce = 0; // (2 * ix + i) as u64;
 
-                assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+            assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
-                MemPoolDB::try_add_tx(
-                    &mut mempool_tx,
-                    &mut chainstate,
-                    &block.0,
-                    &block.1,
-                    txid,
-                    tx_bytes,
-                    tx_fee,
-                    height,
-                    &origin,
-                    origin_nonce,
-                    &sponsor,
-                    sponsor_nonce,
-                    None,
-                )
-                .unwrap();
+            MemPoolDB::try_add_tx(
+                &mut mempool_tx,
+                &mut chainstate,
+                &block.0,
+                &block.1,
+                txid,
+                tx_bytes,
+                tx_fee,
+                height,
+                &origin_address,
+                origin_nonce,
+                &sponsor_address,
+                sponsor_nonce,
+                None,
+            )
+            .unwrap();
 
-                assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-            }
+            assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
 
             mempool_tx.commit().unwrap();
         }
