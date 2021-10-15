@@ -1426,7 +1426,7 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        block_height: u64,
+        _block_height: u32,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         let execution_budget = settings.execution_cost;
         let mempool_settings = settings.mempool_settings;

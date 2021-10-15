@@ -96,7 +96,7 @@ impl<'a> Tenure {
             &self.coinbase_tx,
             BlockBuilderSettings::limited(self.config.block_limit.clone()),
             None,
-            burnblock_height as u64, // oh no.. where does this come from?
+            burnblock_height,
         )
         .unwrap();
 
