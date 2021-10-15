@@ -1437,7 +1437,7 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        _block_height: u32,
+        block_height: u32,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         let execution_budget = settings.execution_cost_schedule;
         let mempool_settings = settings.mempool_settings;
@@ -1461,7 +1461,7 @@ impl StacksBlockBuilder {
             &tip_consensus_hash, &tip_block_hash, tip_height, &execution_budget
         );
 
-        let (mut chainstate, _) = chainstate_handle.reopen_limited(execution_budget)?; // used for processing a block up to the given limit
+        let (mut chainstate, _) = chainstate_handle.reopen_limited(execution_budget.clone())?; // used for processing a block up to the given limit
 
         let mut builder = StacksBlockBuilder::make_block_builder(
             chainstate.mainnet,
@@ -1473,9 +1473,10 @@ impl StacksBlockBuilder {
 
         let ts_start = get_epoch_time_ms();
 
-        use core::BLOCK_LIMIT_MAINNET;
+        let block_limit =
+            ExecutionCostSchedule::choose_limit_by_height(&execution_budget, 0);
         let mut epoch_tx =
-            builder.epoch_begin(&mut chainstate, burn_dbconn, BLOCK_LIMIT_MAINNET)?;
+            builder.epoch_begin(&mut chainstate, burn_dbconn, block_limit.clone())?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
         let mut considered = HashSet::new(); // txids of all transactions we looked at
