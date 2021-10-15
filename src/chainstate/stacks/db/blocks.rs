@@ -4335,7 +4335,7 @@ impl StacksChainState {
                 parent_consensus_hash, parent_block_hash
             ));
 
-            let block_lim = ExecutionCostSchedule::choose_limit_by_height(
+            let block_limit = ExecutionCostSchedule::choose_limit_by_height(
                 &block_limit_schedule,
                 parent_burn_block_height,
             );
@@ -4347,7 +4347,7 @@ impl StacksChainState {
                 &parent_block_hash,
                 &MINER_BLOCK_CONSENSUS_HASH,
                 &MINER_BLOCK_HEADER_HASH,
-                block_lim.clone(),
+                block_limit.clone(),
             );
 
             debug!(
