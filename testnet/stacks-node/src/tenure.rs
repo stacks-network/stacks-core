@@ -84,6 +84,7 @@ impl<'a> Tenure {
         )
         .unwrap();
 
+        // NOTE: compute here
         let (anchored_block, _, _) = StacksBlockBuilder::build_anchored_block(
             &mut chain_state,
             burn_dbconn,
@@ -95,7 +96,6 @@ impl<'a> Tenure {
             &self.coinbase_tx,
             self.config.block_limit_schedule.cost_schedule[0].clone(), // can use burnchain_tip
             None,
-            0,
         )
         .unwrap();
 

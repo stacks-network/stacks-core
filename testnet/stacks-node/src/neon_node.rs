@@ -1810,7 +1810,6 @@ impl InitializedNeonNode {
             &coinbase_tx,
             block_limit,
             Some(event_observer),
-            0,
         ) {
             Ok(block) => block,
             Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {
@@ -1852,7 +1851,6 @@ impl InitializedNeonNode {
                     &coinbase_tx,
                     config.block_limit_schedule.cost_schedule[0].clone(), // can get burnblock height here by adding input
                     Some(event_observer),
-                    0,
                 ) {
                     Ok(block) => block,
                     Err(e) => {

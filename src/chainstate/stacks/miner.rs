@@ -1370,7 +1370,6 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         execution_budget: ExecutionCost,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        block_limit:u64,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
         } else {
