@@ -73,6 +73,9 @@ use vm::types::{
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
+use vm::costs::ExecutionCost;
+use vm::costs::ExecutionCostSchedule;
+
 use crate::types::chainstate::{
     StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
 };
@@ -4623,7 +4626,6 @@ impl StacksChainState {
             x => Some(microblocks[x - 1].header.clone()),
         };
 
-        use core::BLOCK_LIMIT_MAINNET;
         let new_tip = StacksChainState::advance_tip(
             &mut chainstate_tx.tx,
             &parent_chain_tip.anchored_header,
@@ -4636,7 +4638,7 @@ impl StacksChainState {
             microblock_tail_opt,
             &scheduled_miner_reward,
             user_burns,
-            &BLOCK_LIMIT_MAINNET,
+            &block_execution_cost,
             block_size,
         )
         .expect("FATAL: failed to advance chain tip");

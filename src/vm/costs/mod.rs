@@ -947,8 +947,8 @@ impl ExecutionCostSchedule {
 
     /// Chooses an `ExecutionCost` according to the current `burnblock_height`.
     pub fn choose_limit_by_height(
-        burnblock_height: u32,
         schedule: &ExecutionCostSchedule,
+        burnblock_height: u32,
     ) -> &ExecutionCost {
         &schedule.cost_limit[0]
     }
