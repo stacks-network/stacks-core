@@ -106,7 +106,7 @@ pub struct StacksChainState {
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
-    pub block_limit: ExecutionCostSchedule,
+    pub block_limit_schedule: ExecutionCostSchedule,
     pub unconfirmed_state: Option<UnconfirmedState>,
 }
 
@@ -1345,18 +1345,18 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
-        block_limit: ExecutionCostSchedule,
+        block_limit_schedule: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(false, chain_id, path_str, boot_data, block_limit)
+        StacksChainState::open_and_exec(false, chain_id, path_str, boot_data, block_limit_schedule)
     }
 
     pub fn open_with_block_limit(
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
-        block_limit: ExecutionCostSchedule,
+        block_limit_schedule: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, block_limit)
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, block_limit_schedule)
     }
 
     pub fn open_and_exec(
@@ -1364,7 +1364,7 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
-        block_limit: ExecutionCostSchedule,
+        block_limit_schedule: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         let path = PathBuf::from(path_str);
 
@@ -1433,7 +1433,7 @@ impl StacksChainState {
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
-            block_limit: block_limit,
+            block_limit_schedule,
             unconfirmed_state: None,
         };
 
@@ -1545,7 +1545,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-        block_limit: ExecutionCost,
+        block_limit_schedule: ExecutionCost,
     ) -> ClarityTx<'a> {
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(
@@ -1557,7 +1557,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
-            block_limit,
+            block_limit_schedule,
         )
     }
 
@@ -1570,7 +1570,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-        block_limit: ExecutionCost,
+        block_limit_schedule: ExecutionCost,
     ) -> ClarityTx<'a> {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
@@ -1582,7 +1582,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
-            block_limit,
+            block_limit_schedule,
         )
     }
 
@@ -1772,10 +1772,10 @@ impl StacksChainState {
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'a dyn BurnStateDB,
         tip: &StacksBlockId,
-        block_limit: ExecutionCost,
+        block_limit_schedule: ExecutionCost,
     ) -> ClarityTx<'a> {
         let inner_clarity_tx =
-            clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn, block_limit);
+            clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn, block_limit_schedule);
         ClarityTx {
             block: inner_clarity_tx,
             config: conf,
@@ -1786,7 +1786,7 @@ impl StacksChainState {
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
-        block_limit: ExecutionCost,
+        block_limit_schedule: ExecutionCost,
     ) -> Option<ClarityTx<'a>> {
         let conf = self.config();
         if let Some(ref mut unconfirmed) = self.unconfirmed_state {
@@ -1801,7 +1801,7 @@ impl StacksChainState {
                 &mut unconfirmed.clarity_inst,
                 burn_dbconn,
                 &unconfirmed.confirmed_chain_tip,
-                block_limit,
+                block_limit_schedule,
             ))
         } else {
             debug!("Unconfirmed state is not instantiated; cannot begin unconfirmed Clarity Tx");
@@ -1819,7 +1819,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-        block_limit: ExecutionCost,
+        block_limit_schedule: ExecutionCost,
     ) -> ClarityTx<'a> {
         // mix consensus hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the pair is)
@@ -1852,7 +1852,7 @@ impl StacksChainState {
             &new_index_block,
             headers_db,
             burn_dbconn,
-            block_limit,
+            block_limit_schedule,
         );
 
         test_debug!("Got clarity TX!");

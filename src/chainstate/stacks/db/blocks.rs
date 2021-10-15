@@ -4209,7 +4209,7 @@ impl StacksChainState {
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
         user_burns: &Vec<StagingUserBurnSupport>,
-        block_limit: ExecutionCostSchedule,
+        block_limit_schedule: ExecutionCostSchedule,
     ) -> Result<StacksEpochReceipt, Error> {
         debug!(
             "Process block {:?} with {} transactions",
@@ -4336,7 +4336,7 @@ impl StacksChainState {
             ));
 
             let block_lim = ExecutionCostSchedule::choose_limit_by_height(
-                &block_limit,
+                &block_limit_schedule,
                 parent_burn_block_height,
             );
             let mut clarity_tx = StacksChainState::chainstate_block_begin(
@@ -4809,7 +4809,7 @@ impl StacksChainState {
         sort_tx: &mut SortitionHandleTx,
     ) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let blocks_path = self.blocks_path.clone();
-        let block_limit = self.block_limit.clone();
+        let block_limit_schedule = self.block_limit_schedule.clone();
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
 
         // this is a transaction against both the headers and staging blocks databases!
@@ -4973,7 +4973,7 @@ impl StacksChainState {
             next_staging_block.commit_burn,
             next_staging_block.sortition_burn,
             &user_supports,
-            block_limit,
+            block_limit_schedule,
         ) {
             Ok(next_chain_tip_info) => next_chain_tip_info,
             Err(e) => {
