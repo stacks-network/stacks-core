@@ -329,6 +329,7 @@ fn mine_one_microblock(
     sortdb: &SortitionDB,
     chainstate: &mut StacksChainState,
     mempool: &MemPoolDB,
+    block_height:u64,
 ) -> Result<StacksMicroblock, ChainstateError> {
     debug!(
         "Try to mine one microblock off of {}/{} (total: {})",
@@ -348,6 +349,7 @@ fn mine_one_microblock(
             &ic,
             &microblock_state.cost_so_far,
             microblock_state.settings.clone(),
+            block_height,
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -412,6 +414,7 @@ fn try_mine_microblock(
     let microblock_privkey = winning_tip.2;
 
     let mut next_microblock = None;
+    let mut block_height_opt:Option<u64> = None;
     if microblock_miner_state.is_none() {
         debug!(
             "Instantiate microblock mining state off of {}/{}",
@@ -419,7 +422,7 @@ fn try_mine_microblock(
         );
         // we won a block! proceed to build a microblock tail if we've stored it
         match StacksChainState::get_anchored_block_header_info(chainstate.db(), &ch, &bhh) {
-            Ok(Some(_)) => {
+            Ok(Some(header_info)) => {
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(&ch, &bhh);
                 let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(
                     chainstate.db(),
@@ -436,6 +439,8 @@ fn try_mine_microblock(
                     cost_so_far: cost_so_far,
                     settings: config.make_block_builder_settings(2),
                 });
+
+                block_height_opt = Some(header_info.burn_header_height as u64);
             }
             Ok(None) => {
                 warn!(
@@ -466,7 +471,8 @@ fn try_mine_microblock(
                     get_epoch_time_secs() - 600,
                 )?;
                 if num_attachable == 0 {
-                    match mine_one_microblock(&mut microblock_miner, sortdb, chainstate, &mem_pool)
+                    // Note: can we really unwrap here?
+                    match mine_one_microblock(&mut microblock_miner, sortdb, chainstate, &mem_pool, block_height_opt.unwrap())
                     {
                         Ok(microblock) => {
                             // will need to relay this

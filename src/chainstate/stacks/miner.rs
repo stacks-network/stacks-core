@@ -217,6 +217,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         burn_dbconn: &'a dyn BurnStateDB,
         cost_so_far: &ExecutionCost,
         settings: BlockBuilderSettings,
+        block_height:u64,
     ) -> Result<StacksMicroblockBuilder<'a>, Error> {
         let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
             MicroblockMinerRuntime::from(unconfirmed_state)
