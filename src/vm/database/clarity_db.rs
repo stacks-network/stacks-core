@@ -51,6 +51,7 @@ use crate::{
     },
 };
 
+use chainstate::burn::BlockSnapshot;
 use crate::types::proof::TrieMerkleProof;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
@@ -94,6 +95,8 @@ pub trait HeadersDB {
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
 }
 
+/// The `BurnStateDB` is for interacting with the "burn chain". At this point
+/// the only "burn chain" is Bitcoin.
 pub trait BurnStateDB {
     fn get_v1_unlock_height(&self) -> u32;
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
@@ -107,6 +110,26 @@ pub trait BurnStateDB {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
+
+    // Returns None if no such `BlockSnapshot` can be found.
+    fn get_snapshot_for_block_id(&self, block_id:&StacksBlockId) -> Option<BlockSnapshot> {
+        let consensus_hash = match self.get_consensus_hash_for_block(block_id) {
+            None => { return None;},
+            Some(val) => val
+        };
+        let snapshot = match self.get_block_snapshot_from_consensus_hash(consensus_hash) {
+            None => { return None;},
+            Some(val) => val
+        };
+        let block_height = match self.get_burn_block_height(&snapshot.sortition_id) {
+            None => { return None;},
+            Some(val) => val
+        };
+    }
+
+//    fn get_sortition_for_block_id(&self, block_id:&StacksBlockId) -> Option<SortitionId> {
+//        get_snapshot_for_block_id(block_id).sorition_id;
+//    }
 }
 
 impl HeadersDB for &dyn HeadersDB {
