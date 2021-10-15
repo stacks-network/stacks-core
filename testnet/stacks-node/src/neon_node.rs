@@ -1828,7 +1828,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
+            config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64), // fix: can use block snapshot
             Some(event_observer),
         ) {
             Ok(block) => block,
@@ -1868,7 +1868,7 @@ impl InitializedNeonNode {
                     vrf_proof.clone(),
                     mblock_pubkey_hash,
                     &coinbase_tx,
-                    config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
+                    config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64), // can use BlockSnapshot
                     Some(event_observer),
                 ) {
                     Ok(block) => block,
