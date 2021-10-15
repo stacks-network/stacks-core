@@ -217,7 +217,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         burn_dbconn: &'a dyn BurnStateDB,
         cost_so_far: &ExecutionCost,
         settings: BlockBuilderSettings,
-        block_height:u64,
+        block_height: u64,
     ) -> Result<StacksMicroblockBuilder<'a>, Error> {
         let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
             MicroblockMinerRuntime::from(unconfirmed_state)
@@ -252,7 +252,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 return Err(Error::NoSuchBlockError)?;
             };
 
-        let block_limit = ExecutionCostSchedule::choose_limit_by_height(&settings.execution_cost_schedule, block_height as u32);
+        let block_limit = ExecutionCostSchedule::choose_limit_by_height(
+            &settings.execution_cost_schedule,
+            block_height as u32,
+        );
         let mut clarity_tx = chainstate
             .begin_unconfirmed(burn_dbconn, block_limit.clone())
             .ok_or_else(|| {
@@ -1473,8 +1476,7 @@ impl StacksBlockBuilder {
 
         let ts_start = get_epoch_time_ms();
 
-        let block_limit =
-            ExecutionCostSchedule::choose_limit_by_height(&execution_budget, 0);
+        let block_limit = ExecutionCostSchedule::choose_limit_by_height(&execution_budget, 0);
         let mut epoch_tx =
             builder.epoch_begin(&mut chainstate, burn_dbconn, block_limit.clone())?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;

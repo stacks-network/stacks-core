@@ -329,7 +329,7 @@ fn mine_one_microblock(
     sortdb: &SortitionDB,
     chainstate: &mut StacksChainState,
     mempool: &MemPoolDB,
-    block_height:u64,
+    block_height: u64,
 ) -> Result<StacksMicroblock, ChainstateError> {
     debug!(
         "Try to mine one microblock off of {}/{} (total: {})",
@@ -414,7 +414,7 @@ fn try_mine_microblock(
     let microblock_privkey = winning_tip.2;
 
     let mut next_microblock = None;
-    let mut block_height_opt:Option<u64> = None;
+    let mut block_height_opt: Option<u64> = None;
     if microblock_miner_state.is_none() {
         debug!(
             "Instantiate microblock mining state off of {}/{}",
@@ -472,8 +472,13 @@ fn try_mine_microblock(
                 )?;
                 if num_attachable == 0 {
                     // Note: can we really unwrap here?
-                    match mine_one_microblock(&mut microblock_miner, sortdb, chainstate, &mem_pool, block_height_opt.unwrap())
-                    {
+                    match mine_one_microblock(
+                        &mut microblock_miner,
+                        sortdb,
+                        chainstate,
+                        &mem_pool,
+                        block_height_opt.unwrap(),
+                    ) {
                         Ok(microblock) => {
                             // will need to relay this
                             next_microblock = Some(microblock);
