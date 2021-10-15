@@ -84,6 +84,7 @@ impl<'a> Tenure {
         )
         .unwrap();
 
+        let burnblock_height = self.parent_block.metadata.burn_header_height;
         let (anchored_block, _, _) = StacksBlockBuilder::build_anchored_block(
             &mut chain_state,
             burn_dbconn,
@@ -95,7 +96,7 @@ impl<'a> Tenure {
             &self.coinbase_tx,
             BlockBuilderSettings::limited(self.config.block_limit.clone()),
             None,
-            0, // oh no.. where does this come from?
+            burnblock_height as u64, // oh no.. where does this come from?
         )
         .unwrap();
 
