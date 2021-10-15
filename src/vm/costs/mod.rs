@@ -927,6 +927,34 @@ pub struct ExecutionCost {
     pub runtime: u64,
 }
 
+/// A schedule of `ExecutionCost` objects to use. We should always have:
+///   `cost.lenth() == expiry_height.length() + 1
+///
+/// Once a `cost` element's `expiry_height` has been reached, we move to the next cost element.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+pub struct ExecutionCostSchedule {
+    pub cost: Vec<ExecutionCost>,
+    pub expiry_height: Vec<u64>,
+}
+
+impl ExecutionCostSchedule {
+    /// Creates a schedule from a single cost. For convenience in debugging.
+    pub fn from_cost(cost: ExecutionCost) -> ExecutionCostSchedule {
+        ExecutionCostSchedule {
+            cost: vec![cost],
+            expiry_height: vec![],
+        }
+    }
+
+    /// Chooses an `ExecutionCost` according to the current `burnblock_height`.
+    pub fn choose_limit_by_height(
+        burnblock_height: u32,
+        schedule: &ExecutionCostSchedule,
+    ) -> &ExecutionCost {
+        &schedule.cost[0]
+    }
+}
+
 impl fmt::Display for ExecutionCost {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{{\"runtime\": {}, \"write_len\": {}, \"write_cnt\": {}, \"read_len\": {}, \"read_cnt\": {}}}",

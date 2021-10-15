@@ -68,7 +68,7 @@ use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
 use vm::contexts::OwnedEnvironment;
-use vm::costs::{ExecutionCost, LimitedCostTracker};
+use vm::costs::{ExecutionCost, ExecutionCostSchedule, LimitedCostTracker};
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
 };
@@ -1322,7 +1322,7 @@ impl StacksChainState {
             chain_id,
             path_str,
             None,
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
     }
 
@@ -1336,7 +1336,7 @@ impl StacksChainState {
     /// parameters, but with a block limit
     pub fn reopen_limited(
         &self,
-        budget: ExecutionCost,
+        budget: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(self.mainnet, self.chain_id, &self.root_path, None, budget)
     }
@@ -1345,7 +1345,7 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
-        block_limit: ExecutionCost,
+        block_limit: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(false, chain_id, path_str, boot_data, block_limit)
     }
@@ -1354,7 +1354,7 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
-        block_limit: ExecutionCost,
+        block_limit: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, block_limit)
     }
@@ -1364,7 +1364,7 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
-        block_limit: ExecutionCost,
+        block_limit: ExecutionCostSchedule,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         let path = PathBuf::from(path_str);
 
@@ -1915,7 +1915,7 @@ impl StacksChainState {
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
         user_burns: &Vec<StagingUserBurnSupport>,
-        anchor_block_cost: &ExecutionCost,
+        anchor_block_cost: &ExecutionCostSchedule,
         anchor_block_size: u64,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
@@ -2036,7 +2036,7 @@ pub mod test {
             chain_id,
             &path,
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
         .unwrap()
         .0
@@ -2142,7 +2142,7 @@ pub mod test {
             0x80000000,
             &path,
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
         .unwrap()
         .0;
@@ -2237,7 +2237,7 @@ pub mod test {
             0x000000001,
             &path,
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
         .unwrap()
         .0;

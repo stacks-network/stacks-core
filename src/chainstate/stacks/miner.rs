@@ -50,9 +50,11 @@ use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 use crate::types::proof::TrieHash;
 
+use vm::costs::ExecutionCostSchedule;
+
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
-    pub execution_cost: ExecutionCost,
+    pub execution_cost_schedule: ExecutionCostSchedule,
     pub max_miner_time_ms: u64,
     pub mempool_settings: MemPoolWalkSettings,
 }
@@ -60,7 +62,7 @@ pub struct BlockBuilderSettings {
 impl BlockBuilderSettings {
     pub fn limited(execution_cost: ExecutionCost) -> BlockBuilderSettings {
         BlockBuilderSettings {
-            execution_cost: execution_cost,
+            execution_cost_schedule: ExecutionCostSchedule::from_cost(execution_cost),
             max_miner_time_ms: u64::max_value(),
             mempool_settings: MemPoolWalkSettings::default(),
         }
@@ -68,7 +70,7 @@ impl BlockBuilderSettings {
 
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
-            execution_cost: ExecutionCost::max_value(),
+            execution_cost_schedule: ExecutionCostSchedule::from_cost(ExecutionCost::max_value()),
             max_miner_time_ms: u64::max_value(),
             mempool_settings: MemPoolWalkSettings::zero(),
         }
@@ -1427,7 +1429,7 @@ impl StacksBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
-        let execution_budget = settings.execution_cost;
+        let execution_budget = settings.execution_cost_schedule.cost[0].clone();
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;
 
