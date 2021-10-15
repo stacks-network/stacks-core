@@ -878,7 +878,7 @@ impl std::default::Default for Config {
         };
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
-        let block_limit_schedule = ExecutionCost::from_cost(HELIUM_BLOCK_LIMIT.clone());
+        let block_limit_schedule = ExecutionCostSchedule::from_cost(HELIUM_BLOCK_LIMIT.clone());
         let estimation = FeeEstimationConfig::default();
 
         Config {

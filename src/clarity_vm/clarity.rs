@@ -236,10 +236,7 @@ impl ClarityBlockConnection<'_> {
 
 impl ClarityInstance {
     pub fn new(mainnet: bool, datastore: MarfedKV) -> ClarityInstance {
-        ClarityInstance {
-            datastore,
-            mainnet,
-        }
+        ClarityInstance { datastore, mainnet }
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -259,7 +256,7 @@ impl ClarityInstance {
         next: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
-        block_limit:ExecutionCost,
+        block_limit: ExecutionCost,
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin(current, next);
 
@@ -378,7 +375,7 @@ impl ClarityInstance {
         current: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
-        block_limit:ExecutionCost,
+        block_limit: ExecutionCost,
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin_unconfirmed(current);
 

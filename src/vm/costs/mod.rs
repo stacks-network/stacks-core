@@ -929,8 +929,8 @@ pub struct ExecutionCost {
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct ExecutionCostSchedule {
-    pub cost_limit:Vec<ExecutionCost>,
-    pub expiry_height:Vec<u64>,
+    pub cost_limit: Vec<ExecutionCost>,
+    pub expiry_height: Vec<u64>,
 }
 
 impl ExecutionCostSchedule {

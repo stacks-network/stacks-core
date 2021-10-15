@@ -1,6 +1,7 @@
 use std::cmp;
 
 use crate::vm::costs::ExecutionCost;
+use crate::vm::costs::ExecutionCostSchedule;
 
 /// This trait defines metrics used to convert `ExecutionCost` and tx_len usage into single-dimensional
 /// metrics that can be used to compute a fee rate.
@@ -18,14 +19,14 @@ pub const PROPORTION_RESOLUTION: u64 = 10_000;
 /// The maximum scalar value for an execution cost that = the block limit is
 /// 6 * `PROPORTION_RESOLUTION`.
 pub struct ProportionalDotProduct {
-    block_execution_limit: ExecutionCost,
+    block_execution_limit: ExecutionCostSchedule,
     block_size_limit: u64,
 }
 
 impl ProportionalDotProduct {
     pub fn new(
         block_size_limit: u64,
-        block_execution_limit: ExecutionCost,
+        block_execution_limit: ExecutionCostSchedule,
     ) -> ProportionalDotProduct {
         ProportionalDotProduct {
             block_execution_limit,
@@ -44,8 +45,10 @@ impl ProportionalDotProduct {
 
 impl CostMetric for ProportionalDotProduct {
     fn from_cost_and_len(&self, cost: &ExecutionCost, tx_len: u64) -> u64 {
-        let exec_proportion =
-            cost.proportion_dot_product(&self.block_execution_limit, PROPORTION_RESOLUTION);
+        let exec_proportion = cost.proportion_dot_product(
+            &self.block_execution_limit.cost_limit[0],
+            PROPORTION_RESOLUTION,
+        );
         let len_proportion = self.calculate_len_proportion(tx_len);
         exec_proportion + len_proportion
     }

@@ -4636,7 +4636,7 @@ impl StacksChainState {
             microblock_tail_opt,
             &scheduled_miner_reward,
             user_burns,
-            BLOCK_LIMIT_MAINNET,
+            &BLOCK_LIMIT_MAINNET,
             block_size,
         )
         .expect("FATAL: failed to advance chain tip");

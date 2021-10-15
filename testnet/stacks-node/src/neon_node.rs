@@ -634,7 +634,7 @@ fn spawn_peer(
         is_mainnet,
         config.burnchain.chain_id,
         &stacks_chainstate_path,
-        block_limit,
+        block_limit_schedule,
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
@@ -819,7 +819,7 @@ fn spawn_miner_relayer(
         is_mainnet,
         chain_id,
         &stacks_chainstate_path,
-        config.block_limit.clone(),
+        config.block_limit_schedule.clone(),
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
@@ -2088,7 +2088,7 @@ impl NeonGenesisNode {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
-            config.block_limit.clone(),
+            config.block_limit_schedule.clone(),
         ) {
             Ok(res) => res,
             Err(err) => panic!(

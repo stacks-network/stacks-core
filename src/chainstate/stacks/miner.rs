@@ -42,9 +42,9 @@ use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
 use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use util::vrf::*;
-use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 use vm::costs::ExecutionCost;
 use vm::costs::ExecutionCostSchedule;
+use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 
 use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
@@ -248,13 +248,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 return Err(Error::NoSuchBlockError)?;
             };
 
-        let mut clarity_tx = chainstate.begin_unconfirmed(burn_dbconn).ok_or_else(|| {
-            warn!(
-                "Failed to begin-unconfirmed on {}/{}",
-                &anchored_consensus_hash, &anchored_block_hash
-            );
-            Error::NoSuchBlockError
-        })?;
+        use core::BLOCK_LIMIT_MAINNET;
+        let mut clarity_tx = chainstate
+            .begin_unconfirmed(burn_dbconn, BLOCK_LIMIT_MAINNET)
+            .ok_or_else(|| {
+                warn!(
+                    "Failed to begin-unconfirmed on {}/{}",
+                    &anchored_consensus_hash, &anchored_block_hash
+                );
+                Error::NoSuchBlockError
+            })?;
 
         debug!(
             "Resume microblock mining from {} from unconfirmed state with cost {:?}",
