@@ -1586,6 +1586,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
+        block_limit:u64,
     ) -> ClarityTx<'a> {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
@@ -1597,7 +1598,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
-            0 as u64,
+            block_limit,
         )
     }
 

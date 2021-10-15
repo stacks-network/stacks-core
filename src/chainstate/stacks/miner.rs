@@ -157,6 +157,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             &anchor_block,
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
+            0,
         );
 
         debug!(
@@ -1132,6 +1133,7 @@ impl StacksBlockBuilder {
             &parent_header_hash,
             &new_consensus_hash,
             &new_block_hash,
+            0,
         );
 
         let matured_miner_rewards_opt = StacksChainState::find_mature_miner_rewards(
