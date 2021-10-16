@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::mem;
+use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::Receiver;
@@ -33,6 +34,8 @@ use mio;
 use mio::net as mio_net;
 use rand::prelude::*;
 use rand::thread_rng;
+
+use url;
 
 use burnchains::Address;
 use burnchains::Burnchain;
@@ -50,7 +53,6 @@ use net::chat::ConversationP2P;
 use net::chat::NeighborStats;
 use net::connection::ConnectionOptions;
 use net::connection::NetworkReplyHandle;
-use net::connection::ReplyHandleHttp;
 use net::connection::ReplyHandleP2P;
 use net::db::LocalPeer;
 use net::db::PeerDB;
@@ -72,6 +74,7 @@ use net::PeerAddress;
 use net::*;
 use util::db::DBConn;
 use util::db::Error as db_error;
+use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
@@ -185,6 +188,7 @@ pub enum PeerNetworkWorkState {
     BlockInvSync,
     BlockDownload,
     AntiEntropy,
+    MemPoolSync,
     Prune,
 }
 
@@ -258,6 +262,15 @@ pub struct PeerNetwork {
 
     // peer attachment downloader
     pub attachments_downloader: Option<AttachmentsDownloader>,
+
+    // outstanding request to perform a mempool sync
+    mempool_sync_deadline: u64,
+    mempool_sync_timeout: u64,
+    mempool_sync_data_url: Option<UrlString>,
+    mempool_sync_parsed_url: Option<(url::Url, DNSRequest)>,
+    mempool_sync_sockaddr: Option<SocketAddr>,
+    mempool_sync_event_id: Option<usize>,
+    mempool_sync_transactions: Option<Vec<StacksTransaction>>,
 
     // how often we pruned a given inbound/outbound peer
     pub prune_outbound_counts: HashMap<NeighborKey, u64>,
@@ -379,6 +392,14 @@ impl PeerNetwork {
 
             block_downloader: None,
             attachments_downloader: None,
+
+            mempool_sync_deadline: 0,
+            mempool_sync_timeout: 0,
+            mempool_sync_data_url: None,
+            mempool_sync_parsed_url: None,
+            mempool_sync_sockaddr: None,
+            mempool_sync_event_id: None,
+            mempool_sync_transactions: None,
 
             prune_outbound_counts: HashMap::new(),
             prune_inbound_counts: HashMap::new(),
@@ -2398,6 +2419,7 @@ impl PeerNetwork {
     fn do_network_block_download(
         &mut self,
         sortdb: &SortitionDB,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         dns_client: &mut DNSClient,
         ibd: bool,
@@ -2420,7 +2442,7 @@ impl PeerNetwork {
             mut microblocks,
             mut broken_http_peers,
             mut broken_p2p_peers,
-        ) = match self.download_blocks(sortdb, chainstate, dns_client, ibd) {
+        ) = match self.download_blocks(sortdb, mempool, chainstate, dns_client, ibd) {
             Ok(x) => x,
             Err(net_error::NotConnected) => {
                 // there was simply nothing to do
@@ -3005,11 +3027,357 @@ impl PeerNetwork {
         Ok(())
     }
 
+    /// Extract an IP address from a UrlString if it exists
+    pub fn try_get_url_ip(url_str: &UrlString) -> Result<Option<SocketAddr>, net_error> {
+        let url = url_str.parse_to_block_url()?;
+        let port = match url.port_or_known_default() {
+            Some(p) => p,
+            None => {
+                warn!("Unsupported URL {:?}: unknown port", &url);
+                return Ok(None);
+            }
+        };
+        match url.host() {
+            Some(url::Host::Domain(d)) => {
+                if d == "localhost" {
+                    Ok(Some(SocketAddr::new(
+                        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                        port,
+                    )))
+                } else {
+                    // can't use this
+                    Ok(None)
+                }
+            }
+            Some(url::Host::Ipv4(addr)) => Ok(Some(SocketAddr::new(IpAddr::V4(addr), port))),
+            Some(url::Host::Ipv6(addr)) => Ok(Some(SocketAddr::new(IpAddr::V6(addr), port))),
+            None => {
+                warn!("Unsupported URL {:?}", &url_str);
+                Ok(None)
+            }
+        }
+    }
+
+    /// Reset a mempool sync
+    fn mempool_sync_reset(&mut self) {
+        self.mempool_sync_data_url = None;
+        self.mempool_sync_parsed_url = None;
+        self.mempool_sync_sockaddr = None;
+        self.mempool_sync_event_id = None;
+        self.mempool_sync_transactions = None;
+        self.mempool_sync_timeout = 0;
+    }
+
+    /// Pick a peer to mempool sync with.
+    /// Sets self.mempool_sync_data_url.
+    /// Returns Ok(true) if we're done syncing the mempool.
+    /// Returns Ok(false) if we're not done
+    fn mempool_sync_pick_outbound_peer(
+        &mut self,
+        dns_client_opt: &mut Option<&mut DNSClient>,
+    ) -> Result<bool, net_error> {
+        if self.mempool_sync_data_url.is_none() {
+            if self.peers.len() == 0 {
+                debug!("No peers connected; cannot do mempool sync");
+                self.mempool_sync_reset();
+                return Ok(true);
+            }
+
+            let mut idx = thread_rng().gen::<usize>() % self.peers.len();
+            for _ in 0..self.peers.len() + 1 {
+                let event_id = match self.peers.keys().skip(idx).next() {
+                    Some(eid) => *eid,
+                    None => {
+                        idx = 0;
+                        continue;
+                    }
+                };
+                idx = (idx + 1) % self.peers.len();
+
+                if let Some(convo) = self.peers.get(&event_id) {
+                    if !convo.is_authenticated() || !convo.is_outbound() {
+                        continue;
+                    }
+                    if !convo.supports_mempool_query() {
+                        continue;
+                    }
+                    if convo.data_url.len() == 0 {
+                        continue;
+                    }
+                    let url = convo.data_url.clone();
+                    if dns_client_opt.is_none() {
+                        if let Ok(Some(_)) = PeerNetwork::try_get_url_ip(&url) {
+                        } else {
+                            // need a DNS client for this one
+                            continue;
+                        }
+                    }
+
+                    self.mempool_sync_data_url = Some(url);
+                    break;
+                }
+            }
+
+            if self.mempool_sync_data_url.is_none() {
+                debug!("No peer has a data URL, so no mempool sync can happen");
+                self.mempool_sync_reset();
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Resolve our picked mempool sync peer's data URL.
+    /// Sets self.mempool_sync_sockaddr and self.mempool_sync_parsed_url.
+    /// Returns Ok(true) if we're done syncing the mempool.
+    /// Returns Ok(false) if there's more to do
+    fn mempool_sync_resolve_data_url(
+        &mut self,
+        url_str: &UrlString,
+        dns_client_opt: &mut Option<&mut DNSClient>,
+    ) -> Result<bool, net_error> {
+        if self.mempool_sync_sockaddr.is_some() {
+            return Ok(false);
+        }
+
+        if let Ok(Some(addr)) = PeerNetwork::try_get_url_ip(url_str) {
+            // URL contains an IP address -- go with that
+            self.mempool_sync_sockaddr = Some(addr);
+            Ok(false)
+        } else if let Some(dns_client) = dns_client_opt {
+            // URL contains a domain name, and we can use DNS
+            if let Some((_, request)) = self.mempool_sync_parsed_url.as_ref() {
+                // keep trying to resolve
+                match dns_client.poll_lookup(&request.host, request.port) {
+                    Ok(Some(dns_response)) => match dns_response.result {
+                        Ok(mut addrs) => {
+                            if let Some(addr) = addrs.pop() {
+                                // resolved!
+                                self.mempool_sync_sockaddr = Some(addr);
+                                return Ok(false);
+                            } else {
+                                warn!("DNS returned no results for {}", url_str);
+                                self.mempool_sync_reset();
+                                return Ok(true);
+                            }
+                        }
+                        Err(msg) => {
+                            warn!("DNS failed to look up {:?}: {}", &url_str, msg);
+                            self.mempool_sync_reset();
+                            return Ok(true);
+                        }
+                    },
+                    Ok(None) => {
+                        // still in-flight
+                        return Ok(false);
+                    }
+                    Err(e) => {
+                        warn!("DNS lookup failed on {:?}: {:?}", url_str, &e);
+                        self.mempool_sync_reset();
+                        return Ok(true);
+                    }
+                }
+            } else {
+                // start resolving
+                let url = url_str.parse_to_block_url()?;
+                let port = match url.port_or_known_default() {
+                    Some(p) => p,
+                    None => {
+                        warn!("Unsupported URL {:?}: unknown port", &url);
+                        self.mempool_sync_reset();
+                        return Ok(true);
+                    }
+                };
+                match url.host() {
+                    Some(url::Host::Domain(domain)) => {
+                        // begin DNS query
+                        match dns_client.queue_lookup(
+                            domain.clone(),
+                            port,
+                            get_epoch_time_ms() + self.connection_opts.dns_timeout,
+                        ) {
+                            Ok(_) => {}
+                            Err(_) => {
+                                warn!("Failed to queue DNS lookup on {}", url_str);
+                                self.mempool_sync_reset();
+                                return Ok(true);
+                            }
+                        }
+                        self.mempool_sync_parsed_url =
+                            Some((url.clone(), DNSRequest::new(domain.to_string(), port, 0)));
+                        return Ok(false);
+                    }
+                    _ => {
+                        // shouldn't be reachable, since if the URL had a bare IP address,
+                        // we'd have skipped this step.
+                        warn!("Unusable Data URL {}", url_str);
+                        self.mempool_sync_reset();
+                        return Ok(true);
+                    }
+                }
+            }
+        } else {
+            // can't do anything
+            debug!("No DNS client, and URL contains a domain, so no mempool sync can happen");
+            self.mempool_sync_reset();
+            return Ok(true);
+        }
+    }
+
+    /// Ask the remote peer for its mempool, connecting to it in the process if need be.
+    /// sets self.mempool_sync_event_id
+    /// Returns Ok(true) if we're done mempool syncing
+    /// Returns Ok(false) if there's more to do
+    fn mempool_sync_send_query(
+        &mut self,
+        url: UrlString,
+        addr: SocketAddr,
+        mempool: &MemPoolDB,
+        chainstate: &mut StacksChainState,
+    ) -> Result<bool, net_error> {
+        let sync_data = mempool.make_mempool_sync_data()?;
+        let request = HttpRequestType::MemPoolQuery(
+            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&addr)),
+            sync_data,
+        );
+
+        let event_id =
+            self.connect_or_send_http_request(url, addr, request, mempool, chainstate)?;
+        self.mempool_sync_event_id = Some(event_id);
+        return Ok(false);
+    }
+
+    /// Receive the mempool sync response.
+    /// Return Ok(true) if we're done with the mempool sync.
+    /// Return Ok(false) if we have more work to do.
+    fn mempool_sync_recv_response(&mut self, event_id: usize) -> Result<bool, net_error> {
+        PeerNetwork::with_http(self, |network, http| {
+            match http.get_conversation(event_id) {
+                None => {
+                    if http.is_connecting(event_id) {
+                        debug!("Mempool sync event {} is not connected yet", event_id,);
+                        return Ok(false);
+                    } else {
+                        // conversation died
+                        debug!("Mempool sync peer hung up");
+                        network.mempool_sync_reset();
+                        return Ok(true);
+                    }
+                }
+                Some(ref mut convo) => {
+                    match convo.try_get_response() {
+                        None => {
+                            // still waiting
+                            debug!(
+                                "Mempool sync event {} still waiting for a response",
+                                event_id
+                            );
+                            return Ok(false);
+                        }
+                        Some(http_response) => match http_response {
+                            HttpResponseType::MemPoolTxs(_, txs) => {
+                                network.mempool_sync_transactions = Some(txs);
+                                return Ok(true);
+                            }
+                            _ => {
+                                warn!("Mempool sync request received {:?}", &http_response);
+                                network.mempool_sync_reset();
+                                return Ok(true);
+                            }
+                        },
+                    }
+                }
+            }
+        })
+    }
+
+    /// Do a mempool sync
+    /// Return true if we're done and can advance to the next state.
+    fn do_mempool_sync(
+        &mut self,
+        dns_client_opt: &mut Option<&mut DNSClient>,
+        mempool: &MemPoolDB,
+        chainstate: &mut StacksChainState,
+    ) -> Result<bool, net_error> {
+        if get_epoch_time_secs() + self.connection_opts.mempool_sync_interval
+            <= self.mempool_sync_deadline
+        {
+            debug!(
+                "Wait until {} to do a mempool sync",
+                self.mempool_sync_deadline
+            );
+            return Ok(true);
+        }
+
+        if self.mempool_sync_timeout == 0 {
+            // begin new sync
+            self.mempool_sync_timeout =
+                get_epoch_time_secs() + self.connection_opts.mempool_sync_timeout;
+        } else {
+            if get_epoch_time_secs() > self.mempool_sync_timeout {
+                debug!("Mempool sync took too long; terminating");
+                self.mempool_sync_reset();
+                return Ok(true);
+            }
+        }
+
+        // 1. pick a random outbound conversation.
+        // Sets self.mempool_sync_data_url on success.
+        if self.mempool_sync_data_url.is_none() {
+            if self.mempool_sync_pick_outbound_peer(dns_client_opt)? {
+                return Ok(true);
+            }
+        }
+
+        // 2. resolve its data URL
+        // sets self.mempool_sync_sockaddr on success
+        if self.mempool_sync_sockaddr.is_none() {
+            if let Some(url_str) = self.mempool_sync_data_url.clone() {
+                if self.mempool_sync_resolve_data_url(&url_str, dns_client_opt)? {
+                    return Ok(true);
+                }
+            }
+        }
+
+        // 3. ask for the remote peer's mempool's novel txs
+        // sets self.mempool_sync_event_id
+        if self.mempool_sync_data_url.is_some()
+            && self.mempool_sync_sockaddr.is_some()
+            && self.mempool_sync_event_id.is_none()
+        {
+            match (
+                self.mempool_sync_data_url.clone(),
+                self.mempool_sync_sockaddr.clone(),
+            ) {
+                (Some(url), Some(addr)) => {
+                    if self.mempool_sync_send_query(url, addr, mempool, chainstate)? {
+                        return Ok(true);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // 4. get a streamed mempool response.
+        // sets self.mempool_sync_transactions
+        if let Some(event_id) = self.mempool_sync_event_id.clone() {
+            if self.mempool_sync_transactions.is_none() {
+                if self.mempool_sync_recv_response(event_id)? {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
     /// Do the actual work in the state machine.
     /// Return true if we need to prune connections.
     fn do_network_work(
         &mut self,
         sortdb: &SortitionDB,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
@@ -3174,6 +3542,7 @@ impl PeerNetwork {
                         Some(ref mut dns_client) => {
                             if self.do_network_block_download(
                                 sortdb,
+                                mempool,
                                 chainstate,
                                 *dns_client,
                                 ibd,
@@ -3210,7 +3579,31 @@ impl PeerNetwork {
                             }
                         };
                     }
-                    self.work_state = PeerNetworkWorkState::Prune;
+                    self.work_state = PeerNetworkWorkState::MemPoolSync;
+                }
+                PeerNetworkWorkState::MemPoolSync => {
+                    if ibd {
+                        // don't do this until we're steady state
+                        self.work_state = PeerNetworkWorkState::Prune;
+                    } else {
+                        if self.do_mempool_sync(dns_client_opt, mempool, chainstate)? {
+                            self.work_state = PeerNetworkWorkState::Prune;
+
+                            // did we run to completion?
+                            if let Some(mut txs) = self.mempool_sync_transactions.take() {
+                                debug!(
+                                    "{:?}: obtained {} transactions from mempool sync",
+                                    &self.local_peer,
+                                    txs.len()
+                                );
+
+                                network_result.synced_transactions.append(&mut txs);
+                                self.mempool_sync_deadline = get_epoch_time_secs()
+                                    + self.connection_opts.mempool_sync_interval;
+                                self.mempool_sync_reset();
+                            }
+                        }
+                    }
                 }
                 PeerNetworkWorkState::Prune => {
                     // did one pass
@@ -3241,6 +3634,7 @@ impl PeerNetwork {
 
     fn do_attachment_downloads(
         &mut self,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         mut dns_client_opt: Option<&mut DNSClient>,
         network_result: &mut NetworkResult,
@@ -3260,7 +3654,7 @@ impl PeerNetwork {
                     self,
                     |network, attachments_downloader| {
                         let mut dead_events = vec![];
-                        match attachments_downloader.run(dns_client, chainstate, network) {
+                        match attachments_downloader.run(dns_client, mempool, chainstate, network) {
                             Ok((ref mut attachments, ref mut events_to_deregister)) => {
                                 network_result.attachments.append(attachments);
                                 dead_events.append(events_to_deregister);
@@ -4246,6 +4640,7 @@ impl PeerNetwork {
         &mut self,
         network_result: &mut NetworkResult,
         sortdb: &SortitionDB,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         mut dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
@@ -4288,6 +4683,7 @@ impl PeerNetwork {
         // an already-used network ID.
         let do_prune = self.do_network_work(
             sortdb,
+            mempool,
             chainstate,
             &mut dns_client_opt,
             download_backpressure,
@@ -4317,7 +4713,7 @@ impl PeerNetwork {
         self.do_network_neighbor_walk()?;
 
         // download attachments
-        self.do_attachment_downloads(chainstate, dns_client_opt, network_result)?;
+        self.do_attachment_downloads(mempool, chainstate, dns_client_opt, network_result)?;
 
         // remove timed-out requests from other threads
         for (_, convo) in self.peers.iter_mut() {
@@ -4439,6 +4835,17 @@ impl PeerNetwork {
         }
 
         // (HTTP-uploaded transactions are already in the mempool)
+        // Mempool-synced transactions (don't re-relay these)
+        for tx in network_result.synced_transactions.drain(..) {
+            PeerNetwork::store_transaction(
+                mempool,
+                chainstate,
+                &canonical_consensus_hash,
+                &canonical_block_hash,
+                tx,
+                event_observer,
+            );
+        }
 
         network_result.pushed_transactions.extend(ret);
         Ok(())
@@ -4535,6 +4942,7 @@ impl PeerNetwork {
         self.dispatch_network(
             &mut network_result,
             sortdb,
+            mempool,
             chainstate,
             dns_client_opt,
             download_backpressure,
@@ -4562,10 +4970,15 @@ mod test {
     use net::atlas::*;
     use net::codec::*;
     use net::db::*;
+    use net::test::*;
     use net::*;
     use util::log;
     use util::sleep_ms;
     use util::test::*;
+
+    use chainstate::stacks::{
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    };
 
     use crate::types::chainstate::BurnchainHeaderHash;
 
@@ -4916,5 +5329,267 @@ mod test {
             endpoint_thread.join().unwrap();
             test_debug!("fake endpoint thread joined");
         })
+    }
+
+    #[test]
+    #[ignore]
+    fn test_mempool_sync_2_peers() {
+        with_timeout(600, || {
+            // peer 1 gets some transactions; verify peer 2 gets the recent ones and not the old
+            // ones
+            let mut peer_1_config = TestPeerConfig::new("test_mempool_sync_2_peers", 2210, 2211);
+            let mut peer_2_config = TestPeerConfig::new("test_mempool_sync_2_peers", 2212, 2213);
+
+            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+
+            peer_1_config.connection_opts.mempool_sync_interval = 1;
+            peer_2_config.connection_opts.mempool_sync_interval = 1;
+
+            let num_txs = 10;
+            let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+            let addrs: Vec<_> = pks.iter().map(|pk| to_addr(pk)).collect();
+            let initial_balances: Vec<_> = addrs
+                .iter()
+                .map(|a| (a.to_account_principal(), 1000000000))
+                .collect();
+
+            peer_1_config.initial_balances = initial_balances.clone();
+            peer_2_config.initial_balances = initial_balances.clone();
+
+            let mut peer_1 = TestPeer::new(peer_1_config);
+            let mut peer_2 = TestPeer::new(peer_2_config);
+
+            let num_blocks = 10;
+            let first_stacks_block_height = {
+                let sn = SortitionDB::get_canonical_burn_chain_tip(
+                    &peer_1.sortdb.as_ref().unwrap().conn(),
+                )
+                .unwrap();
+                sn.block_height + 1
+            };
+
+            for i in 0..(num_blocks / 2) {
+                let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
+
+                peer_1.next_burnchain_block(burn_ops.clone());
+                peer_2.next_burnchain_block(burn_ops.clone());
+
+                peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+            }
+
+            let addr = StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: Hash160([0xff; 20]),
+            };
+
+            // old transactions
+            let num_txs = 10;
+            let mut old_txs = HashMap::new();
+            let mut peer_1_mempool = peer_1.mempool.take().unwrap();
+            let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
+            for i in 0..num_txs {
+                let pk = &pks[i];
+                let mut tx = StacksTransaction {
+                    version: TransactionVersion::Testnet,
+                    chain_id: 0x80000000,
+                    auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+                    anchor_mode: TransactionAnchorMode::Any,
+                    post_condition_mode: TransactionPostConditionMode::Allow,
+                    post_conditions: vec![],
+                    payload: TransactionPayload::TokenTransfer(
+                        addr.to_account_principal(),
+                        123,
+                        TokenTransferMemo([0u8; 34]),
+                    ),
+                };
+                tx.set_tx_fee(1000);
+                tx.set_origin_nonce(0);
+
+                let mut tx_signer = StacksTransactionSigner::new(&tx);
+                tx_signer.sign_origin(&pk).unwrap();
+
+                let tx = tx_signer.get_tx().unwrap();
+
+                let txid = tx.txid();
+                let tx_bytes = tx.serialize_to_vec();
+                let origin_addr = tx.origin_address();
+                let origin_nonce = tx.get_origin_nonce();
+                let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+                let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+                let tx_fee = tx.get_tx_fee();
+
+                old_txs.insert(tx.txid(), tx.clone());
+
+                // should succeed
+                MemPoolDB::try_add_tx(
+                    &mut mempool_tx,
+                    peer_1.chainstate(),
+                    &ConsensusHash([0x1 + (num_blocks as u8); 20]),
+                    &BlockHeaderHash([0x2 + (num_blocks as u8); 32]),
+                    txid.clone(),
+                    tx_bytes,
+                    tx_fee,
+                    (num_blocks / 2) as u64,
+                    &origin_addr,
+                    origin_nonce,
+                    &sponsor_addr,
+                    sponsor_nonce,
+                    None,
+                )
+                .unwrap();
+
+                eprintln!("Added {} {}", i, &txid);
+            }
+            mempool_tx.commit().unwrap();
+            peer_1.mempool = Some(peer_1_mempool);
+
+            // keep mining to make these txs old
+            for i in (num_blocks / 2)..num_blocks {
+                let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
+
+                peer_1.next_burnchain_block(burn_ops.clone());
+                peer_2.next_burnchain_block(burn_ops.clone());
+
+                peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+            }
+
+            let num_burn_blocks = {
+                let sn = SortitionDB::get_canonical_burn_chain_tip(
+                    peer_1.sortdb.as_ref().unwrap().conn(),
+                )
+                .unwrap();
+                sn.block_height + 1
+            };
+
+            let mut txs = HashMap::new();
+            let mut peer_1_mempool = peer_1.mempool.take().unwrap();
+            let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
+            for i in 0..num_txs {
+                let pk = &pks[i];
+                let mut tx = StacksTransaction {
+                    version: TransactionVersion::Testnet,
+                    chain_id: 0x80000000,
+                    auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+                    anchor_mode: TransactionAnchorMode::Any,
+                    post_condition_mode: TransactionPostConditionMode::Allow,
+                    post_conditions: vec![],
+                    payload: TransactionPayload::TokenTransfer(
+                        addr.to_account_principal(),
+                        123,
+                        TokenTransferMemo([0u8; 34]),
+                    ),
+                };
+                tx.set_tx_fee(1000);
+                tx.set_origin_nonce(1);
+
+                let mut tx_signer = StacksTransactionSigner::new(&tx);
+                tx_signer.sign_origin(&pk).unwrap();
+
+                let tx = tx_signer.get_tx().unwrap();
+
+                let txid = tx.txid();
+                let tx_bytes = tx.serialize_to_vec();
+                let origin_addr = tx.origin_address();
+                let origin_nonce = tx.get_origin_nonce();
+                let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+                let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+                let tx_fee = tx.get_tx_fee();
+
+                txs.insert(tx.txid(), tx.clone());
+
+                // should succeed
+                MemPoolDB::try_add_tx(
+                    &mut mempool_tx,
+                    peer_1.chainstate(),
+                    &ConsensusHash([0x1 + (num_blocks as u8); 20]),
+                    &BlockHeaderHash([0x2 + (num_blocks as u8); 32]),
+                    txid.clone(),
+                    tx_bytes,
+                    tx_fee,
+                    num_blocks as u64,
+                    &origin_addr,
+                    origin_nonce,
+                    &sponsor_addr,
+                    sponsor_nonce,
+                    None,
+                )
+                .unwrap();
+
+                eprintln!("Added {} {}", i, &txid);
+            }
+            mempool_tx.commit().unwrap();
+            peer_1.mempool = Some(peer_1_mempool);
+
+            let mut round = 0;
+            let mut peer_1_mempool_txs = 0;
+            let mut peer_2_mempool_txs = 0;
+
+            while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
+                if let Ok(mut result) = peer_1.step() {
+                    let lp = peer_1.network.local_peer.clone();
+                    peer_1
+                        .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                            relayer.process_network_result(
+                                &lp,
+                                &mut result,
+                                sortdb,
+                                chainstate,
+                                mempool,
+                                None,
+                                None,
+                            )
+                        })
+                        .unwrap();
+                }
+
+                if let Ok(mut result) = peer_2.step() {
+                    let lp = peer_2.network.local_peer.clone();
+                    peer_2
+                        .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                            relayer.process_network_result(
+                                &lp,
+                                &mut result,
+                                sortdb,
+                                chainstate,
+                                mempool,
+                                None,
+                                None,
+                            )
+                        })
+                        .unwrap();
+                }
+
+                round += 1;
+
+                let mp = peer_1.mempool.take().unwrap();
+                peer_1_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
+                peer_1.mempool.replace(mp);
+
+                let mp = peer_2.mempool.take().unwrap();
+                peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
+                peer_2.mempool.replace(mp);
+
+                info!(
+                    "Peer 1: {}, Peer 2: {}",
+                    peer_1_mempool_txs, peer_2_mempool_txs
+                );
+            }
+
+            info!("Completed mempool sync in {} step(s)", round);
+
+            let mp = peer_2.mempool.take().unwrap();
+            let peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap();
+            peer_2.mempool.replace(mp);
+
+            // peer 2 has all the recent txs
+            // peer 2 has none of the old ones
+            for tx in peer_2_mempool_txs {
+                assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
+                assert!(old_txs.get(&tx.tx.txid()).is_none());
+            }
+        });
     }
 }
