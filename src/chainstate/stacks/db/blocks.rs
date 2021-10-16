@@ -46,10 +46,12 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
+use core::mempool::MemPoolDB;
 use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use core::*;
 use net::BlocksInvData;
 use net::Error as net_error;
+use net::MemPoolSyncData;
 use util::db::u64_to_sql;
 use util::db::Error as db_error;
 use util::db::{
@@ -384,6 +386,8 @@ impl BlockStreamData {
             unconfirmed: false,
             num_mblocks_buf: [0u8; 4],
             num_mblocks_ptr: 0,
+
+            tx_stream: None,
         }
     }
 
@@ -420,6 +424,8 @@ impl BlockStreamData {
             unconfirmed: false,
             num_mblocks_buf: num_mblocks_buf,
             num_mblocks_ptr: 0,
+
+            tx_stream: None,
         })
     }
 
@@ -448,11 +454,41 @@ impl BlockStreamData {
             unconfirmed: true,
             num_mblocks_buf: [0u8; 4],
             num_mblocks_ptr: 4, // stops us from trying to send a length prefix
+
+            tx_stream: None,
         })
+    }
+
+    pub fn new_tx_stream(tx_query: MemPoolSyncData, max_txs: u64, height: u64) -> BlockStreamData {
+        BlockStreamData {
+            index_block_hash: StacksBlockId([0u8; 32]),
+            rowid: None,
+            offset: 0,
+            total_bytes: 0,
+
+            is_microblock: false,
+            microblock_hash: BlockHeaderHash([0u8; 32]),
+            parent_index_block_hash: StacksBlockId([0u8; 32]),
+            seq: 0,
+            unconfirmed: false,
+            num_mblocks_buf: [0u8; 4],
+            num_mblocks_ptr: 4, // stops us from trying to send a length prefix
+
+            tx_stream: Some(TxStreamData {
+                tx_query,
+                last_txid: Txid([0u8; 32]),
+                tx_buf: vec![],
+                tx_buf_ptr: 0,
+                num_txs: 0,
+                max_txs: max_txs,
+                height: height,
+            }),
+        }
     }
 
     pub fn stream_to<W: Write>(
         &mut self,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         fd: &mut W,
         count: u64,
@@ -512,9 +548,15 @@ impl BlockStreamData {
                 StacksChainState::stream_microblocks_unconfirmed(&chainstate, fd, self, count)
                     .and_then(|bytes_sent| Ok(bytes_sent + num_written))
             }
+        } else if let Some(tx_stream) = self.tx_stream.as_mut() {
+            mempool.stream_txs(fd, tx_stream, count)
         } else {
             chainstate.stream_block(fd, self, count)
         }
+    }
+
+    pub fn take_tx_stream(&mut self) -> Option<TxStreamData> {
+        self.tx_stream.take()
     }
 }
 
@@ -8532,11 +8574,19 @@ pub mod test {
         stream: &mut BlockStreamData,
         count: u64,
     ) -> Result<Vec<u8>, chainstate_error> {
+        let mempool = MemPoolDB::open(
+            chainstate.mainnet,
+            chainstate.chain_id,
+            &chainstate.root_path,
+        )
+        .unwrap();
         let mut bytes = vec![];
-        stream.stream_to(chainstate, &mut bytes, count).map(|nr| {
-            assert_eq!(bytes.len(), nr as usize);
-            bytes
-        })
+        stream
+            .stream_to(&mempool, chainstate, &mut bytes, count)
+            .map(|nr| {
+                assert_eq!(bytes.len(), nr as usize);
+                bytes
+            })
     }
 
     fn stream_confirmed_microblocks_to_vec(
@@ -8544,11 +8594,19 @@ pub mod test {
         stream: &mut BlockStreamData,
         count: u64,
     ) -> Result<Vec<u8>, chainstate_error> {
+        let mempool = MemPoolDB::open(
+            chainstate.mainnet,
+            chainstate.chain_id,
+            &chainstate.root_path,
+        )
+        .unwrap();
         let mut bytes = vec![];
-        stream.stream_to(chainstate, &mut bytes, count).map(|nr| {
-            assert_eq!(bytes.len(), nr as usize);
-            bytes
-        })
+        stream
+            .stream_to(&mempool, chainstate, &mut bytes, count)
+            .map(|nr| {
+                assert_eq!(bytes.len(), nr as usize);
+                bytes
+            })
     }
 
     fn decode_microblock_stream(mblock_bytes: &Vec<u8>) -> Vec<StacksMicroblock> {
