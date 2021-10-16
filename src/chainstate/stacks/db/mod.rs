@@ -58,6 +58,7 @@ use clarity_vm::clarity::{
 use core::*;
 use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
+use net::MemPoolSyncData;
 use util::db::Error as db_error;
 use util::db::{
     db_mkdirs, query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx,
@@ -446,6 +447,17 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct TxStreamData {
+    pub tx_query: MemPoolSyncData,
+    pub last_txid: Txid,
+    pub tx_buf: Vec<u8>,
+    pub tx_buf_ptr: usize,
+    pub num_txs: u64,
+    pub max_txs: u64,
+    pub height: u64, // height of the chain at the time of the query
+}
+
 /// Opaque structure for streaming block and microblock data from disk
 #[derive(Debug, PartialEq, Clone)]
 pub struct BlockStreamData {
@@ -462,6 +474,9 @@ pub struct BlockStreamData {
     unconfirmed: bool,
     num_mblocks_buf: [u8; 4],
     num_mblocks_ptr: usize,
+
+    // used for mempool sync
+    tx_stream: Option<TxStreamData>,
 }
 
 pub const CHAINSTATE_VERSION: &'static str = "1";
