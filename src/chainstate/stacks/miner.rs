@@ -6954,7 +6954,7 @@ pub mod test {
             .map(|addr| (addr.to_account_principal(), 100000000000))
             .collect();
 
-        let mut peer_config = TestPeerConfig::new("build_anchored_incrementing_nonces", 2006, 2007);
+        let mut peer_config = TestPeerConfig::new("build_anchored_incrementing_nonces", 2030, 2031);
         peer_config.initial_balances = initial_balances;
 
         let mut peer = TestPeer::new(peer_config);
