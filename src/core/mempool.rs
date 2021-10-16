@@ -723,6 +723,7 @@ impl MemPoolDB {
 
         let tx_consideration_sampler = Uniform::new(0, 100);
         let mut rng = rand::thread_rng();
+        let mut remember_start_with_estimate = None;
 
         loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
@@ -731,8 +732,9 @@ impl MemPoolDB {
                 break;
             }
 
-            let start_with_no_estimate =
-                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob;
+            let start_with_no_estimate = remember_start_with_estimate.unwrap_or_else(|| {
+                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob
+            });
 
             match self.get_next_tx_to_consider(start_with_no_estimate)? {
                 ConsiderTransactionResult::NoTransactions => {
@@ -740,6 +742,9 @@ impl MemPoolDB {
                     break;
                 }
                 ConsiderTransactionResult::UpdateNonces(addresses) => {
+                    // if we need to update the nonce for the considered transaction,
+                    //  use the last value of start_with_no_estimate on the next loop
+                    remember_start_with_estimate = Some(start_with_no_estimate);
                     let mut last_addr = None;
                     for address in addresses.into_iter() {
                         debug!("Update nonce"; "address" => %address);
@@ -756,6 +761,9 @@ impl MemPoolDB {
                     }
                 }
                 ConsiderTransactionResult::Consider(consider) => {
+                    // if we actually consider the chosen transaction,
+                    //  compute a new start_with_no_estimate on the next loop
+                    remember_start_with_estimate = None;
                     debug!("Consider mempool transaction";
                            "txid" => %consider.tx.tx.txid(),
                            "origin_addr" => %consider.tx.metadata.origin_address,
