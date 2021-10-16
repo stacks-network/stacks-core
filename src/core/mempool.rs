@@ -3122,9 +3122,8 @@ mod tests {
 
     #[test]
     fn test_stream_txs() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "find_next_missing_transactions");
-        let chainstate_path = chainstate_path("find_next_missing_transactions");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, "test_stream_txs");
+        let chainstate_path = chainstate_path("test_stream_txs");
         let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
 
         let addr = StacksAddress {
