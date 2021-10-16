@@ -614,6 +614,13 @@ impl ConversationP2P {
         self.burnchain_stable_tip_burn_header_hash.clone()
     }
 
+    /// Does thos remote neighbor support the mempool query interface?  It will if it has both
+    /// RELAY and RPC bits set.
+    pub fn supports_mempool_query(&self) -> bool {
+        let expected_bits = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
+        (self.peer_services & expected_bits) == expected_bits
+    }
+
     /// Determine whether or not a given (height, burn_header_hash) pair _disagrees_ with our
     /// burnchain view.  If it does, return true.  If it doesn't (including if the given pair is
     /// simply absent from the chain_view), then return False.
@@ -1060,7 +1067,7 @@ impl ConversationP2P {
         };
 
         debug!(
-            "Handshake from {:?} {} public key {:?} expires at {:?}",
+            "Handshake from {:?} {} public key {:?} services 0x{} expires at {:?}",
             &self,
             _authentic_msg,
             &to_hex(
@@ -1070,6 +1077,7 @@ impl ConversationP2P {
                     .unwrap()
                     .to_bytes_compressed()
             ),
+            &to_hex(&handshake_data.services.to_be_bytes()),
             handshake_data.expire_block_height
         );
 
@@ -1106,6 +1114,10 @@ impl ConversationP2P {
         // update stats
         self.stats.last_contact_time = get_epoch_time_secs();
         self.peer_heartbeat = self.heartbeat; // use our own heartbeat to determine how often we expect this peer to ping us, since that's what we've told the peer
+
+        if self.supports_mempool_query() {
+            debug!("Remote neighbor {:?} supports mempool sync", &self);
+        }
 
         // always pass back handshakes, even though we "handled" them (since other processes --
         // in particular, the neighbor-walk logic -- need to receive them)
@@ -1182,7 +1194,6 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
         preamble: &Preamble,
     ) -> Result<ReplyHandleP2P, net_error> {
-        // monitoring::increment_p2p_msg_get_neighbors_received_counter();
         monitoring::increment_msg_counter("p2p_get_neighbors".to_string());
 
         // get neighbors at random as long as they're fresh
