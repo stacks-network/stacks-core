@@ -186,7 +186,7 @@ impl RunLoop {
 
         let mainnet = self.config.is_mainnet();
         let chainid = self.config.burnchain.chain_id;
-        let block_limit = self.config.block_limit_schedule.clone();
+        let block_limit_schedule = self.config.block_limit_schedule.clone();
         let initial_balances = self
             .config
             .initial_balances
@@ -241,7 +241,7 @@ impl RunLoop {
             chainid,
             &chainstate_path,
             Some(&mut boot_data),
-            block_limit,
+            block_limit_schedule,
         )
         .unwrap();
         coordinator_dispatcher.dispatch_boot_receipts(receipts);
@@ -250,7 +250,7 @@ impl RunLoop {
         let moved_atlas_config = atlas_config.clone();
         let moved_estimator_config = self.config.estimation.clone();
         let moved_chainstate_path = self.config.get_chainstate_path();
-        let moved_block_limit = self.config.block_limit_schedule.clone();
+        let block_limit_schedule = self.config.block_limit_schedule.clone();
 
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
@@ -265,7 +265,7 @@ impl RunLoop {
 
                 let metric = match moved_estimator_config.cost_metric {
                     Some(CostMetricName::ProportionDotProduct) => Some(
-                        ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, moved_block_limit),
+                        ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, block_limit_schedule),
                     ),
                     None => None,
                 };

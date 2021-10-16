@@ -177,8 +177,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
             StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
                 .ok_or(Error::NoSuchBlockError)?;
 
-        let block_limit =
-            ExecutionCostSchedule::choose_limit_by_height(&settings.execution_cost_schedule, anchor_block_height);
+        let block_limit = ExecutionCostSchedule::choose_limit_by_height(
+            &settings.execution_cost_schedule,
+            anchor_block_height as u32,
+        );
 
         // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
         //  the chainstate, but will lose the reference to the clarity_tx before the Drop handler for StacksMicroblockBuilder
@@ -1477,7 +1479,8 @@ impl StacksBlockBuilder {
 
         let ts_start = get_epoch_time_ms();
 
-        let block_limit = ExecutionCostSchedule::choose_limit_by_height(&execution_budget, block_height);
+        let block_limit =
+            ExecutionCostSchedule::choose_limit_by_height(&execution_budget, block_height);
         let mut epoch_tx =
             builder.epoch_begin(&mut chainstate, burn_dbconn, block_limit.clone())?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
