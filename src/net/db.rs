@@ -1413,7 +1413,10 @@ mod test {
         );
         assert_eq!(local_peer.port, NETWORK_P2P_PORT);
         assert_eq!(local_peer.addrbytes, PeerAddress::from_ipv4(127, 0, 0, 1));
-        assert_eq!(local_peer.services, ServiceFlags::RELAY as u16);
+        assert_eq!(
+            local_peer.services,
+            (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16)
+        );
     }
 
     #[test]
