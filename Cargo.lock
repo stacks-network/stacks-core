@@ -385,6 +385,7 @@ dependencies = [
  "sha2 0.8.2",
  "sha2-asm",
  "sha3",
+ "siphasher 0.3.7",
  "slog",
  "slog-json",
  "slog-term",
