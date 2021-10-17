@@ -844,7 +844,7 @@ impl MemPoolDB {
     /// Remove all txids at the given height from the bloom counter.
     /// Used to clear out txids that are now outside the bloom counter's depth.
     fn prune_bloom_counter(tx: &mut MemPoolTx, target_height: u64) -> Result<(), MemPoolRejection> {
-        let sql = "SELECT txid FROM mempool WHERE height = ?1";
+        let sql = "SELECT txid FROM mempool WHERE height = ?1 AND NOT EXISTS (SELECT 1 FROM removed_txids WHERE txid = mempool.txid)";
         let args: &[&dyn ToSql] = &[&u64_to_sql(target_height)?];
         let txids: Vec<Txid> = query_rows(tx, sql, args)?;
         let num_txs = txids.len();
@@ -855,6 +855,10 @@ impl MemPoolDB {
         let bloom_counter = tx.take_bloom_state();
         for txid in txids.into_iter() {
             bloom_counter.remove_raw(&mut tx.tx, &txid.0)?;
+
+            let sql = "INSERT OR REPLACE INTO removed_txids (txid) VALUES (?1)";
+            let args: &[&dyn ToSql] = &[&txid];
+            tx.execute(sql, args).map_err(db_error::SqliteError)?;
         }
 
         debug!(
@@ -2820,11 +2824,27 @@ mod tests {
                         let recent_txids = mempool.get_bloom_txids().unwrap();
                         assert!(recent_txids.len() <= MAX_BLOOM_COUNTER_TXS as usize);
 
+                        let max_height = MemPoolDB::get_max_height(mempool.conn())
+                            .unwrap()
+                            .unwrap_or(0);
+                        eprintln!(
+                            "bloomfilter({}): recent_txids.len() == {}, max height is {}",
+                            block_height,
+                            recent_txids.len(),
+                            max_height
+                        );
+
                         let mut recent_set = HashSet::new();
-                        for txid in recent_txids {
-                            assert!(bf.contains_raw(&txid.0));
-                            recent_set.insert(txid);
+                        let mut in_bf = 0;
+                        for txid in recent_txids.iter() {
+                            if bf.contains_raw(&txid.0) {
+                                in_bf += 1;
+                            }
+                            recent_set.insert(txid.clone());
                         }
+
+                        eprintln!("in bloom filter: {}", in_bf);
+                        assert!(in_bf >= recent_txids.len());
 
                         for txid in txids.iter() {
                             if !recent_set.contains(&txid) && bf.contains_raw(&txid.0) {
