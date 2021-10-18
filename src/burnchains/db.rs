@@ -27,8 +27,8 @@ use burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as Burnc
 use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::stacks::index::MarfTrieId;
 use util::db::{
-    query_row, query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql,
-    Error as DBError, FromColumn, FromRow,
+    query_row, query_rows, sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler,
+    u64_to_sql, Error as DBError, FromColumn, FromRow,
 };
 
 use crate::types::chainstate::BurnchainHeaderHash;
@@ -209,16 +209,11 @@ impl BurnchainDB {
             }
         };
 
-        let conn = Connection::open_with_flags(path, open_flags)
-            .expect(&format!("FAILED to open: {}", path));
-
-        conn.busy_handler(Some(tx_busy_handler))?;
-
+        let conn = sqlite_open(path, open_flags, true)?;
         let mut db = BurnchainDB { conn };
 
         if create_flag {
             let db_tx = db.tx_begin()?;
-            sql_pragma(&db_tx.sql_tx, "PRAGMA journal_mode = WAL;")?;
             db_tx.sql_tx.execute_batch(BURNCHAIN_DB_INITIAL_SCHEMA)?;
 
             db_tx.sql_tx.execute(
@@ -247,9 +242,7 @@ impl BurnchainDB {
         } else {
             OpenFlags::SQLITE_OPEN_READ_ONLY
         };
-        let conn = Connection::open_with_flags(path, open_flags)?;
-        conn.busy_handler(Some(tx_busy_handler))?;
-
+        let conn = sqlite_open(path, open_flags, true)?;
         Ok(BurnchainDB { conn })
     }
 

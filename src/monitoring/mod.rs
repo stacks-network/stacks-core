@@ -31,6 +31,7 @@ use burnchains::BurnchainSigner;
 use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use util::db::sqlite_open;
 use util::db::Error as DatabaseError;
 use util::uint::{Uint256, Uint512};
 
@@ -144,9 +145,7 @@ fn txid_tracking_db(chainstate_root_path: &str) -> Result<DBConn, DatabaseError>
         OpenFlags::SQLITE_OPEN_READ_WRITE
     };
 
-    let conn = DBConn::open_with_flags(&db_path, open_flags)?;
-
-    conn.busy_handler(Some(tx_busy_handler))?;
+    let conn = sqlite_open(&db_path, open_flags, false)?;
 
     if create_flag {
         conn.execute(
@@ -195,8 +194,7 @@ pub fn log_transaction_processed(
     #[cfg(feature = "monitoring_prom")]
     {
         let mempool_db_path = MemPoolDB::db_path(chainstate_root_path)?;
-        let mempool_conn =
-            DBConn::open_with_flags(&mempool_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let mempool_conn = sqlite_conn(&mempool_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let tracking_db = txid_tracking_db(chainstate_root_path)?;
 
         let tx = match MemPoolDB::get_tx(&mempool_conn, txid)? {

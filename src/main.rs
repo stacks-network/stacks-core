@@ -61,6 +61,7 @@ use blockstack_lib::{
         stacks::db::{StacksChainState, StacksHeaderInfo},
     },
     core::MemPoolDB,
+    util::db::sqlite_open,
     util::{hash::Hash160, vrf::VRFProof},
     vm::costs::ExecutionCost,
 };
@@ -603,7 +604,7 @@ simulating a miner.
         let value_opt = marf.get(&marf_bhh, marf_key).expect("Failed to read MARF");
 
         if let Some(value) = value_opt {
-            let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)
                 .expect("Failed to open DB");
             let args: &[&dyn ToSql] = &[&value.to_hex()];
             let res: Result<String, rusqlite::Error> = conn.query_row_and_then(
