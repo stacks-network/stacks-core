@@ -935,7 +935,7 @@ pub struct ExecutionCostSchedule {
 
 impl ExecutionCostSchedule {
     pub fn max_value() -> ExecutionCostSchedule {
-        panic!("hi")
+        ExecutionCostSchedule::from_cost(ExecutionCost::max_value())
     }
     /// Creates a schedule from a single cost. For convenience in debugging.
     pub fn from_cost(cost: ExecutionCost) -> ExecutionCostSchedule {

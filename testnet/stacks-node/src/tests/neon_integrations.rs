@@ -2854,7 +2854,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     conf.node.microblock_frequency = 1_000;
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
-    conf.block_limit_schedule = ExecutionCostSchedule::from_cost( BLOCK_LIMIT_MAINNET.clone());
+    conf.block_limit_schedule = ExecutionCostSchedule::from_cost(BLOCK_LIMIT_MAINNET.clone());
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
