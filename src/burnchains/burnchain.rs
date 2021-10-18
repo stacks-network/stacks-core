@@ -391,7 +391,7 @@ impl BurnchainBlock {
         match *self {
             BurnchainBlock::Bitcoin(ref data) => data.parent_block_hash.clone(),
             BurnchainBlock::Stacks(ref data) => {
-                BurnchainHeaderHash(data.header.header.parent_block.clone().0)
+                BurnchainHeaderHash(data.header.parent_block_id.clone().0)
             }
         }
     }
