@@ -1010,7 +1010,7 @@ mod tests {
     #[test]
     pub fn bad_syntax_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1029,6 +1029,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
 
             let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
@@ -1050,7 +1051,7 @@ mod tests {
     #[test]
     pub fn test_initialize_contract_tx_sender_contract_caller() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         clarity_instance
@@ -1068,6 +1069,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
 
             // S1G2081040G2081040G2081040G208105NK8PE5 is the transient address
@@ -1099,7 +1101,7 @@ mod tests {
     #[test]
     pub fn tx_rollback() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
@@ -1119,6 +1121,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
 
             {
@@ -1185,7 +1188,7 @@ mod tests {
     #[test]
     pub fn simple_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1204,6 +1207,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -1244,7 +1248,7 @@ mod tests {
     #[test]
     pub fn test_block_roll_back() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
@@ -1298,8 +1302,7 @@ mod tests {
         }
 
         let confirmed_marf = MarfedKV::open(test_name, None).unwrap();
-        let mut confirmed_clarity_instance =
-            ClarityInstance::new(false, confirmed_marf, ExecutionCost::max_value());
+        let mut confirmed_clarity_instance = ClarityInstance::new(false, confirmed_marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         let contract = "
@@ -1329,7 +1332,7 @@ mod tests {
             )
             .unwrap();
 
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
 
         // make an unconfirmed block off of the confirmed block
         {
@@ -1337,6 +1340,7 @@ mod tests {
                 &StacksBlockId([0 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
 
             conn.as_transaction(|conn| {
@@ -1360,6 +1364,7 @@ mod tests {
                 &StacksBlockId([0 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
 
             conn.as_transaction(|conn| {
@@ -1379,6 +1384,7 @@ mod tests {
                 &StacksBlockId([0 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
 
             conn.as_transaction(|conn| {
@@ -1397,6 +1403,7 @@ mod tests {
                 &StacksBlockId([0 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
 
             conn.as_transaction(|conn| {
@@ -1433,7 +1440,7 @@ mod tests {
     #[test]
     pub fn test_tx_roll_backs() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -1452,6 +1459,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
 
             let contract = "
@@ -1571,7 +1579,7 @@ mod tests {
         use util::strings::StacksString;
 
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
         let sender = StandardPrincipalData::transient().into();
 
         let spending_cond = TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
@@ -1649,6 +1657,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
 
             conn.as_transaction(|clarity_tx| {
@@ -1676,7 +1685,7 @@ mod tests {
     #[test]
     pub fn test_block_limit() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -1695,6 +1704,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
 
             let contract = "
@@ -1721,7 +1731,7 @@ mod tests {
             conn.commit_block();
         }
 
-        clarity_instance.block_limit = ExecutionCost {
+        let block_limit = ExecutionCost {
             write_length: u64::MAX,
             write_count: u64::MAX,
             read_count: u64::MAX,
@@ -1735,6 +1745,7 @@ mod tests {
                 &StacksBlockId([2 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
             assert!(match conn
                 .as_transaction(|tx| tx.run_contract_call(

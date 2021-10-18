@@ -251,7 +251,6 @@ pub fn setup_states(
         others.iter_mut(),
     );
 
-    let block_limit = ExecutionCost::max_value();
     let initial_balances = initial_balances.unwrap_or(vec![]);
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
@@ -286,7 +285,7 @@ pub fn setup_states(
             0x80000000,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
-            block_limit.clone(),
+            ExecutionCostSchedule::max_value(),
         )
         .unwrap();
     }
@@ -460,7 +459,9 @@ fn make_genesis_block_with_recipients(
     .unwrap();
 
     let iconn = sort_db.index_conn();
-    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap();
+    let mut epoch_tx = builder
+        .epoch_begin(state, &iconn, ExecutionCost::max_value())
+        .unwrap();
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -670,7 +671,9 @@ fn make_stacks_block_with_input(
         next_hash160(),
     )
     .unwrap();
-    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap();
+    let mut epoch_tx = builder
+        .epoch_begin(state, &iconn, ExecutionCost::max_value())
+        .unwrap();
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);

@@ -38,6 +38,7 @@ use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
 use vm::costs::cost_functions::ClarityCostFunction;
+use vm::costs::ExecutionCost;
 
 /// Legacy function
 pub fn parse(
@@ -92,7 +93,7 @@ mod tests {
         }
 
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
 
         clarity_instance
             .begin_test_genesis_block(
@@ -109,6 +110,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             )
             .commit_block();
 

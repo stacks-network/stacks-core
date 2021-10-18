@@ -184,8 +184,7 @@ fn test_block_headers(n: u8) -> StacksBlockId {
 
 #[test]
 fn test_simple_token_system() {
-    let mut clarity =
-        ClarityInstance::new(false, MarfedKV::temporary(), ExecutionCost::max_value());
+    let mut clarity = ClarityInstance::new(false, MarfedKV::temporary());
     let p1 = PrincipalData::from(
         PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
             .unwrap(),
@@ -351,6 +350,7 @@ fn test_simple_token_system() {
                 &test_block_headers(i + 1),
                 &NULL_HEADER_DB,
                 &NULL_BURN_STATE_DB,
+                ExecutionCost::max_value(),
             );
             block.commit_block();
         }
@@ -362,6 +362,7 @@ fn test_simple_token_system() {
             &test_block_headers(26),
             &NULL_HEADER_DB,
             &NULL_BURN_STATE_DB,
+            ExecutionCost::max_value(),
         );
         assert!(is_committed(
             &block

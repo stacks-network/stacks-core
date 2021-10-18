@@ -3682,6 +3682,7 @@ pub mod test {
                                             &coinbase_tx,
                                             BlockBuilderSettings::max_value(),
                                             None,
+                                            0,
                                         )
                                         .unwrap();
                                     (anchored_block, vec![])

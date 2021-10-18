@@ -62,6 +62,7 @@ use util::hash::to_hex;
 use util::log;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
+use vm::costs::ExecutionCostSchedule;
 
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksBlockHeader;
@@ -2390,7 +2391,7 @@ mod test {
             network_id,
             &chainstate_path,
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
         .unwrap();
 

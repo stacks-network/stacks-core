@@ -1143,6 +1143,7 @@ mod tests {
             &parent.1,
             &block_consensus,
             &block_hash,
+            ExecutionCost::max_value(),
         );
 
         let new_tip_info = StacksHeaderInfo {

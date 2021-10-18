@@ -1224,6 +1224,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         // give the spending account some stx
@@ -1438,6 +1439,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
         conn.connection().as_transaction(|tx| {
             StacksChainState::account_credit(tx, &addr.to_account_principal(), 123)
@@ -1547,6 +1549,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -1629,6 +1632,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         let contract_id = QualifiedContractIdentifier::new(
@@ -1687,6 +1691,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         let contracts = vec![
@@ -1791,6 +1796,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         let contracts = vec![
@@ -1900,6 +1906,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         let contract_id = QualifiedContractIdentifier::new(
@@ -2004,6 +2011,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -2097,6 +2105,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         let contract_id = QualifiedContractIdentifier::new(
@@ -2209,6 +2218,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
         let (_fee, _) =
             StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
@@ -2271,6 +2281,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
         let (_fee, _) =
             StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
@@ -2444,6 +2455,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         let account_publisher =
@@ -2970,6 +2982,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         let account_publisher =
@@ -3642,6 +3655,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         let account_publisher =
@@ -3985,6 +3999,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         // publish contract
@@ -7103,6 +7118,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
         let (fee, _) =
             StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false).unwrap();
@@ -7215,6 +7231,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         StacksChainState::insert_microblock_pubkey_hash(&mut conn, 1, &block_pubkh).unwrap();
@@ -7327,6 +7344,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         StacksChainState::insert_microblock_pubkey_hash(&mut conn, 1, &block_pubkh).unwrap();
@@ -7416,6 +7434,7 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
+            ExecutionCost::max_value(),
         );
 
         StacksChainState::insert_microblock_pubkey_hash(&mut conn, 1, &block_pubkh).unwrap();

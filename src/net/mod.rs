@@ -1874,6 +1874,7 @@ pub mod test {
     use util::uint::*;
     use util::vrf::*;
     use vm::costs::ExecutionCost;
+    use vm::costs::ExecutionCostSchedule;
     use vm::database::STXBalance;
     use vm::types::*;
 
@@ -2390,7 +2391,7 @@ pub mod test {
                 config.network_id,
                 &chainstate_path,
                 Some(&mut boot_data),
-                ExecutionCost::max_value(),
+                ExecutionCostSchedule::max_value(),
             )
             .unwrap();
 
@@ -3172,7 +3173,11 @@ pub mod test {
                         StacksChainState::open(false, network_id, &chainstate_path).unwrap();
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
 
                     let (stacks_block, microblocks) =

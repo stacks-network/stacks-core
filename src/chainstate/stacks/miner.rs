@@ -1303,8 +1303,9 @@ impl StacksBlockBuilder {
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
         let (mut chainstate, _) =
-            chainstate_handle.reopen_limited(chainstate_handle.block_limit.clone())?; // used for processing a block up to the given limit
-        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
+            chainstate_handle.reopen_limited(chainstate_handle.block_limit_schedule.clone())?; // used for processing a block up to the given limit
+        let mut epoch_tx =
+            builder.epoch_begin(&mut chainstate, burn_dbconn, ExecutionCost::max_value())?;
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
                 Ok(_) => {
@@ -2716,7 +2717,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = block_builder(
                         &mut epoch,
@@ -2896,7 +2901,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
@@ -3035,7 +3044,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
@@ -3079,7 +3092,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
@@ -3365,7 +3382,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
@@ -3409,7 +3430,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
@@ -3618,7 +3643,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
@@ -3664,7 +3693,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
@@ -3948,7 +3981,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
@@ -3989,7 +4026,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
@@ -4183,7 +4224,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
@@ -4227,7 +4272,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
@@ -4481,7 +4530,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
@@ -4522,7 +4575,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
@@ -4716,7 +4773,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
@@ -4760,7 +4821,11 @@ pub mod test {
 
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(
+                            &mut miner_chainstate,
+                            &sort_iconn,
+                            ExecutionCost::max_value(),
+                        )
                         .unwrap();
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
@@ -6439,6 +6504,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        0,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -6563,6 +6629,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        0,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -6700,11 +6767,12 @@ pub mod test {
                         &coinbase_tx,
                         // no time to mine anything, so all blocks should be empty
                         BlockBuilderSettings {
-                            execution_cost: ExecutionCost::max_value(),
+                            execution_cost_schedule: ExecutionCostSchedule::max_value(),
                             max_miner_time_ms: 0,
                             ..BlockBuilderSettings::max_value()
                         },
                         None,
+                        0,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -6862,6 +6930,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        0,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -7088,8 +7157,11 @@ pub mod test {
                         vrf_proof,
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
-                        BlockBuilderSettings::limited(execution_cost),
+                        BlockBuilderSettings::limited(ExecutionCostSchedule::from_cost(
+                            execution_cost,
+                        )),
                         None,
+                        0,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -7246,8 +7318,11 @@ pub mod test {
                             vrf_proof,
                             Hash160([tenure_id as u8; 20]),
                             &coinbase_tx,
-                            BlockBuilderSettings::limited(execution_cost),
+                            BlockBuilderSettings::limited(ExecutionCostSchedule::from_cost(
+                                execution_cost,
+                            )),
                             None,
+                            0,
                         )
                         .unwrap()
                     };
@@ -7356,6 +7431,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        0,
                     )
                     .unwrap();
 
@@ -7558,6 +7634,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        0,
                     )
                     .unwrap();
 
@@ -7714,7 +7791,7 @@ pub mod test {
 
                 let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
-                let mut anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None
+                let mut anchored_block = StacksBlockBuilder::build_anchored_block(chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None, 0
                 ).unwrap();
 
                 if tenure_id == bad_block_tenure {
@@ -7987,6 +8064,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        0,
                     )
                     .unwrap();
 
@@ -8255,6 +8333,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        0,
                     )
                     .unwrap();
 
@@ -8677,6 +8756,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        0,
                     )
                     .unwrap();
 
@@ -8825,7 +8905,7 @@ pub mod test {
             chain_id,
             &path,
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
         .unwrap()
         .0
@@ -9095,8 +9175,11 @@ pub mod test {
                 VRFProof::empty(),
                 Hash160([block_index; 20]),
                 &coinbase_tx,
-                BlockBuilderSettings::limited(execution_limit.clone()),
+                BlockBuilderSettings::limited(ExecutionCostSchedule::from_cost(
+                    execution_limit.clone(),
+                )),
                 None,
+                0,
             )
             .unwrap();
 

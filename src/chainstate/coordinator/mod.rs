@@ -48,6 +48,7 @@ use net::atlas::{AtlasConfig, AttachmentInstance};
 use util::db::Error as DBError;
 use vm::{
     costs::ExecutionCost,
+    costs::ExecutionCostSchedule,
     types::{PrincipalData, QualifiedContractIdentifier},
     Value,
 };
@@ -349,7 +350,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             chain_id,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
         .unwrap();
         let canonical_sortition_tip =

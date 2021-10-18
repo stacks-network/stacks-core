@@ -68,6 +68,7 @@ use blockstack_lib::{
     net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
     vm::representations::UrlString,
 };
+use vm::costs::ExecutionCostSchedule;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -482,7 +483,9 @@ simulating a miner.
         tx_signer.sign_origin(&sk).unwrap();
         let coinbase_tx = tx_signer.get_tx().unwrap();
 
-        let mut settings = BlockBuilderSettings::limited(core::BLOCK_LIMIT_MAINNET.clone());
+        let mut settings = BlockBuilderSettings::limited(ExecutionCostSchedule::from_cost(
+            core::BLOCK_LIMIT_MAINNET.clone(),
+        ));
         settings.max_miner_time_ms = max_time;
         settings.mempool_settings.min_tx_fee = min_fee;
 
@@ -497,6 +500,7 @@ simulating a miner.
             &coinbase_tx,
             settings,
             None,
+            0,
         );
 
         let stop = get_epoch_time_ms();
@@ -832,7 +836,7 @@ simulating a miner.
             0x80000000,
             new_chainstate_path,
             Some(&mut boot_data),
-            argon_block_limit,
+            ExecutionCostSchedule::from_cost(argon_block_limit),
         )
         .unwrap();
 
@@ -897,7 +901,7 @@ simulating a miner.
             false,
             0x80000000,
             new_chainstate_path,
-            ExecutionCost::max_value(),
+            ExecutionCostSchedule::max_value(),
         )
         .unwrap();
 
