@@ -1,4 +1,0 @@
-* clarify whether choose_limit_by_height takes 1) parent height, or 2) current height)
-* fix the move vs reference questions
-* remove the `let mut block_height_opt: Option<u64> = None;` from `testnet/stacks-node/src/neon_node.rs`
-* check that cost metrics work properly
