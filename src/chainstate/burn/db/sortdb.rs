@@ -1981,7 +1981,7 @@ impl SortitionDB {
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open index at {}", index_path);
         let marf = MARF::from_path(index_path).map_err(|_e| db_error::Corruption)?;
-        sql_pragma(marf.sqlite_conn(), "PRAGMA foreign_keys = ON;")?;
+        sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
         Ok(marf)
     }
 
@@ -2102,7 +2102,8 @@ impl SortitionDB {
     ) -> Result<(), db_error> {
         debug!("Instantiate SortDB");
 
-        sql_pragma(self.conn(), "PRAGMA journal_mode = WAL;")?;
+        sql_pragma(self.conn(), "journal_mode", &"WAL")?;
+        sql_pragma(self.conn(), "foreign_keys", &true)?;
 
         let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
 

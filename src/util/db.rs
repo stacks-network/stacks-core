@@ -386,8 +386,20 @@ where
 
 /// Run a PRAGMA statement.  This can't always be done via execute(), because it may return a result (and
 /// rusqlite does not like this).
-pub fn sql_pragma(conn: &Connection, pragma_stmt: &str) -> Result<(), Error> {
-    conn.query_row_and_then(pragma_stmt, NO_PARAMS, |_row| Ok(()))
+pub fn sql_pragma(
+    conn: &Connection,
+    pragma_name: &str,
+    pragma_value: &dyn ToSql,
+) -> Result<(), Error> {
+    inner_sql_pragma(conn, pragma_name, pragma_value).map_err(|e| Error::SqliteError(e))
+}
+
+fn inner_sql_pragma(
+    conn: &Connection,
+    pragma_name: &str,
+    pragma_value: &dyn ToSql,
+) -> Result<(), sqlite_error> {
+    conn.pragma_update(None, pragma_name, pragma_value)
 }
 
 /// Set up an on-disk database with a MARF index if they don't exist yet.
@@ -530,15 +542,9 @@ pub fn sqlite_open<P: AsRef<Path>>(
 ) -> Result<Connection, sqlite_error> {
     let db = Connection::open_with_flags(path, flags)?;
     db.busy_handler(Some(tx_busy_handler))?;
-    db.query_row_and_then("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| {
-        let res: Result<(), sqlite_error> = Ok(());
-        res
-    })?;
+    inner_sql_pragma(&db, "journal_mode", &"WAL")?;
     if foreign_keys {
-        db.query_row_and_then("PRAGMA foreign_keys = ON;", NO_PARAMS, |_row| {
-            let res: Result<(), sqlite_error> = Ok(());
-            res
-        })?;
+        inner_sql_pragma(&db, "foreign_keys", &true)?;
     }
     Ok(db)
 }
