@@ -63,7 +63,10 @@ impl BurnHeaderIPC for BitcoinHeaderIPC {
     }
 
     fn header_hash(&self) -> [u8; 32] {
-        self.block_header.header.bitcoin_hash().0
+        let hash_bytes = self.block_header.header.bitcoin_hash().0;
+        let bhh =
+            BurnchainHeaderHash::from_bitcoin_hash(&BitcoinSha256dHash(hdr.header_hash()));
+        bhh.0
     }
 }
 

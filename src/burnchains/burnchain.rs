@@ -1279,7 +1279,7 @@ impl Burnchain {
         if let Some(target_block_height) = target_block_height_opt {
             // `target_block_height` is used as a hint, but could also be completely off
             // in certain situations. This function is directly reading the
-            // headers and syncing with the bitcoin-node, and the interval of blocks
+            // headers and syncing with the burnchain-node, and the interval of blocks
             // to download computed here should be considered as our source of truth.
             if target_block_height > start_block && target_block_height < end_block {
                 debug!(
@@ -1311,8 +1311,7 @@ impl Burnchain {
             let mut hdrs = indexer.read_headers(end_block, end_block + 1)?;
             if let Some(hdr) = hdrs.pop() {
                 debug!("Nothing to do; already have blocks up to {}", end_block);
-                let bhh =
-                    BurnchainHeaderHash::from_bitcoin_hash(&BitcoinSha256dHash(hdr.header_hash()));
+                let bhh = BurnchainHeaderHash(hdr.header_hash());
                 return burnchain_db
                     .get_burnchain_block(&bhh)
                     .map(|block_data| block_data.header);
