@@ -119,7 +119,7 @@ impl<'a> Tenure {
             false,
             CHAIN_ID_TESTNET,
             &self.config.get_chainstate_path_str(),
-            self.config.block_limit.clone(),
+            self.config.block_limit_schedule.clone(),
         )
         .unwrap();
         chain_state

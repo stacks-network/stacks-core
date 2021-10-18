@@ -43,6 +43,7 @@ use stacks::{
 use stacks::{
     burnchains::{Address, Burnchain, PoxConstants},
     vm::costs::ExecutionCost,
+    vm::costs::ExecutionCostSchedule,
 };
 use stacks::{
     chainstate::stacks::{
@@ -2853,7 +2854,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     conf.node.microblock_frequency = 1_000;
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
-    conf.block_limit = BLOCK_LIMIT_MAINNET.clone();
+    conf.block_limit_schedule = ExecutionCostSchedule::from_cost( BLOCK_LIMIT_MAINNET.clone());
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
@@ -3116,7 +3117,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 0;
     conf.node.microblock_frequency = 15000;
-    conf.block_limit = BLOCK_LIMIT_MAINNET.clone();
+    conf.block_limit_schedule = ExecutionCostSchedule::from_cost(BLOCK_LIMIT_MAINNET.clone());
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
@@ -3730,7 +3731,7 @@ fn near_full_block_integration_test() {
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     // Set block limit
-    conf.block_limit = BLOCK_LIMIT_MAINNET;
+    conf.block_limit_schedule = ExecutionCostSchedule::from_cost(BLOCK_LIMIT_MAINNET);
 
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),
