@@ -2739,6 +2739,7 @@ mod tests {
     }
 
     #[test]
+    #[ignored]
     fn test_make_mempool_sync_data() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "make_mempool_sync_data");
         let chainstate_path = chainstate_path("make_mempool_sync_data");
@@ -2751,8 +2752,8 @@ mod tests {
 
         let mut txids = vec![];
         let mut nonrecent_fp_rates = vec![];
-        for block_height in 10..(10 + 10 * BLOOM_COUNTER_DEPTH) {
-            for i in 0..((MAX_BLOOM_COUNTER_TXS as usize) * (BLOOM_COUNTER_DEPTH as usize)) / 128 {
+        for block_height in 10..(10 + BLOOM_COUNTER_DEPTH + 1) {
+            for i in 0..((MAX_BLOOM_COUNTER_TXS + 128) as usize) {
                 let mut mempool_tx = mempool.tx_begin().unwrap();
                 for j in 0..128 {
                     let pk = StacksPrivateKey::new();
@@ -2914,7 +2915,7 @@ mod tests {
         let avg_nonrecent_fp_rate =
             nonrecent_fp_rates.iter().fold(0.0f64, |acc, x| acc + x) / num_nonrecent_fp_samples;
 
-        assert!((avg_nonrecent_fp_rate - BLOOM_COUNTER_ERROR_RATE).abs() < 1.0e-5);
+        assert!((avg_nonrecent_fp_rate - BLOOM_COUNTER_ERROR_RATE).abs() < 0.001);
     }
 
     #[test]
