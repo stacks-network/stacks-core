@@ -2739,7 +2739,7 @@ mod tests {
     }
 
     #[test]
-    #[ignored]
+    #[ignore]
     fn test_make_mempool_sync_data() {
         let mut chainstate = instantiate_chainstate(false, 0x80000000, "make_mempool_sync_data");
         let chainstate_path = chainstate_path("make_mempool_sync_data");
