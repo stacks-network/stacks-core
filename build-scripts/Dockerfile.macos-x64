@@ -12,7 +12,7 @@ RUN rustup target add x86_64-apple-darwin
 
 RUN apt-get update && apt-get install -y git clang
 
-RUN wget -nc "https://github.com/blockstackpbc/osxcross/releases/download/v1/osxcross-e0a1718_xcode-v10.2.1.tar.xz" && \
+RUN wget -nc "https://github.com/hirosystems/osxcross/releases/download/v1/osxcross-e0a1718_xcode-v10.2.1.tar.xz" && \
     tar --checkpoint=25000 -xf "osxcross-e0a1718_xcode-v10.2.1.tar.xz" -C /tmp && \
     PATH="/tmp/osxcross/bin:$PATH" \
     LD_LIBRARY_PATH="/tmp/osxcross/lib:$LD_LIBRARY_PATH" \

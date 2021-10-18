@@ -1160,7 +1160,7 @@ pub mod test {
             &self,
             db: &mut SortitionDB,
             burnchain: &Burnchain,
-            coord: &mut ChainsCoordinator<'a, T, N, R>,
+            coord: &mut ChainsCoordinator<'a, T, N, R, (), ()>,
         ) -> BlockSnapshot {
             let block_hash = BurnchainHeaderHash::from_test_data(
                 self.block_height,
@@ -1279,7 +1279,7 @@ pub mod test {
             &mut self,
             db: &mut SortitionDB,
             burnchain: &Burnchain,
-            coord: &mut ChainsCoordinator<'a, T, N, R>,
+            coord: &mut ChainsCoordinator<'a, T, N, R, (), ()>,
         ) -> BlockSnapshot {
             let mut snapshot = {
                 let ic = db.index_conn();

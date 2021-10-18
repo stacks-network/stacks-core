@@ -13,9 +13,12 @@ use stacks::chainstate::coordinator::{
     BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::chainstate::stacks::MAX_BLOCK_LEN;
+use stacks::cost_estimates::metrics::ProportionalDotProduct;
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stx_genesis::GenesisData;
 
+use crate::config::{CostEstimatorName, CostMetricName, FeeEstimatorName};
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
@@ -252,6 +255,9 @@ impl RunLoop {
 
         let atlas_config = AtlasConfig::default(mainnet);
         let moved_atlas_config = atlas_config.clone();
+        let moved_estimator_config = self.config.estimation.clone();
+        let moved_chainstate_path = self.config.get_chainstate_path();
+        let moved_block_limit = self.config.block_limit.clone();
 
         let coordinator_thread_handle = thread::Builder::new()
             .name(format!(
@@ -259,6 +265,33 @@ impl RunLoop {
                 if is_appchain { "-appchain" } else { "" }
             ))
             .spawn(move || {
+                let cost_estimator = match moved_estimator_config.cost_estimator {
+                    Some(CostEstimatorName::NaivePessimistic) => Some(
+                        moved_estimator_config
+                            .make_pessimistic_cost_estimator(moved_chainstate_path.clone()),
+                    ),
+                    None => None,
+                };
+
+                let metric = match moved_estimator_config.cost_metric {
+                    Some(CostMetricName::ProportionDotProduct) => Some(
+                        ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, moved_block_limit),
+                    ),
+                    None => None,
+                };
+
+                let fee_estimator = match moved_estimator_config.fee_estimator {
+                    Some(FeeEstimatorName::ScalarFeeRate) => {
+                        let metric = metric
+                            .expect("Configured a fee rate estimator without a configure metric.");
+                        Some(
+                            moved_estimator_config
+                                .make_scalar_fee_estimator(moved_chainstate_path, metric),
+                        )
+                    }
+                    None => None,
+                };
+
                 ChainsCoordinator::run(
                     chain_state_db,
                     coordinator_burnchain_config,
@@ -266,6 +299,8 @@ impl RunLoop {
                     &mut coordinator_dispatcher,
                     coordinator_receivers,
                     moved_atlas_config,
+                    cost_estimator,
+                    fee_estimator,
                 );
             })
             .unwrap();

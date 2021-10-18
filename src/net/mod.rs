@@ -2305,7 +2305,7 @@ pub mod test {
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
-        pub coord: ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider>,
+        pub coord: ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), ()>,
     }
 
     impl<'a> TestPeer<'a> {
