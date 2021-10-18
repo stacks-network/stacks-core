@@ -33,7 +33,7 @@ use vm::types::Value;
 mod tests;
 
 pub struct DefinitionSorter {
-    graph: Graph,
+    pub graph: Graph,
     top_level_expressions_map: HashMap<ClarityName, TopLevelExpressionIndex>,
 }
 
@@ -369,7 +369,7 @@ pub struct TopLevelExpressionIndex {
     atom_index: u64,
 }
 
-struct Graph {
+pub struct Graph {
     adjacency_list: Vec<Vec<usize>>,
 }
 
@@ -401,7 +401,7 @@ impl Graph {
         self.adjacency_list.len()
     }
 
-    fn edges_count(&self) -> ParseResult<u64> {
+    pub fn edges_count(&self) -> ParseResult<u64> {
         let mut total: u64 = 0;
         for node in self.adjacency_list.iter() {
             total = total
