@@ -315,6 +315,8 @@ lazy_static! {
         max_http_clients: 1000,         // maximum number of HTTP connections
         max_neighbors_of_neighbor: 10,  // maximum number of neighbors we'll handshake with when doing a neighbor walk (I/O for this can be expensive, so keep small-ish)
         walk_interval: 60,              // how often, in seconds, we do a neighbor walk
+        walk_min_duration: 20,          // minimum number of neighbor steps per walk, before probabilistic reset
+        walk_max_duration: 40,          // maximum number of neighbor steps per walk, before probabilistic reset
         inv_sync_interval: 45,          // how often, in seconds, we refresh block inventories
         inv_reward_cycles: 3,           // how many reward cycles to look back on, for mainnet
         download_interval: 10,          // how often, in seconds, we do a block download scan (should be less than inv_sync_interval)
@@ -699,6 +701,12 @@ impl Config {
                     walk_interval: opts
                         .walk_interval
                         .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval.clone()),
+                    walk_min_duration: opts
+                        .walk_min_duration
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_min_duration.clone()),
+                    walk_max_duration: opts
+                        .walk_max_duration
+                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_max_duration.clone()),
                     dns_timeout: opts.dns_timeout.unwrap_or_else(|| {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone() as u64
                     }) as u128,
@@ -1362,6 +1370,8 @@ pub struct ConnectionOptionsFile {
     pub soft_max_clients_per_host: Option<u64>,
     pub max_sockets: Option<u64>,
     pub walk_interval: Option<u64>,
+    pub walk_min_duration: Option<u64>,
+    pub walk_max_duration: Option<u64>,
     pub dns_timeout: Option<u64>,
     pub max_inflight_blocks: Option<u64>,
     pub max_inflight_attachments: Option<u64>,
