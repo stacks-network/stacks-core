@@ -23,6 +23,7 @@ use std::io;
 use std::io::Error as IOError;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::path::Path;
 use std::path::PathBuf;
 
 use util::hash::to_hex;
@@ -37,6 +38,7 @@ use rusqlite::types::{
 };
 use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
+use rusqlite::OpenFlags;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
@@ -518,6 +520,27 @@ pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a
     conn.busy_handler(Some(tx_busy_handler))?;
     let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
     Ok(tx)
+}
+
+/// Open a database connection and set some typically-used pragmas
+pub fn sqlite_open<P: AsRef<Path>>(
+    path: P,
+    flags: OpenFlags,
+    foreign_keys: bool,
+) -> Result<Connection, sqlite_error> {
+    let db = Connection::open_with_flags(path, flags)?;
+    db.busy_handler(Some(tx_busy_handler))?;
+    db.query_row_and_then("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| {
+        let res: Result<(), sqlite_error> = Ok(());
+        res
+    })?;
+    if foreign_keys {
+        db.query_row_and_then("PRAGMA foreign_keys = ON;", NO_PARAMS, |_row| {
+            let res: Result<(), sqlite_error> = Ok(());
+            res
+        })?;
+    }
+    Ok(db)
 }
 
 /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
