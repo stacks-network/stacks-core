@@ -830,7 +830,7 @@ fn integration_test_get_info() {
                     TransactionPayload::TokenTransfer(contract_addr.clone().into(), 10_000_000, TokenTransferMemo([0; 34]));
 
                 let payload_data = tx_payload.serialize_to_vec();
-                let payload_hex = to_hex(&payload_data);
+                let payload_hex = format!("0x{}", to_hex(&payload_data));
 
                 eprintln!("Test: POST {}", path);
 

@@ -2100,24 +2100,18 @@ impl HttpRequestType {
     }
 
     fn parse_post_fee_rate_estimate<R: Read>(
-        protocol: &mut StacksHttp,
+        _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
         _query: Option<&str>,
         fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
         let content_len = preamble.get_content_length();
-        if !(content_len > 0 && content_len < protocol.maximum_call_argument_size) {
+        if !(content_len > 0 && content_len < MAX_PAYLOAD_LEN) {
             return Err(net_error::DeserializeError(format!(
                 "Invalid Http request: invalid body length for FeeRateEstimate ({})",
                 content_len
             )));
-        }
-
-        if preamble.get_content_length() > MAX_PAYLOAD_LEN {
-            return Err(net_error::DeserializeError(
-                "Invalid Http request: FeeRateEstimate body is too big".to_string(),
-            ));
         }
 
         if preamble.content_type != Some(HttpContentType::JSON) {
@@ -2126,11 +2120,19 @@ impl HttpRequestType {
             ));
         }
 
-        let body: FeeRateEstimateRequestBody = serde_json::from_reader(fd).map_err(|e| {
+        let bound_fd = BoundReader::from_reader(fd, content_len as u64);
+
+        let body: FeeRateEstimateRequestBody = serde_json::from_reader(bound_fd).map_err(|e| {
             net_error::DeserializeError(format!("Failed to parse JSON body: {}", e))
         })?;
 
-        let payload_data = hex_bytes(&body.transaction_payload).map_err(|_e| {
+        let payload_hex = if body.transaction_payload.starts_with("0x") {
+            &body.transaction_payload[2..]
+        } else {
+            &body.transaction_payload
+        };
+
+        let payload_data = hex_bytes(payload_hex).map_err(|_e| {
             net_error::DeserializeError("Bad hex string supplied for transaction payload".into())
         })?;
 
@@ -2493,8 +2495,8 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref md, ..) => md,
             HttpRequestType::GetAttachment(ref md, ..) => md,
-            HttpRequestType::ClientError(ref md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
+            HttpRequestType::ClientError(ref md, ..) => md,
         }
     }
 
@@ -2521,8 +2523,8 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref mut md, ..) => md,
             HttpRequestType::GetAttachment(ref mut md, ..) => md,
-            HttpRequestType::ClientError(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
+            HttpRequestType::ClientError(ref mut md, ..) => md,
         }
     }
 
@@ -2655,11 +2657,11 @@ impl HttpRequestType {
             HttpRequestType::GetAttachment(_, content_hash) => {
                 format!("/v2/attachments/{}", to_hex(&content_hash.0[..]))
             }
+            HttpRequestType::FeeRateEstimate(_, _, _) => self.get_path().to_string(),
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
             },
-            HttpRequestType::FeeRateEstimate(_, _, _) => self.get_path().to_string(),
         }
     }
 
@@ -2691,8 +2693,8 @@ impl HttpRequestType {
             HttpRequestType::GetAttachmentsInv(..) => "/v2/attachments/inv",
             HttpRequestType::GetAttachment(..) => "/v2/attachments/:hash",
             HttpRequestType::GetIsTraitImplemented(..) => "/v2/traits/:principal/:contract_name",
-            HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
             HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
+            HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
         }
     }
 
