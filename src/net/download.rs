@@ -2554,9 +2554,6 @@ pub mod test {
     use vm::costs::ExecutionCost;
     use vm::representations::*;
 
-    use crate::cost_estimates::metrics::UnitMetric;
-    use crate::cost_estimates::UnitEstimator;
-
     use super::*;
 
     fn get_peer_availability(

@@ -27,6 +27,7 @@ jobs:
     needs:
       - build-integration-image
     strategy:
+      fail-fast: false
       matrix:
         test-name:
           - tests::neon_integrations::microblock_integration_test
@@ -64,12 +65,12 @@ jobs:
           TEST_NAME: ${{ matrix.test-name }}
         run: docker build --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
   atlas-test:
-    # disable this job/test for now, as the atlas endpoints are currently disabled.
     if: ${{ true }}
     runs-on: ubuntu-latest
     needs:
       - build-integration-image
     strategy:
+      fail-fast: false
       matrix:
         test-name:
           - tests::neon_integrations::atlas_integration_test

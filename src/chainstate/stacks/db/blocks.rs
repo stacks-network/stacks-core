@@ -48,6 +48,7 @@ use chainstate::stacks::{
 use clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use core::*;
+use cost_estimates::EstimatorError;
 use net::BlocksInvData;
 use net::Error as net_error;
 use util::db::u64_to_sql;
@@ -147,6 +148,7 @@ pub enum MemPoolRejection {
     TransferRecipientIsSender(PrincipalData),
     TransferAmountMustBePositive,
     DBError(db_error),
+    EstimatorError(EstimatorError),
     Other(String),
 }
 
@@ -212,6 +214,7 @@ impl MemPoolRejection {
                     "actual": format!("0x{}", to_hex(&actual.to_be_bytes()))
                 })),
             ),
+            EstimatorError(e) => ("EstimatorError", Some(json!({"message": e.to_string()}))),
             NoSuchContract => ("NoSuchContract", None),
             NoSuchPublicFunction => ("NoSuchPublicFunction", None),
             BadFunctionArgument(e) => (
