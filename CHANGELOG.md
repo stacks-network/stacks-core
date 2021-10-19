@@ -13,6 +13,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   via node configuration options. See the `README.md` for more
   information on the configuration.
 
+## Changed
+
+- Prioritize transaction inclusion in blocks by estimated fee rates (#2859).
+
 ## [2.0.11.3.0]
 
 This software update is a point-release to change the transaction selection
