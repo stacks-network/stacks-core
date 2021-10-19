@@ -285,7 +285,7 @@ fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result
         "vm-costs::last-processed-at-height",
         &TypeSignature::UIntType,
     ) {
-        Some(v) => u32::try_from(v.expect_u128()).expect("Block height overflowed u32"),
+        Some(v) => u32::try_from(v.value.expect_u128()).expect("Block height overflowed u32"),
         None => return Ok(CostStateSummary::empty()),
     };
 
@@ -344,6 +344,7 @@ fn load_cost_functions(
 ) -> Result<CostStateSummary> {
     let last_processed_count = clarity_db
         .get_value("vm-costs::last_processed_count", &TypeSignature::UIntType)
+        .map(|result| result.value)
         .unwrap_or(Value::UInt(0))
         .expect_u128();
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);

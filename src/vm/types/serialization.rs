@@ -52,6 +52,10 @@ pub enum SerializationError {
     DeserializeExpected(TypeSignature),
 }
 
+lazy_static! {
+    pub static ref NONE_SERIALIZATION_LEN: u64 = Value::none().serialize_to_vec().len() as u64;
+}
+
 impl std::fmt::Display for SerializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {

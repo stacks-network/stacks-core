@@ -209,6 +209,38 @@ pub fn special_fetch_variable(
         .lookup_variable(contract, var_name, data_types)
 }
 
+pub fn special_fetch_variable_v205(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    _context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+
+    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+
+    let contract = &env.contract_context.contract_identifier;
+
+    let data_types = env
+        .contract_context
+        .meta_data_var
+        .get(var_name)
+        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
+
+    let result = env
+        .global_context
+        .database
+        .lookup_variable_with_size(contract, var_name, data_types);
+
+    let result_size = match &result {
+        Ok(data) => data.serialized_byte_len,
+        Err(_e) => data_types.value_type.size() as u64,
+    };
+
+    runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
+
+    result.map(|data| data.value)
+}
+
 pub fn special_set_variable(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -243,6 +275,47 @@ pub fn special_set_variable(
     env.global_context
         .database
         .set_variable(contract, var_name, value, data_types)
+        .map(|data| data.value)
+}
+
+pub fn special_set_variable_v205(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    if env.global_context.is_read_only() {
+        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+    }
+
+    check_argument_count(2, args)?;
+
+    let value = eval(&args[1], env, &context)?;
+
+    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+
+    let contract = &env.contract_context.contract_identifier;
+
+    let data_types = env
+        .contract_context
+        .meta_data_var
+        .get(var_name)
+        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
+
+    let result = env
+        .global_context
+        .database
+        .set_variable(contract, var_name, value, data_types);
+
+    let result_size = match &result {
+        Ok(data) => data.serialized_byte_len,
+        Err(_e) => data_types.value_type.size() as u64,
+    };
+
+    runtime_cost(ClarityCostFunction::SetVar, env, result_size)?;
+
+    env.add_memory(result_size)?;
+
+    result.map(|data| data.value)
 }
 
 pub fn special_fetch_entry(
@@ -273,6 +346,40 @@ pub fn special_fetch_entry(
     env.global_context
         .database
         .fetch_entry(contract, map_name, &key, data_types)
+}
+
+pub fn special_fetch_entry_v205(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+
+    let key = eval(&args[1], env, &context)?;
+
+    let contract = &env.contract_context.contract_identifier;
+
+    let data_types = env
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+
+    let result = env
+        .global_context
+        .database
+        .fetch_entry_with_size(contract, map_name, &key, data_types);
+
+    let result_size = match &result {
+        Ok(data) => data.serialized_byte_len,
+        Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+    };
+
+    runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
+
+    result.map(|data| data.value)
 }
 
 pub fn special_at_block(
@@ -339,6 +446,49 @@ pub fn special_set_entry(
     env.global_context
         .database
         .set_entry(contract, map_name, key, value, data_types)
+        .map(|data| data.value)
+}
+
+pub fn special_set_entry_v205(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    if env.global_context.is_read_only() {
+        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+    }
+
+    check_argument_count(3, args)?;
+
+    let key = eval(&args[1], env, &context)?;
+
+    let value = eval(&args[2], env, &context)?;
+
+    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+
+    let contract = &env.contract_context.contract_identifier;
+
+    let data_types = env
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+
+    let result = env
+        .global_context
+        .database
+        .set_entry(contract, map_name, key, value, data_types);
+
+    let result_size = match &result {
+        Ok(data) => data.serialized_byte_len,
+        Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+    };
+
+    runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
+
+    env.add_memory(result_size)?;
+
+    result.map(|data| data.value)
 }
 
 pub fn special_insert_entry(
@@ -378,6 +528,49 @@ pub fn special_insert_entry(
     env.global_context
         .database
         .insert_entry(contract, map_name, key, value, data_types)
+        .map(|data| data.value)
+}
+
+pub fn special_insert_entry_v205(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    if env.global_context.is_read_only() {
+        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+    }
+
+    check_argument_count(3, args)?;
+
+    let key = eval(&args[1], env, &context)?;
+
+    let value = eval(&args[2], env, &context)?;
+
+    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+
+    let contract = &env.contract_context.contract_identifier;
+
+    let data_types = env
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+
+    let result = env
+        .global_context
+        .database
+        .insert_entry(contract, map_name, key, value, data_types);
+
+    let result_size = match &result {
+        Ok(data) => data.serialized_byte_len,
+        Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+    };
+
+    runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
+
+    env.add_memory(result_size)?;
+
+    result.map(|data| data.value)
 }
 
 pub fn special_delete_entry(
@@ -414,6 +607,47 @@ pub fn special_delete_entry(
     env.global_context
         .database
         .delete_entry(contract, map_name, &key, data_types)
+        .map(|data| data.value)
+}
+
+pub fn special_delete_entry_v205(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    if env.global_context.is_read_only() {
+        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+    }
+
+    check_argument_count(2, args)?;
+
+    let key = eval(&args[1], env, &context)?;
+
+    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+
+    let contract = &env.contract_context.contract_identifier;
+
+    let data_types = env
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+
+    let result = env
+        .global_context
+        .database
+        .delete_entry(contract, map_name, &key, data_types);
+
+    let result_size = match &result {
+        Ok(data) => data.serialized_byte_len,
+        Err(_e) => data_types.key_type.size() as u64,
+    };
+
+    runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
+
+    env.add_memory(result_size)?;
+
+    result.map(|data| data.value)
 }
 
 pub fn special_get_block_info(

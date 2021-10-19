@@ -235,6 +235,35 @@ pub fn special_concat(
     Ok(wrapped_seq)
 }
 
+pub fn special_concat_v205(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    let mut wrapped_seq = eval(&args[0], env, context)?;
+    let mut other_wrapped_seq = eval(&args[1], env, context)?;
+
+    match (&mut wrapped_seq, &mut other_wrapped_seq) {
+        (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => {
+            runtime_cost(
+                ClarityCostFunction::Concat,
+                env,
+                (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
+            )?;
+
+            seq.append(other_seq)
+        }
+        _ => {
+            runtime_cost(ClarityCostFunction::Concat, env, 1)?;
+            Err(RuntimeErrorType::BadTypeConstruction.into())
+        }
+    }?;
+
+    Ok(wrapped_seq)
+}
+
 pub fn special_as_max_len(
     args: &[SymbolicExpression],
     env: &mut Environment,
