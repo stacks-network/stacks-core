@@ -148,8 +148,8 @@ pub struct ChainsCoordinator<
     T: BlockEventDispatcher,
     N: CoordinatorNotices,
     R: RewardSetProvider,
-    CE: CostEstimator,
-    FE: FeeEstimator,
+    CE: CostEstimator + ?Sized,
+    FE: FeeEstimator + ?Sized,
 > {
     canonical_sortition_tip: Option<SortitionId>,
     canonical_chain_tip: Option<StacksBlockId>,
@@ -160,8 +160,8 @@ pub struct ChainsCoordinator<
     burnchain: Burnchain,
     attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     dispatcher: Option<&'a T>,
-    cost_estimator: Option<CE>,
-    fee_estimator: Option<FE>,
+    cost_estimator: Option<&'a mut CE>,
+    fee_estimator: Option<&'a mut FE>,
     reward_set_provider: R,
     notifier: N,
     atlas_config: AtlasConfig,
@@ -256,7 +256,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
     }
 }
 
-impl<'a, T: BlockEventDispatcher, CE: CostEstimator, FE: FeeEstimator>
+impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator + ?Sized>
     ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider, CE, FE>
 {
     pub fn run(
@@ -266,8 +266,8 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator, FE: FeeEstimator>
         dispatcher: &'a mut T,
         comms: CoordinatorReceivers,
         atlas_config: AtlasConfig,
-        cost_estimator: Option<CE>,
-        fee_estimator: Option<FE>,
+        cost_estimator: Option<&mut CE>,
+        fee_estimator: Option<&mut FE>,
     ) where
         T: BlockEventDispatcher,
     {
@@ -517,8 +517,8 @@ impl<
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         U: RewardSetProvider,
-        CE: CostEstimator,
-        FE: FeeEstimator,
+        CE: CostEstimator + ?Sized,
+        FE: FeeEstimator + ?Sized,
     > ChainsCoordinator<'a, T, N, U, CE, FE>
 {
     pub fn handle_new_stacks_block(&mut self) -> Result<(), Error> {

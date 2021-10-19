@@ -20,6 +20,9 @@ use core::BLOCK_LIMIT_MAINNET;
 use chainstate::stacks::db::StacksEpochReceipt;
 use chainstate::stacks::events::TransactionOrigin;
 
+use crate::util::db::sql_pragma;
+use crate::util::db::table_exists;
+
 use super::metrics::CostMetric;
 use super::FeeRateEstimate;
 use super::{EstimatorError, FeeEstimator};
@@ -73,8 +76,18 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         })
     }
 
-    fn instantiate_db(c: &SqlTransaction) -> Result<(), SqliteError> {
-        c.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+    /// Check if the SQL database was already created. Necessary to avoid races if
+    ///  different threads open an estimator at the same time.
+    fn db_already_instantiated(tx: &SqlTransaction) -> Result<bool, SqliteError> {
+        table_exists(tx, "scalar_fee_estimator")
+    }
+
+    fn instantiate_db(tx: &SqlTransaction) -> Result<(), SqliteError> {
+        if !Self::db_already_instantiated(tx)? {
+            tx.pragma_update(None, "journal_mode", &"WAL".to_string())?;
+            tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+        }
+
         Ok(())
     }
 

@@ -2235,11 +2235,15 @@ pub mod test {
     }
 
     impl<'a> TestPeer<'a> {
-        pub fn new(mut config: TestPeerConfig) -> TestPeer<'a> {
-            let test_path = format!(
-                "/tmp/blockstack-test-peer-{}-{}",
+        pub fn test_path(config: &TestPeerConfig) -> String {
+            format!(
+                "/tmp/stacks-node-tests/units-test-peer/{}-{}",
                 &config.test_name, config.server_port
-            );
+            )
+        }
+
+        pub fn new(mut config: TestPeerConfig) -> TestPeer<'a> {
+            let test_path = TestPeer::test_path(&config);
             match fs::metadata(&test_path) {
                 Ok(_) => {
                     fs::remove_dir_all(&test_path).unwrap();
@@ -2473,7 +2477,7 @@ pub mod test {
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
             let relayer = Relayer::from_p2p(&mut peer_network);
-            let mempool = MemPoolDB::open(false, config.network_id, &chainstate_path).unwrap();
+            let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
 
             TestPeer {
                 config: config,

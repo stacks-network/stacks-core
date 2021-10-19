@@ -20,6 +20,9 @@ pub mod pessimistic;
 #[cfg(test)]
 pub mod tests;
 
+use crate::chainstate::stacks::StacksTransaction;
+
+use self::metrics::CostMetric;
 pub use self::pessimistic::PessimisticEstimator;
 
 /// This trait is for implementation of *fee rate* estimation: estimators should
@@ -86,6 +89,18 @@ impl Add for FeeRateEstimate {
     }
 }
 
+/// Given a cost estimator and a scalar metric, estimate the fee rate for
+///  the provided transaction
+pub fn estimate_fee_rate<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
+    tx: &StacksTransaction,
+    estimator: &CE,
+    metric: &CM,
+) -> Result<f64, EstimatorError> {
+    let cost_estimate = estimator.estimate_cost(&tx.payload)?;
+    let metric_estimate = metric.from_cost_and_len(&cost_estimate, tx.tx_len());
+    Ok(tx.get_tx_fee() as f64 / metric_estimate as f64)
+}
+
 /// This trait is for implementation of *execution cost* estimation. CostEstimators
 ///  provide the estimated `ExecutionCost` for a given `TransactionPayload`.
 ///
@@ -94,7 +109,7 @@ impl Add for FeeRateEstimate {
 ///  payload. `FeeRateEstimator` implementations estimate the network's current fee rate.
 ///  Clients interested in determining the fee to be paid for a transaction must used both
 ///  whereas miners only need to use a `CostEstimator`
-pub trait CostEstimator {
+pub trait CostEstimator: Send {
     /// This method is invoked by the `stacks-node` to update the cost estimator with a new
     ///  cost measurement. The given `tx` had a measured cost of `actual_cost`.
     fn notify_event(
@@ -188,5 +203,30 @@ impl FeeEstimator for () {
 
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
         Err(EstimatorError::NoEstimateAvailable)
+    }
+}
+
+/// This estimator always returns a unit estimate in all dimensions.
+/// This can be paired with the UnitMetric to cause block assembly to consider
+/// *only* transaction fees, not performing any kind of rate estimation.
+pub struct UnitEstimator;
+
+impl CostEstimator for UnitEstimator {
+    fn notify_event(
+        &mut self,
+        _tx: &TransactionPayload,
+        _actual_cost: &ExecutionCost,
+    ) -> Result<(), EstimatorError> {
+        Ok(())
+    }
+
+    fn estimate_cost(&self, _tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError> {
+        Ok(ExecutionCost {
+            write_length: 1,
+            write_count: 1,
+            read_length: 1,
+            read_count: 1,
+            runtime: 1,
+        })
     }
 }

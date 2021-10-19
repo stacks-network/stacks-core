@@ -23,6 +23,8 @@ use stacks::chainstate::stacks::{
 };
 use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
 use stacks::core::mempool::MemPoolDB;
+use stacks::cost_estimates::metrics::UnitMetric;
+use stacks::cost_estimates::UnitEstimator;
 use stacks::net::atlas::AttachmentInstance;
 use stacks::net::{
     atlas::{AtlasConfig, AtlasDB},
@@ -194,8 +196,16 @@ fn spawn_peer(
                     }
                 };
 
-            let mut mem_pool = match MemPoolDB::open(is_mainnet, chain_id, &stacks_chainstate_path)
-            {
+            let estimator = Box::new(UnitEstimator);
+            let metric = Box::new(UnitMetric);
+
+            let mut mem_pool = match MemPoolDB::open(
+                is_mainnet,
+                chain_id,
+                &stacks_chainstate_path,
+                estimator,
+                metric,
+            ) {
                 Ok(x) => x,
                 Err(e) => {
                     warn!("Error while connecting to mempool db in peer loop: {}", e);
@@ -311,11 +321,16 @@ impl Node {
             ),
         };
 
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
+
         // avoid race to create condition on mempool db
         let _mem_pool = MemPoolDB::open(
             config.is_mainnet(),
             config.burnchain.chain_id,
             &chain_state.root_path,
+            estimator,
+            metric,
         )
         .expect("FATAL: failed to initiate mempool");
 
@@ -651,10 +666,15 @@ impl Node {
             },
         };
 
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
+
         let mem_pool = MemPoolDB::open(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.chain_state.root_path,
+            estimator,
+            metric,
         )
         .expect("FATAL: failed to open mempool");
 
