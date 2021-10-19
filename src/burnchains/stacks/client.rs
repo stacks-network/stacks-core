@@ -3427,7 +3427,13 @@ pub mod test {
         let block_commit_header = appchain_client.read_headers(13, 14).unwrap().pop().unwrap();
 
         let vrf_ops = burnchain_db
-            .get_burnchain_block(&BurnchainHeaderHash(vrf_block_header.header.block_hash().0))
+            .get_burnchain_block(&BurnchainHeaderHash(
+                StacksBlockHeader::make_index_block_hash(
+                    &vrf_block_header.consensus_hash,
+                    &vrf_block_header.header.block_hash(),
+                )
+                .0,
+            ))
             .unwrap();
         assert_eq!(vrf_ops.ops.len(), 2);
 
@@ -3449,7 +3455,11 @@ pub mod test {
 
         let block_commit_ops = burnchain_db
             .get_burnchain_block(&BurnchainHeaderHash(
-                block_commit_header.header.block_hash().0,
+                StacksBlockHeader::make_index_block_hash(
+                    &block_commit_header.consensus_hash,
+                    &block_commit_header.header.block_hash(),
+                )
+                .0,
             ))
             .unwrap();
         for (
