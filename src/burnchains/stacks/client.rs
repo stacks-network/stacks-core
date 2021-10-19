@@ -1328,8 +1328,13 @@ impl AppChainClient {
                     burnchain_error::MissingHeaders
                 })?;
 
-            appchain_config
-                .set_first_block_hash(BurnchainHeaderHash(start_header.header.block_hash().0));
+            appchain_config.set_first_block_hash(BurnchainHeaderHash(
+                StacksBlockHeader::make_index_block_hash(
+                    &start_header.consensus_hash,
+                    &start_header.header.block_hash(),
+                )
+                .0,
+            ));
 
             // loaded!
             self.chain_id = appchain_config.chain_id();
