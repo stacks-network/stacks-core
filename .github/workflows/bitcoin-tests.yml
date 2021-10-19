@@ -21,7 +21,7 @@ jobs:
         with:
           name: integration-image.tar
           path: integration-image.tar
-  # Run sampled genesis tests
+  # Run integration tests using sampled genesis block
   sampled-genesis:
     runs-on: ubuntu-latest
     needs:
