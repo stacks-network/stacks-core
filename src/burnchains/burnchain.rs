@@ -78,7 +78,7 @@ use util::log;
 use util::vrf::VRFPublicKey;
 
 use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
-use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
+use crate::types::chainstate::{BurnchainHeaderHash, PoxId, StacksBlockHeader};
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -381,9 +381,13 @@ impl BurnchainBlock {
     pub fn block_hash(&self) -> BurnchainHeaderHash {
         match *self {
             BurnchainBlock::Bitcoin(ref data) => data.block_hash.clone(),
-            BurnchainBlock::Stacks(ref data) => {
-                BurnchainHeaderHash(data.header.header.block_hash().0)
-            }
+            BurnchainBlock::Stacks(ref data) => BurnchainHeaderHash(
+                StacksBlockHeader::make_index_block_hash(
+                    &data.header.consensus_hash,
+                    &data.header.header.block_hash(),
+                )
+                .0,
+            ),
         }
     }
 
@@ -430,8 +434,14 @@ impl BurnchainBlock {
             },
             BurnchainBlock::Stacks(ref data) => BurnchainBlockHeader {
                 block_height: data.header.header.total_work.work,
-                block_hash: BurnchainHeaderHash(data.header.header.block_hash().0),
-                parent_block_hash: BurnchainHeaderHash(data.header.header.parent_block.clone().0),
+                block_hash: BurnchainHeaderHash(
+                    StacksBlockHeader::make_index_block_hash(
+                        &data.header.consensus_hash,
+                        &data.header.header.block_hash(),
+                    )
+                    .0,
+                ),
+                parent_block_hash: BurnchainHeaderHash(data.header.parent_block_id.clone().0),
                 num_txs: data.txs.len() as u64,
                 timestamp: 0,
             },

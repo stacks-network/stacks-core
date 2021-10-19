@@ -33,7 +33,6 @@ use burnchains::Error as burnchain_error;
 use burnchains::IndexerError as indexer_error;
 use burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid, MAGIC_BYTES_LENGTH};
 use deps;
-use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use deps::bitcoin::blockdata::block::{Block, LoneBlockHeader};
 use deps::bitcoin::blockdata::opcodes::All as btc_opcodes;
 use deps::bitcoin::blockdata::script::{Instruction, Script};
@@ -41,6 +40,7 @@ use deps::bitcoin::blockdata::transaction::Transaction;
 use deps::bitcoin::network::message as btc_message;
 use deps::bitcoin::network::serialize::BitcoinHash;
 use deps::bitcoin::util::hash::bitcoin_merkle_root;
+use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use util::hash::to_hex;
 use util::log;
 
@@ -65,8 +65,7 @@ impl BurnHeaderIPC for BitcoinHeaderIPC {
 
     fn header_hash(&self) -> [u8; 32] {
         let hash_bytes = self.block_header.header.bitcoin_hash().0;
-        let bhh =
-            BurnchainHeaderHash::from_bitcoin_hash(&BitcoinSha256dHash(hash_bytes));
+        let bhh = BurnchainHeaderHash::from_bitcoin_hash(&BitcoinSha256dHash(hash_bytes));
         bhh.0
     }
 }
