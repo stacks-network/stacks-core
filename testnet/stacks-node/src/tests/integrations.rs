@@ -16,6 +16,7 @@ use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResp
 use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
 use stacks::util::hash::hex_bytes;
 use stacks::util::hash::Sha256Sum;
+use stacks::vm::costs::{ExecutionCost, ExecutionCostSchedule};
 use stacks::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},
@@ -1684,6 +1685,64 @@ fn block_limit_runtime_test() {
                 }
                 _ => {}
             }
+        },
+    );
+
+    run_loop.start(num_rounds).unwrap();
+}
+
+#[test]
+fn test_limits_change_after_version_205() {
+    let mut conf = super::new_test_conf();
+    conf.block_limit_schedule = ExecutionCostSchedule {
+        cost_limit: vec![
+            ExecutionCost {
+                write_length: 1,
+                write_count: 1,
+                read_length: 1,
+                read_count: 1,
+                runtime: 1000000,
+            },
+            ExecutionCost {
+                write_length: 1,
+                write_count: 1,
+                read_length: 1,
+                read_count: 1,
+                runtime: 1000000,
+            },
+        ],
+        expiry_height: vec![1],
+    };
+    warn!("schedule {:?}", conf.block_limit_schedule);
+
+    // Allow only
+    conf.block_limit_schedule.cost_limit[0].runtime = 1_000_000_000;
+    conf.burnchain.commit_anchor_block_within = 5000;
+
+    let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    conf.add_initial_balance(to_addr(&contract_sk).to_string(), 1000);
+
+    let seed = "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447";
+    let spender_sks = make_keys(seed, 500);
+    for sk in spender_sks.iter() {
+        conf.add_initial_balance(to_addr(&sk).to_string(), 1000);
+    }
+
+    let num_rounds = 3;
+
+    let mut run_loop = RunLoop::new(conf);
+
+    run_loop
+        .callbacks
+        .on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
+            let bt = backtrace::Backtrace::new();
+            warn!("on_new_tenure {:?}", bt);
+        });
+
+    run_loop.callbacks.on_new_stacks_chain_state(
+        |round, _chain_state, block, _chain_tip_info, _burn_dbconn| {
+            let bt = backtrace::Backtrace::new();
+            warn!("on_new_stacks_chain_state {:?}", bt);
         },
     );
 

@@ -414,7 +414,11 @@ fn find_microblock_privkey(
 
 #[test]
 #[ignore]
-fn bitcoind_integration_test() {
+/// Tests that a miner will get a coinbase transaction deposited to them.
+fn bitcoind_integration_test2() {
+    let bt = backtrace::Backtrace::new();
+    warn!("bitcoind_integration_test {:?}", bt);
+
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -428,6 +432,8 @@ fn bitcoind_integration_test() {
         .start_bitcoind()
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
+
+    warn!("success");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -462,27 +468,9 @@ fn bitcoind_integration_test() {
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 1);
-
-    // query for prometheus metrics
-    #[cfg(feature = "monitoring_prom")]
-    {
-        let prom_http_origin = format!("http://{}", prom_bind);
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .get(&prom_http_origin)
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        assert!(res.contains("stacks_node_computed_miner_commitment_high 0"));
-        assert!(res.contains("stacks_node_computed_miner_commitment_low 1"));
-        assert!(res.contains("stacks_node_computed_relative_miner_score 100"));
-        assert!(res.contains("stacks_node_miner_current_median_commitment_high 0"));
-        assert!(res.contains("stacks_node_miner_current_median_commitment_low 1"));
-        assert!(res.contains("stacks_node_active_miners_total 1"));
-    }
-
     channel.stop_chains_coordinator();
+
+    warn!("test is finished");
 }
 
 #[test]
@@ -2612,6 +2600,100 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     // NOTE: last-mined blocks aren't counted by the observer
     assert!(total_big_txs_per_block <= 2);
     assert!(total_big_txs_per_microblock <= 3);
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn test_boundary_flip() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // stuff a gigantic contract into the anchored block
+    let giant_contract = "(define-public (my-function) (ok 1))".to_string();
+    let sender_sk = StacksPrivateKey::new();
+    let sender_addr = to_addr(&sender_sk);
+    let sender_pd: PrincipalData = sender_addr.into();
+
+    let tx = make_contract_publish(&sender_sk, 0, 1100000, "my-contract", &giant_contract);
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    conf.initial_balances.push(InitialBalance {
+        address: sender_pd.clone(),
+        amount: 10492300000,
+    });
+
+    conf.miner.min_tx_fee = 1;
+    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+
+    test_observer::spawn();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let microblocks_processed = run_loop.get_microblocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Submi the transaction.
+    submit_tx(&http_origin, &tx);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    for i in 1..5 {
+        let call_tx = make_contract_call(
+            &sender_sk,
+            i,
+            1000,
+            &sender_addr.into(),
+            "my-contract",
+            "my-function",
+            &[],
+        );
+        submit_tx(&http_origin, &call_tx);
+    }
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     test_observer::clear();
     channel.stop_chains_coordinator();

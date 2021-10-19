@@ -927,6 +927,8 @@ pub struct ExecutionCost {
     pub runtime: u64,
 }
 
+
+/// `ExecutionCostSchedule`
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct ExecutionCostSchedule {
     pub cost_limit: Vec<ExecutionCost>,
