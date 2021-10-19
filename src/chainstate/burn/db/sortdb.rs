@@ -2134,7 +2134,7 @@ impl SortitionDB {
         for epoch in epochs.iter() {
             assert!(
                 epoch.start_height <= epoch.end_height,
-                "{} > {} for {:?}",
+                "{} <= {} for {:?}",
                 epoch.start_height,
                 epoch.end_height,
                 &epoch.epoch_id

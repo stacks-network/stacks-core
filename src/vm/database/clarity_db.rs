@@ -18,9 +18,9 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
 use core::{
-    StacksEpoch, BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
-    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-    POX_REWARD_CYCLE_LENGTH,
+    StacksEpoch, StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
+    BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
+    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
 };
 use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use vm::analysis::{AnalysisDatabase, ContractAnalysis};
@@ -319,6 +319,10 @@ impl<'a> ClarityDatabase<'a> {
         format!("vm-metadata::{}::{}", data as u8, var_name)
     }
 
+    fn clarity_state_epoch_key() -> &'static str {
+        "vm-epoch::epoch-version"
+    }
+
     pub fn make_key_for_quad(
         contract_identifier: &QualifiedContractIdentifier,
         data: StoreType,
@@ -491,6 +495,19 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn ustx_liquid_supply_key() -> &'static str {
         "_stx-data::ustx_liquid_supply"
+    }
+
+    /// Returns the epoch version currently applied in the stored Clarity state
+    pub fn get_clarity_epoch_version(&mut self) -> StacksEpochId {
+        match self.get(Self::clarity_state_epoch_key()) {
+            Some(x) => u32::try_into(x).expect("Bad Clarity epoch version in stored Clarity state"),
+            None => StacksEpochId::Epoch20,
+        }
+    }
+
+    /// Should be called _after_ all of the epoch's initialization has been invoked
+    pub fn set_clarity_epoch_version(&mut self, epoch: StacksEpochId) {
+        self.put(Self::clarity_state_epoch_key(), &(epoch as u32))
     }
 
     /// Returns the _current_ total liquid ustx

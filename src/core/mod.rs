@@ -71,7 +71,8 @@ pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10;
 #[cfg(not(test))]
 pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
 
-pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 700_000;
+// TODO: update block height to exit when known
+pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 715_000;
 
 pub const STACKS_EPOCH_MAX: u64 = i64::MAX as u64;
 
@@ -154,22 +155,20 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
 }
 
 #[repr(u32)]
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy)]
 pub enum StacksEpochId {
     Epoch10 = 0x01000,
     Epoch20 = 0x02000,
     Epoch2_05 = 0x02005,
 }
 
-impl PartialOrd for StacksEpochId {
-    fn partial_cmp(&self, other: &StacksEpochId) -> Option<Ordering> {
-        (*self as u32).partial_cmp(&(*other as u32))
-    }
-}
-
-impl Ord for StacksEpochId {
-    fn cmp(&self, other: &StacksEpochId) -> Ordering {
-        (*self as u32).cmp(&(*other as u32))
+impl std::fmt::Display for StacksEpochId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StacksEpochId::Epoch10 => write!(f, "1.0"),
+            StacksEpochId::Epoch20 => write!(f, "2.0"),
+            StacksEpochId::Epoch2_05 => write!(f, "2.05"),
+        }
     }
 }
 
@@ -196,6 +195,11 @@ pub struct StacksEpoch {
 impl StacksEpoch {
     #[cfg(test)]
     pub fn unit_test(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+        info!(
+            "StacksEpoch unit_test first_burn_height = {}",
+            first_burnchain_height
+        );
+
         vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -205,6 +209,32 @@ impl StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
+                end_height: STACKS_EPOCH_MAX,
+            },
+        ]
+    }
+
+    #[cfg(test)]
+    pub fn unit_test_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+        info!(
+            "StacksEpoch unit_test first_burn_height = {}",
+            first_burnchain_height
+        );
+
+        vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: first_burnchain_height,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: first_burnchain_height,
+                end_height: first_burnchain_height + 4,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: first_burnchain_height + 4,
                 end_height: STACKS_EPOCH_MAX,
             },
         ]
