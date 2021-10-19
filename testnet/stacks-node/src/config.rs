@@ -706,12 +706,12 @@ impl Config {
                     walk_interval: opts
                         .walk_interval
                         .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_interval.clone()),
-                    walk_min_duration: opts
-                        .walk_min_duration
-                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_min_duration.clone()),
-                    walk_max_duration: opts
-                        .walk_max_duration
-                        .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_max_duration.clone()),
+                    walk_min_duration: opts.walk_min_duration.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_min_duration.clone()
+                    }),
+                    walk_max_duration: opts.walk_max_duration.unwrap_or_else(|| {
+                        HELIUM_DEFAULT_CONNECTION_OPTIONS.walk_max_duration.clone()
+                    }),
                     dns_timeout: opts.dns_timeout.unwrap_or_else(|| {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.dns_timeout.clone() as u64
                     }) as u128,

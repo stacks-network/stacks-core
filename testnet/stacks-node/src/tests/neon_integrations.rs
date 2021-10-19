@@ -1363,7 +1363,10 @@ fn bitcoind_forking_test() {
     // okay, let's figure out the burn block we want to fork away.
     let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(206);
 
-    eprintln!("Carrying out reorg depth 5: invalidate {}", &burn_header_hash_to_fork);
+    eprintln!(
+        "Carrying out reorg depth 5: invalidate {}",
+        &burn_header_hash_to_fork
+    );
     btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
 
     eprintln!("Carrying out reorg depth 5: build next 5 blocks");
@@ -1387,15 +1390,18 @@ fn bitcoind_forking_test() {
 
     // Let's create another fork, deeper
     let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(206);
-    
-    eprintln!("Carrying out reorg depth 10: invalidate {}", &burn_header_hash_to_fork);
+
+    eprintln!(
+        "Carrying out reorg depth 10: invalidate {}",
+        &burn_header_hash_to_fork
+    );
     btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
 
     eprintln!("Carrying out reorg depth 10: build next 10 blocks");
     btc_regtest_controller.build_next_block(10);
 
     thread::sleep(Duration::from_secs(15));
-    
+
     eprintln!("Carrying out reorg depth 10: mine next block");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
