@@ -12,6 +12,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - FeeEstimator and CostEstimator interfaces. These can be controlled
   via node configuration options. See the `README.md` for more
   information on the configuration.
+- New fee rate estimation endpoint `/v2/fees/transaction` (#2872). See
+  `docs/rpc/openapi.yaml` for more information.
 
 ## Changed
 
