@@ -2674,7 +2674,8 @@ fn test_boundary_flip() {
     write_length: 100000000, 
     write_count: 1000,
     read_length: 1000000000,
-    read_count: 50,
+    read_count: 150,
+    // read_count: 50, doesn't work
     runtime: 5000000000,
             }
         ],
@@ -2737,6 +2738,7 @@ fn test_boundary_flip() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+test_observer::clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     for i in 1..5 {
@@ -2758,17 +2760,16 @@ fn test_boundary_flip() {
         );
         submit_tx(&http_origin, &call_tx);
     }
-test_observer::clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     let blocks = test_observer::get_blocks();
     check_the_blocks(blocks);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
