@@ -85,6 +85,14 @@ pub fn check_special_is_response(
     }
 }
 
+pub fn bench_analysis_option_check_helper(input: TypeSignature) -> TypeResult {
+    if let TypeSignature::ResponseType(_types) = input {
+        return Ok(TypeSignature::BoolType);
+    } else {
+        return Err(CheckErrors::ExpectedResponseType(input.clone()).into());
+    }
+}
+
 pub fn check_special_is_optional(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
