@@ -947,7 +947,7 @@ impl ExecutionCostSchedule {
         }
     }
 
-    /// Chooses an `ExecutionCost` according to the current `burnblock_height`.
+    /// The block limit can be changed with a hard fork. Thus it depends on the height.
     pub fn choose_limit_by_height(
         schedule: &ExecutionCostSchedule,
         burnblock_height: u32,
