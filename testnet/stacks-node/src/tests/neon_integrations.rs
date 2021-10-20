@@ -2613,12 +2613,31 @@ fn test_boundary_flip() {
     }
 
     // stuff a gigantic contract into the anchored block
-    let giant_contract = "(define-public (my-function) (ok 1))".to_string();
+    let giant_contract = r#"
+;; define counter variable
+(define-data-var counter int 0)
+
+;; counter getter
+(define-read-only (get-counter)
+  (ok (var-get counter)))
+
+;; increment method
+(define-public (increment)
+  (begin
+    (var-set counter (+ (var-get counter) 1))
+    (ok (var-get counter))))
+
+;; decrement method
+(define-public (decrement)
+  (begin
+    (var-set counter (- (var-get counter) 1))
+    (ok (var-get counter))))
+    "#.to_string();
     let sender_sk = StacksPrivateKey::new();
     let sender_addr = to_addr(&sender_sk);
     let sender_pd: PrincipalData = sender_addr.into();
 
-    let tx = make_contract_publish(&sender_sk, 0, 1100000, "my-contract", &giant_contract);
+    let tx = make_contract_publish(&sender_sk, 0, 1100000, "increment-contract", &giant_contract);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
@@ -2682,8 +2701,8 @@ fn test_boundary_flip() {
             i,
             1000,
             &sender_addr.into(),
-            "my-contract",
-            "my-function",
+            "increment-contract",
+            "increment",
             &[],
         );
         submit_tx(&http_origin, &call_tx);
