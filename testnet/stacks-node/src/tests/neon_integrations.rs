@@ -2623,11 +2623,18 @@ fn test_boundary_flip() {
     (var-set counter (+ (var-get counter) 1))
     (ok (var-get counter))))
 
-    (define-public (increment-3)
-        (begin
-            (increment)
-            (increment)
-            (increment)))
+  (define-public (increment3)
+    (begin
+      (unwrap! (increment) (err u1))
+      (unwrap! (increment) (err u1))
+      (unwrap! (increment) (err u1))
+      (unwrap! (increment) (err u1))
+      (unwrap! (increment) (err u1))
+      (unwrap! (increment) (err u1))
+      (unwrap! (increment) (err u1))
+      (unwrap! (increment) (err u1))
+      (unwrap! (increment) (err u1))
+      (ok (var-get counter))))
     "#.to_string();
     let sender_sk = StacksPrivateKey::new();
     let sender_addr = to_addr(&sender_sk);
@@ -2688,21 +2695,25 @@ fn test_boundary_flip() {
     // Submi the transaction.
     submit_tx(&http_origin, &tx);
 
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//
-//    for i in 1..5 {
-//        let call_tx = make_contract_call(
-//            &sender_sk,
-//            i,
-//            1000,
-//            &sender_addr.into(),
-//            "increment-contract",
-//            "increment-3",
-//            &[],
-//        );
-//        submit_tx(&http_origin, &call_tx);
-//    }
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    for i in 1..5 {
+        let call_tx = make_contract_call(
+            &sender_sk,
+            i,
+            1000,
+            &sender_addr.into(),
+            "increment-contract",
+            "increment3",
+            &[],
+        );
+        submit_tx(&http_origin, &call_tx);
+    }
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
