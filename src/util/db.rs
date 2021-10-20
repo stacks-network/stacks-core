@@ -404,6 +404,12 @@ pub fn sql_pragma(conn: &Connection, pragma_stmt: &str) -> Result<(), Error> {
     conn.query_row_and_then(pragma_stmt, NO_PARAMS, |_row| Ok(()))
 }
 
+pub fn set_wal_mode(conn: &Connection) -> Result<(), sqlite_error> {
+    conn.query_row("PRAGMA journal_mode = WAL;", rusqlite::NO_PARAMS, |_row| {
+        Ok(())
+    })
+}
+
 /// Returns true if the database table `table_name` exists in the active
 ///  database of the provided SQLite connection.
 pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_error> {

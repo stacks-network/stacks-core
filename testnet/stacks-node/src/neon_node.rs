@@ -662,11 +662,23 @@ fn spawn_peer(
             )
             .expect("Database failure opening mempool");
 
+            // create estimators, metric instances for RPC handler
+            let cost_estimator = config
+                .make_cost_estimator()
+                .unwrap_or_else(|| Box::new(UnitEstimator));
+            let metric = config
+                .make_cost_metric()
+                .unwrap_or_else(|| Box::new(UnitMetric));
+            let fee_estimator = config.make_fee_estimator();
+
             let handler_args = RPCHandlerArgs {
                 exit_at_block_height: exit_at_block_height.as_ref(),
                 genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
                     .unwrap(),
                 event_observer: Some(&event_observer),
+                cost_estimator: Some(cost_estimator.as_ref()),
+                cost_metric: Some(metric.as_ref()),
+                fee_estimator: fee_estimator.as_ref().map(|x| x.as_ref()),
                 ..RPCHandlerArgs::default()
             };
 

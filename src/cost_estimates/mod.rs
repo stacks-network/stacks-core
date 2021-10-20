@@ -44,13 +44,13 @@ pub trait FeeEstimator {
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError>;
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 /// This struct is returned from fee rate estimators as the current best estimate for
 /// fee rates to include a transaction in a block.
 pub struct FeeRateEstimate {
-    pub fast: f64,
-    pub medium: f64,
-    pub slow: f64,
+    pub high: f64,
+    pub middle: f64,
+    pub low: f64,
 }
 
 fn saturating_f64_math(res: f64) -> f64 {
@@ -65,14 +65,20 @@ fn saturating_f64_math(res: f64) -> f64 {
     }
 }
 
+impl FeeRateEstimate {
+    pub fn to_vec(self) -> Vec<f64> {
+        vec![self.low, self.middle, self.high]
+    }
+}
+
 impl Mul<f64> for FeeRateEstimate {
     type Output = FeeRateEstimate;
 
     fn mul(self, rhs: f64) -> FeeRateEstimate {
         FeeRateEstimate {
-            fast: saturating_f64_math(self.fast * rhs),
-            medium: saturating_f64_math(self.medium * rhs),
-            slow: saturating_f64_math(self.slow * rhs),
+            high: saturating_f64_math(self.high * rhs),
+            middle: saturating_f64_math(self.middle * rhs),
+            low: saturating_f64_math(self.low * rhs),
         }
     }
 }
@@ -82,9 +88,9 @@ impl Add for FeeRateEstimate {
 
     fn add(self, rhs: Self) -> FeeRateEstimate {
         FeeRateEstimate {
-            fast: saturating_f64_math(self.fast + rhs.fast),
-            medium: saturating_f64_math(self.medium + rhs.medium),
-            slow: saturating_f64_math(self.slow + rhs.slow),
+            high: saturating_f64_math(self.high + rhs.high),
+            middle: saturating_f64_math(self.middle + rhs.middle),
+            low: saturating_f64_math(self.low + rhs.low),
         }
     }
 }
@@ -175,6 +181,31 @@ impl Display for EstimatorError {
                 write!(f, "Sqlite error from estimator: {}", e)
             }
         }
+    }
+}
+
+impl EstimatorError {
+    pub fn into_json(&self) -> serde_json::Value {
+        let (reason_code, reason_data) = match self {
+            EstimatorError::NoEstimateAvailable => (
+                "NoEstimateAvailable",
+                Some(json!({"message": self.to_string()})),
+            ),
+            EstimatorError::SqliteError(_) => {
+                ("DatabaseError", Some(json!({"message": self.to_string()})))
+            }
+        };
+        let mut result = json!({
+            "error": "Estimation could not be performed",
+            "reason": reason_code,
+        });
+        if let Some(reason_data) = reason_data {
+            result
+                .as_object_mut()
+                .unwrap()
+                .insert("reason_data".to_string(), reason_data);
+        }
+        result
     }
 }
 

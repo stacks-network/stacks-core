@@ -15,6 +15,7 @@ use vm::costs::ExecutionCost;
 
 use core::BLOCK_LIMIT_MAINNET;
 
+use crate::util::db::set_wal_mode;
 use crate::util::db::sql_pragma;
 use crate::util::db::table_exists;
 use crate::util::db::tx_begin_immediate_sqlite;
@@ -177,11 +178,16 @@ impl Samples {
 
 impl PessimisticEstimator {
     pub fn open(p: &Path, log_error: bool) -> Result<PessimisticEstimator, EstimatorError> {
-        let db = Connection::open_with_flags(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
-            .or_else(|e| {
+        let db = match Connection::open_with_flags(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE) {
+            Ok(db) => {
+                set_wal_mode(&db)?;
+                Ok(db)
+            }
+            Err(e) => {
                 if let SqliteError::SqliteFailure(ref internal, _) = e {
                     if let rusqlite::ErrorCode::CannotOpen = internal.code {
                         let mut db = Connection::open(p)?;
+                        set_wal_mode(&db)?;
                         let tx = tx_begin_immediate_sqlite(&mut db)?;
                         PessimisticEstimator::instantiate_db(&tx)?;
                         tx.commit()?;
@@ -192,7 +198,8 @@ impl PessimisticEstimator {
                 } else {
                     Err(e)
                 }
-            })?;
+            }
+        }?;
         Ok(PessimisticEstimator { db, log_error })
     }
 
@@ -204,7 +211,6 @@ impl PessimisticEstimator {
 
     fn instantiate_db(tx: &SqliteTransaction) -> Result<(), SqliteError> {
         if !Self::db_already_instantiated(tx)? {
-            tx.pragma_update(None, "journal_mode", &"WAL".to_string())?;
             tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
         }
 
