@@ -6813,6 +6813,7 @@ pub mod tests {
         .unwrap();
 
         let mut cur_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        // In this loop, we will advance the height, and check if the stacks epoch id is advancing as expected.
         for i in 0..20 {
             debug!("Get epoch for block height {}", cur_snapshot.block_height);
             let cur_epoch = SortitionDB::get_stacks_epoch(db.conn(), cur_snapshot.block_height)
