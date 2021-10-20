@@ -368,6 +368,7 @@ impl RunLoop {
             block_height
         );
 
+        let mut last_block_height = 0;
         loop {
             // Orchestrating graceful termination
             if !should_keep_running.load(Ordering::SeqCst) {
@@ -431,10 +432,12 @@ impl RunLoop {
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
 
-            info!(
-                "Downloaded burnchain blocks up to height {}; new target height is {}; next_height = {}, block_height = {}",
-                next_burnchain_height, target_burnchain_block_height, next_height, block_height
-            );
+            if next_height != last_block_height {
+                info!(
+                    "Downloaded burnchain blocks up to height {}; new target height is {}; next_height = {}, block_height = {}",
+                    next_burnchain_height, target_burnchain_block_height, next_height, block_height
+                );
+            }
 
             if next_height > block_height {
                 debug!(
@@ -504,10 +507,13 @@ impl RunLoop {
                     mine_start = 0;
 
                     // at tip, and not downloading. proceed to mine.
-                    info!(
-                        "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
-                        block_height
-                    );
+                    if last_block_height != block_height {
+                        info!(
+                            "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
+                            block_height
+                        );
+                        last_block_height = block_height;
+                    }
                     if !node.relayer_issue_tenure() {
                         // relayer hung up, exit.
                         error!("Block relayer and miner hung up, exiting.");

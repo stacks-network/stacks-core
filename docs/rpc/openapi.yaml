@@ -315,12 +315,15 @@ paths:
 
         * `estimated_cost` - the estimated multi-dimensional cost of
           executing the Clarity VM on the provided transaction.
-        * `estimated_cost_scalar` - a unitless integer that captures
-          the total proportion of the block limit that a transaction
-          would be estimated to consume. In order to compute an
-          estimate of total fee amount for the transaction, this value
-          is multiplied by the estimated fee rate. This value
-          incorporates the estimated transaction length.
+        * `estimated_cost_scalar` - a unitless integer that the Stacks
+          node uses to compare how much of the block limit is consumed
+          by different transactions. This value incorporates the
+          estimated length of the transaction and the estimated
+          execution cost of the transaction. The range of this integer
+          may vary between different Stacks nodes. In order to compute
+          an estimate of total fee amount for the transaction, this
+          value is multiplied by the same Stacks node's estimated fee
+          rate.
         * `cost_scalar_change_by_byte` - a float value that indicates how
           much the `estimated_cost_scalar` value would increase for every
           additional byte in the final transaction.
