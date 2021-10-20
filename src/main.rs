@@ -37,6 +37,7 @@ use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 
+use blockstack_lib::burnchains::bitcoin::indexer::{BitcoinIndexerConfig, BitcoinIndexerRuntime};
 use blockstack_lib::burnchains::bitcoin::spv;
 use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
 use blockstack_lib::chainstate::burn::ConsensusHash;
@@ -795,10 +796,16 @@ simulating a miner.
             runtime: 1_00_000_000,
         };
         let burnchain = Burnchain::regtest(&burnchain_db_path);
+        let spv_headers_path = "/tmp/replay-chainstate";
+        let indexer = BitcoinIndexer::new(
+            BitcoinIndexerConfig::default_regtest(spv_headers_path.to_string()),
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+        );
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
         let (mut new_sortition_db, _) = burnchain
             .connect_db(
+                &indexer,
                 true,
                 first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
@@ -888,6 +895,7 @@ simulating a miner.
 
         let (p2p_new_sortition_db, _) = burnchain
             .connect_db(
+                &indexer,
                 true,
                 first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),

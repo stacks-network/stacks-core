@@ -638,8 +638,7 @@ impl LimitedCostTracker {
     fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> String {
         match epoch_id {
             StacksEpochId::Epoch10 => {
-                warn!("Attempted to get default cost functions for Epoch 1.0 where Clarity does not exist");
-                "".to_string()
+                panic!("Attempted to get default cost functions for Epoch 1.0 where Clarity does not exist");
             }
             StacksEpochId::Epoch20 => COSTS_1_NAME.to_string(),
             StacksEpochId::Epoch2_05 => COSTS_2_NAME.to_string(),

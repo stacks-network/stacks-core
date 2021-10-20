@@ -8905,7 +8905,7 @@ pub mod test {
             0,
             &BurnchainHeaderHash([1; 32]),
             1,
-            &StacksEpoch::unit_test(0),
+            &StacksEpoch::unit_test_pre_2_05(0),
             true,
         )
         .unwrap();

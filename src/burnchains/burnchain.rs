@@ -619,16 +619,16 @@ impl Burnchain {
         db_path
     }
 
-    pub fn connect_db(
+    pub fn connect_db<I: BurnchainIndexer>(
         &self,
+        indexer: &I,
         readwrite: bool,
         first_block_header_hash: BurnchainHeaderHash,
         first_block_header_timestamp: u64,
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
-        let epochs =
-            get_bitcoin_stacks_epochs(BitcoinNetworkType::try_from(self.network_id).unwrap());
+        let epochs = indexer.get_stacks_epochs();
 
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
@@ -942,6 +942,7 @@ impl Burnchain {
     ) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
         self.setup_chainstate(indexer)?;
         let (mut sortdb, mut burnchain_db) = self.connect_db(
+            indexer,
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
@@ -1163,6 +1164,7 @@ impl Burnchain {
     {
         self.setup_chainstate(indexer)?;
         let (_, mut burnchain_db) = self.connect_db(
+            indexer,
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,

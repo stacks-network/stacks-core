@@ -3928,7 +3928,7 @@ impl StacksChainState {
                         receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
                     }
                     StacksEpochId::Epoch2_05 => {
-                        panic!("No defined transition from Epoch21 forward")
+                        panic!("No defined transition from Epoch2_05 forward")
                     }
                 }
             }

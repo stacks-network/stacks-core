@@ -194,7 +194,7 @@ pub struct StacksEpoch {
 
 impl StacksEpoch {
     #[cfg(test)]
-    pub fn unit_test(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+    pub fn unit_test_pre_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
             first_burnchain_height
@@ -240,6 +240,19 @@ impl StacksEpoch {
         ]
     }
 
+    #[cfg(test)]
+    pub fn unit_test(
+        stacks_epoch_id: StacksEpochId,
+        first_burnchain_height: u64,
+    ) -> Vec<StacksEpoch> {
+        match stacks_epoch_id {
+            StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {
+                StacksEpoch::unit_test_pre_2_05(first_burnchain_height)
+            }
+            StacksEpochId::Epoch2_05 => StacksEpoch::unit_test_2_05(first_burnchain_height),
+        }
+    }
+
     pub fn all(first_burnchain_height: u64, epoch_2_05_block_height: u64) -> Vec<StacksEpoch> {
         vec![
             StacksEpoch {
@@ -264,13 +277,13 @@ impl StacksEpoch {
 // StacksEpochs are ordered by start block height
 impl PartialOrd for StacksEpoch {
     fn partial_cmp(&self, other: &StacksEpoch) -> Option<Ordering> {
-        self.start_height.partial_cmp(&other.start_height)
+        self.epoch_id.partial_cmp(&other.epoch_id)
     }
 }
 
 impl Ord for StacksEpoch {
     fn cmp(&self, other: &StacksEpoch) -> Ordering {
-        self.start_height.cmp(&other.start_height)
+        self.epoch_id.cmp(&other.epoch_id)
     }
 }
 
@@ -322,3 +335,57 @@ pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
         end_height: STACKS_EPOCH_MAX,
     },
 ];
+
+#[test]
+fn test_ord_for_stacks_epoch() {
+    let epochs = STACKS_EPOCHS_MAINNET.clone();
+    assert_eq!(epochs[0].cmp(&epochs[1]), Ordering::Less);
+    assert_eq!(epochs[1].cmp(&epochs[2]), Ordering::Less);
+    assert_eq!(epochs[0].cmp(&epochs[2]), Ordering::Less);
+    assert_eq!(epochs[0].cmp(&epochs[0]), Ordering::Equal);
+    assert_eq!(epochs[1].cmp(&epochs[1]), Ordering::Equal);
+    assert_eq!(epochs[2].cmp(&epochs[2]), Ordering::Equal);
+    assert_eq!(epochs[2].cmp(&epochs[0]), Ordering::Greater);
+    assert_eq!(epochs[2].cmp(&epochs[1]), Ordering::Greater);
+    assert_eq!(epochs[1].cmp(&epochs[0]), Ordering::Greater);
+}
+
+#[test]
+fn test_ord_for_stacks_epoch_id() {
+    assert_eq!(
+        StacksEpochId::Epoch10.cmp(&StacksEpochId::Epoch20),
+        Ordering::Less
+    );
+    assert_eq!(
+        StacksEpochId::Epoch20.cmp(&StacksEpochId::Epoch2_05),
+        Ordering::Less
+    );
+    assert_eq!(
+        StacksEpochId::Epoch10.cmp(&StacksEpochId::Epoch2_05),
+        Ordering::Less
+    );
+    assert_eq!(
+        StacksEpochId::Epoch10.cmp(&StacksEpochId::Epoch10),
+        Ordering::Equal
+    );
+    assert_eq!(
+        StacksEpochId::Epoch20.cmp(&StacksEpochId::Epoch20),
+        Ordering::Equal
+    );
+    assert_eq!(
+        StacksEpochId::Epoch2_05.cmp(&StacksEpochId::Epoch2_05),
+        Ordering::Equal
+    );
+    assert_eq!(
+        StacksEpochId::Epoch2_05.cmp(&StacksEpochId::Epoch20),
+        Ordering::Greater
+    );
+    assert_eq!(
+        StacksEpochId::Epoch2_05.cmp(&StacksEpochId::Epoch10),
+        Ordering::Greater
+    );
+    assert_eq!(
+        StacksEpochId::Epoch20.cmp(&StacksEpochId::Epoch10),
+        Ordering::Greater
+    );
+}

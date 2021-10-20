@@ -178,18 +178,14 @@ pub fn setup_states(
     committers: &[StacksPrivateKey],
     pox_consts: Option<PoxConstants>,
     initial_balances: Option<Vec<(PrincipalData, u64)>>,
-    use_alt_epochs: bool,
+    stacks_epoch_id: StacksEpochId,
 ) {
     let mut burn_block = None;
     let mut others = vec![];
 
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
-        let epochs = if use_alt_epochs {
-            StacksEpoch::unit_test_2_05(burnchain.first_block_height)
-        } else {
-            StacksEpoch::unit_test(burnchain.first_block_height)
-        };
+        let epochs = StacksEpoch::unit_test(stacks_epoch_id, burnchain.first_block_height);
         let sortition_db = SortitionDB::connect(
             &burnchain.get_db_path(),
             burnchain.first_block_height,
@@ -756,7 +752,7 @@ fn missed_block_commits() {
         &committers,
         pox_consts.clone(),
         Some(initial_balances),
-        false,
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -1039,7 +1035,7 @@ fn test_simple_setup() {
         &committers,
         None,
         None,
-        false,
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, None);
@@ -1244,7 +1240,14 @@ fn test_sortition_with_reward_set() {
         .map(|_| p2pkh_from(&StacksPrivateKey::new()))
         .collect();
 
-    setup_states(&[path], &vrf_keys, &committers, None, None, false);
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        None,
+        None,
+        StacksEpochId::Epoch20,
+    );
 
     let mut coord = make_reward_set_coordinator(path, reward_set, None);
 
@@ -1503,7 +1506,14 @@ fn test_sortition_with_burner_reward_set() {
         .collect();
     reward_set.push(p2pkh_from(&StacksPrivateKey::new()));
 
-    setup_states(&[path], &vrf_keys, &committers, None, None, false);
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        None,
+        None,
+        StacksEpochId::Epoch20,
+    );
 
     let mut coord = make_reward_set_coordinator(path, reward_set, None);
 
@@ -1745,7 +1755,7 @@ fn test_pox_btc_ops() {
         &committers,
         pox_consts.clone(),
         Some(initial_balances),
-        false,
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
@@ -2007,7 +2017,7 @@ fn test_stx_transfer_btc_ops() {
         &committers,
         pox_consts.clone(),
         Some(initial_balances),
-        false,
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
@@ -2305,7 +2315,7 @@ fn test_initial_coinbase_reward_distributions() {
         &committers,
         pox_consts.clone(),
         Some(initial_balances),
-        false,
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -2512,8 +2522,8 @@ fn test_epoch_switch_cost_contract_instantiation() {
     let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
-    let mut vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
-    let mut committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
 
     setup_states(
         &[path],
@@ -2521,7 +2531,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
         &committers,
         pox_consts.clone(),
         None,
-        true,
+        StacksEpochId::Epoch2_05,
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -2598,7 +2608,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
         };
 
         let expected_winner = good_op.txid();
-        let mut ops = vec![good_op];
+        let ops = vec![good_op];
 
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         produce_burn_block(
@@ -2690,7 +2700,7 @@ fn test_sortition_with_sunset() {
         &committers,
         pox_consts.clone(),
         None,
-        false,
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_reward_set_coordinator(path, reward_set, pox_consts.clone());
@@ -2971,7 +2981,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
         &committers,
         None,
         None,
-        false,
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, None);
@@ -3222,7 +3232,7 @@ fn test_pox_no_anchor_selected() {
         &committers,
         None,
         None,
-        false,
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, None);
@@ -3435,7 +3445,7 @@ fn test_pox_fork_out_of_order() {
         &committers,
         None,
         None,
-        false,
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, None);

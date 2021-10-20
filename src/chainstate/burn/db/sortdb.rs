@@ -2029,7 +2029,15 @@ impl SortitionDB {
             first_block_height: first_snapshot.block_height,
             first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
         };
-        Ok(db)
+
+        // TODO - add schema application method for sortition DB
+        match db.get_schema_version() {
+            Ok(Some(2)) => Ok(db),
+            _ => {
+                warn!("The schema version of the sortition DB is incorrect.");
+                Ok(db)
+            }
+        }
     }
 
     /// Open the burn database at the given path.  Open read-only or read/write.
@@ -2097,7 +2105,14 @@ impl SortitionDB {
             }
         }
 
-        Ok(db)
+        // TODO - add schema application method for sortition DB
+        match db.get_schema_version() {
+            Ok(Some(2)) => Ok(db),
+            _ => {
+                warn!("The schema version of the sortition DB is incorrect.");
+                Ok(db)
+            }
+        }
     }
 
     /// Open a burn database at random tmp dir (used for testing)
@@ -2116,7 +2131,7 @@ impl SortitionDB {
             first_block_height,
             first_burn_hash,
             get_epoch_time_secs(),
-            &StacksEpoch::unit_test(first_block_height),
+            &StacksEpoch::unit_test_pre_2_05(first_block_height),
             true,
         )
     }
@@ -2241,6 +2256,19 @@ impl SortitionDB {
     pub fn get_all_snapshots(&self) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots ORDER BY block_height ASC";
         query_rows(self.conn(), qry, NO_PARAMS)
+    }
+
+    pub fn get_schema_version(&self) -> Result<Option<i64>, db_error> {
+        let version = self
+            .conn()
+            .query_row(
+                "SELECT MAX(version) from db_config",
+                rusqlite::NO_PARAMS,
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        Ok(version)
     }
 }
 

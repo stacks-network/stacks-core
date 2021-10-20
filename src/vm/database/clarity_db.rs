@@ -497,7 +497,10 @@ impl<'a> ClarityDatabase<'a> {
         "_stx-data::ustx_liquid_supply"
     }
 
-    /// Returns the epoch version currently applied in the stored Clarity state
+    /// Returns the epoch version currently applied in the stored Clarity state.
+    /// Since Clarity did not exist in stacks 1.0, the lowest valid epoch ID is stacks 2.0.
+    /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
+    /// Clarity is updated in that epoch.
     pub fn get_clarity_epoch_version(&mut self) -> StacksEpochId {
         match self.get(Self::clarity_state_epoch_key()) {
             Some(x) => u32::try_into(x).expect("Bad Clarity epoch version in stored Clarity state"),
@@ -1421,6 +1424,8 @@ impl<'a> ClarityDatabase<'a> {
             .get_burn_header_hash(height, sortition_id)
     }
 
+    // This function obtains the stacks epoch version, which is based on the burn block height.
+    // Valid epochs include stacks 1.0, 2.0, 2.05, and so on.
     pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         self.burn_state_db.get_stacks_epoch(height)
     }

@@ -55,6 +55,7 @@ const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testne
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
+pub const BOOT_CODE_COSTS_2: &'static str = std::include_str!("costs-2.clar");
 const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");

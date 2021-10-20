@@ -43,6 +43,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use url;
 
+use crate::util::boot::boot_code_tx_auth;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::blocks::MemPoolRejection;
@@ -2346,10 +2347,9 @@ pub mod test {
 
             config.burnchain = burnchain.clone();
 
-            let epochs = config
-                .epochs
-                .clone()
-                .unwrap_or_else(|| StacksEpoch::unit_test(config.burnchain.first_block_height));
+            let epochs = config.epochs.clone().unwrap_or_else(|| {
+                StacksEpoch::unit_test_pre_2_05(config.burnchain.first_block_height)
+            });
 
             let mut sortdb = SortitionDB::connect(
                 &config.burnchain.get_db_path(),
@@ -2421,16 +2421,7 @@ pub mod test {
                             stx_balance: STXBalance::zero(),
                         };
 
-                        let boot_code_auth = TransactionAuth::Standard(
-                            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                                signer: boot_code_addr.bytes.clone(),
-                                hash_mode: SinglesigHashMode::P2PKH,
-                                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                                nonce: 0,
-                                tx_fee: 0,
-                                signature: MessageSignature::empty(),
-                            }),
-                        );
+                        let boot_code_auth = boot_code_tx_auth(boot_code_addr);
 
                         debug!(
                             "Instantiate test-specific boot code contract '{}.{}' ({} bytes)...",

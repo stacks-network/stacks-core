@@ -61,8 +61,7 @@ use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
-use crate::util::boot::boot_code_addr;
-use crate::util::boot::boot_code_id;
+use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util::secp256k1::MessageSignature;
 
 ///
@@ -642,29 +641,16 @@ impl<'a> ClarityBlockConnection<'a> {
 
             let boot_code_address = boot_code_addr(mainnet);
 
-            let boot_code_auth = TransactionAuth::Standard(
-                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                    signer: boot_code_address.bytes.clone(),
-                    hash_mode: SinglesigHashMode::P2PKH,
-                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                    nonce: 0,
-                    tx_fee: 0,
-                    signature: MessageSignature::empty(),
-                }),
-            );
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
             let boot_code_nonce = self.with_clarity_db_readonly(|db| {
                 db.get_account_nonce(&boot_code_address.clone().into())
             });
 
-            let boot_code_account = StacksAccount {
-                principal: PrincipalData::Standard(boot_code_address.into()),
-                nonce: boot_code_nonce,
-                stx_balance: STXBalance::zero(),
-            };
+            let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
 
             // instantiate costs 2 contract...
-            // TODO - replace once costs-2 contract is added
+            // TODO - replace once costs-2 contract is updated with new costs
             let cost_2_code = if mainnet {
                 &*BOOT_CODE_COSTS
             } else {

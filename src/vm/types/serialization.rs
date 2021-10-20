@@ -730,6 +730,9 @@ mod tests {
         test_deser_u32_helper(10);
         test_deser_u32_helper(42);
         test_deser_u32_helper(10992);
+        test_deser_u32_helper(10992);
+        test_deser_u32_helper(262144);
+        test_deser_u32_helper(134217728);
     }
 
     #[test]
