@@ -2031,12 +2031,11 @@ impl SortitionDB {
         };
 
         // TODO - add schema application method for sortition DB
+        let expected_version = SORTITION_DB_VERSION.to_string();
         match db.get_schema_version() {
-            Ok(Some(2)) => Ok(db),
-            _ => {
-                warn!("The schema version of the sortition DB is incorrect.");
-                Ok(db)
-            }
+            Ok(Some(expected_version)) => Ok(db),
+            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+            _ => panic!("The schema version of the sortition DB is incorrect."),
         }
     }
 
@@ -2106,12 +2105,11 @@ impl SortitionDB {
         }
 
         // TODO - add schema application method for sortition DB
+        let expected_version = SORTITION_DB_VERSION.to_string();
         match db.get_schema_version() {
-            Ok(Some(2)) => Ok(db),
-            _ => {
-                warn!("The schema version of the sortition DB is incorrect.");
-                Ok(db)
-            }
+            Ok(Some(expected_version)) => Ok(db),
+            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+            _ => panic!("The schema version of the sortition DB is incorrect."),
         }
     }
 
@@ -2258,7 +2256,7 @@ impl SortitionDB {
         query_rows(self.conn(), qry, NO_PARAMS)
     }
 
-    pub fn get_schema_version(&self) -> Result<Option<i64>, db_error> {
+    pub fn get_schema_version(&self) -> Result<Option<String>, db_error> {
         let version = self
             .conn()
             .query_row(
@@ -2267,7 +2265,6 @@ impl SortitionDB {
                 |row| row.get(0),
             )
             .optional()?;
-
         Ok(version)
     }
 }
