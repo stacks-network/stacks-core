@@ -1631,16 +1631,22 @@ impl ConversationHttp {
                 }
             };
 
-            let estimated_fees =
-                RPCFeeEstimate::estimate_fees(scalar_cost, fee_rates.clone()).to_vec();
+            let mut estimations = RPCFeeEstimate::estimate_fees(scalar_cost, fee_rates).to_vec();
+
+            let minimum_fee = estimated_len * MINIMUM_TX_FEE_RATE_PER_BYTE;
+
+            for estimate in estimations.iter_mut() {
+                if estimate.fee < minimum_fee {
+                    estimate.fee = minimum_fee;
+                }
+            }
 
             let response = HttpResponseType::TransactionFeeEstimation(
                 response_metadata,
                 RPCFeeEstimateResponse {
                     estimated_cost,
-                    estimated_fees,
+                    estimations,
                     estimated_cost_scalar: scalar_cost,
-                    estimated_fee_rates: fee_rates.to_vec(),
                     cost_scalar_change_by_byte: metric.change_per_byte(),
                 },
             );

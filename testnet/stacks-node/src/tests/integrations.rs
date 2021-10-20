@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use reqwest;
 
 use stacks::burnchains::Address;
+use stacks::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
 };
@@ -857,12 +858,18 @@ fn integration_test_get_info() {
                 // the estimated scalar should still be non-zero, because the length of the tx goes into this field.
                 assert!(res.get("estimated_cost_scalar").unwrap().as_u64().unwrap() > 0);
 
-                let estimated_fee_rates = res.get("estimated_fee_rates").expect("Should have an estimated_fee_rates field")
+                let estimations = res.get("estimations").expect("Should have an estimations field")
                     .as_array()
                     .expect("Fees should be array");
-                let estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field")
-                    .as_array()
-                    .expect("Fees should be array");
+
+                let estimated_fee_rates: Vec<_> = estimations
+                    .iter()
+                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"))
+                    .collect();
+                let estimated_fees: Vec<_> = estimations
+                    .iter()
+                    .map(|x| x.get("fee").expect("Should have fee field"))
+                    .collect();
 
                 assert!(estimated_fee_rates.len() == 3, "Fee rates should be length 3 array");
                 assert!(estimated_fees.len() == 3, "Fees should be length 3 array");
@@ -902,12 +909,18 @@ fn integration_test_get_info() {
                 let estimated_cost_scalar = res.get("estimated_cost_scalar").unwrap().as_u64().unwrap();
                 assert!(estimated_cost_scalar > 0);
 
-                let estimated_fee_rates = res.get("estimated_fee_rates").expect("Should have an estimated_fee_rates field")
+                let estimations = res.get("estimations").expect("Should have an estimations field")
                     .as_array()
                     .expect("Fees should be array");
-                let estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field")
-                    .as_array()
-                    .expect("Fees should be array");
+
+                let estimated_fee_rates: Vec<_> = estimations
+                    .iter()
+                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"))
+                    .collect();
+                let estimated_fees: Vec<_> = estimations
+                    .iter()
+                    .map(|x| x.get("fee").expect("Should have fee field"))
+                    .collect();
 
                 assert!(estimated_fee_rates.len() == 3, "Fee rates should be length 3 array");
                 assert!(estimated_fees.len() == 3, "Fees should be length 3 array");
@@ -922,7 +935,8 @@ fn integration_test_get_info() {
                 let payload_data = tx_payload.serialize_to_vec();
                 let payload_hex = to_hex(&payload_data);
 
-                let body = json!({ "transaction_payload": payload_hex.clone(), "estimated_len": 1550 });
+                let estimated_len = 1550;
+                let body = json!({ "transaction_payload": payload_hex.clone(), "estimated_len": estimated_len });
                 info!("POST body\n {}", body);
 
                 let res = client.post(&path)
@@ -947,9 +961,16 @@ fn integration_test_get_info() {
                 assert!(estimated_cost_scalar > 0);
                 assert!(new_estimated_cost_scalar > estimated_cost_scalar, "New scalar estimate should be higher because of the tx length increase");
 
-                let new_estimated_fees = res.get("estimated_fees").expect("Should have an estimated_fees field")
+                let new_estimations = res.get("estimations").expect("Should have an estimations field")
                     .as_array()
                     .expect("Fees should be array");
+
+                let new_estimated_fees: Vec<_> = new_estimations
+                    .iter()
+                    .map(|x| x.get("fee").expect("Should have fee field"))
+                    .collect();
+
+                let minimum_relay_fee = estimated_len * MINIMUM_TX_FEE_RATE_PER_BYTE;
 
                 assert!(new_estimated_fees[2].as_u64().unwrap() >= estimated_fees[2].as_u64().unwrap(),
                         "Supplying an estimated tx length should increase the estimated fees");
@@ -957,6 +978,10 @@ fn integration_test_get_info() {
                         "Supplying an estimated tx length should increase the estimated fees");
                 assert!(new_estimated_fees[1].as_u64().unwrap() >= estimated_fees[1].as_u64().unwrap(),
                         "Supplying an estimated tx length should increase the estimated fees");
+                for estimate in new_estimated_fees.iter() {
+                    assert!(estimate.as_u64().unwrap() >= minimum_relay_fee,
+                            "The estimated fees must always be greater than minimum_relay_fee");
+                }
             },
             _ => {},
         }

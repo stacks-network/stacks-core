@@ -282,7 +282,7 @@ paths:
       tags:
         - Fees
       description: |
-        Get an estimated fee for that supplied transaction.  This
+        Get an estimated fee for the supplied transaction.  This
         estimates the execution cost of the transaction, the current
         fee rate of the network, and returns estimates for fee
         amounts.
@@ -290,30 +290,53 @@ paths:
         * `transaction_payload` is a hex-encoded serialization of
           the TransactionPayload for the transaction.
         * `estimated_len` is an optional argument that provides the
-          endpoint 
+          endpoint with an estimation of the final length (in bytes)
+          of the transaction, including any post-conditions and
+          signatures
 
         If the node cannot provide an estimate for the transaction
         (e.g., if the node has never seen a contract-call for the
         given contract and function) or if estimation is not
         configured on this node, a 400 response is returned.
+        The 400 response will be a JSON error containing a `reason`
+        field which can be one of the following:
+
+        * `DatabaseError` - this Stacks node has had an internal
+          database error while trying to estimate the costs of the
+          supplied transaction.
+        * `NoEstimateAvailable` - this Stacks node has not seen this
+          kind of contract-call before, and it cannot provide an
+          estimate yet.
+        * `CostEstimationDisabled` - this Stacks node does not perform
+          fee or cost estimation, and it cannot respond on this
+          endpoint.
 
         The 200 response contains the following data:
 
         * `estimated_cost` - the estimated multi-dimensional cost of
           executing the Clarity VM on the provided transaction.
-        * `estimated_cost_scalar` - an integer that captures the total
-          proportion of the block limit that a transaction would be
-          estimated to consume. This value is multiplied by a fee rate
-          to suggest the total fee amount to be paid by the node. This
+        * `estimated_cost_scalar` - a unitless integer that captures
+          the total proportion of the block limit that a transaction
+          would be estimated to consume. In order to compute an
+          estimate of total fee amount for the transaction, this value
+          is multiplied by the estimated fee rate. This value
           incorporates the estimated transaction length.
         * `cost_scalar_change_by_byte` - a float value that indicates how
           much the `estimated_cost_scalar` value would increase for every
           additional byte in the final transaction.
-        * `estimated_fee_rates` - three estimated values for the current
-          fee rates in the network
-        * `estimated_fees` - three estimated values for the total fee that
-          the given transaction should pay. These values are the result of
-          computing: `estimated_fee_rates` x `estimated_cost_scalar`
+        * `estimations` - an array of estimated fee rates and total fees to
+          pay in microSTX for the transaction. This array provides a range of
+          estimates (default: 3) that may be used. Each element of the array
+          contains the following fields:
+            * `fee_rate` - the estimated value for the current fee
+              rates in the network
+            * `fee` - the estimated value for the total fee in
+              microSTX that the given transaction should pay. These
+              values are the result of computing:
+              `fee_rate` x `estimated_cost_scalar`.
+              If the estimated fees are less than the minimum relay
+              fee `(1 ustx x estimated_len)`, then that minimum relay
+              fee will be returned here instead.
 
 
         Note: If the final transaction's byte size is larger than

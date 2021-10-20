@@ -1029,23 +1029,27 @@ pub struct RPCPoxInfoData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCFeeEstimate {
-    pub high: u64,
-    pub middle: u64,
-    pub low: u64,
+    pub fee_rate: f64,
+    pub fee: u64,
 }
 
 impl RPCFeeEstimate {
-    pub fn estimate_fees(scalar: u64, fee_rates: FeeRateEstimate) -> RPCFeeEstimate {
-        let estimated_fees_f64 = fee_rates * (scalar as f64);
-        RPCFeeEstimate {
-            high: estimated_fees_f64.high as u64,
-            middle: estimated_fees_f64.middle as u64,
-            low: estimated_fees_f64.low as u64,
-        }
-    }
-
-    pub fn to_vec(self) -> Vec<u64> {
-        vec![self.low, self.middle, self.high]
+    pub fn estimate_fees(scalar: u64, fee_rates: FeeRateEstimate) -> Vec<RPCFeeEstimate> {
+        let estimated_fees_f64 = fee_rates.clone() * (scalar as f64);
+        vec![
+            RPCFeeEstimate {
+                fee: estimated_fees_f64.low as u64,
+                fee_rate: fee_rates.low,
+            },
+            RPCFeeEstimate {
+                fee: estimated_fees_f64.middle as u64,
+                fee_rate: fee_rates.middle,
+            },
+            RPCFeeEstimate {
+                fee: estimated_fees_f64.high as u64,
+                fee_rate: fee_rates.high,
+            },
+        ]
     }
 }
 
@@ -1053,8 +1057,7 @@ impl RPCFeeEstimate {
 pub struct RPCFeeEstimateResponse {
     pub estimated_cost: ExecutionCost,
     pub estimated_cost_scalar: u64,
-    pub estimated_fees: Vec<u64>,
-    pub estimated_fee_rates: Vec<f64>,
+    pub estimations: Vec<RPCFeeEstimate>,
     pub cost_scalar_change_by_byte: f64,
 }
 

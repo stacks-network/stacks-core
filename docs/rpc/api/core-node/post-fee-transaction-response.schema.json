@@ -24,16 +24,18 @@
         "write_length": { "type": "integer" }
       }
     },
-    "estimated_fee_rates": {
+    "estimations": {
       "type": "array",
       "items": {
-        "type": "number"
-      }
-    },
-    "estimated_fees": {
-      "type": "array",
-      "items": {
-        "type": "integer"
+        "type": "object",
+        "properties": {
+          "fee_rate": {
+            "type": "number"
+          },
+          "fee": {
+            "type": "number"
+          }
+        }
       }
     }
   }

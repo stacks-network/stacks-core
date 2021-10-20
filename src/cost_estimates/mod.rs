@@ -192,7 +192,7 @@ impl EstimatorError {
                 Some(json!({"message": self.to_string()})),
             ),
             EstimatorError::SqliteError(_) => {
-                ("DatavaseError", Some(json!({"message": self.to_string()})))
+                ("DatabaseError", Some(json!({"message": self.to_string()})))
             }
         };
         let mut result = json!({

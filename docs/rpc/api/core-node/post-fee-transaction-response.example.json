@@ -8,14 +8,18 @@
     "write_length": 1020
   },
   "estimated_cost_scalar": 14,
-  "estimated_fee_rates": [
-    1.2410714285714286,
-    8.958333333333332,
-    10
-  ],
-  "estimated_fees": [
-    17,
-    125,
-    140
+  "estimations": [
+    {
+      "fee": 17,
+      "fee_rate": 1.2410714285714286
+    },
+    {
+      "fee": 125,
+      "fee_rate": 8.958333333333332
+    },
+    {
+      "fee": 140,
+      "fee_rate": 10
+    }
   ]
 }
