@@ -823,8 +823,7 @@ impl LeaderBlockCommitOp {
                         "Soon-to-be-invalid block commit";
                         "reason" => "no epoch marker byte given",
                     );
-                }
-                if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
+                } else if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
                     debug!(
                         "Soon-to-be-invalid block commit";
                         "reason" => "invalid epoch marker byte",
