@@ -11,6 +11,8 @@ use stacks::chainstate::stacks::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::CHAIN_ID_TESTNET;
+use stacks::cost_estimates::metrics::UnitMetric;
+use stacks::cost_estimates::UnitEstimator;
 use stacks::net::Error as NetError;
 use stacks::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksMicroblockHeader,
@@ -197,7 +199,12 @@ fn mempool_setup_chainstate() {
 
             let chainstate_path = { CHAINSTATE_PATH.lock().unwrap().clone().unwrap() };
 
-            let _mempool = MemPoolDB::open(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
+            let estimator = Box::new(UnitEstimator);
+            let metric = Box::new(UnitMetric);
+
+            let _mempool =
+                MemPoolDB::open(false, CHAIN_ID_TESTNET, &chainstate_path, estimator, metric)
+                    .unwrap();
 
             if round == 3 {
                 let block_header = chain_tip.metadata.clone();

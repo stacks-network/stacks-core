@@ -51,6 +51,7 @@ use chainstate::stacks::index::Error as marf_error;
 use chainstate::stacks::Error as chainstate_error;
 use chainstate::stacks::{
     Error as chain_error, StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
+    TransactionPayload,
 };
 use clarity_vm::clarity::Error as clarity_error;
 use codec::Error as codec_error;
@@ -77,11 +78,13 @@ use vm::{
 };
 
 use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
+use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use crate::types::StacksPublicKeyBuffer;
 use crate::util::hash::Sha256Sum;
+use crate::vm::costs::ExecutionCost;
 
 use self::dns::*;
 pub use self::http::StacksHttp;
@@ -1027,6 +1030,40 @@ pub struct RPCPoxInfoData {
     pub next_reward_cycle_in: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCFeeEstimate {
+    pub fee_rate: f64,
+    pub fee: u64,
+}
+
+impl RPCFeeEstimate {
+    pub fn estimate_fees(scalar: u64, fee_rates: FeeRateEstimate) -> Vec<RPCFeeEstimate> {
+        let estimated_fees_f64 = fee_rates.clone() * (scalar as f64);
+        vec![
+            RPCFeeEstimate {
+                fee: estimated_fees_f64.low as u64,
+                fee_rate: fee_rates.low,
+            },
+            RPCFeeEstimate {
+                fee: estimated_fees_f64.middle as u64,
+                fee_rate: fee_rates.middle,
+            },
+            RPCFeeEstimate {
+                fee: estimated_fees_f64.high as u64,
+                fee_rate: fee_rates.high,
+            },
+        ]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCFeeEstimateResponse {
+    pub estimated_cost: ExecutionCost,
+    pub estimated_cost_scalar: u64,
+    pub estimations: Vec<RPCFeeEstimate>,
+    pub cost_scalar_change_by_byte: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
 #[repr(u8)]
 pub enum HttpVersion {
@@ -1183,6 +1220,13 @@ pub struct CallReadOnlyRequestBody {
     pub arguments: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct FeeRateEstimateRequestBody {
+    #[serde(default)]
+    pub estimated_len: Option<u64>,
+    pub transaction_payload: String,
+}
+
 /// Items in the NeighborsInfo -- combines NeighborKey and NeighborAddress
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCNeighbor {
@@ -1245,6 +1289,7 @@ pub enum HttpRequestType {
         Option<StacksBlockId>,
         bool,
     ),
+    FeeRateEstimate(HttpRequestMetadata, TransactionPayload, u64),
     CallReadOnlyFunction(
         HttpRequestMetadata,
         StacksAddress,
@@ -1373,6 +1418,7 @@ pub enum HttpResponseType {
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
     OptionsPreflight(HttpResponseMetadata),
+    TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, serde_json::Value),
@@ -2316,14 +2362,18 @@ pub mod test {
             TestPeer::new_with_observer(config, None)
         }
 
+        pub fn test_path(config: &TestPeerConfig) -> String {
+            format!(
+                "/tmp/stacks-node-tests/units-test-peer/{}-{}",
+                &config.test_name, config.server_port
+            )
+        }
+
         pub fn new_with_observer(
             mut config: TestPeerConfig,
             observer: Option<&'a TestEventObserver>,
         ) -> TestPeer<'a> {
-            let test_path = format!(
-                "/tmp/blockstack-test-peer-{}-{}",
-                &config.test_name, config.server_port
-            );
+            let test_path = TestPeer::test_path(&config);
             match fs::metadata(&test_path) {
                 Ok(_) => {
                     fs::remove_dir_all(&test_path).unwrap();
@@ -2554,7 +2604,7 @@ pub mod test {
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
             let relayer = Relayer::from_p2p(&mut peer_network);
-            let mempool = MemPoolDB::open(false, config.network_id, &chainstate_path).unwrap();
+            let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
 
             TestPeer {
                 config: config,

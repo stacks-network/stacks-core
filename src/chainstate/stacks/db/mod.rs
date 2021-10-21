@@ -237,11 +237,11 @@ impl FromRow<DBConfig> for DBConfig {
 
 impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
     fn from_row<'a>(row: &'a Row) -> Result<StacksHeaderInfo, db_error> {
-        let block_height = u64::from_column(row, "block_height")?;
+        let block_height: u64 = u64::from_column(row, "block_height")?;
         let index_root = TrieHash::from_column(row, "index_root")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-        let burn_header_height = u64::from_column(row, "burn_header_height")? as u32;
+        let burn_header_height: u64 = u64::from_column(row, "burn_header_height")?;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
         let anchored_block_size_str: String = row.get_unwrap("block_size");
@@ -256,13 +256,13 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header,
             microblock_tail: None,
-            block_height: block_height,
-            index_root: index_root,
-            consensus_hash: consensus_hash,
-            burn_header_hash: burn_header_hash,
-            burn_header_height: burn_header_height,
-            burn_header_timestamp: burn_header_timestamp,
-            anchored_block_size: anchored_block_size,
+            block_height,
+            index_root,
+            consensus_hash,
+            burn_header_hash,
+            burn_header_height: burn_header_height as u32,
+            burn_header_timestamp,
+            anchored_block_size,
         })
     }
 }
