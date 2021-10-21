@@ -5072,6 +5072,69 @@ fn antientropy_integration_test() {
     channel.stop_chains_coordinator();
 }
 
+#[test]
+#[ignore]
+fn epoch_2_05_transition_empty_blocks() {
+    // very simple test to verify that the miner will keep making valid (empty) blocks after the
+    // transition.  Really tests that the block-commits are well-formed before and after the epoch
+    // transition.
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    // advance to *almost* 2.05
+    btc_regtest_controller.bootstrap_chain(
+        core::STACKS_EPOCHS_REGTEST
+            .last()
+            .as_ref()
+            .unwrap()
+            .start_height
+            - 5,
+    );
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // these should all succeed across the epoch boundary
+    for i in 0..5 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.nonce, 6);
+
+    channel.stop_chains_coordinator();
+}
+
 fn wait_for_mined(
     btc_regtest_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
