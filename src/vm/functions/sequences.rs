@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use core::StacksEpochId;
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
 use vm::costs::cost_functions::ClarityCostFunction;
@@ -211,7 +212,9 @@ pub fn special_append(
     }
 }
 
-pub fn special_concat(
+switch_on_global_epoch!(special_concat(special_concat_v200, special_concat_v205));
+
+pub fn special_concat_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,

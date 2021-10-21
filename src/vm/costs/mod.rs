@@ -784,7 +784,13 @@ fn compute_cost(
     let mainnet = cost_tracker.mainnet;
     let mut null_store = NullBackingStore::new();
     let conn = null_store.as_clarity_db();
-    let mut global_context = GlobalContext::new(mainnet, conn, LimitedCostTracker::new_free());
+    // TODO: pass epoch id from caller to compute cost?
+    let mut global_context = GlobalContext::new(
+        mainnet,
+        conn,
+        LimitedCostTracker::new_free(),
+        StacksEpochId::Epoch2_05,
+    );
 
     let cost_contract = cost_tracker
         .cost_contracts

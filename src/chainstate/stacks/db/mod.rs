@@ -289,6 +289,10 @@ impl ClarityConnection for ClarityTx<'_> {
     {
         self.block.with_analysis_db_readonly(to_do)
     }
+
+    fn get_epoch(&self) -> StacksEpochId {
+        self.block.get_epoch()
+    }
 }
 
 impl<'a> ClarityTx<'a> {

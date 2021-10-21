@@ -19,7 +19,8 @@ use std::convert::{TryFrom, TryInto};
 
 use vm::functions::tuples;
 
-use crate::types::chainstate::StacksBlockId;
+use core::StacksEpochId;
+use types::chainstate::StacksBlockId;
 use vm::callables::DefineType;
 use vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
@@ -37,6 +38,31 @@ use vm::{eval, Environment, LocalContext};
 
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::functions::special::handle_contract_call_special_cases;
+
+switch_on_global_epoch!(special_fetch_variable(
+    special_fetch_variable_v200,
+    special_fetch_variable_v205
+));
+switch_on_global_epoch!(special_set_variable(
+    special_set_variable_v200,
+    special_set_variable_v205
+));
+switch_on_global_epoch!(special_fetch_entry(
+    special_fetch_entry_v200,
+    special_fetch_entry_v205
+));
+switch_on_global_epoch!(special_set_entry(
+    special_set_entry_v200,
+    special_set_entry_v205
+));
+switch_on_global_epoch!(special_insert_entry(
+    special_insert_entry_v200,
+    special_insert_entry_v205
+));
+switch_on_global_epoch!(special_delete_entry(
+    special_delete_entry_v200,
+    special_delete_entry_v205
+));
 
 pub fn special_contract_call(
     args: &[SymbolicExpression],
@@ -181,7 +207,7 @@ pub fn special_contract_call(
     Ok(result)
 }
 
-pub fn special_fetch_variable(
+pub fn special_fetch_variable_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     _context: &LocalContext,
@@ -241,7 +267,7 @@ pub fn special_fetch_variable_v205(
     result.map(|data| data.value)
 }
 
-pub fn special_set_variable(
+pub fn special_set_variable_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -318,7 +344,7 @@ pub fn special_set_variable_v205(
     result.map(|data| data.value)
 }
 
-pub fn special_fetch_entry(
+pub fn special_fetch_entry_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -409,7 +435,7 @@ pub fn special_at_block(
     result
 }
 
-pub fn special_set_entry(
+pub fn special_set_entry_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -491,7 +517,7 @@ pub fn special_set_entry_v205(
     result.map(|data| data.value)
 }
 
-pub fn special_insert_entry(
+pub fn special_insert_entry_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -573,7 +599,7 @@ pub fn special_insert_entry_v205(
     result.map(|data| data.value)
 }
 
-pub fn special_delete_entry(
+pub fn special_delete_entry_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,

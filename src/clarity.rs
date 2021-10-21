@@ -50,7 +50,7 @@ use vm::database::{
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
-use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
+use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 
 use burnchains::PoxConstants;
 use burnchains::Txid;
@@ -72,12 +72,17 @@ use std::convert::TryFrom;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::marf::WritableMarfStore;
 use crate::clarity_vm::database::MemoryBackingStore;
+use crate::core::StacksEpochId;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::VRFSeed;
 use crate::types::proof::ClarityMarfTrieId;
+use crate::vm::ast;
+use crate::vm::contexts::GlobalContext;
+use crate::vm::eval_all;
+use crate::vm::ContractContext;
 
 #[cfg(test)]
 macro_rules! panic_test {
@@ -389,10 +394,30 @@ where
         &mut db,
     )
     .unwrap();
-    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track);
+    let mut vm_env =
+        OwnedEnvironment::new_cost_limited(mainnet, db, cost_track, StacksEpochId::Epoch2_05);
     let result = f(&mut vm_env);
     let cost = vm_env.get_cost_total();
     (result, cost)
+}
+
+/// Execute program in a transient environment. To be used only by CLI tools
+///  for program evaluation, not by consensus critical code.
+pub fn vm_execute(program: &str) -> Result<Option<Value>, Error> {
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract_context = ContractContext::new(contract_id.clone());
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let mut global_context = GlobalContext::new(
+        false,
+        conn,
+        LimitedCostTracker::new_free(),
+        StacksEpochId::Epoch2_05,
+    );
+    global_context.execute(|g| {
+        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        eval_all(&parsed, &mut contract_context, g)
+    })
 }
 
 struct CLIHeadersDB {
@@ -717,7 +742,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         match analysis_result {
             Ok(_) => {
                 let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-                let mut vm_env = OwnedEnvironment::new_free(mainnet, db);
+                let mut vm_env = OwnedEnvironment::new_free(mainnet, db, StacksEpochId::Epoch2_05);
                 vm_env
                     .initialize_contract(contract_identifier, &contract_content)
                     .unwrap();
@@ -745,7 +770,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     ];
 
     let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-    let mut vm_env = OwnedEnvironment::new_free(mainnet, db);
+    let mut vm_env = OwnedEnvironment::new_free(mainnet, db, StacksEpochId::Epoch2_05);
     vm_env
         .execute_transaction(
             sender,
@@ -1036,7 +1061,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 true
             };
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env = OwnedEnvironment::new_free(mainnet, marf.as_clarity_db());
+            let mut vm_env =
+                OwnedEnvironment::new_free(mainnet, marf.as_clarity_db(), StacksEpochId::Epoch2_05);
             let mut exec_env = vm_env.get_exec_environment(None);
             let mut analysis_marf = MemoryBackingStore::new();
 
@@ -1101,7 +1127,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let mut analysis_marf = MemoryBackingStore::new();
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env = OwnedEnvironment::new_free(true, marf.as_clarity_db());
+            let mut vm_env =
+                OwnedEnvironment::new_free(true, marf.as_clarity_db(), StacksEpochId::Epoch2_05);
 
             let contract_id = QualifiedContractIdentifier::transient();
 

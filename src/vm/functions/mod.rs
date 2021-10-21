@@ -38,6 +38,24 @@ use vm::{eval, Environment, LocalContext};
 
 use crate::types::chainstate::StacksAddress;
 
+macro_rules! switch_on_global_epoch {
+    ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
+        pub fn $Name(
+            args: &[SymbolicExpression],
+            env: &mut Environment,
+            context: &LocalContext,
+        ) -> Result<Value> {
+            match env.epoch() {
+                StacksEpochId::Epoch10 => {
+                    panic!("Executing Clarity method during Epoch 1.0, before Clarity")
+                }
+                StacksEpochId::Epoch20 => $Epoch2Version(args, env, context),
+                StacksEpochId::Epoch2_05 => $Epoch205Version(args, env, context),
+            }
+        }
+    };
+}
+
 mod arithmetic;
 mod assets;
 mod boolean;

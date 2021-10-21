@@ -1538,14 +1538,9 @@ impl<'a> ClarityDatabase<'a> {
             .get_burn_header_hash(height, sortition_id)
     }
 
-    // This function obtains the stacks epoch version, which is based on the burn block height.
-    // Valid epochs include stacks 1.0, 2.0, 2.05, and so on.
+    /// This function obtains the stacks epoch version, which is based on the burn block height.
+    /// Valid epochs include stacks 1.0, 2.0, 2.05, and so on.
     pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         self.burn_state_db.get_stacks_epoch(height)
-    }
-
-    pub fn get_current_stacks_epoch(&mut self) -> Option<StacksEpoch> {
-        let cur_burn_height = self.get_current_burnchain_block_height();
-        self.get_stacks_epoch(cur_burn_height)
     }
 }

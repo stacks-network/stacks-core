@@ -15,6 +15,7 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+use stacks::clarity::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::BLOCK_LIMIT_MAINNET;
@@ -33,7 +34,6 @@ use stacks::util::hash::{bytes_to_hex, hex_bytes};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::vm::database::ClarityDeserializable;
-use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
 use stacks::{

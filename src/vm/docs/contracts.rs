@@ -3,10 +3,15 @@ use vm::analysis::{mem_type_check, ContractAnalysis};
 use vm::docs::{get_input_type_string, get_output_type_string, get_signature};
 use vm::types::{FunctionType, Value};
 
-use vm::execute;
-
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::FromIterator;
+
+use crate::clarity_vm::database::MemoryBackingStore;
+use crate::core::StacksEpochId;
+use crate::vm::contexts::GlobalContext;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::{self, ContractContext};
 
 #[derive(Serialize)]
 struct ContractRef {
@@ -187,9 +192,26 @@ fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -
 
 fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
     let to_eval = format!("{}\n{}", contract_content, var_name);
-    execute(&to_eval)
+    doc_execute(&to_eval)
         .expect("BUG: failed to evaluate contract for constant value")
         .expect("BUG: failed to return constant value")
+}
+
+fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract_context = ContractContext::new(contract_id.clone());
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let mut global_context = GlobalContext::new(
+        false,
+        conn,
+        LimitedCostTracker::new_free(),
+        StacksEpochId::Epoch2_05,
+    );
+    global_context.execute(|g| {
+        let parsed = vm::ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        vm::eval_all(&parsed, &mut contract_context, g)
+    })
 }
 
 fn produce_docs() -> BTreeMap<String, ContractRef> {
@@ -251,7 +273,7 @@ fn produce_docs() -> BTreeMap<String, ContractRef> {
                 .collect::<Vec<_>>()
                 .join(", ");
             let ecode_to_eval = format!("{}\n {{ {} }}", content, ecode_names);
-            let ecode_result = execute(&ecode_to_eval)
+            let ecode_result = doc_execute(&ecode_to_eval)
                 .expect("BUG: failed to evaluate contract for constant value")
                 .expect("BUG: failed to return constant value")
                 .expect_tuple();

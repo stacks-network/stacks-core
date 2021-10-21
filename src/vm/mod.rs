@@ -44,6 +44,7 @@ pub mod coverage;
 pub mod tests;
 
 use crate::clarity_vm::database::MemoryBackingStore;
+use crate::core::StacksEpochId;
 use vm::callables::CallableType;
 use vm::contexts::GlobalContext;
 pub use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
@@ -361,17 +362,20 @@ pub fn eval_all(
     })
 }
 
-/* Run provided program in a brand new environment, with a transient, empty
- *  database.
- *
- *  Only used by CLI.
- */
+/// Run provided program in a brand new environment, with a transient, empty
+/// database. Only used for testing
+#[cfg(test)]
 pub fn execute(program: &str) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
+    let mut global_context = GlobalContext::new(
+        false,
+        conn,
+        LimitedCostTracker::new_free(),
+        StacksEpochId::Epoch2_05,
+    );
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
         eval_all(&parsed, &mut contract_context, g)
@@ -381,6 +385,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 #[cfg(test)]
 mod test {
     use crate::clarity_vm::database::MemoryBackingStore;
+    use crate::core::StacksEpochId;
     use std::collections::HashMap;
     use vm::callables::{DefineType, DefinedFunction};
     use vm::costs::LimitedCostTracker;
@@ -425,8 +430,12 @@ mod test {
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
 
         let mut marf = MemoryBackingStore::new();
-        let mut global_context =
-            GlobalContext::new(false, marf.as_clarity_db(), LimitedCostTracker::new_free());
+        let mut global_context = GlobalContext::new(
+            false,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch2_05,
+        );
 
         contract_context
             .variables

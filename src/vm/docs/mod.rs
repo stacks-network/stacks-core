@@ -1919,7 +1919,12 @@ mod test {
 
         let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let mut contract_context = ContractContext::new(contract_id.clone());
-        let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
+        let mut global_context = GlobalContext::new(
+            false,
+            conn,
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch2_05,
+        );
 
         global_context
             .execute(|g| {
