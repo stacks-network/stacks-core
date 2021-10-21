@@ -3665,7 +3665,7 @@ pub mod test {
                                         Some(microblock_stream[i - 1].header.clone());
 
                                     let mut mempool =
-                                        MemPoolDB::open(false, 0x80000000, &chainstate_path)
+                                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path)
                                             .unwrap();
                                     let coinbase_tx =
                                         make_coinbase_with_nonce(miner, i, (i + 2) as u64);

@@ -82,7 +82,7 @@ use crate::types::chainstate::{
     MARFValue, StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
 };
 use crate::types::proof::{ClarityMarfTrieId, TrieHash};
-use crate::util::boot::{boot_code_addr, boot_code_id};
+use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use vm::Value;
 
 pub mod accounts;
@@ -237,11 +237,11 @@ impl FromRow<DBConfig> for DBConfig {
 
 impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
     fn from_row<'a>(row: &'a Row) -> Result<StacksHeaderInfo, db_error> {
-        let block_height = u64::from_column(row, "block_height")?;
+        let block_height: u64 = u64::from_column(row, "block_height")?;
         let index_root = TrieHash::from_column(row, "index_root")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
-        let burn_header_height = u64::from_column(row, "burn_header_height")? as u32;
+        let burn_header_height: u64 = u64::from_column(row, "burn_header_height")?;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
         let stacks_header = StacksBlockHeader::from_row(row)?;
         let anchored_block_size_str: String = row.get_unwrap("block_size");
@@ -256,13 +256,13 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header,
             microblock_tail: None,
-            block_height: block_height,
-            index_root: index_root,
-            consensus_hash: consensus_hash,
-            burn_header_hash: burn_header_hash,
-            burn_header_height: burn_header_height,
-            burn_header_timestamp: burn_header_timestamp,
-            anchored_block_size: anchored_block_size,
+            block_height,
+            index_root,
+            consensus_hash,
+            burn_header_hash,
+            burn_header_height: burn_header_height as u32,
+            burn_header_timestamp,
+            anchored_block_size,
         })
     }
 }
@@ -859,22 +859,9 @@ impl StacksChainState {
 
         let boot_code_address = boot_code_addr(mainnet);
 
-        let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
-            SinglesigSpendingCondition {
-                signer: boot_code_address.bytes.clone(),
-                hash_mode: SinglesigHashMode::P2PKH,
-                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                nonce: 0,
-                tx_fee: 0,
-                signature: MessageSignature::empty(),
-            },
-        ));
+        let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
-        let mut boot_code_account = StacksAccount {
-            principal: PrincipalData::Standard(boot_code_address.into()),
-            nonce: 0,
-            stx_balance: STXBalance::zero(),
-        };
+        let mut boot_code_account = boot_code_acc(boot_code_address, 0);
 
         let mut initial_liquid_ustx = 0u128;
         let mut receipts = vec![];

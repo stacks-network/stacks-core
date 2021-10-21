@@ -1812,6 +1812,8 @@ mod test {
     use super::make_all_api_reference;
     use super::make_json_api_reference;
 
+    use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
 
@@ -1870,6 +1872,13 @@ mod test {
                 )
                 .unwrap(),
             )
+        }
+        fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+            Some(StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: STACKS_EPOCH_MAX,
+            })
         }
     }
 

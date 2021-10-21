@@ -5,6 +5,49 @@ use vm::costs::ExecutionCost;
 use vm::costs::ExecutionCostSchedule;
 
 #[test]
+// Test that when dimensions of the execution cost are near "zero",
+//  that the metric always returns a number greater than zero.
+fn test_proportional_dot_product_near_zero() {
+    let metric = ProportionalDotProduct::new(
+        12_000,
+        ExecutionCost {
+            write_length: 50_000,
+            write_count: 60_000,
+            read_length: 70_000,
+            read_count: 80_000,
+            runtime: 90_000,
+        },
+    );
+    assert_eq!(
+        metric.from_cost_and_len(
+            &ExecutionCost {
+                write_length: 1,
+                write_count: 1,
+                read_length: 1,
+                read_count: 1,
+                runtime: 1,
+            },
+            1
+        ),
+        6
+    );
+
+    assert_eq!(
+        metric.from_cost_and_len(
+            &ExecutionCost {
+                write_length: 0,
+                write_count: 0,
+                read_length: 0,
+                read_count: 0,
+                runtime: 0,
+            },
+            0
+        ),
+        6
+    );
+}
+
+#[test]
 fn test_proportional_dot_product() {
     let metric = ProportionalDotProduct::new(
         10_000,

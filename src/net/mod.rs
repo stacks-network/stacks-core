@@ -43,6 +43,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use url;
 
+use crate::util::boot::boot_code_tx_auth;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::blocks::MemPoolRejection;
@@ -50,6 +51,7 @@ use chainstate::stacks::index::Error as marf_error;
 use chainstate::stacks::Error as chainstate_error;
 use chainstate::stacks::{
     Error as chain_error, StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
+    TransactionPayload,
 };
 use clarity_vm::clarity::Error as clarity_error;
 use codec::Error as codec_error;
@@ -76,14 +78,18 @@ use vm::{
 };
 
 use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
+use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use crate::types::StacksPublicKeyBuffer;
 use crate::util::hash::Sha256Sum;
+use crate::vm::costs::ExecutionCost;
 
 use self::dns::*;
 pub use self::http::StacksHttp;
+
+use core::StacksEpoch;
 
 pub mod asn;
 pub mod atlas;
@@ -1024,6 +1030,40 @@ pub struct RPCPoxInfoData {
     pub next_reward_cycle_in: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCFeeEstimate {
+    pub fee_rate: f64,
+    pub fee: u64,
+}
+
+impl RPCFeeEstimate {
+    pub fn estimate_fees(scalar: u64, fee_rates: FeeRateEstimate) -> Vec<RPCFeeEstimate> {
+        let estimated_fees_f64 = fee_rates.clone() * (scalar as f64);
+        vec![
+            RPCFeeEstimate {
+                fee: estimated_fees_f64.low as u64,
+                fee_rate: fee_rates.low,
+            },
+            RPCFeeEstimate {
+                fee: estimated_fees_f64.middle as u64,
+                fee_rate: fee_rates.middle,
+            },
+            RPCFeeEstimate {
+                fee: estimated_fees_f64.high as u64,
+                fee_rate: fee_rates.high,
+            },
+        ]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCFeeEstimateResponse {
+    pub estimated_cost: ExecutionCost,
+    pub estimated_cost_scalar: u64,
+    pub estimations: Vec<RPCFeeEstimate>,
+    pub cost_scalar_change_by_byte: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
 #[repr(u8)]
 pub enum HttpVersion {
@@ -1180,6 +1220,13 @@ pub struct CallReadOnlyRequestBody {
     pub arguments: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct FeeRateEstimateRequestBody {
+    #[serde(default)]
+    pub estimated_len: Option<u64>,
+    pub transaction_payload: String,
+}
+
 /// Items in the NeighborsInfo -- combines NeighborKey and NeighborAddress
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCNeighbor {
@@ -1242,6 +1289,7 @@ pub enum HttpRequestType {
         Option<StacksBlockId>,
         bool,
     ),
+    FeeRateEstimate(HttpRequestMetadata, TransactionPayload, u64),
     CallReadOnlyFunction(
         HttpRequestMetadata,
         StacksAddress,
@@ -1370,6 +1418,7 @@ pub enum HttpResponseType {
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
     OptionsPreflight(HttpResponseMetadata),
+    TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, serde_json::Value),
@@ -1878,12 +1927,16 @@ pub mod test {
     use vm::database::STXBalance;
     use vm::types::*;
 
+    use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::codec::StacksMessageCodec;
     use crate::types::chainstate::StacksMicroblockHeader;
     use crate::types::proof::TrieHash;
     use crate::util::boot::boot_code_test_addr;
 
     use super::*;
+    use chainstate::stacks::db::accounts::MinerReward;
+    use chainstate::stacks::events::StacksTransactionReceipt;
+    use std::sync::Mutex;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -2077,6 +2130,74 @@ pub mod test {
         (listener, sock_1, sock_2)
     }
 
+    #[derive(Clone)]
+    pub struct TestEventObserverBlock {
+        pub block: StacksBlock,
+        pub metadata: StacksHeaderInfo,
+        pub receipts: Vec<StacksTransactionReceipt>,
+        pub parent: StacksBlockId,
+        pub winner_txid: Txid,
+        pub matured_rewards: Vec<MinerReward>,
+        pub matured_rewards_info: Option<MinerRewardInfo>,
+    }
+
+    pub struct TestEventObserver {
+        blocks: Mutex<Vec<TestEventObserverBlock>>,
+    }
+
+    impl TestEventObserver {
+        pub fn get_blocks(&self) -> Vec<TestEventObserverBlock> {
+            self.blocks.lock().unwrap().deref().to_vec()
+        }
+
+        pub fn new() -> TestEventObserver {
+            TestEventObserver {
+                blocks: Mutex::new(vec![]),
+            }
+        }
+    }
+
+    impl BlockEventDispatcher for TestEventObserver {
+        fn announce_block(
+            &self,
+            block: StacksBlock,
+            metadata: StacksHeaderInfo,
+            receipts: Vec<events::StacksTransactionReceipt>,
+            parent: &StacksBlockId,
+            winner_txid: Txid,
+            matured_rewards: Vec<accounts::MinerReward>,
+            matured_rewards_info: Option<MinerRewardInfo>,
+            parent_burn_block_hash: BurnchainHeaderHash,
+            parent_burn_block_height: u32,
+            parent_burn_block_timestamp: u64,
+        ) {
+            self.blocks.lock().unwrap().push(TestEventObserverBlock {
+                block,
+                metadata,
+                receipts,
+                parent: parent.clone(),
+                winner_txid,
+                matured_rewards,
+                matured_rewards_info,
+            })
+        }
+
+        fn announce_burn_block(
+            &self,
+            _burn_block: &BurnchainHeaderHash,
+            _burn_block_height: u64,
+            _rewards: Vec<(StacksAddress, u64)>,
+            _burns: u64,
+            _reward_recipients: Vec<StacksAddress>,
+        ) {
+            // pass
+        }
+
+        fn dispatch_boot_receipts(&mut self, _receipts: Vec<events::StacksTransactionReceipt>) {
+            // pass
+        }
+    }
+
     // describes a peer's initial configuration
     #[derive(Debug, Clone)]
     pub struct TestPeerConfig {
@@ -2101,6 +2222,7 @@ pub mod test {
         pub initial_lockups: Vec<ChainstateAccountLockup>,
         pub spending_account: TestMiner,
         pub setup_code: String,
+        pub epochs: Option<Vec<StacksEpoch>>,
     }
 
     impl TestPeerConfig {
@@ -2146,6 +2268,7 @@ pub mod test {
                 initial_lockups: vec![],
                 spending_account: spending_account,
                 setup_code: "".into(),
+                epochs: None,
             }
         }
 
@@ -2232,15 +2355,26 @@ pub mod test {
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
-        pub coord: ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), ()>,
+        pub coord: ChainsCoordinator<'a, TestEventObserver, (), OnChainRewardSetProvider, (), ()>,
     }
 
     impl<'a> TestPeer<'a> {
-        pub fn new(mut config: TestPeerConfig) -> TestPeer<'a> {
-            let test_path = format!(
-                "/tmp/blockstack-test-peer-{}-{}",
+        pub fn new(config: TestPeerConfig) -> TestPeer<'a> {
+            TestPeer::new_with_observer(config, None)
+        }
+
+        pub fn test_path(config: &TestPeerConfig) -> String {
+            format!(
+                "/tmp/stacks-node-tests/units-test-peer/{}-{}",
                 &config.test_name, config.server_port
-            );
+            )
+        }
+
+        pub fn new_with_observer(
+            mut config: TestPeerConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> TestPeer<'a> {
+            let test_path = TestPeer::test_path(&config);
             match fs::metadata(&test_path) {
                 Ok(_) => {
                     fs::remove_dir_all(&test_path).unwrap();
@@ -2264,11 +2398,16 @@ pub mod test {
 
             config.burnchain = burnchain.clone();
 
+            let epochs = config.epochs.clone().unwrap_or_else(|| {
+                StacksEpoch::unit_test_pre_2_05(config.burnchain.first_block_height)
+            });
+
             let mut sortdb = SortitionDB::connect(
                 &config.burnchain.get_db_path(),
                 config.burnchain.first_block_height,
                 &config.burnchain.first_block_hash,
                 0,
+                &epochs,
                 true,
             )
             .unwrap();
@@ -2333,16 +2472,7 @@ pub mod test {
                             stx_balance: STXBalance::zero(),
                         };
 
-                        let boot_code_auth = TransactionAuth::Standard(
-                            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                                signer: boot_code_addr.bytes.clone(),
-                                hash_mode: SinglesigHashMode::P2PKH,
-                                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                                nonce: 0,
-                                tx_fee: 0,
-                                signature: MessageSignature::empty(),
-                            }),
-                        );
+                        let boot_code_auth = boot_code_tx_auth(boot_code_addr);
 
                         debug!(
                             "Instantiate test-specific boot code contract '{}.{}' ({} bytes)...",
@@ -2396,12 +2526,13 @@ pub mod test {
             .unwrap();
 
             let (tx, _) = sync_channel(100000);
-            let mut coord = ChainsCoordinator::test_new(
+            let mut coord = ChainsCoordinator::test_new_with_observer(
                 &burnchain,
                 config.network_id,
                 &test_path,
                 OnChainRewardSetProvider(),
                 tx,
+                observer,
             );
             coord.handle_new_burnchain_block().unwrap();
 
@@ -2474,7 +2605,7 @@ pub mod test {
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
             let relayer = Relayer::from_p2p(&mut peer_network);
-            let mempool = MemPoolDB::open(false, config.network_id, &chainstate_path).unwrap();
+            let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
 
             TestPeer {
                 config: config,
@@ -3016,6 +3147,59 @@ pub mod test {
             self.sortdb = Some(sortdb);
             self.mempool = Some(mempool);
             res
+        }
+
+        /// Make a tenure with the given transactions. Creates a coinbase tx with the given nonce, and then increments
+        ///  the provided reference.
+        pub fn tenure_with_txs(
+            &mut self,
+            txs: &[StacksTransaction],
+            coinbase_nonce: &mut usize,
+        ) -> StacksBlockId {
+            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_pubkeyhash =
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+            let (burn_ops, stacks_block, microblocks) = self.make_tenure(
+                |ref mut miner,
+                 ref mut sortdb,
+                 ref mut chainstate,
+                 vrf_proof,
+                 ref parent_opt,
+                 ref parent_microblock_header_opt| {
+                    let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                    let coinbase_tx = make_coinbase(miner, *coinbase_nonce);
+
+                    let mut block_txs = vec![coinbase_tx];
+                    block_txs.extend_from_slice(txs);
+
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &parent_tip,
+                        vrf_proof,
+                        tip.total_burn,
+                        microblock_pubkeyhash,
+                    )
+                    .unwrap();
+                    let (anchored_block, _size, _cost) =
+                        StacksBlockBuilder::make_anchored_block_from_txs(
+                            block_builder,
+                            chainstate,
+                            &sortdb.index_conn(),
+                            block_txs,
+                        )
+                        .unwrap();
+                    (anchored_block, vec![])
+                },
+            );
+
+            let (_, _, consensus_hash) = self.next_burnchain_block(burn_ops);
+            self.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            *coinbase_nonce += 1;
+
+            StacksBlockId::new(&consensus_hash, &stacks_block.block_hash())
         }
 
         // Make a tenure

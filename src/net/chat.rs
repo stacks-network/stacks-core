@@ -67,6 +67,7 @@ use vm::costs::ExecutionCostSchedule;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksBlockHeader;
 use crate::types::StacksPublicKeyBuffer;
+use core::StacksEpoch;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -2377,6 +2378,7 @@ mod test {
             burnchain.first_block_height,
             &burnchain.first_block_hash,
             get_epoch_time_secs(),
+            &StacksEpoch::unit_test_pre_2_05(burnchain.first_block_height),
             true,
         )
         .unwrap();
