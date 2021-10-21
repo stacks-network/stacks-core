@@ -336,6 +336,10 @@ pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
     },
 ];
 
+/// Stacks 2.05 epoch marker.  All block-commits in 2.05 must have a memo bitfield with this value
+/// *or greater*.
+pub static STACKS_EPOCH_2_05_MARKER: u8 = 0x05;
+
 #[test]
 fn test_ord_for_stacks_epoch() {
     let epochs = STACKS_EPOCHS_MAINNET.clone();
