@@ -14,16 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
 use std::error;
 use std::fmt;
 
 use chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    COSTS_2_NAME,
 };
-use chainstate::stacks::events::StacksTransactionEvent;
+use chainstate::stacks::db::StacksAccount;
+use chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::Error as ChainstateError;
+use chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
+use util::strings::StacksString;
 use vm::analysis;
 use vm::analysis::AnalysisDatabase;
 use vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
@@ -33,21 +38,31 @@ use vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
-    SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    STXBalance, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::Error as InterpreterError;
 use vm::representations::SymbolicExpression;
 use vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
 };
+use vm::ContractName;
 
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::TransactionAuth;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::chainstate::stacks::TransactionPublicKeyEncoding;
+use crate::chainstate::stacks::TransactionSmartContract;
+use crate::chainstate::stacks::TransactionSpendingCondition;
+use crate::chainstate::stacks::TransactionVersion;
 use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
+use crate::core::StacksEpochId;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
-use crate::util::boot::boot_code_id;
+use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::util::secp256k1::MessageSignature;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -605,6 +620,84 @@ impl<'a> ClarityBlockConnection<'a> {
         self.datastore.commit_unconfirmed();
 
         self.cost_track.unwrap()
+    }
+
+    pub fn initialize_epoch_2_05(&mut self) -> Result<StacksTransactionReceipt, Error> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*
+            self.cost_track.replace(LimitedCostTracker::new_free());
+
+            let mainnet = self.mainnet;
+
+            // get the boot code account information
+            //  for processing the pox contract initialization
+            let tx_version = if mainnet {
+                TransactionVersion::Mainnet
+            } else {
+                TransactionVersion::Testnet
+            };
+
+            let boot_code_address = boot_code_addr(mainnet);
+
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
+
+            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
+                db.get_account_nonce(&boot_code_address.clone().into())
+            });
+
+            let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
+
+            // instantiate costs 2 contract...
+            // TODO - replace once costs-2 contract is updated with new costs
+            let cost_2_code = if mainnet {
+                &*BOOT_CODE_COSTS
+            } else {
+                &*BOOT_CODE_COSTS
+            };
+
+            let payload = TransactionPayload::SmartContract(TransactionSmartContract {
+                name: ContractName::try_from(COSTS_2_NAME)
+                    .expect("FATAL: invalid boot-code contract name"),
+                code_body: StacksString::from_str(cost_2_code)
+                    .expect("FATAL: invalid boot code body"),
+            });
+
+            let costs_2_contract_tx =
+                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+
+            let initialization_receipt = self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch2_05);
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // initialize with a synthetic transaction
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &costs_2_contract_tx,
+                    &boot_code_account,
+                )
+                .expect("FATAL: Failed to process PoX 2 contract initialization");
+
+                receipt
+            });
+
+            if initialization_receipt.result != Value::okay_true()
+                || initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing Costs 2 contract initialization: {:#?}",
+                    &initialization_receipt
+                );
+            }
+
+            (old_cost_tracker, Ok(initialization_receipt))
+        })
     }
 
     pub fn start_transaction_processing<'b>(&'b mut self) -> ClarityTransactionConnection<'b, 'a> {

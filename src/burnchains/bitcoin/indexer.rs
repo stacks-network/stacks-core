@@ -47,6 +47,9 @@ use deps::bitcoin::network::serialize::BitcoinHash;
 use deps::bitcoin::network::serialize::Error as btc_serialization_err;
 use util::log;
 
+use core::{StacksEpoch, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET};
+use std::convert::TryFrom;
+
 pub const USER_AGENT: &'static str = "Stacks/2.0";
 
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;
@@ -69,6 +72,27 @@ pub fn network_id_to_bytes(network_id: BitcoinNetworkType) -> u32 {
         BitcoinNetworkType::Mainnet => BITCOIN_MAINNET,
         BitcoinNetworkType::Testnet => BITCOIN_TESTNET,
         BitcoinNetworkType::Regtest => BITCOIN_REGTEST,
+    }
+}
+
+impl TryFrom<u32> for BitcoinNetworkType {
+    type Error = &'static str;
+
+    fn try_from(value: u32) -> Result<BitcoinNetworkType, Self::Error> {
+        match value {
+            BITCOIN_MAINNET => Ok(BitcoinNetworkType::Mainnet),
+            BITCOIN_TESTNET => Ok(BitcoinNetworkType::Testnet),
+            BITCOIN_REGTEST => Ok(BitcoinNetworkType::Regtest),
+            _ => Err("Invalid network type"),
+        }
+    }
+}
+
+pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> Vec<StacksEpoch> {
+    match network_id {
+        BitcoinNetworkType::Mainnet => STACKS_EPOCHS_MAINNET.to_vec(),
+        BitcoinNetworkType::Testnet => STACKS_EPOCHS_TESTNET.to_vec(),
+        BitcoinNetworkType::Regtest => STACKS_EPOCHS_REGTEST.to_vec(),
     }
 }
 
@@ -687,6 +711,12 @@ impl BurnchainIndexer for BitcoinIndexer {
 
         let first_block_header_timestamp = first_header.header.time as u64;
         Ok(first_block_header_timestamp)
+    }
+
+    /// Get a vector of the stacks epochs. This notion of epochs is dependent on the burn block height.
+    /// Valid epochs include stacks 1.0, stacks 2.0, stacks 2.05, and so on.
+    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+        get_bitcoin_stacks_epochs(self.runtime.network_id)
     }
 
     /// Read downloaded headers within a range

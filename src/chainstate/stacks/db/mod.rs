@@ -82,7 +82,7 @@ use crate::types::chainstate::{
     MARFValue, StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
 };
 use crate::types::proof::{ClarityMarfTrieId, TrieHash};
-use crate::util::boot::{boot_code_addr, boot_code_id};
+use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use vm::Value;
 
 pub mod accounts;
@@ -859,22 +859,9 @@ impl StacksChainState {
 
         let boot_code_address = boot_code_addr(mainnet);
 
-        let boot_code_auth = TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
-            SinglesigSpendingCondition {
-                signer: boot_code_address.bytes.clone(),
-                hash_mode: SinglesigHashMode::P2PKH,
-                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                nonce: 0,
-                tx_fee: 0,
-                signature: MessageSignature::empty(),
-            },
-        ));
+        let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
-        let mut boot_code_account = StacksAccount {
-            principal: PrincipalData::Standard(boot_code_address.into()),
-            nonce: 0,
-            stx_balance: STXBalance::zero(),
-        };
+        let mut boot_code_account = boot_code_acc(boot_code_address, 0);
 
         let mut initial_liquid_ustx = 0u128;
         let mut receipts = vec![];
