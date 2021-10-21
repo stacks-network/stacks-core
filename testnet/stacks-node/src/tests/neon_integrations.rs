@@ -73,6 +73,10 @@ use super::{
     SK_2,
 };
 
+use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
+use stacks::types::chainstate::VRFSeed;
+
 fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
 
@@ -368,7 +372,7 @@ fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
     }
 }
 
-fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
+fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
@@ -380,6 +384,14 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
         .unwrap()
         .json::<RPCPeerInfoData>()
         .unwrap();
+
+    tip_info
+}
+
+fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
+    let tip_info = get_chain_info(conf);
+
+    // get the canonical chain tip
     let stacks_tip = tip_info.stacks_tip;
     let stacks_tip_consensus_hash = tip_info.stacks_tip_consensus_hash;
 
@@ -387,6 +399,8 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
         StacksBlockHeader::make_index_block_hash(&stacks_tip_consensus_hash, &stacks_tip);
 
     // get the associated anchored block
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/blocks/{}", &http_origin, &stacks_id_tip);
     let block_bytes = client.get(&path).send().unwrap().bytes().unwrap();
     let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();
@@ -1558,13 +1572,7 @@ fn microblock_integration_test() {
 
     // put each into a microblock
     let (first_microblock, second_microblock) = {
-        let path = format!("{}/v2/info", &http_origin);
-        let tip_info = client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<RPCPeerInfoData>()
-            .unwrap();
+        let tip_info = get_chain_info(&conf);
         let stacks_tip = tip_info.stacks_tip;
 
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
@@ -1639,15 +1647,9 @@ fn microblock_integration_test() {
 
     sleep_ms(5_000);
 
-    let path = format!("{}/v2/info", &http_origin);
     let mut iter_count = 0;
     let tip_info = loop {
-        let tip_info = client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<RPCPeerInfoData>()
-            .unwrap();
+        let tip_info = get_chain_info(&conf);
         eprintln!("{:#?}", tip_info);
         if tip_info.unanchored_tip == StacksBlockId([0; 32]) {
             iter_count += 1;
@@ -4258,13 +4260,7 @@ fn pox_integration_test() {
     );
 
     // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .unwrap();
+    let tip_info = get_chain_info(&conf);
 
     eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
     assert_eq!(tip_info.stacks_tip_height, 36);
@@ -4277,13 +4273,7 @@ fn pox_integration_test() {
     }
 
     // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .unwrap();
+    let tip_info = get_chain_info(&conf);
 
     eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
     assert_eq!(tip_info.stacks_tip_height, 51);
@@ -4317,13 +4307,7 @@ fn pox_integration_test() {
 
     // should have progressed the chain, though!
     // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .unwrap();
+    let tip_info = get_chain_info(&conf);
 
     eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
     assert_eq!(tip_info.stacks_tip_height, 66);
@@ -5077,6 +5061,7 @@ fn epoch_2_05_transition_empty_blocks() {
     }
 
     let (mut conf, miner_account) = neon_integration_test_conf();
+    let keychain = Keychain::default(conf.node.seed.clone());
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -5088,18 +5073,17 @@ fn epoch_2_05_transition_empty_blocks() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     // advance to *almost* 2.05
-    btc_regtest_controller.bootstrap_chain(
-        core::STACKS_EPOCHS_REGTEST
-            .last()
-            .as_ref()
-            .unwrap()
-            .start_height
-            - 5,
-    );
+    let epoch_2_05 = core::STACKS_EPOCHS_REGTEST
+        .last()
+        .as_ref()
+        .unwrap()
+        .start_height;
+
+    btc_regtest_controller.bootstrap_chain(epoch_2_05 - 5);
 
     eprintln!("Chain bootstrapped...");
 
-    let mut run_loop = neon::RunLoop::new(conf);
+    let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
@@ -5115,11 +5099,66 @@ fn epoch_2_05_transition_empty_blocks() {
     // first block will hold our VRF registration
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    let tip_info = get_chain_info(&conf);
+    let key_block_ptr = tip_info.burn_block_height as u32;
+    let key_vtxindex = 1; // nothing else here but the coinbase
+
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
+    let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
+
     // these should all succeed across the epoch boundary
     for i in 0..5 {
+        // also, make *huge* block-commits with invalid marker bytes once we reach the new
+        // epoch, and verify that it fails.
+        let tip_info = get_chain_info(&conf);
+        if tip_info.burn_block_height + 1 >= epoch_2_05 {
+            let burn_fee_cap = 100000000; // 1 BTC
+            let sunset_burn =
+                burnchain.expected_sunset_burn(tip_info.burn_block_height + 1, burn_fee_cap);
+            let rest_commit = burn_fee_cap - sunset_burn;
+
+            let commit_outs = if tip_info.burn_block_height + 1 < burnchain.pox_constants.sunset_end
+                && !burnchain.is_in_prepare_phase(tip_info.burn_block_height + 1)
+            {
+                vec![
+                    StacksAddress::burn_address(conf.is_mainnet()),
+                    StacksAddress::burn_address(conf.is_mainnet()),
+                ]
+            } else {
+                vec![StacksAddress::burn_address(conf.is_mainnet())]
+            };
+
+            // let's commit
+            let burn_parent_modulus =
+                (tip_info.burn_block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+            let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                sunset_burn,
+                block_header_hash: BlockHeaderHash([0xff; 32]),
+                burn_fee: rest_commit,
+                input: (Txid([0; 32]), 0),
+                apparent_sender: keychain.get_burnchain_signer(),
+                key_block_ptr,
+                key_vtxindex,
+                memo: vec![0], // bad epoch marker
+                new_seed: VRFSeed([0x11; 32]),
+                parent_block_ptr: 0,
+                parent_vtxindex: 0,
+                // to be filled in
+                vtxindex: 0,
+                txid: Txid([0u8; 32]),
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash::zero(),
+                burn_parent_modulus,
+                commit_outs,
+            });
+            let mut op_signer = keychain.generate_op_signer();
+            let res = bitcoin_controller.submit_operation(op, &mut op_signer, 1);
+            assert!(res, "Failed to submit block-commit");
+        }
+
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     }
 
