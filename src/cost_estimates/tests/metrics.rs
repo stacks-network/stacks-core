@@ -10,13 +10,14 @@ use vm::costs::ExecutionCostSchedule;
 fn test_proportional_dot_product_near_zero() {
     let metric = ProportionalDotProduct::new(
         12_000,
+        ExecutionCostSchedule::from_cost(
         ExecutionCost {
             write_length: 50_000,
             write_count: 60_000,
             read_length: 70_000,
             read_count: 80_000,
             runtime: 90_000,
-        },
+        }),
     );
     assert_eq!(
         metric.from_cost_and_len(

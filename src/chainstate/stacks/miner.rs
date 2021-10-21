@@ -7135,8 +7135,9 @@ pub mod test {
                     vrf_proof,
                     Hash160([0 as u8; 20]),
                     &coinbase_tx,
-                    BlockBuilderSettings::limited(execution_cost),
+                    BlockBuilderSettings::limited(ExecutionCostSchedule::from_cost(execution_cost)),
                     None,
+                    0,
                 )
                 .unwrap();
                 (anchored_block.0, vec![])
