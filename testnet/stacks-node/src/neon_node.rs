@@ -15,7 +15,7 @@ use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, STACKS_EPOCH_2_05_MARKER,
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::ConsensusHash;
@@ -310,7 +310,7 @@ fn inner_generate_block_commit_op(
         apparent_sender: sender,
         key_block_ptr: key.block_height as u32,
         key_vtxindex: key.op_vtxindex as u16,
-        memo: vec![],
+        memo: vec![STACKS_EPOCH_2_05_MARKER],
         new_seed: vrf_seed,
         parent_block_ptr,
         parent_vtxindex,
