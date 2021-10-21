@@ -32,9 +32,11 @@ use burnchains::Txid;
 use burnchains::{Address, PublicKey};
 use burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
 use chainstate::burn::db::sortdb::SortitionHandleTx;
+pub use chainstate::burn::operations::leader_block_commit::STACKS_EPOCH_2_05_MARKER;
 use chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
 };
+
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 use util::db::DBConn;
@@ -72,6 +74,7 @@ pub enum Error {
     BlockCommitBadOutputs,
     BlockCommitAnchorCheck,
     BlockCommitBadModulus,
+    BlockCommitBadEpoch,
     MissedBlockCommit(MissedBlockCommit),
 
     // all the things that can go wrong with leader key register
@@ -114,6 +117,9 @@ impl fmt::Display for Error {
             }
             Error::BlockCommitBadModulus => {
                 write!(f, "Block commit included a bad burn block height modulus")
+            }
+            Error::BlockCommitBadEpoch => {
+                write!(f, "Block commit has an invalid epoch")
             }
             Error::MissedBlockCommit(_) => write!(
                 f,
