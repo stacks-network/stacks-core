@@ -32,7 +32,6 @@ use burnchains::Txid;
 use burnchains::{Address, PublicKey};
 use burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
 use chainstate::burn::db::sortdb::SortitionHandleTx;
-pub use chainstate::burn::operations::leader_block_commit::STACKS_EPOCH_2_05_MARKER;
 use chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
 };

@@ -38,6 +38,7 @@ use chainstate::burn::Opcodes;
 use chainstate::burn::SortitionId;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
+use core::STACKS_EPOCH_2_05_MARKER;
 use core::{StacksEpoch, StacksEpochId};
 use net::Error as net_error;
 use util::hash::to_hex;
@@ -58,10 +59,6 @@ struct ParsedData {
 
 pub static OUTPUTS_PER_COMMIT: usize = 2;
 pub static BURN_BLOCK_MINED_AT_MODULUS: u64 = 5;
-
-/// Stacks 2.05 epoch marker.  All block-commits in 2.05 must have a memo bitfield with this value
-/// *or greater*.
-pub static STACKS_EPOCH_2_05_MARKER: u8 = 0x05;
 
 impl LeaderBlockCommitOp {
     #[cfg(test)]
@@ -820,17 +817,36 @@ impl LeaderBlockCommitOp {
                 panic!("FATAL: processed block-commit pre-Stacks 2.0");
             }
             StacksEpochId::Epoch20 => {
-                // no-op
+                // no-op, but log for helping node operators watch for old nodes
+                if self.memo.len() < 1 {
+                    debug!(
+                        "Soon-to-be-invalid block commit";
+                        "reason" => "no epoch marker byte given",
+                    );
+                }
+                if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
+                    debug!(
+                        "Soon-to-be-invalid block commit";
+                        "reason" => "invalid epoch marker byte",
+                        "marker_byte" => self.memo[0],
+                        "expected_marker_byte" => STACKS_EPOCH_2_05_MARKER
+                    );
+                }
             }
             StacksEpochId::Epoch2_05 => {
                 if self.memo.len() < 1 {
-                    warn!("Invalid block commit: no memo given");
+                    debug!(
+                        "Invalid block commit";
+                        "reason" => "no epoch marker byte given",
+                    );
                     return Err(op_error::BlockCommitBadEpoch);
                 }
                 if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
-                    warn!(
-                        "Invalid block commit: invalid memo {} (expected >= {})",
-                        self.memo[0], STACKS_EPOCH_2_05_MARKER
+                    debug!(
+                        "Invalid block commit";
+                        "reason" => "invalid epoch marker byte",
+                        "marker_byte" => self.memo[0],
+                        "expected_marker_byte" => STACKS_EPOCH_2_05_MARKER
                     );
                     return Err(op_error::BlockCommitBadEpoch);
                 }
