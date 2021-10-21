@@ -48,6 +48,7 @@ use chainstate::stacks::{
 use clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use core::*;
+use cost_estimates::EstimatorError;
 use net::BlocksInvData;
 use net::Error as net_error;
 use util::db::u64_to_sql;
@@ -147,6 +148,7 @@ pub enum MemPoolRejection {
     TransferRecipientIsSender(PrincipalData),
     TransferAmountMustBePositive,
     DBError(db_error),
+    EstimatorError(EstimatorError),
     Other(String),
 }
 
@@ -212,6 +214,7 @@ impl MemPoolRejection {
                     "actual": format!("0x{}", to_hex(&actual.to_be_bytes()))
                 })),
             ),
+            EstimatorError(e) => ("EstimatorError", Some(json!({"message": e.to_string()}))),
             NoSuchContract => ("NoSuchContract", None),
             NoSuchPublicFunction => ("NoSuchPublicFunction", None),
             BadFunctionArgument(e) => (
@@ -3891,6 +3894,51 @@ impl StacksChainState {
         Ok((fees, burns, receipts))
     }
 
+    /// If an epoch transition occurs at this Stacks block,
+    ///   apply the transition and return any receipts from the transition.
+    pub fn process_epoch_transition(
+        clarity_tx: &mut ClarityTx,
+        chain_tip_burn_header_height: u32,
+    ) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        // is this stacks block the first of a new epoch?
+        let (stacks_parent_epoch, sortition_epoch) = clarity_tx.with_clarity_db_readonly(|db| {
+            (
+                db.get_clarity_epoch_version(),
+                db.get_stacks_epoch(chain_tip_burn_header_height),
+            )
+        });
+
+        let mut receipts = vec![];
+
+        if let Some(sortition_epoch) = sortition_epoch {
+            // the parent stacks block has a different epoch than what the Sortition DB
+            //  thinks should be in place.
+            if stacks_parent_epoch != sortition_epoch.epoch_id {
+                info!("Applying epoch transition"; "new_epoch_id" => %sortition_epoch.epoch_id, "old_epoch_id" => %stacks_parent_epoch);
+                // this assertion failing means that the _parent_ block was invalid: this is bad and should panic.
+                assert!(stacks_parent_epoch < sortition_epoch.epoch_id, "The SortitionDB believes the epoch is earlier than this Stacks block's parent: sortition db epoch = {}, parent epoch = {}", sortition_epoch.epoch_id, stacks_parent_epoch);
+                // time for special cases:
+                match stacks_parent_epoch {
+                    StacksEpochId::Epoch10 => {
+                        panic!("Clarity VM believes it was running in 1.0: pre-Clarity.")
+                    }
+                    StacksEpochId::Epoch20 => {
+                        assert_eq!(
+                            sortition_epoch.epoch_id,
+                            StacksEpochId::Epoch2_05,
+                            "Should only transition from Epoch20 to Epoch2_05"
+                        );
+                        receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                    }
+                    StacksEpochId::Epoch2_05 => {
+                        panic!("No defined transition from Epoch2_05 forward")
+                    }
+                }
+            }
+        }
+        Ok(receipts)
+    }
+
     /// Process any Stacking-related bitcoin operations
     ///  that haven't been processed in this Stacks fork yet.
     pub fn process_stacking_ops(
@@ -4441,9 +4489,17 @@ impl StacksChainState {
                    "microblock_parent_seq" => %last_microblock_seq,
                    "microblock_parent_count" => %microblocks.len());
 
+            // is this stacks block the first of a new epoch?
+            let mut receipts = StacksChainState::process_epoch_transition(
+                &mut clarity_tx,
+                chain_tip_burn_header_height,
+            )?;
+
             // process stacking operations from bitcoin ops
-            let mut receipts =
-                StacksChainState::process_stacking_ops(&mut clarity_tx, stacking_burn_ops);
+            receipts.extend(StacksChainState::process_stacking_ops(
+                &mut clarity_tx,
+                stacking_burn_ops,
+            ));
 
             receipts.extend(StacksChainState::process_transfer_ops(
                 &mut clarity_tx,
@@ -5545,6 +5601,8 @@ pub mod test {
     use util::hash::*;
     use util::retry::*;
 
+    use crate::cost_estimates::metrics::UnitMetric;
+    use crate::cost_estimates::UnitEstimator;
     use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore};
 
     use super::*;
@@ -9166,7 +9224,8 @@ pub mod test {
                         }
                     };
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(

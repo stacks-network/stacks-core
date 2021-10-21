@@ -667,11 +667,33 @@ impl ClarityDeserializable<Value> for Value {
     }
 }
 
+impl ClaritySerializable for u32 {
+    fn serialize(&self) -> String {
+        let mut buffer = Vec::new();
+        buffer
+            .write_all(&self.to_be_bytes())
+            .expect("u32 serialization: failed writing.");
+        to_hex(buffer.as_slice())
+    }
+}
+
+impl ClarityDeserializable<u32> for u32 {
+    fn deserialize(input: &str) -> Self {
+        let bytes = hex_bytes(&input).expect("u32 deserialization: failed decoding bytes.");
+        assert_eq!(bytes.len(), 4);
+        u32::from_be_bytes(
+            bytes[0..4]
+                .try_into()
+                .expect("u32 deserialization: failed reading."),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
 
-    use vm::database::ClaritySerializable;
+    use vm::database::{ClarityDeserializable, ClaritySerializable};
     use vm::errors::Error;
     use vm::types::TypeSignature::{BoolType, IntType};
 
@@ -693,6 +715,10 @@ mod tests {
         );
     }
 
+    fn test_deser_u32_helper(num: u32) {
+        assert_eq!(num, u32::deserialize(&num.serialize()));
+    }
+
     fn test_bad_expectation(v: Value, e: TypeSignature) {
         assert!(
             match Value::try_deserialize_hex(&v.serialize(), &e).unwrap_err() {
@@ -700,6 +726,17 @@ mod tests {
                 _ => false,
             }
         )
+    }
+
+    #[test]
+    fn test_deser_u32() {
+        test_deser_u32_helper(0);
+        test_deser_u32_helper(10);
+        test_deser_u32_helper(42);
+        test_deser_u32_helper(10992);
+        test_deser_u32_helper(10992);
+        test_deser_u32_helper(262144);
+        test_deser_u32_helper(134217728);
     }
 
     #[test]

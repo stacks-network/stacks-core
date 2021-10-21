@@ -23,6 +23,8 @@ use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
 use crate::util::boot::boot_code_id;
+use chainstate::stacks::boot::{COSTS_1_NAME, COSTS_2_NAME};
+use core::StacksEpochId;
 use vm::ast::ContractAST;
 use vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
 use vm::costs::cost_functions::ClarityCostFunction;
@@ -634,13 +636,27 @@ impl LimitedCostTracker {
         }
     }
 
+    fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> String {
+        match epoch_id {
+            StacksEpochId::Epoch10 => {
+                panic!("Attempted to get default cost functions for Epoch 1.0 where Clarity does not exist");
+            }
+            StacksEpochId::Epoch20 => COSTS_1_NAME.to_string(),
+            StacksEpochId::Epoch2_05 => COSTS_2_NAME.to_string(),
+        }
+    }
+
     /// `apply_updates` - tells this function to look for any changes in the cost voting contract
     ///   which would need to be applied. if `false`, just load the last computed cost state in this
     ///   fork.
     fn load_costs(&mut self, clarity_db: &mut ClarityDatabase, apply_updates: bool) -> Result<()> {
-        let boot_costs_id = boot_code_id("costs", self.mainnet);
-
         clarity_db.begin();
+        let epoch_id = clarity_db.get_clarity_epoch_version();
+        let boot_costs_id = boot_code_id(
+            &LimitedCostTracker::default_cost_contract_for_epoch(epoch_id),
+            self.mainnet,
+        );
+
         let CostStateSummary {
             contract_call_circuits,
             mut cost_function_references,
@@ -1019,7 +1035,8 @@ impl ExecutionCost {
         ]
         .iter()
         .fold(0, |acc, dim| {
-            acc.checked_add(*dim as u64).unwrap_or(u64::MAX)
+            acc.checked_add(cmp::max(*dim as u64, 1))
+                .unwrap_or(u64::MAX)
         })
     }
 
