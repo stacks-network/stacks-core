@@ -3903,6 +3903,9 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         chain_tip_burn_header_height: u32,
     ) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        let bt = backtrace::Backtrace::new();
+        warn!("process_epoch_transition {:?}", bt);
+
         // is this stacks block the first of a new epoch?
         let (stacks_parent_epoch, sortition_epoch) = clarity_tx.with_clarity_db_readonly(|db| {
             (
@@ -4383,7 +4386,9 @@ impl StacksChainState {
                 parent_consensus_hash, parent_block_hash
             ));
 
-            let current_epoch = burn_dbconn.get_stacks_epoch(parent_burn_block_height + 1).unwrap();
+            let current_epoch = burn_dbconn
+                .get_stacks_epoch(parent_burn_block_height + 1)
+                .unwrap();
             let block_limit = ExecutionCostSchedule::choose_limit_by_height(
                 &block_limit_schedule,
                 current_epoch.epoch_id,

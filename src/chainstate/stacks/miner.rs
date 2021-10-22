@@ -179,7 +179,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
             StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
                 .ok_or(Error::NoSuchBlockError)?;
 
-            let current_epoch = burn_dbconn.get_stacks_epoch(anchor_block_height as u32).unwrap();
+        let current_epoch = burn_dbconn
+            .get_stacks_epoch(anchor_block_height as u32)
+            .unwrap();
         let block_limit = ExecutionCostSchedule::choose_limit_by_height(
             &settings.execution_cost_schedule,
             current_epoch.epoch_id,
@@ -258,7 +260,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 return Err(Error::NoSuchBlockError)?;
             };
 
-            let current_epoch = burn_dbconn.get_stacks_epoch(block_height as u32).unwrap();
+        let current_epoch = burn_dbconn.get_stacks_epoch(block_height as u32).unwrap();
         let block_limit = ExecutionCostSchedule::choose_limit_by_height(
             &settings.execution_cost_schedule,
             current_epoch.epoch_id,
@@ -1515,9 +1517,11 @@ impl StacksBlockBuilder {
 
         let ts_start = get_epoch_time_ms();
 
-            let current_epoch = burn_dbconn.get_stacks_epoch(block_height as u32).unwrap();
-        let block_limit =
-            ExecutionCostSchedule::choose_limit_by_height(&execution_budget, current_epoch.epoch_id);
+        let current_epoch = burn_dbconn.get_stacks_epoch(block_height as u32).unwrap();
+        let block_limit = ExecutionCostSchedule::choose_limit_by_height(
+            &execution_budget,
+            current_epoch.epoch_id,
+        );
         let mut epoch_tx =
             builder.epoch_begin(&mut chainstate, burn_dbconn, block_limit.clone())?;
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;

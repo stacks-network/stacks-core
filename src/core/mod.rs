@@ -327,11 +327,11 @@ pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
         start_height: 0,
-        end_height: 1000,
+        end_height: 210,
     },
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch2_05,
-        start_height: 1000,
+        start_height: 210,
         end_height: STACKS_EPOCH_MAX,
     },
 ];

@@ -1619,7 +1619,8 @@ impl ConversationHttp {
                 }
             };
             // REPLACE
-            let scalar_cost = metric.from_cost_and_len(&estimated_cost, &estimated_cost, estimated_len);
+            let scalar_cost =
+                metric.from_cost_and_len(&estimated_cost, &estimated_cost, estimated_len);
             let fee_rates = match fee_estimator.get_rate_estimates() {
                 Ok(x) => x,
                 Err(e) => {

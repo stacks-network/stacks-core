@@ -17,8 +17,8 @@ use stacks::net::GetIsTraitImplementedResponse;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
 use stacks::util::hash::Sha256Sum;
-use stacks::vm::costs::{ExecutionCost, ExecutionCostSchedule};
 use stacks::util::hash::{hex_bytes, to_hex};
+use stacks::vm::costs::{ExecutionCost, ExecutionCostSchedule};
 use stacks::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},

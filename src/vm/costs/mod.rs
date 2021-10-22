@@ -943,11 +943,10 @@ pub struct ExecutionCost {
     pub runtime: u64,
 }
 
-
 /// `ExecutionCostSchedule`
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct ExecutionCostSchedule {
-    pub epoch_cost_limit:HashMap<StacksEpochId, ExecutionCost>,
+    pub epoch_cost_limit: HashMap<StacksEpochId, ExecutionCost>,
 }
 
 impl ExecutionCostSchedule {
@@ -961,11 +960,11 @@ impl ExecutionCostSchedule {
         let epoch_cost_limit = HashMap::new();
         ExecutionCostSchedule {
             epoch_cost_limit,
-//            epoch_cost_limit: HashMap::from([
-//                                           (StacksEpochId::Epoch10, cost.clone()),
-//                                           (StacksEpochId::Epoch20, cost.clone()),
-//                                           (StacksEpochId::Epoch2_05, cost.clone()),
-//            ]),
+            //            epoch_cost_limit: HashMap::from([
+            //                                           (StacksEpochId::Epoch10, cost.clone()),
+            //                                           (StacksEpochId::Epoch20, cost.clone()),
+            //                                           (StacksEpochId::Epoch2_05, cost.clone()),
+            //            ]),
         }
     }
 
@@ -974,6 +973,8 @@ impl ExecutionCostSchedule {
         schedule: &ExecutionCostSchedule,
         current_epoch: StacksEpochId,
     ) -> &ExecutionCost {
+        warn!("schedule {:?}", schedule);
+        warn!("current_epoch {:?}", current_epoch);
         &schedule.epoch_cost_limit[&current_epoch]
     }
 }

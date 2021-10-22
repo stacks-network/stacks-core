@@ -4,10 +4,10 @@ use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
 
-use ctrlc as termination;
 use crate::config::{CostEstimatorName, CostMetricName, FeeEstimatorName};
-use stacks::cost_estimates::metrics::ProportionalDotProduct;
+use ctrlc as termination;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
+use stacks::cost_estimates::metrics::ProportionalDotProduct;
 
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;

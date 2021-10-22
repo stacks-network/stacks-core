@@ -190,8 +190,11 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                         // These transaction payload types all "work" the same: they have associated ExecutionCosts
                         // and contibute to the block length limit with their tx_len
                         // REPLACE
-                        self.metric
-                            .from_cost_and_len(&tx_receipt.execution_cost, &tx_receipt.execution_cost, tx_size)
+                        self.metric.from_cost_and_len(
+                            &tx_receipt.execution_cost,
+                            &tx_receipt.execution_cost,
+                            tx_size,
+                        )
                     }
                 };
                 let fee_rate = fee as f64

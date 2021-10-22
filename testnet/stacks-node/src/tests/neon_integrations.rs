@@ -9,6 +9,7 @@ use std::{
 use std::{env, thread};
 
 use rusqlite::types::ToSql;
+use stacks::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 
 use crate::util::boot::boot_code_id;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
@@ -2600,17 +2601,16 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-
-fn check_the_blocks(blocks:Vec<serde_json::Value>) {
+fn check_the_blocks(blocks: Vec<serde_json::Value>) {
     // NOTE: this only counts the number of txs per stream, not in each microblock
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         for tx in transactions.iter() {
-        eprintln!("show-block {:#?}", &block);
+            eprintln!("show-block {:#?}", &block);
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-        eprintln!("show-parsed {:#?}", &parsed);
+            eprintln!("show-parsed {:#?}", &parsed);
         }
     }
 }
@@ -2654,27 +2654,45 @@ fn test_boundary_flip() {
       (unwrap! (increment) (err u1))
       (unwrap! (increment) (err u1))
       (ok (var-get counter))))
-    "#.to_string();
+    "#
+    .to_string();
     let sender_sk = StacksPrivateKey::new();
     let sender_addr = to_addr(&sender_sk);
     let sender_pd: PrincipalData = sender_addr.into();
 
-    let tx = make_contract_publish(&sender_sk, 0, 1100000, "increment-contract", &giant_contract);
+    let tx = make_contract_publish(
+        &sender_sk,
+        0,
+        1100000,
+        "increment-contract",
+        &giant_contract,
+    );
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-//    conf.block_limit_schedule = ExecutionCostSchedule {
-//        cost_limit: vec![
-//            ExecutionCost {
-//    write_length: 100000000, 
-//    write_count: 1000,
-//    read_length: 1000000000,
-//    read_count: 150,
-//    // read_count: 50, doesn't work
-//    runtime: 5000000000,
-//            }
-//        ],
-//        expiry_height: vec![],
-//    };
+    let mut epoch_cost_limit = HashMap::new();
+    epoch_cost_limit.insert(
+        StacksEpochId::Epoch20,
+        ExecutionCost {
+            write_length: 100000000,
+            write_count: 1000,
+            read_length: 1000000000,
+            read_count: 150,
+            // read_count: 50, doesn't work
+            runtime: 5000000000,
+        },
+    );
+    epoch_cost_limit.insert(
+        StacksEpochId::Epoch2_05,
+        ExecutionCost {
+            write_length: 100000000,
+            write_count: 1000,
+            read_length: 1000000000,
+            read_count: 150,
+            // read_count: 50, doesn't work
+            runtime: 5000000000,
+        },
+    );
+    conf.block_limit_schedule = ExecutionCostSchedule { epoch_cost_limit };
 
     conf.initial_balances.push(InitialBalance {
         address: sender_pd.clone(),
@@ -2732,7 +2750,7 @@ fn test_boundary_flip() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-test_observer::clear();
+    test_observer::clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     for i in 1..5 {

@@ -9,15 +9,13 @@ use vm::costs::ExecutionCostSchedule;
 //  that the metric always returns a number greater than zero.
 fn test_proportional_dot_product_near_zero() {
     let block_limit = ExecutionCost {
-            write_length: 50_000,
-            write_count: 60_000,
-            read_length: 70_000,
-            read_count: 80_000,
-            runtime: 90_000,
-        };
-    let metric = ProportionalDotProduct::new(
-        12_000,
-    );
+        write_length: 50_000,
+        write_count: 60_000,
+        read_length: 70_000,
+        read_count: 80_000,
+        runtime: 90_000,
+    };
+    let metric = ProportionalDotProduct::new(12_000);
     assert_eq!(
         metric.from_cost_and_len(
             &ExecutionCost {
@@ -51,17 +49,14 @@ fn test_proportional_dot_product_near_zero() {
 
 #[test]
 fn test_proportional_dot_product() {
-    let block_limit = 
-            ExecutionCost {
-                write_length: 5_000,
-                write_count: 6_000,
-                read_length: 7_000,
-                read_count: 8_000,
-                runtime: 9_000,
-            };
-    let metric = ProportionalDotProduct::new(
-        10_000,
-    );
+    let block_limit = ExecutionCost {
+        write_length: 5_000,
+        write_count: 6_000,
+        read_length: 7_000,
+        read_count: 8_000,
+        runtime: 9_000,
+    };
+    let metric = ProportionalDotProduct::new(10_000);
 
     // an execution cost equal to the limit should be maxed in each dimension,
     // and the maximum value for the metric is 60_000.
@@ -123,8 +118,7 @@ fn test_proportional_dot_product() {
 #[test]
 fn test_proportional_dot_product_with_mainnet_lims() {
     let block_limit = ExecutionCost::max_value();
-    let metric =
-        ProportionalDotProduct::new(MAX_BLOCK_LEN as u64);
+    let metric = ProportionalDotProduct::new(MAX_BLOCK_LEN as u64);
 
     // an execution cost equal to the limit should be maxed in each dimension,
     // and the maximum value for the metric is 60_000.
