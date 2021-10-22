@@ -103,7 +103,8 @@ pub fn estimate_fee_rate<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
     metric: &CM,
 ) -> Result<f64, EstimatorError> {
     let cost_estimate = estimator.estimate_cost(&tx.payload)?;
-    let metric_estimate = metric.from_cost_and_len(&cost_estimate, tx.tx_len());
+    // REPLACE
+    let metric_estimate = metric.from_cost_and_len(&cost_estimate, &cost_estimate, tx.tx_len());
     Ok(tx.get_tx_fee() as f64 / metric_estimate as f64)
 }
 

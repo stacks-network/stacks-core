@@ -15,7 +15,7 @@ pub trait CostMetric: Send {
 
 impl CostMetric for Box<dyn CostMetric> {
     fn from_cost_and_len(&self, cost: &ExecutionCost, block_limit: &ExecutionCost, tx_len: u64) -> u64 {
-        self.as_ref().from_cost_and_len(cost, tx_len)
+        self.as_ref().from_cost_and_len(cost, block_limit, tx_len)
     }
 
     fn from_len(&self, tx_len: u64) -> u64 {
@@ -36,7 +36,6 @@ pub const PROPORTION_RESOLUTION: u64 = 10_000;
 /// The maximum scalar value for an execution cost that = the block limit is
 /// 6 * `PROPORTION_RESOLUTION`.
 pub struct ProportionalDotProduct {
-    block_execution_limit: ExecutionCostSchedule,
     block_size_limit: u64,
 }
 
@@ -48,10 +47,8 @@ pub struct UnitMetric;
 impl ProportionalDotProduct {
     pub fn new(
         block_size_limit: u64,
-        block_execution_limit: ExecutionCostSchedule,
     ) -> ProportionalDotProduct {
         ProportionalDotProduct {
-            block_execution_limit,
             block_size_limit,
         }
     }
