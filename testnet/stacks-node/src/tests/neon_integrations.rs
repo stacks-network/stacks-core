@@ -2602,6 +2602,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
 }
 
 fn check_the_blocks(blocks: Vec<serde_json::Value>) {
+    warn!("check_the_blocks blocks.size {}", blocks.len());
     // NOTE: this only counts the number of txs per stream, not in each microblock
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -2733,25 +2734,36 @@ fn test_boundary_flip() {
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
+    warn!("checkpoint");
     // first block wakes up the run loop
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    warn!("checkpoint");
     // first block will hold our VRF registration
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    warn!("checkpoint");
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    warn!("checkpoint");
     // Submi the transaction.
     submit_tx(&http_origin, &tx);
 
+    warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
     test_observer::clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
 
     for i in 1..5 {
         warn!("= = = = = = = = = = = = = = = = = = = =");
@@ -2774,16 +2786,21 @@ fn test_boundary_flip() {
     }
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
     let blocks = test_observer::get_blocks();
     check_the_blocks(blocks);
 
-    test_observer::clear();
     channel.stop_chains_coordinator();
 }
 

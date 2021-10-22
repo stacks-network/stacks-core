@@ -3903,9 +3903,6 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         chain_tip_burn_header_height: u32,
     ) -> Result<Vec<StacksTransactionReceipt>, Error> {
-        let bt = backtrace::Backtrace::new();
-        warn!("process_epoch_transition {:?}", bt);
-
         // is this stacks block the first of a new epoch?
         let (stacks_parent_epoch, sortition_epoch) = clarity_tx.with_clarity_db_readonly(|db| {
             (
@@ -3920,7 +3917,7 @@ impl StacksChainState {
             // the parent stacks block has a different epoch than what the Sortition DB
             //  thinks should be in place.
             if stacks_parent_epoch != sortition_epoch.epoch_id {
-                info!("Applying epoch transition"; "new_epoch_id" => %sortition_epoch.epoch_id, "old_epoch_id" => %stacks_parent_epoch);
+                info!("Applying epoch transition"; "new_epoch_id" => %sortition_epoch.epoch_id, "old_epoch_id" => %stacks_parent_epoch, "chain_tip_burn_header_height" => %chain_tip_burn_header_height);
                 // this assertion failing means that the _parent_ block was invalid: this is bad and should panic.
                 assert!(stacks_parent_epoch < sortition_epoch.epoch_id, "The SortitionDB believes the epoch is earlier than this Stacks block's parent: sortition db epoch = {}, parent epoch = {}", sortition_epoch.epoch_id, stacks_parent_epoch);
                 // time for special cases:
