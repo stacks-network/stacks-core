@@ -1751,7 +1751,6 @@ fn block_limit_runtime_test() {
 
     // use a shorter runtime limit. the current runtime limit
     //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
-    conf.block_limit_schedule.cost_limit[0].runtime = 1_000_000_000;
     conf.burnchain.commit_anchor_block_within = 5000;
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
@@ -1856,29 +1855,9 @@ fn block_limit_runtime_test() {
 #[test]
 fn test_limits_change_after_version_205() {
     let mut conf = super::new_test_conf();
-    conf.block_limit_schedule = ExecutionCostSchedule {
-        cost_limit: vec![
-            ExecutionCost {
-                write_length: 1,
-                write_count: 1,
-                read_length: 1,
-                read_count: 1,
-                runtime: 1000000,
-            },
-            ExecutionCost {
-                write_length: 1,
-                write_count: 1,
-                read_length: 1,
-                read_count: 1,
-                runtime: 1000000,
-            },
-        ],
-        expiry_height: vec![1],
-    };
     warn!("schedule {:?}", conf.block_limit_schedule);
 
     // Allow only
-    conf.block_limit_schedule.cost_limit[0].runtime = 1_000_000_000;
     conf.burnchain.commit_anchor_block_within = 5000;
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
