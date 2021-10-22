@@ -783,3 +783,41 @@ impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_pragma() {
+        let path = "/tmp/blockstack_db_test_pragma.db";
+        if fs::metadata(path).is_ok() {
+            fs::remove_file(path).unwrap();
+        }
+
+        // calls pragma_update with both journal_mode and foreign_keys
+        let db = sqlite_open(
+            path,
+            OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
+            true,
+        )
+        .unwrap();
+
+        // journal mode must be WAL
+        db.pragma_query(None, "journal_mode", |row| {
+            let value: String = row.get(0)?;
+            assert_eq!(value, "wal");
+            Ok(())
+        })
+        .unwrap();
+
+        // foreign keys must be on
+        db.pragma_query(None, "foreign_keys", |row| {
+            let value: i64 = row.get(0)?;
+            assert_eq!(value, 1);
+            Ok(())
+        })
+        .unwrap();
+    }
+}
