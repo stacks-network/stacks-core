@@ -40,7 +40,7 @@ fn instantiate_test_db<CM: CostMetric>(m: CM) -> ScalarFeeRateEstimator<CM> {
 struct TestCostMetric;
 
 impl CostMetric for TestCostMetric {
-    fn from_cost_and_len(&self, _cost: &ExecutionCost, _tx_len: u64) -> u64 {
+    fn from_cost_and_len(&self, _cost: &ExecutionCost, block_limit: &ExecutionCost, _tx_len: u64) -> u64 {
         1
     }
 

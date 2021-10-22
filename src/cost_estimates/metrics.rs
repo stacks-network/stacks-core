@@ -6,7 +6,7 @@ use crate::vm::costs::ExecutionCostSchedule;
 /// This trait defines metrics used to convert `ExecutionCost` and tx_len usage into single-dimensional
 /// metrics that can be used to compute a fee rate.
 pub trait CostMetric: Send {
-    fn from_cost_and_len(&self, cost: &ExecutionCost, tx_len: u64) -> u64;
+    fn from_cost_and_len(&self, cost: &ExecutionCost, block_limit: &ExecutionCost, tx_len: u64) -> u64;
     fn from_len(&self, tx_len: u64) -> u64;
     /// Should return the amount that a metric result will change per
     ///  additional byte in the transaction length
@@ -14,7 +14,7 @@ pub trait CostMetric: Send {
 }
 
 impl CostMetric for Box<dyn CostMetric> {
-    fn from_cost_and_len(&self, cost: &ExecutionCost, tx_len: u64) -> u64 {
+    fn from_cost_and_len(&self, cost: &ExecutionCost, block_limit: &ExecutionCost, tx_len: u64) -> u64 {
         self.as_ref().from_cost_and_len(cost, tx_len)
     }
 
@@ -66,9 +66,9 @@ impl ProportionalDotProduct {
 }
 
 impl CostMetric for ProportionalDotProduct {
-    fn from_cost_and_len(&self, cost: &ExecutionCost, tx_len: u64) -> u64 {
+    fn from_cost_and_len(&self, cost: &ExecutionCost, block_limit: &ExecutionCost, tx_len: u64) -> u64 {
         let exec_proportion = cost.proportion_dot_product(
-            &self.block_execution_limit.cost_limit[0],
+            block_limit,
             PROPORTION_RESOLUTION,
         );
         let len_proportion = self.calculate_len_proportion(tx_len);
@@ -85,7 +85,7 @@ impl CostMetric for ProportionalDotProduct {
 }
 
 impl CostMetric for UnitMetric {
-    fn from_cost_and_len(&self, _cost: &ExecutionCost, _tx_len: u64) -> u64 {
+    fn from_cost_and_len(&self, cost: &ExecutionCost, block_limit: &ExecutionCost, tx_len: u64) -> u64 {
         1
     }
 
