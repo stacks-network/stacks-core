@@ -2607,13 +2607,14 @@ fn check_the_blocks(blocks: Vec<serde_json::Value>) {
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         for tx in transactions.iter() {
-            eprintln!("show-block {:#?}", &block);
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             eprintln!("show-parsed {:#?}", &parsed);
         }
     }
+
+    test_observer::clear();
 }
 
 #[test]
@@ -2750,21 +2751,19 @@ fn test_boundary_flip() {
     // Submi the transaction.
     submit_tx(&http_origin, &tx);
 
-    warn!("checkpoint");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    warn!("checkpoint");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    warn!("checkpoint");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    warn!("checkpoint");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    warn!("checkpoint");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    warn!("checkpoint");
-    test_observer::clear();
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    warn!("checkpoint");
 
+    warn!("checkpoint");
+    check_the_blocks(test_observer::get_blocks());
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    check_the_blocks(test_observer::get_blocks());
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     for i in 1..5 {
         warn!("= = = = = = = = = = = = = = = = = = = =");
         warn!("= = = = = = = = = = = = = = = = = = = =");
@@ -2784,6 +2783,12 @@ fn test_boundary_flip() {
         );
         submit_tx(&http_origin, &call_tx);
     }
+
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+
+    check_the_blocks(test_observer::get_blocks());
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     warn!("checkpoint");
@@ -2798,8 +2803,7 @@ fn test_boundary_flip() {
     warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     warn!("checkpoint");
-    let blocks = test_observer::get_blocks();
-    check_the_blocks(blocks);
+    check_the_blocks(test_observer::get_blocks());
 
     channel.stop_chains_coordinator();
 }
