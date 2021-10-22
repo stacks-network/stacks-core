@@ -74,8 +74,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
                 } else {
                     Err(e)
                 }
-            }
-        }?;
+            })?;
 
         Ok(Self {
             db,

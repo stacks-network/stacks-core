@@ -198,8 +198,8 @@ impl PessimisticEstimator {
                 } else {
                     Err(e)
                 }
-            }
-        }?;
+            })?;
+
         Ok(PessimisticEstimator { db, log_error })
     }
 
