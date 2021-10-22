@@ -947,28 +947,34 @@ pub struct ExecutionCost {
 /// `ExecutionCostSchedule`
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct ExecutionCostSchedule {
-    pub cost_limit: Vec<ExecutionCost>,
-    pub expiry_height: Vec<u64>,
+    pub epoch_cost_limit:HashMap<StacksEpochId, ExecutionCost>,
 }
 
 impl ExecutionCostSchedule {
     pub fn max_value() -> ExecutionCostSchedule {
         ExecutionCostSchedule::from_cost(ExecutionCost::max_value())
     }
-    /// Creates a schedule from a single cost. For convenience in debugging.
+
+    /// Creates an `ExecutionCostSchedule` in which every epoch maps to `cost`.
+    /// Note: This must be updated when new epochs are added.
     pub fn from_cost(cost: ExecutionCost) -> ExecutionCostSchedule {
+        let epoch_cost_limit = HashMap::new();
         ExecutionCostSchedule {
-            cost_limit: vec![cost],
-            expiry_height: vec![],
+            epoch_cost_limit,
+//            epoch_cost_limit: HashMap::from([
+//                                           (StacksEpochId::Epoch10, cost.clone()),
+//                                           (StacksEpochId::Epoch20, cost.clone()),
+//                                           (StacksEpochId::Epoch2_05, cost.clone()),
+//            ]),
         }
     }
 
     /// The block limit can be changed with a hard fork. Thus it depends on the height.
     pub fn choose_limit_by_height(
         schedule: &ExecutionCostSchedule,
-        burnblock_height: u32,
+        current_epoch: StacksEpochId,
     ) -> &ExecutionCost {
-        &schedule.cost_limit[0]
+        &schedule.epoch_cost_limit[&current_epoch]
     }
 }
 

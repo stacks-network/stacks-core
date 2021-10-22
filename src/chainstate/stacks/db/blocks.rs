@@ -4383,9 +4383,10 @@ impl StacksChainState {
                 parent_consensus_hash, parent_block_hash
             ));
 
+            let current_epoch = burn_dbconn.get_stacks_epoch(parent_burn_block_height + 1).unwrap();
             let block_limit = ExecutionCostSchedule::choose_limit_by_height(
                 &block_limit_schedule,
-                parent_burn_block_height,
+                current_epoch.epoch_id,
             );
             let mut clarity_tx = StacksChainState::chainstate_block_begin(
                 chainstate_tx,

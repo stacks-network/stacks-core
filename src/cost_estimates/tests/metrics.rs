@@ -52,16 +52,14 @@ fn test_proportional_dot_product_near_zero() {
 fn test_proportional_dot_product() {
     let metric = ProportionalDotProduct::new(
         10_000,
-        ExecutionCostSchedule {
-            cost_limit: vec![ExecutionCost {
+        ExecutionCostSchedule::from_cost(
+            ExecutionCost {
                 write_length: 5_000,
                 write_count: 6_000,
                 read_length: 7_000,
                 read_count: 8_000,
                 runtime: 9_000,
-            }],
-            expiry_height: vec![],
-        },
+            }),
     );
 
     // an execution cost equal to the limit should be maxed in each dimension,

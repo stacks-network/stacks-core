@@ -155,7 +155,7 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
 }
 
 #[repr(u32)]
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Serialize, Deserialize)]
 pub enum StacksEpochId {
     Epoch10 = 0x01000,
     Epoch20 = 0x02000,
