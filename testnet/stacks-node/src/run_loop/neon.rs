@@ -249,9 +249,6 @@ impl RunLoop {
         let atlas_config = AtlasConfig::default(mainnet);
         let moved_atlas_config = atlas_config.clone();
         let moved_config = self.config.clone();
-        let moved_estimator_config = self.config.estimation.clone();
-        let moved_chainstate_path = self.config.get_chainstate_path();
-        let block_limit_schedule = self.config.block_limit_schedule.clone();
 
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
