@@ -39,6 +39,7 @@ use rusqlite::types::{
 use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
 use rusqlite::OpenFlags;
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
@@ -178,6 +179,21 @@ impl FromColumn<u64> for u64 {
             return Err(Error::ParseError);
         }
         Ok(x as u64)
+    }
+}
+
+impl FromColumn<Option<u64>> for u64 {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Option<u64>, Error> {
+        let x: Option<i64> = row.get_unwrap(column_name);
+        match x {
+            Some(x) => {
+                if x < 0 {
+                    return Err(Error::ParseError);
+                }
+                Ok(Some(x as u64))
+            }
+            None => Ok(None),
+        }
     }
 }
 
@@ -400,6 +416,21 @@ fn inner_sql_pragma(
     pragma_value: &dyn ToSql,
 ) -> Result<(), sqlite_error> {
     conn.pragma_update(None, pragma_name, pragma_value)
+}
+
+pub fn set_wal_mode(conn: &Connection) -> Result<(), sqlite_error> {
+    conn.query_row("PRAGMA journal_mode = WAL;", rusqlite::NO_PARAMS, |_row| {
+        Ok(())
+    })
+}
+
+/// Returns true if the database table `table_name` exists in the active
+///  database of the provided SQLite connection.
+pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_error> {
+    let sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=?";
+    conn.query_row(sql, &[table_name], |row| row.get::<_, String>(0))
+        .optional()
+        .map(|r| r.is_some())
 }
 
 /// Set up an on-disk database with a MARF index if they don't exist yet.

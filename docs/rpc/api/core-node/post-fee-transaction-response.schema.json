@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "POST response for estimated fee",
+  "title": "TransactionFeeEstimateResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["estimated_cost", "estimated_cost_scalar", "estimated_fee_rates", "estimated_fees"],
+  "properties": {
+    "estimated_cost_scalar": {
+      "type": "integer"
+    },
+    "cost_scalar_change_by_byte": {
+      "type": "number"
+    },
+    "estimated_cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read_count", "write_count", "read_length", "write_length", "runtime"],
+      "properties": {
+        "read_count": { "type": "integer" },
+        "read_length": { "type": "integer" },
+        "runtime": { "type": "integer" },
+        "write_count": { "type": "integer" },
+        "write_length": { "type": "integer" }
+      }
+    },
+    "estimations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fee_rate": {
+            "type": "number"
+          },
+          "fee": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

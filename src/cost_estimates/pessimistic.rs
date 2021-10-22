@@ -16,6 +16,8 @@ use vm::costs::ExecutionCost;
 
 use core::BLOCK_LIMIT_MAINNET;
 
+use crate::util::db::sql_pragma;
+use crate::util::db::table_exists;
 use crate::util::db::tx_begin_immediate_sqlite;
 
 use super::{CostEstimator, EstimatorError};
@@ -196,12 +198,22 @@ impl PessimisticEstimator {
                 } else {
                     Err(e)
                 }
-            })?;
+            }
+        }?;
         Ok(PessimisticEstimator { db, log_error })
     }
 
+    /// Check if the SQL database was already created. Necessary to avoid races if
+    ///  different threads open an estimator at the same time.
+    fn db_already_instantiated(tx: &SqliteTransaction) -> Result<bool, SqliteError> {
+        table_exists(tx, "pessimistic_estimator")
+    }
+
     fn instantiate_db(tx: &SqliteTransaction) -> Result<(), SqliteError> {
-        tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+        if !Self::db_already_instantiated(tx)? {
+            tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+        }
+
         Ok(())
     }
 
