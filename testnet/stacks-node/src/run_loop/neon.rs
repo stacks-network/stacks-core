@@ -5,6 +5,9 @@ use std::sync::Arc;
 use std::thread;
 
 use ctrlc as termination;
+use crate::config::{CostEstimatorName, CostMetricName, FeeEstimatorName};
+use stacks::cost_estimates::metrics::ProportionalDotProduct;
+use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
@@ -262,7 +265,7 @@ impl RunLoop {
 
                 let metric = match moved_estimator_config.cost_metric {
                     Some(CostMetricName::ProportionDotProduct) => Some(
-                        ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, block_limit_schedule),
+                        ProportionalDotProduct::new(MAX_BLOCK_LEN as u64),
                     ),
                     None => None,
                 };

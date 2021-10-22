@@ -1168,7 +1168,6 @@ impl Config {
         let metric: Box<dyn CostMetric> = match self.estimation.cost_metric.as_ref()? {
             CostMetricName::ProportionDotProduct => Box::new(ProportionalDotProduct::new(
                 MAX_BLOCK_LEN as u64,
-                self.block_limit.clone(),
             )),
         };
 

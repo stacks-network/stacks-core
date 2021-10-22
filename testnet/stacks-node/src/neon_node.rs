@@ -330,7 +330,7 @@ fn mine_one_microblock(
     microblock_state: &mut MicroblockMinerState,
     sortdb: &SortitionDB,
     chainstate: &mut StacksChainState,
-    mempool: &MemPoolDB,
+    mempool: &mut MemPoolDB,
     block_height: u64,
 ) -> Result<StacksMicroblock, ChainstateError> {
     debug!(
@@ -479,7 +479,7 @@ fn try_mine_microblock(
                         &mut microblock_miner,
                         sortdb,
                         chainstate,
-                        &mem_pool,
+                        mem_pool,
                         block_height_opt.unwrap(),
                     ) {
                         Ok(microblock) => {
