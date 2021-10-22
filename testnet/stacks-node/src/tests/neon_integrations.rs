@@ -2662,19 +2662,19 @@ fn test_boundary_flip() {
     let tx = make_contract_publish(&sender_sk, 0, 1100000, "increment-contract", &giant_contract);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-    conf.block_limit_schedule = ExecutionCostSchedule {
-        cost_limit: vec![
-            ExecutionCost {
-    write_length: 100000000, 
-    write_count: 1000,
-    read_length: 1000000000,
-    read_count: 150,
-    // read_count: 50, doesn't work
-    runtime: 5000000000,
-            }
-        ],
-        expiry_height: vec![],
-    };
+//    conf.block_limit_schedule = ExecutionCostSchedule {
+//        cost_limit: vec![
+//            ExecutionCost {
+//    write_length: 100000000, 
+//    write_count: 1000,
+//    read_length: 1000000000,
+//    read_count: 150,
+//    // read_count: 50, doesn't work
+//    runtime: 5000000000,
+//            }
+//        ],
+//        expiry_height: vec![],
+//    };
 
     conf.initial_balances.push(InitialBalance {
         address: sender_pd.clone(),

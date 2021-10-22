@@ -248,6 +248,7 @@ impl RunLoop {
 
         let atlas_config = AtlasConfig::default(mainnet);
         let moved_atlas_config = atlas_config.clone();
+        let moved_config = self.config.clone();
         let moved_estimator_config = self.config.estimation.clone();
         let moved_chainstate_path = self.config.get_chainstate_path();
         let block_limit_schedule = self.config.block_limit_schedule.clone();
@@ -255,32 +256,8 @@ impl RunLoop {
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
             .spawn(move || {
-                let cost_estimator = match moved_estimator_config.cost_estimator {
-                    Some(CostEstimatorName::NaivePessimistic) => Some(
-                        moved_estimator_config
-                            .make_pessimistic_cost_estimator(moved_chainstate_path.clone()),
-                    ),
-                    None => None,
-                };
-
-                let metric = match moved_estimator_config.cost_metric {
-                    Some(CostMetricName::ProportionDotProduct) => Some(
-                        ProportionalDotProduct::new(MAX_BLOCK_LEN as u64),
-                    ),
-                    None => None,
-                };
-
-                let fee_estimator = match moved_estimator_config.fee_estimator {
-                    Some(FeeEstimatorName::ScalarFeeRate) => {
-                        let metric = metric
-                            .expect("Configured a fee rate estimator without a configure metric.");
-                        Some(
-                            moved_estimator_config
-                                .make_scalar_fee_estimator(moved_chainstate_path, metric),
-                        )
-                    }
-                    None => None,
-                };
+                let mut cost_estimator = moved_config.make_cost_estimator();
+                let mut fee_estimator = moved_config.make_fee_estimator();
 
                 ChainsCoordinator::run(
                     chain_state_db,
