@@ -8,8 +8,10 @@ use std::{
 };
 use std::{env, thread};
 
+use std::convert::TryFrom;
 use rusqlite::types::ToSql;
 use stacks::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+use stacks::vm::ContractName;
 
 use crate::util::boot::boot_code_id;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
@@ -2602,6 +2604,67 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
 }
 
 fn check_the_blocks(blocks: Vec<serde_json::Value>) {
+//    warn!("check_the_blocks blocks.size {}", blocks.len());
+//    // NOTE: this only counts the number of txs per stream, not in each microblock
+//    for block in blocks {
+//        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+//        for tx in transactions.iter() {
+//            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+//            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+//            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+//            eprintln!("show-parsed {:#?}", &parsed);
+//        }
+//    }
+}
+
+fn count_transactions(
+    blocks: &Vec<serde_json::Value>,
+    test_fn: fn(&StacksTransaction) -> bool,
+) -> u32 {
+    warn!("check_the_blocks blocks.size {}", blocks.len());
+    // NOTE: this only counts the number of txs per stream, not in each microblock
+    let mut count = 1;
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if test_fn(&parsed) {
+//                eprintln!("show-parsed {:#?}", &parsed);
+                count += 1;
+            }
+        }
+    }
+
+    return count;
+}
+
+fn transactions_where(
+    blocks: &Vec<serde_json::Value>,
+    test_fn: fn(&StacksTransaction) -> bool,
+) -> Vec<StacksTransaction> {
+    let mut result = vec![];
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if test_fn(&parsed) {
+//                eprintln!("show-parsed {:#?}", &parsed);
+                result.push(parsed);
+            }
+        }
+    }
+
+    return result;
+}
+
+fn contains_transaction(
+    blocks: Vec<serde_json::Value>,
+    test_fn: fn(&StacksTransaction) -> bool,
+) -> bool {
     warn!("check_the_blocks blocks.size {}", blocks.len());
     // NOTE: this only counts the number of txs per stream, not in each microblock
     for block in blocks {
@@ -2610,11 +2673,14 @@ fn check_the_blocks(blocks: Vec<serde_json::Value>) {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            eprintln!("show-parsed {:#?}", &parsed);
+            if test_fn(&parsed) {
+//                eprintln!("show-parsed {:#?}", &parsed);
+                return true;
+            }
         }
     }
 
-    test_observer::clear();
+    return false;
 }
 
 #[test]
@@ -2635,7 +2701,7 @@ fn test_boundary_flip() {
     (var-set counter (+ (var-get counter) 1))
     (ok (var-get counter))))
 
-  (define-public (increment3)
+  (define-public (increment3 (unused-index uint))
     (begin
       (unwrap! (increment) (err u1))
       (unwrap! (increment) (err u1))
@@ -2751,7 +2817,6 @@ fn test_boundary_flip() {
     // Submi the transaction.
     submit_tx(&http_origin, &tx);
 
-
     warn!("checkpoint");
     check_the_blocks(test_observer::get_blocks());
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -2764,7 +2829,7 @@ fn test_boundary_flip() {
     check_the_blocks(test_observer::get_blocks());
     warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    for i in 1..5 {
+    for i in 1..27 {
         warn!("= = = = = = = = = = = = = = = = = = = =");
         warn!("= = = = = = = = = = = = = = = = = = = =");
         warn!("= = = = = = = = = = = = = = = = = = = =");
@@ -2779,7 +2844,7 @@ fn test_boundary_flip() {
             &sender_addr.into(),
             "increment-contract",
             "increment3",
-            &[],
+            &[Value::UInt(i as u128)],
         );
         submit_tx(&http_origin, &call_tx);
     }
@@ -2804,6 +2869,33 @@ fn test_boundary_flip() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     warn!("checkpoint");
     check_the_blocks(test_observer::get_blocks());
+
+    let final_blocks = test_observer::get_blocks();
+    warn!("going to try new test");
+
+    let count1 = count_transactions(&final_blocks, |transaction| match &transaction.payload {
+        TransactionPayload::SmartContract(_) => true,
+        _ => false,
+    });
+    warn!("count1 {}", count1);
+
+    let count2 = count_transactions(&final_blocks, |transaction| match &transaction.payload {
+        TransactionPayload::SmartContract(contract) => { contract.name == ContractName::try_from("increment-contract").unwrap()},
+        _ => false,
+    });
+    warn!("count2 {}", count2);
+
+    let increment_calls = transactions_where(&final_blocks, |transaction| match &transaction.payload {
+        TransactionPayload::ContractCall(contract) => { contract.contract_name == ContractName::try_from("increment-contract").unwrap()},
+        _ => false,
+    });
+    warn!("increment_calls {:?}", increment_calls);
+    warn!("increment_calls.len() {:?}", increment_calls.len());
+
+    assert!(contains_transaction(final_blocks, |transaction| match &transaction.payload {
+        TransactionPayload::SmartContract(_) => true,
+        _ => false,
+    }));
 
     channel.stop_chains_coordinator();
 }
