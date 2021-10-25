@@ -2912,6 +2912,7 @@ fn test_cost_limit_switch_version205() {
         235,
     );
 
+    // Bob's calls didn't work because he called after the block limit was lowered.
     let increment_calls_bob = select_transactions_where(
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
