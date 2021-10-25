@@ -315,16 +315,16 @@ fn next_block_and_wait(
 ///
 /// Note: The user cannot assume that the block height reached is *exactly* `target_height`. It
 /// seems that the chain may often advanced `1` block past `target_height`.
-fn wait_until_burnchain_height(
+fn run_until_burnchain_height(
     btc_regtest_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
     burnchain_height: &Arc<AtomicU64>,
     target_height: u64,
 ) -> bool {
     let current = burnchain_height.load(Ordering::SeqCst);
-    warn!("wait_until_burnchain_height current {}", &current);
+    warn!("run_until_burnchain_height current {}", &current);
     eprintln!(
-        "wait_until_burnchain_height: Issuing block at {}, waiting for bump ({})",
+        "run_until_burnchain_height: Issuing block at {}, waiting for bump ({})",
         get_epoch_time_secs(),
         current
     );
@@ -2804,7 +2804,7 @@ fn test_boundary_flip() {
             write_length: 100000000,
             write_count: 1000,
             read_length: 1000000000,
-            read_count: 150,
+            read_count: 50,
             // read_count: 50, doesn't work
             runtime: 5000000000,
         },
@@ -2860,8 +2860,8 @@ fn test_boundary_flip() {
 
     warn!("checkpoint");
     // first block wakes up the run loop
-    // wait_until_burnchain_height(&mut btc_regtest_controller, &canonical_burnchain_height, 220);
-    wait_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 210);
+    // run_until_burnchain_height(&mut btc_regtest_controller, &canonical_burnchain_height, 220);
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 210);
 
     // this is where the switch happens
     warn!("checkpoint");
@@ -2877,7 +2877,7 @@ fn test_boundary_flip() {
 
     submit_tx(&http_origin, &tx);
 
-    wait_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 215);
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 215);
 
     {
         let increment_defines2 =
@@ -2894,9 +2894,58 @@ fn test_boundary_flip() {
         warn!("increment_defines2.len() {:?}", increment_defines2.len());
         assert!(increment_defines2.len() > 0);
     }
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    submit_tx(
+        &http_origin,
+        &make_contract_call(
+            &alice_sk,
+            0,
+            1000,
+            &creator_addr.into(),
+            "increment-contract",
+            "increment3",
+            &[Value::UInt(0 as u128)],
+        ),
+    );
+
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 220);
+
+    let increment_calls =
+        select_transactions_where(&test_observer::get_blocks(), |transaction| match &transaction.payload {
+            TransactionPayload::ContractCall(contract) => {
+                contract.contract_name == ContractName::try_from("increment-contract").unwrap()
+            }
+            _ => false,
+        });
+    warn!("increment_calls {:?}", increment_calls);
+    warn!("increment_calls.len() {:?}", increment_calls.len());
+
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 230);
+    submit_tx(
+        &http_origin,
+        &make_contract_call(
+            &bob_sk,
+            0,
+            1000,
+            &creator_addr.into(),
+            "increment-contract",
+            "increment3",
+            &[Value::UInt(0 as u128)],
+        ),
+    );
+
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 235);
+
+    let increment_calls2 =
+        select_transactions_where(&test_observer::get_blocks(), |transaction| match &transaction.payload {
+            TransactionPayload::ContractCall(contract) => {
+                contract.contract_name == ContractName::try_from("increment-contract").unwrap()
+            }
+            _ => false,
+        });
+    warn!("increment_calls2 {:?}", increment_calls2);
+    warn!("increment_calls2.len() {:?}", increment_calls2.len());
+
 //    {
 //        let increment_defines3 =
 //            select_transactions_where(
