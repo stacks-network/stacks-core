@@ -113,14 +113,17 @@ impl RunLoop {
     fn bump_blocks_processed(&self) {}
 
     #[cfg(test)]
-    fn set_burnchain_height(&self, burnchain_height:u64) {
+    fn set_burnchain_height(&self, burnchain_height: u64) {
         warn!("set_burnchain_height {:?}", burnchain_height);
-        self.burnchain_height
-            .fetch_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |_old| Some(burnchain_height));
+        self.burnchain_height.fetch_update(
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+            |_old| Some(burnchain_height),
+        );
     }
 
     #[cfg(not(test))]
-    fn set_burnchain_height(&self, _burnchain_height:u64) {}
+    fn set_burnchain_height(&self, _burnchain_height: u64) {}
 
     /// Starts the testnet runloop.
     ///
@@ -442,8 +445,11 @@ impl RunLoop {
                     }
                 };
 
-            warn!("pair of interest {:?}", (&next_burnchain_tip,& next_burnchain_height));
-        self.set_burnchain_height(next_burnchain_height);
+            warn!(
+                "pair of interest {:?}",
+                (&next_burnchain_tip, &next_burnchain_height)
+            );
+            self.set_burnchain_height(next_burnchain_height);
 
             target_burnchain_block_height = cmp::min(
                 next_burnchain_height,

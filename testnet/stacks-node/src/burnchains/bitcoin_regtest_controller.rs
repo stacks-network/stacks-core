@@ -1433,7 +1433,7 @@ impl BitcoinRegtestController {
     }
 
     #[cfg(test)]
-    pub fn get_burnchain_tip(&self) -> Option<BurnchainTip>{
+    pub fn get_burnchain_tip(&self) -> Option<BurnchainTip> {
         return self.chain_tip.clone();
     }
 }
