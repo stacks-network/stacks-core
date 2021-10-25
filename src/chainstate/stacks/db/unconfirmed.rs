@@ -196,6 +196,7 @@ impl UnconfirmedState {
         let mut new_bytes = 0;
         let mut num_new_mblocks = 0;
 
+// DO NOT SUBMIT
         use core::BLOCK_LIMIT_MAINNET;
         if mblocks.len() > 0 {
             let cur_cost = self.cost_so_far.clone();
