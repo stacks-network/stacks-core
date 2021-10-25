@@ -2180,9 +2180,6 @@ impl SortitionDB {
         epochs_ref: &[StacksEpoch],
     ) -> Result<(), db_error> {
         let bt = backtrace::Backtrace::new();
-        warn!("instantiate {:?}", bt);
-        debug!("Instantiate SortDB");
-
         sql_pragma(self.conn(), "PRAGMA journal_mode = WAL;")?;
 
         let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;

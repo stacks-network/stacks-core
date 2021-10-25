@@ -284,12 +284,16 @@ fn next_block_and_wait(
     blocks_processed: &Arc<AtomicU64>,
 ) -> bool {
     let current = blocks_processed.load(Ordering::SeqCst);
+    warn!("next_block_and_wait current {}", &current);
     eprintln!(
         "Issuing block at {}, waiting for bump ({})",
         get_epoch_time_secs(),
         current
     );
     btc_controller.build_next_block(1);
+    let burnchain_tip = btc_controller.get_burnchain_tip();
+    warn!("burnchain_tip {:?}", burnchain_tip);
+
     let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) <= current {
         if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
@@ -302,6 +306,40 @@ fn next_block_and_wait(
         "Block bumped at {} ({})",
         get_epoch_time_secs(),
         blocks_processed.load(Ordering::SeqCst)
+    );
+    true
+}
+
+fn wait_until_height(
+    btc_controller: &mut BitcoinRegtestController,
+    burnchain_height: &Arc<AtomicU64>,
+    target_height:u64,
+) -> bool {
+    let current = burnchain_height.load(Ordering::SeqCst);
+    warn!("wait_until_height current {}", &current);
+    eprintln!(
+        "Issuing block at {}, waiting for bump ({})",
+        get_epoch_time_secs(),
+        current
+    );
+    btc_controller.build_next_block(1);
+        thread::sleep(Duration::from_millis(100));
+    let burnchain_tip = btc_controller.get_burnchain_tip();
+    warn!("burnchain_tip {:?}", burnchain_tip);
+
+    let start = Instant::now();
+    while burnchain_height.load(Ordering::SeqCst) <= target_height {
+        if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
+            error!("Timed out waiting for block to process, trying to continue test");
+            return false;
+        }
+    btc_controller.build_next_block(1);
+        thread::sleep(Duration::from_millis(100));
+    }
+    eprintln!(
+        "Block bumped at {} ({})",
+        get_epoch_time_secs(),
+        burnchain_height.load(Ordering::SeqCst)
     );
     true
 }
@@ -2795,13 +2833,13 @@ fn test_boundary_flip() {
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
-    btc_regtest_controller.bootstrap_chain(201);
+    btc_regtest_controller.bootstrap_chain(200);
 
     eprintln!("Chain bootstrapped...");
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let microblocks_processed = run_loop.get_microblocks_processed_arc();
+    let canonical_burnchain_height = run_loop.get_burnchain_height_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -2812,7 +2850,7 @@ fn test_boundary_flip() {
 
     warn!("checkpoint");
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    wait_until_height(&mut btc_regtest_controller, &canonical_burnchain_height, 210);
 
     warn!("checkpoint");
     // first block will hold our VRF registration
@@ -2820,8 +2858,43 @@ fn test_boundary_flip() {
 
     warn!("checkpoint");
     // second block will be the first mined Stacks block
+
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // this is where the switch happens
     warn!("checkpoint");
     // Submi the transaction.
     let tx = make_contract_publish(
@@ -2835,23 +2908,35 @@ fn test_boundary_flip() {
     submit_tx(&http_origin, &tx);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    {
+    let increment_defines2 = transactions_where(&test_observer::get_blocks(), |transaction| match &transaction.payload {
+        TransactionPayload::SmartContract(contract) => { contract.name == ContractName::try_from("increment-contract").unwrap()},
+        _ => false,
+    });
+    warn!("increment_defines2 {:?}", increment_defines2);
+    warn!("increment_defines2.len() {:?}", increment_defines2.len());
+    }
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    {
+    let increment_defines3 = transactions_where(&test_observer::get_blocks(), |transaction| match &transaction.payload {
+        TransactionPayload::SmartContract(contract) => { contract.name == ContractName::try_from("increment-contract").unwrap()},
+        _ => false,
+    });
+    warn!("increment_defines3 {:?}", increment_defines3);
+    warn!("increment_defines3.len() {:?}", increment_defines3.len());
+    }
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    let mid_blocks = test_observer::get_blocks();
-    let increment_defines = transactions_where(&mid_blocks, |transaction| match &transaction.payload {
+    {
+    let increment_defines = transactions_where(&test_observer::get_blocks(), |transaction| match &transaction.payload {
         TransactionPayload::SmartContract(contract) => { contract.name == ContractName::try_from("increment-contract").unwrap()},
         _ => false,
     });
     warn!("increment_defines {:?}", increment_defines);
     warn!("increment_defines.len() {:?}", increment_defines.len());
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
     warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     warn!("checkpoint");

@@ -1431,6 +1431,11 @@ impl BitcoinRegtestController {
             }
         }
     }
+
+    #[cfg(test)]
+    pub fn get_burnchain_tip(&self) -> Option<BurnchainTip>{
+        return self.chain_tip.clone();
+    }
 }
 
 impl BurnchainController for BitcoinRegtestController {
@@ -1748,7 +1753,8 @@ impl BitcoinRPCRequest {
             jsonrpc: "2.0".to_string(),
         };
 
-        BitcoinRPCRequest::send(&config, payload)?;
+        let send_result = BitcoinRPCRequest::send(&config, payload)?;
+        warn!("send_result {:?}", send_result);
         Ok(())
     }
 
