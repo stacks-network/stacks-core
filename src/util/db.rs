@@ -23,6 +23,7 @@ use std::io;
 use std::io::Error as IOError;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::path::Path;
 use std::path::PathBuf;
 
 use util::hash::to_hex;
@@ -37,6 +38,7 @@ use rusqlite::types::{
 };
 use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
+use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
@@ -400,14 +402,20 @@ where
 
 /// Run a PRAGMA statement.  This can't always be done via execute(), because it may return a result (and
 /// rusqlite does not like this).
-pub fn sql_pragma(conn: &Connection, pragma_stmt: &str) -> Result<(), Error> {
-    conn.query_row_and_then(pragma_stmt, NO_PARAMS, |_row| Ok(()))
+pub fn sql_pragma(
+    conn: &Connection,
+    pragma_name: &str,
+    pragma_value: &dyn ToSql,
+) -> Result<(), Error> {
+    inner_sql_pragma(conn, pragma_name, pragma_value).map_err(|e| Error::SqliteError(e))
 }
 
-pub fn set_wal_mode(conn: &Connection) -> Result<(), sqlite_error> {
-    conn.query_row("PRAGMA journal_mode = WAL;", rusqlite::NO_PARAMS, |_row| {
-        Ok(())
-    })
+fn inner_sql_pragma(
+    conn: &Connection,
+    pragma_name: &str,
+    pragma_value: &dyn ToSql,
+) -> Result<(), sqlite_error> {
+    conn.pragma_update(None, pragma_name, pragma_value)
 }
 
 /// Returns true if the database table `table_name` exists in the active
@@ -549,6 +557,21 @@ pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a
     conn.busy_handler(Some(tx_busy_handler))?;
     let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
     Ok(tx)
+}
+
+/// Open a database connection and set some typically-used pragmas
+pub fn sqlite_open<P: AsRef<Path>>(
+    path: P,
+    flags: OpenFlags,
+    foreign_keys: bool,
+) -> Result<Connection, sqlite_error> {
+    let db = Connection::open_with_flags(path, flags)?;
+    db.busy_handler(Some(tx_busy_handler))?;
+    inner_sql_pragma(&db, "journal_mode", &"WAL")?;
+    if foreign_keys {
+        inner_sql_pragma(&db, "foreign_keys", &true)?;
+    }
+    Ok(db)
 }
 
 /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
@@ -783,5 +806,43 @@ impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
             debug!("Dropping MARF linkage ({},{})", parent, child);
             index_tx.drop_current();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_pragma() {
+        let path = "/tmp/blockstack_db_test_pragma.db";
+        if fs::metadata(path).is_ok() {
+            fs::remove_file(path).unwrap();
+        }
+
+        // calls pragma_update with both journal_mode and foreign_keys
+        let db = sqlite_open(
+            path,
+            OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
+            true,
+        )
+        .unwrap();
+
+        // journal mode must be WAL
+        db.pragma_query(None, "journal_mode", |row| {
+            let value: String = row.get(0)?;
+            assert_eq!(value, "wal");
+            Ok(())
+        })
+        .unwrap();
+
+        // foreign keys must be on
+        db.pragma_query(None, "foreign_keys", |row| {
+            let value: i64 = row.get(0)?;
+            assert_eq!(value, 1);
+            Ok(())
+        })
+        .unwrap();
     }
 }
