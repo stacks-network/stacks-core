@@ -71,20 +71,18 @@ use crate::util::secp256k1::MessageSignature;
 ///   it's data operations.
 /// The ClarityInstance defines a `begin_block(bhh, bhh, bhh) -> ClarityBlockConnection`
 ///    function.
-/// ClarityBlockConnections are used for executing transactions within the context of
-///    a single block.
-/// Only one ClarityBlockConnection may be open at a time (enforced by the borrow checker)
-///   and ClarityBlockConnections must be `commit_block`ed or `rollback_block`ed before discarding
-///   begining the next connection (enforced by runtime panics).
-///
 pub struct ClarityInstance {
     datastore: MarfedKV,
     mainnet: bool,
 }
 
-///
 /// A high-level interface for Clarity VM interactions within a single block.
 ///
+/// ClarityBlockConnections are used for executing transactions within the context of
+///    a single block.
+/// Only one ClarityBlockConnection may be open at a time (enforced by the borrow checker)
+///   and ClarityBlockConnections must be `commit_block`ed or `rollback_block`ed before discarding
+///   begining the next connection (enforced by runtime panics).
 pub struct ClarityBlockConnection<'a> {
     datastore: WritableMarfStore<'a>,
     header_db: &'a dyn HeadersDB,
@@ -93,7 +91,6 @@ pub struct ClarityBlockConnection<'a> {
     mainnet: bool,
 }
 
-///
 /// Interface for Clarity VM interactions within a given transaction.
 ///
 ///   commit the transaction to the block with .commit()

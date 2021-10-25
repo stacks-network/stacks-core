@@ -2652,7 +2652,8 @@ fn transactions_where(
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if test_fn(&parsed) {
-//                eprintln!("show-parsed {:#?}", &parsed);
+                eprintln!("show-block {:#?}", &block);
+                eprintln!("show-parsed {:#?}", &parsed);
                 result.push(parsed);
             }
         }
@@ -2724,17 +2725,17 @@ fn test_boundary_flip() {
       (ok (var-get counter))))
     "#
     .to_string();
-    let sender_sk = StacksPrivateKey::new();
-    let sender_addr = to_addr(&sender_sk);
-    let sender_pd: PrincipalData = sender_addr.into();
+    let creator_sk = StacksPrivateKey::new();
+    let creator_addr = to_addr(&creator_sk);
+    let creator_pd: PrincipalData = creator_addr.into();
 
-    let tx = make_contract_publish(
-        &sender_sk,
-        0,
-        1100000,
-        "increment-contract",
-        &giant_contract,
-    );
+    let alice_sk = StacksPrivateKey::new();
+    let alice_addr = to_addr(&alice_sk);
+    let alice_pd: PrincipalData = alice_addr.into();
+
+    let bob_sk = StacksPrivateKey::new();
+    let bob_addr = to_addr(&bob_sk);
+    let bob_pd: PrincipalData = bob_addr.into();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
     let mut epoch_cost_limit = HashMap::new();
@@ -2763,7 +2764,15 @@ fn test_boundary_flip() {
     conf.block_limit_schedule = ExecutionCostSchedule { epoch_cost_limit };
 
     conf.initial_balances.push(InitialBalance {
-        address: sender_pd.clone(),
+        address:alice_pd.clone(),
+        amount: 10492300000,
+    });
+    conf.initial_balances.push(InitialBalance {
+        address:bob_pd.clone(),
+        amount: 10492300000,
+    });
+    conf.initial_balances.push(InitialBalance {
+        address:creator_pd.clone(),
         amount: 10492300000,
     });
 
@@ -2815,10 +2824,33 @@ fn test_boundary_flip() {
 
     warn!("checkpoint");
     // Submi the transaction.
+    let tx = make_contract_publish(
+        &creator_sk,
+        0,
+        1100000,
+        "increment-contract",
+        &giant_contract,
+    );
+
     submit_tx(&http_origin, &tx);
 
-    warn!("checkpoint");
-    check_the_blocks(test_observer::get_blocks());
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    let mid_blocks = test_observer::get_blocks();
+    let increment_defines = transactions_where(&mid_blocks, |transaction| match &transaction.payload {
+        TransactionPayload::SmartContract(contract) => { contract.name == ContractName::try_from("increment-contract").unwrap()},
+        _ => false,
+    });
+    warn!("increment_defines {:?}", increment_defines);
+    warn!("increment_defines.len() {:?}", increment_defines.len());
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -2826,28 +2858,27 @@ fn test_boundary_flip() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    check_the_blocks(test_observer::get_blocks());
     warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    for i in 1..27 {
-        warn!("= = = = = = = = = = = = = = = = = = = =");
-        warn!("= = = = = = = = = = = = = = = = = = = =");
-        warn!("= = = = = = = = = = = = = = = = = = = =");
-        warn!("= = = = = =   {}     = = = = = = = = = =", i);
-        warn!("= = = = = = = = = = = = = = = = = = = =");
-        warn!("= = = = = = = = = = = = = = = = = = = =");
-        warn!("= = = = = = = = = = = = = = = = = = = =");
-        let call_tx = make_contract_call(
-            &sender_sk,
-            i,
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    warn!("checkpoint");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+
+        submit_tx(&http_origin, &make_contract_call(
+            &alice_sk,
+            0,
             1000,
-            &sender_addr.into(),
+            &alice_addr.into(),
             "increment-contract",
             "increment3",
-            &[Value::UInt(i as u128)],
-        );
-        submit_tx(&http_origin, &call_tx);
-    }
+            &[Value::UInt(0 as u128)],
+        ));
 
     warn!("checkpoint");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -2873,29 +2904,12 @@ fn test_boundary_flip() {
     let final_blocks = test_observer::get_blocks();
     warn!("going to try new test");
 
-    let count1 = count_transactions(&final_blocks, |transaction| match &transaction.payload {
-        TransactionPayload::SmartContract(_) => true,
-        _ => false,
-    });
-    warn!("count1 {}", count1);
-
-    let count2 = count_transactions(&final_blocks, |transaction| match &transaction.payload {
-        TransactionPayload::SmartContract(contract) => { contract.name == ContractName::try_from("increment-contract").unwrap()},
-        _ => false,
-    });
-    warn!("count2 {}", count2);
-
     let increment_calls = transactions_where(&final_blocks, |transaction| match &transaction.payload {
         TransactionPayload::ContractCall(contract) => { contract.contract_name == ContractName::try_from("increment-contract").unwrap()},
         _ => false,
     });
     warn!("increment_calls {:?}", increment_calls);
     warn!("increment_calls.len() {:?}", increment_calls.len());
-
-    assert!(contains_transaction(final_blocks, |transaction| match &transaction.payload {
-        TransactionPayload::SmartContract(_) => true,
-        _ => false,
-    }));
 
     channel.stop_chains_coordinator();
 }
