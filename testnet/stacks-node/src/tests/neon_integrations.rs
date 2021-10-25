@@ -2651,43 +2651,8 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-fn check_the_blocks(blocks: Vec<serde_json::Value>) {
-    //    warn!("check_the_blocks blocks.size {}", blocks.len());
-    //    // NOTE: this only counts the number of txs per stream, not in each microblock
-    //    for block in blocks {
-    //        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-    //        for tx in transactions.iter() {
-    //            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-    //            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-    //            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-    //            eprintln!("show-parsed {:#?}", &parsed);
-    //        }
-    //    }
-}
-
-fn count_transactions(
-    blocks: &Vec<serde_json::Value>,
-    test_fn: fn(&StacksTransaction) -> bool,
-) -> u32 {
-    warn!("check_the_blocks blocks.size {}", blocks.len());
-    // NOTE: this only counts the number of txs per stream, not in each microblock
-    let mut count = 1;
-    for block in blocks {
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        for tx in transactions.iter() {
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if test_fn(&parsed) {
-                //                eprintln!("show-parsed {:#?}", &parsed);
-                count += 1;
-            }
-        }
-    }
-
-    return count;
-}
-
+/// Deserializes and tests the `StacksTransaction` objects from `blocks` and returns all those that
+/// match `test_fn`.
 fn select_transactions_where(
     blocks: &Vec<serde_json::Value>,
     test_fn: fn(&StacksTransaction) -> bool,
@@ -2710,31 +2675,12 @@ fn select_transactions_where(
     return result;
 }
 
-fn contains_transaction(
-    blocks: Vec<serde_json::Value>,
-    test_fn: fn(&StacksTransaction) -> bool,
-) -> bool {
-    warn!("check_the_blocks blocks.size {}", blocks.len());
-    // NOTE: this only counts the number of txs per stream, not in each microblock
-    for block in blocks {
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        for tx in transactions.iter() {
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if test_fn(&parsed) {
-                //                eprintln!("show-parsed {:#?}", &parsed);
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
+/// This test checks that the block limit is changed at Stacks 2.05. We lower the allowance, and
+/// check that we can 1) afford the function call before the target height and
+/// 2) cannot afford the function call after the target height.
 #[test]
 #[ignore]
-fn test_boundary_flip() {
+fn test_cost_limit_switch_version205() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -2785,7 +2731,7 @@ fn test_boundary_flip() {
     let bob_addr = to_addr(&bob_sk);
     let bob_pd: PrincipalData = bob_addr.into();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, _) = neon_integration_test_conf();
     let mut epoch_cost_limit = HashMap::new();
     epoch_cost_limit.insert(
         StacksEpochId::Epoch20,
@@ -2794,7 +2740,6 @@ fn test_boundary_flip() {
             write_count: 1000,
             read_length: 1000000000,
             read_count: 150,
-            // read_count: 50, doesn't work
             runtime: 5000000000,
         },
     );
@@ -2805,7 +2750,6 @@ fn test_boundary_flip() {
             write_count: 1000,
             read_length: 1000000000,
             read_count: 50,
-            // read_count: 50, doesn't work
             runtime: 5000000000,
         },
     );
@@ -2824,10 +2768,6 @@ fn test_boundary_flip() {
         amount: 10492300000,
     });
 
-    conf.miner.min_tx_fee = 1;
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
-
     test_observer::spawn();
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
@@ -2845,8 +2785,6 @@ fn test_boundary_flip() {
 
     btc_regtest_controller.bootstrap_chain(200);
 
-    eprintln!("Chain bootstrapped...");
-
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let burnchain_height = run_loop.get_burnchain_height_arc();
@@ -2855,46 +2793,49 @@ fn test_boundary_flip() {
 
     thread::spawn(move || run_loop.start(None, 0));
 
-    // give the run loop some time to start up!
+    // Wait until block 210, so we now that the burnchain is ready.
     wait_for_runloop(&blocks_processed);
-
-    warn!("checkpoint");
-    // first block wakes up the run loop
-    // run_until_burnchain_height(&mut btc_regtest_controller, &canonical_burnchain_height, 220);
-    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 210);
-
-    // this is where the switch happens
-    warn!("checkpoint");
-    // Submi the transaction.
-    let tx = make_contract_publish(
-        &creator_sk,
-        0,
-        1100000,
-        "increment-contract",
-        &giant_contract,
+    run_until_burnchain_height(
+        &mut btc_regtest_controller,
+        &blocks_processed,
+        &burnchain_height,
+        210,
     );
 
+    // Publish the contract so we can use it.
+    submit_tx(
+        &http_origin,
+        &make_contract_publish(
+            &creator_sk,
+            0,
+            1100000,
+            "increment-contract",
+            &giant_contract,
+        ),
+    );
 
-    submit_tx(&http_origin, &tx);
+    // Wait to make sure the contract is published.
+    run_until_burnchain_height(
+        &mut btc_regtest_controller,
+        &blocks_processed,
+        &burnchain_height,
+        215,
+    );
 
-    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 215);
+    // Check that we have defined the contract.
+    let increment_contract_defines = select_transactions_where(
+        &test_observer::get_blocks(),
+        |transaction| match &transaction.payload {
+            TransactionPayload::SmartContract(contract) => {
+                contract.name == ContractName::try_from("increment-contract").unwrap()
+            }
+            _ => false,
+        },
+    );
+    assert_eq!(increment_contract_defines.len(), 1);
 
-    {
-        let increment_defines2 =
-            select_transactions_where(
-                &test_observer::get_blocks(),
-                |transaction| match &transaction.payload {
-                    TransactionPayload::SmartContract(contract) => {
-                        contract.name == ContractName::try_from("increment-contract").unwrap()
-                    }
-                    _ => false,
-                },
-            );
-        warn!("increment_defines2 {:?}", increment_defines2);
-        warn!("increment_defines2.len() {:?}", increment_defines2.len());
-        assert!(increment_defines2.len() > 0);
-    }
-
+    // Alice calls the contract and should succeed, because we have not lowered the block limit
+    // yet.
     submit_tx(
         &http_origin,
         &make_contract_call(
@@ -2908,19 +2849,37 @@ fn test_boundary_flip() {
         ),
     );
 
-    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 220);
+    // Wait for the contract call to process.
+    run_until_burnchain_height(
+        &mut btc_regtest_controller,
+        &blocks_processed,
+        &burnchain_height,
+        220,
+    );
 
-    let increment_calls =
-        select_transactions_where(&test_observer::get_blocks(), |transaction| match &transaction.payload {
+    // Check that we have processed the contract successfully, by checking that the contract call
+    // is in the block record.
+    let increment_calls_alice = select_transactions_where(
+        &test_observer::get_blocks(),
+        |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
                 contract.contract_name == ContractName::try_from("increment-contract").unwrap()
             }
             _ => false,
-        });
-    warn!("increment_calls {:?}", increment_calls);
-    warn!("increment_calls.len() {:?}", increment_calls.len());
+        },
+    );
+    assert_eq!(increment_calls_alice.len(), 1);
 
-    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 230);
+    // Clear the observer so we can look for Bob's transaction.
+    test_observer::clear();
+
+    // The cost contract was switched at height 220. So, now we expect Bob's call to fail.
+    run_until_burnchain_height(
+        &mut btc_regtest_controller,
+        &blocks_processed,
+        &burnchain_height,
+        230,
+    );
     submit_tx(
         &http_origin,
         &make_contract_call(
@@ -2934,111 +2893,24 @@ fn test_boundary_flip() {
         ),
     );
 
-    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, &burnchain_height, 235);
+    // Wait for the contract to finish.
+    run_until_burnchain_height(
+        &mut btc_regtest_controller,
+        &blocks_processed,
+        &burnchain_height,
+        235,
+    );
 
-    let increment_calls2 =
-        select_transactions_where(&test_observer::get_blocks(), |transaction| match &transaction.payload {
+    let increment_calls_bob = select_transactions_where(
+        &test_observer::get_blocks(),
+        |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
                 contract.contract_name == ContractName::try_from("increment-contract").unwrap()
             }
             _ => false,
-        });
-    warn!("increment_calls2 {:?}", increment_calls2);
-    warn!("increment_calls2.len() {:?}", increment_calls2.len());
-
-//    {
-//        let increment_defines3 =
-//            select_transactions_where(
-//                &test_observer::get_blocks(),
-//                |transaction| match &transaction.payload {
-//                    TransactionPayload::SmartContract(contract) => {
-//                        contract.name == ContractName::try_from("increment-contract").unwrap()
-//                    }
-//                    _ => false,
-//                },
-//            );
-//        warn!("increment_defines3 {:?}", increment_defines3);
-//        warn!("increment_defines3.len() {:?}", increment_defines3.len());
-//    }
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    {
-//        let increment_defines =
-//            select_transactions_where(
-//                &test_observer::get_blocks(),
-//                |transaction| match &transaction.payload {
-//                    TransactionPayload::SmartContract(contract) => {
-//                        contract.name == ContractName::try_from("increment-contract").unwrap()
-//                    }
-//                    _ => false,
-//                },
-//            );
-//        warn!("increment_defines {:?}", increment_defines);
-//        warn!("increment_defines.len() {:?}", increment_defines.len());
-//    }
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//
-//    submit_tx(
-//        &http_origin,
-//        &make_contract_call(
-//            &alice_sk,
-//            0,
-//            1000,
-//            &creator_addr.into(),
-//            "increment-contract",
-//            "increment3",
-//            &[Value::UInt(0 as u128)],
-//        ),
-//    );
-//
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//
-//    check_the_blocks(test_observer::get_blocks());
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//    warn!("checkpoint");
-//    check_the_blocks(test_observer::get_blocks());
-//
-//    let final_blocks = test_observer::get_blocks();
-//    warn!("going to try new test");
-//
-//    let increment_calls =
-//        select_transactions_where(&final_blocks, |transaction| match &transaction.payload {
-//            TransactionPayload::ContractCall(contract) => {
-//                contract.contract_name == ContractName::try_from("increment-contract").unwrap()
-//            }
-//            _ => false,
-//        });
-//    warn!("increment_calls {:?}", increment_calls);
-//    warn!("increment_calls.len() {:?}", increment_calls.len());
+        },
+    );
+    assert_eq!(increment_calls_bob.len(), 0);
 
     channel.stop_chains_coordinator();
 }
