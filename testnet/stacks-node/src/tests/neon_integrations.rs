@@ -284,16 +284,12 @@ fn next_block_and_wait(
     blocks_processed: &Arc<AtomicU64>,
 ) -> bool {
     let current = blocks_processed.load(Ordering::SeqCst);
-    warn!("next_block_and_wait current {}", &current);
     eprintln!(
         "Issuing block at {}, waiting for bump ({})",
         get_epoch_time_secs(),
         current
     );
     btc_controller.build_next_block(1);
-    let burnchain_tip = btc_controller.get_burnchain_tip();
-    warn!("burnchain_tip {:?}", burnchain_tip);
-
     let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) <= current {
         if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
@@ -403,7 +399,7 @@ fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
         .body(tx.clone())
         .send()
         .unwrap();
-    eprintln!("submit_tx result {:#?}", res);
+    eprintln!("{:#?}", res);
     if res.status().is_success() {
         let res: String = res.json().unwrap();
         assert_eq!(
@@ -416,8 +412,7 @@ fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
         return res;
     } else {
         eprintln!("{}", res.text().unwrap());
-        let bt = backtrace::Backtrace::new();
-        panic!("submit_tx response failed {:?}", bt);
+        panic!("");
     }
 }
 
@@ -466,11 +461,7 @@ fn find_microblock_privkey(
 
 #[test]
 #[ignore]
-/// Tests that a miner will get a coinbase transaction deposited to them.
-fn bitcoind_integration_test2() {
-    let bt = backtrace::Backtrace::new();
-    warn!("bitcoind_integration_test {:?}", bt);
-
+fn bitcoind_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -484,8 +475,6 @@ fn bitcoind_integration_test2() {
         .start_bitcoind()
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
-
-    warn!("success");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -520,9 +509,27 @@ fn bitcoind_integration_test2() {
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 1);
-    channel.stop_chains_coordinator();
 
-    warn!("test is finished");
+    // query for prometheus metrics
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let prom_http_origin = format!("http://{}", prom_bind);
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(&prom_http_origin)
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
+        assert!(res.contains("stacks_node_computed_miner_commitment_high 0"));
+        assert!(res.contains("stacks_node_computed_miner_commitment_low 1"));
+        assert!(res.contains("stacks_node_computed_relative_miner_score 100"));
+        assert!(res.contains("stacks_node_miner_current_median_commitment_high 0"));
+        assert!(res.contains("stacks_node_miner_current_median_commitment_low 1"));
+        assert!(res.contains("stacks_node_active_miners_total 1"));
+    }
+
+    channel.stop_chains_coordinator();
 }
 
 #[test]
@@ -2651,7 +2658,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-/// Deserializes and tests the `StacksTransaction` objects from `blocks` and returns all those that
+/// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
 /// match `test_fn`.
 fn select_transactions_where(
     blocks: &Vec<serde_json::Value>,
@@ -2685,7 +2692,7 @@ fn test_cost_limit_switch_version205() {
         return;
     }
 
-    // stuff a gigantic contract into the anchored block
+    // This contract contains `increment-many`, which does many MARF reads.
     let giant_contract = r#"
 ;; define counter variable
 (define-data-var counter int 0)
@@ -2696,7 +2703,7 @@ fn test_cost_limit_switch_version205() {
     (var-set counter (+ (var-get counter) 1))
     (ok (var-get counter))))
 
-  (define-public (increment3 (unused-index uint))
+  (define-public (increment-many (unused-index uint))
     (begin
       (unwrap! (increment) (err u1))
       (unwrap! (increment) (err u1))
@@ -2719,6 +2726,8 @@ fn test_cost_limit_switch_version205() {
       (ok (var-get counter))))
     "#
     .to_string();
+
+    // Create three characters, `creator`, `alice` and `bob`.
     let creator_sk = StacksPrivateKey::new();
     let creator_addr = to_addr(&creator_sk);
     let creator_pd: PrincipalData = creator_addr.into();
@@ -2732,6 +2741,8 @@ fn test_cost_limit_switch_version205() {
     let bob_pd: PrincipalData = bob_addr.into();
 
     let (mut conf, _) = neon_integration_test_conf();
+
+    // Create a schedule where we lower the read_count on Epoch2_05.
     let mut epoch_cost_limit = HashMap::new();
     epoch_cost_limit.insert(
         StacksEpochId::Epoch20,
@@ -2844,7 +2855,7 @@ fn test_cost_limit_switch_version205() {
             1000,
             &creator_addr.into(),
             "increment-contract",
-            "increment3",
+            "increment-many",
             &[Value::UInt(0 as u128)],
         ),
     );
@@ -2888,7 +2899,7 @@ fn test_cost_limit_switch_version205() {
             1000,
             &creator_addr.into(),
             "increment-contract",
-            "increment3",
+            "increment-many",
             &[Value::UInt(0 as u128)],
         ),
     );
