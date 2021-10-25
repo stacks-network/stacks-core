@@ -867,9 +867,6 @@ impl StacksBlockBuilder {
                     _ => e,
                 })?;
 
-            let bt = backtrace::Backtrace::new();
-            warn!("try_mine_tx_with_len {:?}", bt);
-
             info!("Include tx";
                   "tx" => %tx.txid(),
                   "payload" => tx.payload.name(),

@@ -87,6 +87,7 @@ impl<'a> AnalysisDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Option<ContractAnalysis> {
+        warn!("load_contract contract_identifier {:?}", contract_identifier);
         self.store
             .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --

@@ -2874,7 +2874,7 @@ fn test_boundary_flip() {
             &alice_sk,
             0,
             1000,
-            &alice_addr.into(),
+            &creator_addr.into(),
             "increment-contract",
             "increment3",
             &[Value::UInt(0 as u128)],
