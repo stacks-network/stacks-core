@@ -567,7 +567,6 @@ pub fn sqlite_open<P: AsRef<Path>>(
     let db = Connection::open_with_flags(path, flags)?;
     db.busy_handler(Some(tx_busy_handler))?;
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
-    inner_sql_pragma(&db, "mmap_size", &SQLITE_MMAP_SIZE)?;
     if foreign_keys {
         inner_sql_pragma(&db, "foreign_keys", &true)?;
     }
