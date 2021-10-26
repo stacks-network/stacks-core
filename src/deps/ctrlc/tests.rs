@@ -7,6 +7,8 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+use deps::ctrlc;
+
 #[cfg(unix)]
 mod platform {
     use std::io;
@@ -220,9 +222,23 @@ mod platform {
     }
 }
 
+macro_rules! run_tests {
+    ( $($test_fn:ident),* ) => {
+        unsafe {
+            platform::print(format_args!("\n"));
+            $(
+                platform::print(format_args!("test deps::ctrlc::tests::{} ... ", stringify!($test_fn)));
+                $test_fn();
+                platform::print(format_args!("ok\n"));
+            )*
+            platform::print(format_args!("\n"));
+        }
+    }
+}
+
 fn test_set_handler() {
     let (tx, rx) = ::std::sync::mpsc::channel();
-    ctrlc::set_handler(move || {
+    ctrlc::set_handler(move |sig_id| {
         tx.send(true).unwrap();
     })
     .unwrap();
@@ -234,27 +250,14 @@ fn test_set_handler() {
     rx.recv_timeout(::std::time::Duration::from_secs(10))
         .unwrap();
 
-    match ctrlc::set_handler(|| {}) {
+    match ctrlc::set_handler(|sig_id| {}) {
         Err(ctrlc::Error::MultipleHandlers) => {}
         ret => panic!("{:?}", ret),
     }
 }
 
-macro_rules! run_tests {
-    ( $($test_fn:ident),* ) => {
-        unsafe {
-            platform::print(format_args!("\n"));
-            $(
-                platform::print(format_args!("test tests::{} ... ", stringify!($test_fn)));
-                $test_fn();
-                platform::print(format_args!("ok\n"));
-            )*
-            platform::print(format_args!("\n"));
-        }
-    }
-}
-
-fn main() {
+#[test]
+fn test_signal_handler() {
     unsafe {
         platform::setup().unwrap();
     }
