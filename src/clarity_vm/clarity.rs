@@ -281,13 +281,18 @@ impl ClarityInstance {
     ) -> StacksEpochId {
         match header_db.get_burn_block_height_for_block(stacks_block) {
             Some(burn_height) => {
-                burn_state_db
-                    .get_stacks_epoch(burn_height)
-                    .expect(&format!(
-                        "Failed to get Stacks epoch for height = {}",
-                        burn_height
-                    ))
-                    .epoch_id
+                // special case the Stacks 2.0 genesis block -- it occurs at a zero burn block height
+                if burn_height == 0 {
+                    StacksEpochId::Epoch20
+                } else {
+                    burn_state_db
+                        .get_stacks_epoch(burn_height)
+                        .expect(&format!(
+                            "Failed to get Stacks epoch for height = {}",
+                            burn_height
+                        ))
+                        .epoch_id
+                }
             }
             None => StacksEpochId::Epoch20,
         }
