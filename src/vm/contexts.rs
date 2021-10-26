@@ -545,11 +545,14 @@ impl<'a> OwnedEnvironment<'a> {
     }
 
     #[cfg(test)]
-    pub fn new_max_limit(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+    pub fn new_max_limit(
+        mut database: ClarityDatabase<'a>,
+        epoch: StacksEpochId,
+    ) -> OwnedEnvironment<'a> {
         let cost_track = LimitedCostTracker::new_max_limit(&mut database)
             .expect("FAIL: problem instantiating cost tracking");
         OwnedEnvironment {
-            context: GlobalContext::new(false, database, cost_track, StacksEpochId::Epoch2_05),
+            context: GlobalContext::new(false, database, cost_track, epoch),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
