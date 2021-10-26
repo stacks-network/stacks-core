@@ -1989,10 +1989,9 @@ impl SortitionDB {
     /// It's best not to call this if you are able to call connect().  If you must call this, do so
     /// after you call connect() somewhere else, since connect() performs additional validations.
     pub fn open(path: &str, readwrite: bool) -> Result<SortitionDB, db_error> {
-        let (db_path, index_path) = db_mkdirs(path)?;
+        let index_path = db_mkdirs(path)?;
         debug!(
-            "Open sortdb '{}' as '{}', with index as '{}'",
-            db_path,
+            "Open sortdb as '{}', with index as '{}'",
             if readwrite { "readwrite" } else { "readonly" },
             index_path
         );
@@ -2035,11 +2034,10 @@ impl SortitionDB {
             Ok(_md) => false,
         };
 
-        let (db_path, index_path) = db_mkdirs(path)?;
+        let index_path = db_mkdirs(path)?;
         debug!(
-            "Connect/Open {} sortdb '{}' as '{}', with index as '{}'",
+            "Connect/Open {} sortdb as '{}', with index as '{}'",
             if create_flag { "(create)" } else { "" },
-            db_path,
             if readwrite { "readwrite" } else { "readonly" },
             index_path
         );
