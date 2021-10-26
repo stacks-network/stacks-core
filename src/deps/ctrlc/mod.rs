@@ -7,41 +7,6 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-//! Cross platform handling of Ctrl-C signals.
-//!
-//! [HandlerRoutine]:https://msdn.microsoft.com/en-us/library/windows/desktop/ms683242.aspx
-//!
-//! [set_handler()](fn.set_handler.html) allows setting a handler closure which is executed on
-//! `Ctrl+C`. On Unix, this corresponds to a `SIGINT` signal. On windows, `Ctrl+C` corresponds to
-//! [`CTRL_C_EVENT`][HandlerRoutine] or [`CTRL_BREAK_EVENT`][HandlerRoutine].
-//!
-//! Setting a handler will start a new dedicated signal handling thread where we
-//! execute the handler each time we receive a `Ctrl+C` signal. There can only be
-//! one handler, you would typically set one at the start of your program.
-//!
-//! This package was further modified for stacks-blockchain to handle SIGBUS in order to gracefully
-//! shut down the node in the event of a sqlite memory error.
-//!
-//! # Example
-//! ```no_run
-//! use std::sync::atomic::{AtomicBool, Ordering};
-//! use std::sync::Arc;
-//!
-//! fn main() {
-//!     let running = Arc::new(AtomicBool::new(true));
-//!     let r = running.clone();
-//!
-//!     ctrlc::set_handler(move || {
-//!         r.store(false, Ordering::SeqCst);
-//!     }).expect("Error setting Ctrl-C handler");
-//!
-//!     println!("Waiting for Ctrl-C...");
-//!     while running.load(Ordering::SeqCst) {}
-//!     println!("Got it! Exiting...");
-//! }
-//! ```
-//!
-
 #[macro_use]
 
 mod error;
@@ -49,6 +14,9 @@ mod platform;
 pub use self::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(PartialEq, Clone)]
 #[repr(u8)]
