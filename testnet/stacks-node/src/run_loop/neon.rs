@@ -4,7 +4,7 @@ use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
 
-use ctrlc as termination;
+use stacks::deps::ctrlc as termination;
 
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
@@ -114,12 +114,12 @@ impl RunLoop {
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let keep_running_writer = should_keep_running.clone();
 
-        let install = termination::set_handler(move || {
-            info!("Graceful termination request received, will complete the ongoing runloop cycles and terminate");
+        let install = termination::set_handler(move |sig_id| {
+            info!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate", sig_id);
             keep_running_writer.store(false, Ordering::SeqCst);
         });
         if let Err(e) = install {
-            error!("Error setting termination handler - {}", e);
+            panic!("FATAL: error setting termination handler - {}", e);
         }
 
         // Initialize and start the burnchain.
