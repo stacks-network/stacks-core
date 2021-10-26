@@ -45,11 +45,6 @@ static INIT: AtomicBool = AtomicBool::new(false);
 /// Starts a new dedicated signal handling thread. Should only be called once,
 /// typically at the start of your program.
 ///
-/// # Example
-/// ```no_run
-/// deps::ctrlc::set_handler(move |sig_id| println!("Hello world!")).expect("Error setting Ctrl-C handler");
-/// ```
-///
 /// # Warning
 /// On Unix, any existing `SIGINT`, `SIGTERM`, `SIGHUP`, `SIGBUS`, or `SA_SIGINFO`
 /// posix signal handlers will be overwritten. On Windows, multiple handler routines are allowed,
