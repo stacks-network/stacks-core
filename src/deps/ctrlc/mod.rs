@@ -79,7 +79,7 @@ static INIT: AtomicBool = AtomicBool::new(false);
 ///
 /// # Example
 /// ```no_run
-/// deps::ctrlc::set_handler(|| println!("Hello world!")).expect("Error setting Ctrl-C handler");
+/// deps::ctrlc::set_handler(move |sig_id| println!("Hello world!")).expect("Error setting Ctrl-C handler");
 /// ```
 ///
 /// # Warning
