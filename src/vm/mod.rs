@@ -364,18 +364,27 @@ pub fn eval_all(
 
 /// Run provided program in a brand new environment, with a transient, empty
 /// database. Only used for testing
+/// This method executes the program in Epoch 2.0 *and* Epoch 2.05 and asserts
+/// that the result is the same before returning the result
 #[cfg(test)]
 pub fn execute(program: &str) -> Result<Option<Value>> {
+    let epoch_200_result = execute_in_epoch(program, StacksEpochId::Epoch20);
+    let epoch_205_result = execute_in_epoch(program, StacksEpochId::Epoch2_05);
+    assert_eq!(
+        epoch_200_result, epoch_205_result,
+        "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
+        program
+    );
+    epoch_205_result
+}
+
+#[cfg(test)]
+pub fn execute_in_epoch(program: &str, epoch: StacksEpochId) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(
-        false,
-        conn,
-        LimitedCostTracker::new_free(),
-        StacksEpochId::Epoch2_05,
-    );
+    let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free(), epoch);
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
         eval_all(&parsed, &mut contract_context, g)

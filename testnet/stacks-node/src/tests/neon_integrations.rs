@@ -108,7 +108,7 @@ pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     (conf, miner_account)
 }
 
-mod test_observer {
+pub mod test_observer {
     use std::convert::Infallible;
     use std::sync::Mutex;
     use std::thread;
@@ -342,7 +342,7 @@ fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) ->
 }
 
 /// returns Txid string
-fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
+pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/transactions", http_origin);
     let res = client
@@ -615,12 +615,12 @@ fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128 {
 }
 
 #[derive(Debug)]
-struct Account {
-    balance: u128,
-    nonce: u64,
+pub struct Account {
+    pub balance: u128,
+    pub nonce: u64,
 }
 
-fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
+pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/accounts/{}?proof=0", http_origin, account);
     let res = client

@@ -1371,7 +1371,7 @@ impl<'a> GlobalContext<'a> {
     // Instantiate a new Global Context
     pub fn new(
         mainnet: bool,
-        mut database: ClarityDatabase,
+        database: ClarityDatabase,
         cost_track: LimitedCostTracker,
         epoch_id: StacksEpochId,
     ) -> GlobalContext {

@@ -30,10 +30,10 @@ use super::Config;
 
 mod atlas;
 mod bitcoin_regtest;
+mod epoch_205;
 mod integrations;
 mod mempool;
 pub mod neon_integrations;
-//mod epoch_205;
 
 // $ cat /tmp/out.clar
 pub const STORE_CONTRACT: &str = r#"(define-map store { key: (string-ascii 32) } { value: (string-ascii 32) })
