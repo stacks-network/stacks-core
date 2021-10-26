@@ -29,6 +29,10 @@ use crate::{
 
 use super::RunLoopCallbacks;
 
+use libc;
+use std::process;
+pub const STDERR: i32 = 2;
+
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
 pub struct RunLoop {
@@ -115,9 +119,26 @@ impl RunLoop {
         let keep_running_writer = should_keep_running.clone();
 
         let install = termination::set_handler(move |sig_id| {
-            info!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate", sig_id);
-            keep_running_writer.store(false, Ordering::SeqCst);
+            match sig_id {
+                SignalId::Bus => {
+                    let msg = "Caught SIGBUS; crashing immediately and dumping core";
+                    unsafe {
+                        // must be async-safe
+                        libc::write(STDERR, msg.as_ptr(), msg.len());
+                        libc::abort();
+                    }
+                }
+                _ => {
+                    let msg = format!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate", sig_id);
+                    unsafe {
+                        // must be async-safe
+                        libc::write(STDERR, msg.as_ptr(), msg.len());
+                    }
+                    keep_running_writer.store(false, Ordering::SeqCst);
+                }
+            }
         });
+
         if let Err(e) = install {
             // integration tests can do this
             if cfg!(test) {
