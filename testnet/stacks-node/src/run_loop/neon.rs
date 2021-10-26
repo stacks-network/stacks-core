@@ -119,7 +119,11 @@ impl RunLoop {
             keep_running_writer.store(false, Ordering::SeqCst);
         });
         if let Err(e) = install {
-            panic!("FATAL: error setting termination handler - {}", e);
+            // integration tests can do this
+            if cfg!(test) {
+            } else {
+                panic!("FATAL: error setting termination handler - {}", e);
+            }
         }
 
         // Initialize and start the burnchain.
