@@ -10,6 +10,7 @@ use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
+use stacks::core::StacksEpoch;
 use stacks::core::{
     BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT,
     PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
@@ -488,6 +489,7 @@ impl Config {
                     rbf_fee_increment: burnchain
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
+                    epochs: default_burnchain_config.epochs,
                 }
             }
             None => default_burnchain_config,
@@ -926,6 +928,7 @@ pub struct BurnchainConfig {
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
     pub rbf_fee_increment: u64,
+    pub epochs: Option<Vec<StacksEpoch>>,
 }
 
 impl BurnchainConfig {
@@ -953,6 +956,7 @@ impl BurnchainConfig {
             leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
+            epochs: None,
         }
     }
 

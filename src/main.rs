@@ -33,6 +33,7 @@ use std::process;
 use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
 
+use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use blockstack_lib::cost_estimates::UnitEstimator;
 use cost_estimates::metrics::UnitMetric;
 use rusqlite::types::ToSql;
@@ -801,9 +802,23 @@ simulating a miner.
             runtime: 1_00_000_000,
         };
         let burnchain = Burnchain::regtest(&burnchain_db_path);
-        let spv_headers_path = "/tmp/replay-chainstate";
+        let spv_headers_path = "/tmp/replay-chainstate".to_string();
+        let indexer_config = BitcoinIndexerConfig {
+            peer_host: "127.0.0.1".to_string(),
+            peer_port: 18444,
+            rpc_port: 18443,
+            rpc_ssl: false,
+            username: Some("blockstack".to_string()),
+            password: Some("blockstacksystem".to_string()),
+            timeout: 30,
+            spv_headers_path,
+            first_block: 0,
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            epochs: None,
+        };
+
         let indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::default_regtest(spv_headers_path.to_string()),
+            indexer_config,
             BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
         );
         let first_burnchain_block_height = burnchain.first_block_height;

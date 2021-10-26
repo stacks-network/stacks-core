@@ -230,7 +230,11 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
-        None
+        Some(StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: u64::MAX,
+        })
     }
 }
 

@@ -73,7 +73,7 @@ use super::{
     SK_2,
 };
 
-fn neon_integration_test_conf() -> (Config, StacksAddress) {
+pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
 
     let keychain = Keychain::default(conf.node.seed.clone());
@@ -275,7 +275,7 @@ mod test_observer {
 }
 
 const PANIC_TIMEOUT_SECS: u64 = 600;
-fn next_block_and_wait(
+pub fn next_block_and_wait(
     btc_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
 ) -> bool {
@@ -302,7 +302,7 @@ fn next_block_and_wait(
     true
 }
 
-fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
+pub fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) == 0 {
         if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
@@ -368,7 +368,7 @@ fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
     }
 }
 
-fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
+pub fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
@@ -380,6 +380,14 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
         .unwrap()
         .json::<RPCPeerInfoData>()
         .unwrap();
+
+    tip_info
+}
+
+fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
+    let tip_info = get_chain_info(conf);
+
+    // get the canonical chain tip
     let stacks_tip = tip_info.stacks_tip;
     let stacks_tip_consensus_hash = tip_info.stacks_tip_consensus_hash;
 
@@ -387,6 +395,8 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
         StacksBlockHeader::make_index_block_hash(&stacks_tip_consensus_hash, &stacks_tip);
 
     // get the associated anchored block
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/blocks/{}", &http_origin, &stacks_id_tip);
     let block_bytes = client.get(&path).send().unwrap().bytes().unwrap();
     let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();

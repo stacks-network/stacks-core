@@ -2033,9 +2033,16 @@ impl SortitionDB {
         // TODO - add schema application method for sortition DB
         let expected_version = SORTITION_DB_VERSION.to_string();
         match db.get_schema_version() {
-            Ok(Some(expected_version)) => Ok(db),
+            Ok(Some(actual_version)) => {
+                if expected_version != actual_version {
+                    panic!("The schema version of the sortition DB is incorrect. Expected = {}, Actual = {}",
+                           expected_version, actual_version);
+                } else {
+                    Ok(db)
+                }
+            }
+            Ok(None) => panic!("The schema version of the sortition DB is incorrect."),
             Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
-            _ => panic!("The schema version of the sortition DB is incorrect."),
         }
     }
 
@@ -2107,9 +2114,16 @@ impl SortitionDB {
         // TODO - add schema application method for sortition DB
         let expected_version = SORTITION_DB_VERSION.to_string();
         match db.get_schema_version() {
-            Ok(Some(expected_version)) => Ok(db),
+            Ok(Some(actual_version)) => {
+                if expected_version != actual_version {
+                    panic!("The schema version of the sortition DB is incorrect. Expected = {}, Actual = {}",
+                           expected_version, actual_version);
+                } else {
+                    Ok(db)
+                }
+            }
+            Ok(None) => panic!("The schema version of the sortition DB is incorrect."),
             Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
-            _ => panic!("The schema version of the sortition DB is incorrect."),
         }
     }
 
