@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::thread;
 
 use stacks::deps::ctrlc as termination;
+use stacks::deps::ctrlc::SignalId;
 
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
@@ -28,9 +29,7 @@ use crate::{
 };
 
 use super::RunLoopCallbacks;
-
 use libc;
-use std::process;
 pub const STDERR: i32 = 2;
 
 /// Coordinating a node running in neon mode.
@@ -121,18 +120,18 @@ impl RunLoop {
         let install = termination::set_handler(move |sig_id| {
             match sig_id {
                 SignalId::Bus => {
-                    let msg = "Caught SIGBUS; crashing immediately and dumping core";
+                    let msg = "Caught SIGBUS; crashing immediately and dumping core\n";
                     unsafe {
                         // must be async-safe
-                        libc::write(STDERR, msg.as_ptr(), msg.len());
+                        libc::write(STDERR, msg.as_ptr() as *const libc::c_void, msg.len());
                         libc::abort();
                     }
                 }
                 _ => {
-                    let msg = format!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate", sig_id);
+                    let msg = format!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate\n", sig_id);
                     unsafe {
                         // must be async-safe
-                        libc::write(STDERR, msg.as_ptr(), msg.len());
+                        libc::write(STDERR, msg.as_ptr() as *const libc::c_void, msg.len());
                     }
                     keep_running_writer.store(false, Ordering::SeqCst);
                 }
