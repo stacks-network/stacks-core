@@ -112,18 +112,16 @@ fn test_proportional_dot_product() {
     );
 }
 
-// DO NOT SUBMIT
-pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
-    write_length: 15_000_000, // roughly 15 mb
-    write_count: 7_750,
-    read_length: 100_000_000,
-    read_count: 7_750,
-    runtime: 5_000_000_000,
-};
-
 #[test]
 fn test_proportional_dot_product_with_mainnet_lims() {
-    let metric = ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, BLOCK_LIMIT_MAINNET.clone());
+    let block_limit: ExecutionCost = ExecutionCost {
+        write_length: 15_000_000, // roughly 15 mb
+        write_count: 7_750,
+        read_length: 100_000_000,
+        read_count: 7_750,
+        runtime: 5_000_000_000,
+    };
+    let metric = ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, block_limit);
 
     // an execution cost equal to the limit should be maxed in each dimension,
     // and the maximum value for the metric is 60_000.
