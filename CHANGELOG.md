@@ -18,6 +18,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## Changed
 
 - Prioritize transaction inclusion in blocks by estimated fee rates (#2859).
+- MARF sqlite connections will now use `mmap`'ed connections with up to 256MB
+  space (#2869).
 
 ## [2.0.11.3.0]
 

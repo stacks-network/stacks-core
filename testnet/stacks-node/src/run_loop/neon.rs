@@ -4,7 +4,8 @@ use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
 
-use ctrlc as termination;
+use stacks::deps::ctrlc as termination;
+use stacks::deps::ctrlc::SignalId;
 
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
@@ -28,6 +29,8 @@ use crate::{
 };
 
 use super::RunLoopCallbacks;
+use libc;
+pub const STDERR: i32 = 2;
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
@@ -44,6 +47,24 @@ pub struct RunLoop {
     config: Config,
     pub callbacks: RunLoopCallbacks,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
+}
+
+/// Write to stderr in an async-safe manner.
+/// See signal-safety(7)
+fn async_safe_write_stderr(msg: &str) {
+    #[cfg(windows)]
+    unsafe {
+        // write(2) inexplicably has a different ABI only on Windows.
+        libc::write(
+            STDERR,
+            msg.as_ptr() as *const libc::c_void,
+            msg.len() as u32,
+        );
+    }
+    #[cfg(not(windows))]
+    unsafe {
+        libc::write(STDERR, msg.as_ptr() as *const libc::c_void, msg.len());
+    }
 }
 
 impl RunLoop {
@@ -114,12 +135,27 @@ impl RunLoop {
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let keep_running_writer = should_keep_running.clone();
 
-        let install = termination::set_handler(move || {
-            info!("Graceful termination request received, will complete the ongoing runloop cycles and terminate");
-            keep_running_writer.store(false, Ordering::SeqCst);
+        let install = termination::set_handler(move |sig_id| match sig_id {
+            SignalId::Bus => {
+                let msg = "Caught SIGBUS; crashing immediately and dumping core\n";
+                async_safe_write_stderr(msg);
+                unsafe {
+                    libc::abort();
+                }
+            }
+            _ => {
+                let msg = format!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate\n", sig_id);
+                async_safe_write_stderr(&msg);
+                keep_running_writer.store(false, Ordering::SeqCst);
+            }
         });
+
         if let Err(e) = install {
-            error!("Error setting termination handler - {}", e);
+            // integration tests can do this
+            if cfg!(test) {
+            } else {
+                panic!("FATAL: error setting termination handler - {}", e);
+            }
         }
 
         // Initialize and start the burnchain.

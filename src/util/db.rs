@@ -63,6 +63,9 @@ use serde_json::Error as serde_error;
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;
 
+// 256MB
+pub const SQLITE_MMAP_SIZE: i64 = 256 * 1024 * 1024;
+
 #[derive(Debug)]
 pub enum Error {
     /// Not implemented
@@ -428,8 +431,8 @@ pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_
 }
 
 /// Set up an on-disk database with a MARF index if they don't exist yet.
-/// Either way, returns (db path, MARF path)
-pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
+/// Either way, returns the MARF path
+pub fn db_mkdirs(path_str: &str) -> Result<String, Error> {
     let mut path = PathBuf::from(path_str);
     match fs::metadata(path_str) {
         Ok(md) => {
@@ -449,11 +452,7 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
     path.push("marf.sqlite");
     let marf_path = path.to_str().ok_or_else(|| Error::ParseError)?.to_string();
 
-    path.pop();
-    path.push("data.sqlite");
-    let data_path = path.to_str().ok_or_else(|| Error::ParseError)?.to_string();
-
-    Ok((data_path, marf_path))
+    Ok(marf_path)
 }
 
 /// Read-only connection to a MARF-indexed DB
