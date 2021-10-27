@@ -58,8 +58,7 @@ use burnchains::Txid;
 use chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET};
 use util::boot::{boot_code_addr, boot_code_id};
 
-// DO NOT SUBMIT
-pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
+const BLOCK_LIMIT_MAINNET_STACKS20: ExecutionCost = ExecutionCost {
     write_length: 15_000_000, // roughly 15 mb
     write_count: 7_750,
     read_length: 100_000_000,
@@ -67,7 +66,7 @@ pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
     runtime: 5_000_000_000,
 };
 
-pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
+const HELIUM_BLOCK_LIMIT_STACKS20: ExecutionCost = ExecutionCost {
     write_length: 15_0_000_000,
     write_count: 5_0_000,
     read_length: 1_000_000_000,
@@ -229,9 +228,9 @@ fn run_analysis<C: ClarityStorage>(
     let cost_track = LimitedCostTracker::new(
         mainnet,
         if mainnet {
-            BLOCK_LIMIT_MAINNET.clone()
+            BLOCK_LIMIT_MAINNET_STACKS20.clone()
         } else {
-            HELIUM_BLOCK_LIMIT.clone()
+            HELIUM_BLOCK_LIMIT_STACKS20.clone()
         },
         &mut marf_kv.get_clarity_db(header_db, &NULL_BURN_STATE_DB),
     )
@@ -402,9 +401,9 @@ where
     let cost_track = LimitedCostTracker::new(
         mainnet,
         if mainnet {
-            BLOCK_LIMIT_MAINNET.clone()
+            BLOCK_LIMIT_MAINNET_STACKS20.clone()
         } else {
-            HELIUM_BLOCK_LIMIT.clone()
+            HELIUM_BLOCK_LIMIT_STACKS20.clone()
         },
         &mut db,
     )
