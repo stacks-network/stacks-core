@@ -49,6 +49,24 @@ pub struct RunLoop {
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
 }
 
+/// Write to stderr in an async-safe manner.
+/// See signal-safety(7)
+fn async_safe_write_stderr(msg: &str) {
+    #[cfg(windows)]
+    unsafe {
+        // write(2) inexplicably has a different ABI only on Windows.
+        libc::write(
+            STDERR,
+            msg.as_ptr() as *const libc::c_void,
+            msg.len() as u32,
+        );
+    }
+    #[cfg(not(windows))]
+    unsafe {
+        libc::write(STDERR, msg.as_ptr() as *const libc::c_void, msg.len());
+    }
+}
+
 impl RunLoop {
     /// Sets up a runloop and node, given a config.
     #[cfg(not(test))]
@@ -117,24 +135,18 @@ impl RunLoop {
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let keep_running_writer = should_keep_running.clone();
 
-        let install = termination::set_handler(move |sig_id| {
-            match sig_id {
-                SignalId::Bus => {
-                    let msg = "Caught SIGBUS; crashing immediately and dumping core\n";
-                    unsafe {
-                        // must be async-safe
-                        libc::write(STDERR, msg.as_ptr() as *const libc::c_void, msg.len());
-                        libc::abort();
-                    }
+        let install = termination::set_handler(move |sig_id| match sig_id {
+            SignalId::Bus => {
+                let msg = "Caught SIGBUS; crashing immediately and dumping core\n";
+                async_safe_write_stderr(msg);
+                unsafe {
+                    libc::abort();
                 }
-                _ => {
-                    let msg = format!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate\n", sig_id);
-                    unsafe {
-                        // must be async-safe
-                        libc::write(STDERR, msg.as_ptr() as *const libc::c_void, msg.len());
-                    }
-                    keep_running_writer.store(false, Ordering::SeqCst);
-                }
+            }
+            _ => {
+                let msg = format!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate\n", sig_id);
+                async_safe_write_stderr(&msg);
+                keep_running_writer.store(false, Ordering::SeqCst);
             }
         });
 
