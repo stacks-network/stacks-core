@@ -36,7 +36,7 @@ use crate::types::proof::ClarityMarfTrieId;
 
 pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf);
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 

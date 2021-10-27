@@ -368,7 +368,6 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             chain_id,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
         )
         .unwrap();
         let canonical_sortition_tip =

@@ -106,7 +106,6 @@ pub struct StacksChainState {
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
-    pub block_limit: ExecutionCost,
     pub unconfirmed_state: Option<UnconfirmedState>,
 }
 
@@ -1308,13 +1307,7 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(
-            mainnet,
-            chain_id,
-            path_str,
-            None,
-            ExecutionCost::max_value(),
-        )
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None)
     }
 
     /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
@@ -1327,27 +1320,24 @@ impl StacksChainState {
     /// parameters, but with a block limit
     pub fn reopen_limited(
         &self,
-        budget: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(self.mainnet, self.chain_id, &self.root_path, None, budget)
+        StacksChainState::open_and_exec(self.mainnet, self.chain_id, &self.root_path, None)
     }
 
     pub fn open_testnet<F>(
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
-        block_limit: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(false, chain_id, path_str, boot_data, block_limit)
+        StacksChainState::open_and_exec(false, chain_id, path_str, boot_data)
     }
 
     pub fn open_with_block_limit(
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
-        block_limit: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, block_limit)
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None)
     }
 
     pub fn open_and_exec(
@@ -1355,7 +1345,6 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
-        block_limit: ExecutionCost,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         let path = PathBuf::from(path_str);
 
@@ -1413,7 +1402,7 @@ impl StacksChainState {
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(mainnet, vm_state, block_limit.clone());
+        let clarity_state = ClarityInstance::new(mainnet, vm_state);
 
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
@@ -1424,7 +1413,6 @@ impl StacksChainState {
             clarity_state_index_path: clarity_state_index_marf,
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
-            block_limit: block_limit,
             unconfirmed_state: None,
         };
 
@@ -2022,15 +2010,9 @@ pub mod test {
             get_bulk_initial_namespaces: None,
         };
 
-        StacksChainState::open_and_exec(
-            mainnet,
-            chain_id,
-            &path,
-            Some(&mut boot_data),
-            ExecutionCost::max_value(),
-        )
-        .unwrap()
-        .0
+        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data))
+            .unwrap()
+            .0
     }
 
     pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
@@ -2128,15 +2110,10 @@ pub mod test {
             Err(_) => {}
         };
 
-        let mut chainstate = StacksChainState::open_and_exec(
-            false,
-            0x80000000,
-            &path,
-            Some(&mut boot_data),
-            ExecutionCost::max_value(),
-        )
-        .unwrap()
-        .0;
+        let mut chainstate =
+            StacksChainState::open_and_exec(false, 0x80000000, &path, Some(&mut boot_data))
+                .unwrap()
+                .0;
 
         let genesis_root_hash = chainstate.clarity_state.with_marf(|marf| {
             let index_block_hash = StacksBlockHeader::make_index_block_hash(
@@ -2223,15 +2200,10 @@ pub mod test {
             Err(_) => {}
         };
 
-        let mut chainstate = StacksChainState::open_and_exec(
-            true,
-            0x000000001,
-            &path,
-            Some(&mut boot_data),
-            ExecutionCost::max_value(),
-        )
-        .unwrap()
-        .0;
+        let mut chainstate =
+            StacksChainState::open_and_exec(true, 0x000000001, &path, Some(&mut boot_data))
+                .unwrap()
+                .0;
 
         let genesis_root_hash = chainstate.clarity_state.with_marf(|marf| {
             let index_block_hash = StacksBlockHeader::make_index_block_hash(

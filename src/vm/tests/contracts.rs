@@ -184,8 +184,7 @@ fn test_block_headers(n: u8) -> StacksBlockId {
 
 #[test]
 fn test_simple_token_system() {
-    let mut clarity =
-        ClarityInstance::new(false, MarfedKV::temporary(), ExecutionCost::max_value());
+    let mut clarity = ClarityInstance::new(false, MarfedKV::temporary());
     let p1 = PrincipalData::from(
         PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
             .unwrap(),

@@ -256,7 +256,6 @@ pub fn setup_states(
         others.iter_mut(),
     );
 
-    let block_limit = ExecutionCost::max_value();
     let initial_balances = initial_balances.unwrap_or(vec![]);
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
@@ -291,7 +290,6 @@ pub fn setup_states(
             0x80000000,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
-            block_limit.clone(),
         )
         .unwrap();
     }

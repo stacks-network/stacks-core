@@ -2392,7 +2392,6 @@ mod test {
             network_id,
             &chainstate_path,
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
         )
         .unwrap();
 

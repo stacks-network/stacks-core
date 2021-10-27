@@ -79,7 +79,6 @@ use crate::util::secp256k1::MessageSignature;
 ///
 pub struct ClarityInstance {
     datastore: MarfedKV,
-    block_limit: ExecutionCost,
     mainnet: bool,
 }
 
@@ -254,12 +253,8 @@ impl ClarityBlockConnection<'_> {
 }
 
 impl ClarityInstance {
-    pub fn new(mainnet: bool, datastore: MarfedKV, block_limit: ExecutionCost) -> ClarityInstance {
-        ClarityInstance {
-            datastore,
-            block_limit,
-            mainnet,
-        }
+    pub fn new(mainnet: bool, datastore: MarfedKV) -> ClarityInstance {
+        ClarityInstance { datastore, mainnet }
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -307,10 +302,12 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin(current, next);
 
+        // DO NOT SUBMIT
+        let block_limit = ExecutionCost::max_value();
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(self.mainnet, self.block_limit.clone(), &mut clarity_db)
+                LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db)
                     .expect("FAIL: problem instantiating cost tracking"),
             )
         };
@@ -432,10 +429,12 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin_unconfirmed(current);
 
+        // DO NOT SUBMIT
+        let block_limit = ExecutionCost::max_value();
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(self.mainnet, self.block_limit.clone(), &mut clarity_db)
+                LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db)
                     .expect("FAIL: problem instantiating cost tracking"),
             )
         };
@@ -1167,7 +1166,7 @@ mod tests {
     #[test]
     pub fn bad_syntax_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1207,7 +1206,7 @@ mod tests {
     #[test]
     pub fn test_initialize_contract_tx_sender_contract_caller() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         clarity_instance
@@ -1256,7 +1255,7 @@ mod tests {
     #[test]
     pub fn tx_rollback() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
@@ -1342,7 +1341,7 @@ mod tests {
     #[test]
     pub fn simple_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1401,7 +1400,7 @@ mod tests {
     #[test]
     pub fn test_block_roll_back() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
@@ -1455,8 +1454,7 @@ mod tests {
         }
 
         let confirmed_marf = MarfedKV::open(test_name, None).unwrap();
-        let mut confirmed_clarity_instance =
-            ClarityInstance::new(false, confirmed_marf, ExecutionCost::max_value());
+        let mut confirmed_clarity_instance = ClarityInstance::new(false, confirmed_marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         let contract = "
@@ -1486,7 +1484,7 @@ mod tests {
             )
             .unwrap();
 
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
 
         // make an unconfirmed block off of the confirmed block
         {
@@ -1590,7 +1588,7 @@ mod tests {
     #[test]
     pub fn test_tx_roll_backs() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -1728,7 +1726,7 @@ mod tests {
         use util::strings::StacksString;
 
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
         let sender = StandardPrincipalData::transient().into();
 
         let spending_cond = TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
@@ -1833,7 +1831,7 @@ mod tests {
     #[test]
     pub fn test_block_limit() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -1877,14 +1875,6 @@ mod tests {
 
             conn.commit_block();
         }
-
-        clarity_instance.block_limit = ExecutionCost {
-            write_length: u64::MAX,
-            write_count: u64::MAX,
-            read_count: u64::MAX,
-            read_length: u64::MAX,
-            runtime: 100,
-        };
 
         {
             let mut conn = clarity_instance.begin_block(

@@ -1315,8 +1315,7 @@ impl StacksBlockBuilder {
         mut txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
-        let (mut chainstate, _) =
-            chainstate_handle.reopen_limited(chainstate_handle.block_limit.clone())?; // used for processing a block up to the given limit
+        let (mut chainstate, _) = chainstate_handle.reopen_limited()?; // used for processing a block up to the given limit
         let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
@@ -1479,7 +1478,7 @@ impl StacksBlockBuilder {
             &tip_consensus_hash, &tip_block_hash, tip_height, &execution_budget
         );
 
-        let (mut chainstate, _) = chainstate_handle.reopen_limited(execution_budget)?; // used for processing a block up to the given limit
+        let (mut chainstate, _) = chainstate_handle.reopen_limited()?; // used for processing a block up to the given limit
 
         let mut builder = StacksBlockBuilder::make_block_builder(
             chainstate.mainnet,
@@ -9018,15 +9017,9 @@ pub mod test {
             get_bulk_initial_namespaces: None,
         };
 
-        StacksChainState::open_and_exec(
-            mainnet,
-            chain_id,
-            &path,
-            Some(&mut boot_data),
-            ExecutionCost::max_value(),
-        )
-        .unwrap()
-        .0
+        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data))
+            .unwrap()
+            .0
     }
 
     static CONTRACT: &'static str = "

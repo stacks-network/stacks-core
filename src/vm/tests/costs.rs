@@ -151,7 +151,7 @@ fn execute_transaction(
 
 fn exec_cost(contract: &str, epoch: StacksEpochId) -> ExecutionCost {
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf_kv);
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -431,7 +431,7 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf_kv);
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -499,7 +499,7 @@ fn test_all() {
 #[test]
 fn test_cost_contract_short_circuits() {
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf_kv);
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -532,7 +532,7 @@ fn test_cost_contract_short_circuits() {
     let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
 
     let mut marf_kv = {
-        let mut clarity_inst = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+        let mut clarity_inst = ClarityInstance::new(false, marf_kv);
         let mut block_conn = clarity_inst.begin_block(
             &StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -711,7 +711,7 @@ fn test_cost_contract_short_circuits() {
 #[test]
 fn test_cost_voting_integration() {
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf_kv);
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -748,7 +748,7 @@ fn test_cost_voting_integration() {
     let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
 
     let mut marf_kv = {
-        let mut clarity_inst = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+        let mut clarity_inst = ClarityInstance::new(false, marf_kv);
         let mut block_conn = clarity_inst.begin_block(
             &StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
