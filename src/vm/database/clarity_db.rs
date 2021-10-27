@@ -26,6 +26,7 @@ use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use vm::contracts::Contract;
 use vm::costs::CostOverflowingMath;
+use vm::costs::ExecutionCost;
 use vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
     DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
@@ -234,6 +235,7 @@ impl BurnStateDB for NullBurnStateDB {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: u64::MAX,
+            block_limit: ExecutionCost::max_value(),
         })
     }
 }

@@ -941,7 +941,7 @@ impl CostTracker for &mut LimitedCostTracker {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Hash)]
 pub struct ExecutionCost {
     pub write_length: u64,
     pub write_count: u64,

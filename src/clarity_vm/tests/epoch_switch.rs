@@ -40,6 +40,7 @@ use rand::thread_rng;
 use rand::RngCore;
 
 use util::hash::to_hex;
+use vm::costs::ExecutionCost;
 
 fn test_burnstatedb_epoch(
     burnstatedb: &dyn BurnStateDB,
@@ -81,16 +82,19 @@ fn test_vm_epoch_switch() {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
                 end_height: 8,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: 8,
                 end_height: 12,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
                 start_height: 12,
                 end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
             },
         ],
         true,

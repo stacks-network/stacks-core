@@ -173,6 +173,7 @@ pub struct StacksEpoch {
     pub epoch_id: StacksEpochId,
     pub start_height: u64,
     pub end_height: u64,
+    pub block_limit: ExecutionCost,
 }
 
 impl StacksEpoch {
@@ -188,11 +189,13 @@ impl StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
                 end_height: first_burnchain_height,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
                 end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
             },
         ]
     }
@@ -209,16 +212,19 @@ impl StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
                 end_height: first_burnchain_height,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
                 end_height: first_burnchain_height + 4,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
                 start_height: first_burnchain_height + 4,
                 end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
             },
         ]
     }
@@ -242,16 +248,19 @@ impl StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
                 end_height: first_burnchain_height,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
                 end_height: epoch_2_05_block_height,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
                 start_height: epoch_2_05_block_height,
                 end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
             },
         ]
     }
@@ -275,16 +284,37 @@ pub const STACKS_EPOCHS_MAINNET: &[StacksEpoch] = &[
         epoch_id: StacksEpochId::Epoch10,
         start_height: 0,
         end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+        block_limit: ExecutionCost {
+            write_length: 15_000_000,
+            write_count: 7_750,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        },
     },
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
         start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
         end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+        block_limit: ExecutionCost {
+            write_length: 15_000_000,
+            write_count: 7_750,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        },
     },
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch2_05,
         start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
         end_height: STACKS_EPOCH_MAX,
+        block_limit: ExecutionCost {
+            write_length: 15_000_000,
+            write_count: 7_750,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        },
     },
 ];
 
@@ -293,11 +323,25 @@ pub const STACKS_EPOCHS_TESTNET: &[StacksEpoch] = &[
         epoch_id: StacksEpochId::Epoch10,
         start_height: 0,
         end_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+        block_limit: ExecutionCost {
+            write_length: 15_000_000,
+            write_count: 7_750,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        },
     },
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
         start_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
         end_height: STACKS_EPOCH_MAX,
+        block_limit: ExecutionCost {
+            write_length: 15_000_000,
+            write_count: 7_750,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        },
     }, // TODO: add Epoch2_05 when its start height is decided
 ];
 
@@ -306,16 +350,37 @@ pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
         epoch_id: StacksEpochId::Epoch10,
         start_height: 0,
         end_height: 0,
+        block_limit: ExecutionCost {
+            write_length: 15_000_000,
+            write_count: 7_750,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        },
     },
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
         start_height: 0,
         end_height: 1000,
+        block_limit: ExecutionCost {
+            write_length: 15_000_000,
+            write_count: 7_750,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        },
     },
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch2_05,
         start_height: 1000,
         end_height: STACKS_EPOCH_MAX,
+        block_limit: ExecutionCost {
+            write_length: 15_000_000,
+            write_count: 7_750,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        },
     },
 ];
 
