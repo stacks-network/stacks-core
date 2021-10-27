@@ -15,8 +15,6 @@ use util::db::u64_to_sql;
 
 use vm::costs::ExecutionCost;
 
-use core::BLOCK_LIMIT_MAINNET;
-
 use chainstate::stacks::db::StacksEpochReceipt;
 use chainstate::stacks::events::TransactionOrigin;
 

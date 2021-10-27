@@ -13,12 +13,19 @@ use chainstate::stacks::TransactionPayload;
 use util::db::u64_to_sql;
 use vm::costs::ExecutionCost;
 
-use core::BLOCK_LIMIT_MAINNET;
-
 use crate::util::db::set_wal_mode;
 use crate::util::db::sql_pragma;
 use crate::util::db::table_exists;
 use crate::util::db::tx_begin_immediate_sqlite;
+
+// DO NOT SUBMIT
+pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
+    write_length: 15_000_000, // roughly 15 mb
+    write_count: 7_750,
+    read_length: 100_000_000,
+    read_count: 7_750,
+    runtime: 5_000_000_000,
+};
 
 use super::{CostEstimator, EstimatorError};
 

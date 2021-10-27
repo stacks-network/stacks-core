@@ -1703,7 +1703,6 @@ pub mod test {
     use chainstate::stacks::db::*;
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
-    use core::BLOCK_LIMIT_MAINNET;
     use net::test::*;
     use util::sleep_ms;
     use util::vrf::VRFProof;
@@ -7031,7 +7030,7 @@ pub mod test {
                         .unwrap();
                 }
 
-                let execution_cost = BLOCK_LIMIT_MAINNET;
+                let execution_cost = ExecutionCost::max_value();
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,

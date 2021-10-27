@@ -489,7 +489,16 @@ simulating a miner.
         tx_signer.sign_origin(&sk).unwrap();
         let coinbase_tx = tx_signer.get_tx().unwrap();
 
-        let mut settings = BlockBuilderSettings::limited(core::BLOCK_LIMIT_MAINNET.clone());
+        // DO NOT SUBMIT
+        let BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
+            write_length: 15_000_000, // roughly 15 mb
+            write_count: 7_750,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        };
+
+        let mut settings = BlockBuilderSettings::limited(BLOCK_LIMIT_MAINNET.clone());
         settings.max_miner_time_ms = max_time;
         settings.mempool_settings.min_tx_fee = min_fee;
 
