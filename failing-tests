@@ -1,0 +1,8 @@
+failures:
+    chainstate::stacks::miner::test::test_build_anchored_blocks_skip_too_expensive
+    chainstate::stacks::miner::test::test_mempool_mining_heuristics
+    clarity_vm::clarity::tests::test_block_limit
+    net::neighbors::test::test_step_walk_2_neighbors_plain
+    net::neighbors::test::test_step_walk_2_neighbors_state_timeout
+    net::neighbors::test::test_step_walk_2_neighbors_walk_timeout
+    net::poll::test::test_bind
