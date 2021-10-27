@@ -371,6 +371,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "mio",
+ "nix",
  "percent-encoding",
  "prometheus",
  "rand 0.7.2",
@@ -393,6 +394,7 @@ dependencies = [
  "time 0.2.23",
  "tini",
  "url",
+ "winapi 0.3.9",
 ]
 
 [[package]]
