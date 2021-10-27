@@ -54,15 +54,13 @@ use crate::types::proof::TrieHash;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
-    pub execution_cost: ExecutionCost,
     pub max_miner_time_ms: u64,
     pub mempool_settings: MemPoolWalkSettings,
 }
 
 impl BlockBuilderSettings {
-    pub fn limited(execution_cost: ExecutionCost) -> BlockBuilderSettings {
+    pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
-            execution_cost: execution_cost,
             max_miner_time_ms: u64::max_value(),
             mempool_settings: MemPoolWalkSettings::default(),
         }
@@ -70,7 +68,6 @@ impl BlockBuilderSettings {
 
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
-            execution_cost: ExecutionCost::max_value(),
             max_miner_time_ms: u64::max_value(),
             mempool_settings: MemPoolWalkSettings::zero(),
         }
@@ -1458,7 +1455,6 @@ impl StacksBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
-        let execution_budget = settings.execution_cost;
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;
 
@@ -1476,8 +1472,8 @@ impl StacksBlockBuilder {
         );
 
         debug!(
-            "Build anchored block off of {}/{} height {} budget {:?}",
-            &tip_consensus_hash, &tip_block_hash, tip_height, &execution_budget
+            "Build anchored block off of {}/{} height {}",
+            &tip_consensus_hash, &tip_block_hash, tip_height
         );
 
         let (mut chainstate, _) = chainstate_handle.reopen_limited()?; // used for processing a block up to the given limit
@@ -6738,7 +6734,6 @@ pub mod test {
                         &coinbase_tx,
                         // no time to mine anything, so all blocks should be empty
                         BlockBuilderSettings {
-                            execution_cost: ExecutionCost::max_value(),
                             max_miner_time_ms: 0,
                             ..BlockBuilderSettings::max_value()
                         },
@@ -7033,8 +7028,6 @@ pub mod test {
                         .unwrap();
                 }
 
-                let execution_cost = ExecutionCost::max_value();
-
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
                     &sortdb.index_conn(),
@@ -7044,7 +7037,7 @@ pub mod test {
                     vrf_proof,
                     Hash160([0 as u8; 20]),
                     &coinbase_tx,
-                    BlockBuilderSettings::limited(execution_cost),
+                    BlockBuilderSettings::limited(),
                     None,
                 )
                 .unwrap();
@@ -7263,6 +7256,7 @@ pub mod test {
 
                     // enough for the first stx-transfer, but not for the analysis of the smart
                     // contract.
+                    // DO NOT SUBMIT
                     let execution_cost = ExecutionCost {
                         write_length: 100,
                         write_count: 100,
@@ -7280,7 +7274,7 @@ pub mod test {
                         vrf_proof,
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
-                        BlockBuilderSettings::limited(execution_cost),
+                        BlockBuilderSettings::limited(),
                         None,
                     )
                     .unwrap();
@@ -7422,8 +7416,6 @@ pub mod test {
                             .unwrap();
                     }
 
-                    let execution_cost = ExecutionCost::max_value();
-
                     let anchored_block = {
                         let mempool_to_use = if tenure_id < num_blocks - 1 {
                             &mut blank_mempool
@@ -7440,7 +7432,7 @@ pub mod test {
                             vrf_proof,
                             Hash160([tenure_id as u8; 20]),
                             &coinbase_tx,
-                            BlockBuilderSettings::limited(execution_cost),
+                            BlockBuilderSettings::limited(),
                             None,
                         )
                         .unwrap()
@@ -9123,6 +9115,7 @@ pub mod test {
         )
         .unwrap();
 
+        // DO NOT SUBMIT
         let execution_limit = ExecutionCost {
             write_length: 15_000_000, // roughly 15 mb
             write_count: 500,
@@ -9291,7 +9284,7 @@ pub mod test {
                 VRFProof::empty(),
                 Hash160([block_index; 20]),
                 &coinbase_tx,
-                BlockBuilderSettings::limited(execution_limit.clone()),
+                BlockBuilderSettings::limited(),
                 None,
             )
             .unwrap();

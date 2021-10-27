@@ -497,7 +497,7 @@ simulating a miner.
             runtime: 5_000_000_000,
         };
 
-        let mut settings = BlockBuilderSettings::limited(stacks20_block_limit_mainnet);
+        let mut settings = BlockBuilderSettings::limited();
         settings.max_miner_time_ms = max_time;
         settings.mempool_settings.min_tx_fee = min_fee;
 
