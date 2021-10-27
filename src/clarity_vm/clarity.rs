@@ -56,6 +56,7 @@ use crate::chainstate::stacks::TransactionSpendingCondition;
 use crate::chainstate::stacks::TransactionVersion;
 use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
+use crate::core::StacksEpoch;
 use crate::core::StacksEpochId;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
@@ -269,27 +270,34 @@ impl ClarityInstance {
     }
 
     /// Returns the Stacks epoch of the burn block that elected `stacks_block`
+    ///
+    /// If the burn height of `stacks_block` cannot be found, default to Epoch20.
     fn get_epoch_of(
         stacks_block: &StacksBlockId,
         header_db: &dyn HeadersDB,
         burn_state_db: &dyn BurnStateDB,
-    ) -> StacksEpochId {
-        match header_db.get_burn_block_height_for_block(stacks_block) {
+    ) -> StacksEpoch {
+        let epoch_found = match header_db.get_burn_block_height_for_block(stacks_block) {
             Some(burn_height) => {
                 // special case the Stacks 2.0 genesis block -- it occurs at a zero burn block height
                 if burn_height == 0 {
-                    StacksEpochId::Epoch20
+                    None
                 } else {
-                    burn_state_db
-                        .get_stacks_epoch(burn_height)
-                        .expect(&format!(
-                            "Failed to get Stacks epoch for height = {}",
-                            burn_height
-                        ))
-                        .epoch_id
+                    Some(burn_state_db.get_stacks_epoch(burn_height).expect(&format!(
+                        "Failed to get Stacks epoch for height = {}",
+                        burn_height
+                    )))
                 }
             }
-            None => StacksEpochId::Epoch20,
+            None => None,
+        };
+
+        if epoch_found.is_some() {
+            epoch_found.unwrap()
+        } else {
+            burn_state_db
+                .get_stacks_epoch_by_epoch_id(&StacksEpochId::Epoch20)
+                .expect(&format!("Failed to get Stacks epoch for Epoch20"))
         }
     }
 
@@ -320,7 +328,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
-            epoch,
+            epoch: epoch.epoch_id,
         }
     }
 
@@ -447,7 +455,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
-            epoch,
+            epoch: epoch.epoch_id,
         }
     }
 
@@ -474,7 +482,7 @@ impl ClarityInstance {
             datastore,
             header_db,
             burn_state_db,
-            epoch,
+            epoch: epoch.epoch_id,
         })
     }
 
@@ -491,7 +499,7 @@ impl ClarityInstance {
 
         let epoch = Self::get_epoch_of(at_block, header_db, burn_state_db);
 
-        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db, epoch);
+        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db, epoch.epoch_id);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
