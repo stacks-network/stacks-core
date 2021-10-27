@@ -127,12 +127,14 @@ pub struct StacksMicroblockBuilder<'a> {
     anchor_block: BlockHeaderHash,
     anchor_block_consensus_hash: ConsensusHash,
     anchor_block_height: u64,
+    // The height of the burn block when `anchor_block` was produced.
+    burn_block_height: u64,
     header_reader: StacksChainState,
     clarity_tx: Option<ClarityTx<'a>>,
     unconfirmed: bool,
     runtime: MicroblockMinerRuntime,
     settings: BlockBuilderSettings,
-        burn_dbconn: &'a dyn BurnStateDB,
+    burn_dbconn: &'a dyn BurnStateDB,
 }
 
 impl<'a> StacksMicroblockBuilder<'a> {
@@ -151,7 +153,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         };
 
         let (header_reader, _) = chainstate.reopen()?;
-        let anchor_block_height = StacksChainState::get_anchored_block_header_info(
+        let anchor_block_info = StacksChainState::get_anchored_block_header_info(
             header_reader.db(),
             &anchor_block_consensus_hash,
             &anchor_block,
@@ -162,8 +164,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 &anchor_block_consensus_hash, &anchor_block
             );
             Error::NoSuchBlockError
-        })?
-        .block_height;
+        })?;
+
+        let anchor_block_height = anchor_block_info.block_height;
+        let burn_block_height = anchor_block_info.burn_header_height;
 
         // when we drop the miner, the underlying clarity instance will be rolled back
         chainstate.set_unconfirmed_dirty(true);
@@ -202,7 +206,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
             header_reader,
             unconfirmed: false,
             settings: settings,
-burn_dbconn,
+            burn_dbconn,
+            burn_block_height: burn_block_height as u64,
         })
     }
 
@@ -222,30 +227,34 @@ burn_dbconn,
         };
 
         let (header_reader, _) = chainstate.reopen()?;
-        let (anchored_consensus_hash, anchored_block_hash, anchored_block_height) =
-            if let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() {
-                let header_info =
-                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                        chainstate.db(),
-                        &unconfirmed.confirmed_chain_tip,
-                    )?
-                    .ok_or_else(|| {
-                        warn!(
-                            "No such confirmed block {}",
-                            &unconfirmed.confirmed_chain_tip
-                        );
-                        Error::NoSuchBlockError
-                    })?;
-                (
-                    header_info.consensus_hash,
-                    header_info.anchored_header.block_hash(),
-                    header_info.block_height,
-                )
-            } else {
-                // unconfirmed state needs to be initialized
-                debug!("Unconfirmed chainstate not initialized");
-                return Err(Error::NoSuchBlockError)?;
-            };
+        let (
+            anchored_consensus_hash,
+            anchored_block_hash,
+            anchored_block_height,
+            anchored_burn_block_height,
+        ) = if let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() {
+            let header_info = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                chainstate.db(),
+                &unconfirmed.confirmed_chain_tip,
+            )?
+            .ok_or_else(|| {
+                warn!(
+                    "No such confirmed block {}",
+                    &unconfirmed.confirmed_chain_tip
+                );
+                Error::NoSuchBlockError
+            })?;
+            (
+                header_info.consensus_hash,
+                header_info.anchored_header.block_hash(),
+                header_info.block_height,
+                header_info.burn_header_height,
+            )
+        } else {
+            // unconfirmed state needs to be initialized
+            debug!("Unconfirmed chainstate not initialized");
+            return Err(Error::NoSuchBlockError)?;
+        };
 
         let mut clarity_tx = chainstate.begin_unconfirmed(burn_dbconn).ok_or_else(|| {
             warn!(
@@ -275,6 +284,7 @@ burn_dbconn,
             unconfirmed: true,
             settings: settings,
             burn_dbconn,
+            burn_block_height: anchored_burn_block_height as u64,
         })
     }
 
@@ -510,9 +520,11 @@ burn_dbconn,
                                 bytes_so_far += mempool_tx.metadata.len;
 
                                 // REVIEW QUESTION: Should we unwrap here or match?
-                                let stacks_epoch = self.burn_dbconn.get_stacks_epoch(self.anchor_block_height as u32).expect("No epoch found for height.");
+                                let stacks_epoch = self
+                                    .burn_dbconn
+                                    .get_stacks_epoch(self.burn_block_height as u32)
+                                    .expect("No epoch found for burn block height.");
                                 if update_estimator {
-                                    // DO NOT SUBMIT
                                     if let Err(e) = estimator.notify_event(
                                         &mempool_tx.tx.payload,
                                         &receipt.execution_cost,
@@ -1565,11 +1577,16 @@ impl StacksBlockBuilder {
                             Ok(tx_receipt) => {
                                 num_txs += 1;
                                 if update_estimator {
-                                    // DO NOT SUBMIT
+                                    // REVIEW QUESTION: Should we unwrap here or match?
+                                    let stacks_epoch = burn_dbconn
+                                        .get_stacks_epoch(
+                                            parent_stacks_header.burn_header_height as u32,
+                                        )
+                                        .expect("No epoch found for burn block height.");
                                     if let Err(e) = estimator.notify_event(
                                         &txinfo.tx.payload,
                                         &tx_receipt.execution_cost,
-                                        &ExecutionCost::max_value(),
+                                        &stacks_epoch.block_limit,
                                     ) {
                                         warn!("Error updating estimator";
                                               "txid" => %txinfo.metadata.txid,
