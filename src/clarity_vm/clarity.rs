@@ -310,17 +310,14 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin(current, next);
 
-        // DO NOT SUBMIT
-        let block_limit = ExecutionCost::max_value();
+        let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db)
+                LimitedCostTracker::new(self.mainnet, epoch.block_limit.clone(), &mut clarity_db)
                     .expect("FAIL: problem instantiating cost tracking"),
             )
         };
-
-        let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
 
         ClarityBlockConnection {
             datastore,
@@ -437,17 +434,14 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin_unconfirmed(current);
 
-        // DO NOT SUBMIT
-        let block_limit = ExecutionCost::max_value();
+        let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db)
+                LimitedCostTracker::new(self.mainnet, epoch.block_limit.clone(), &mut clarity_db)
                     .expect("FAIL: problem instantiating cost tracking"),
             )
         };
-
-        let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
 
         ClarityBlockConnection {
             datastore,
