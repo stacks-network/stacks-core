@@ -510,9 +510,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                 bytes_so_far += mempool_tx.metadata.len;
 
                                 if update_estimator {
+                                    // DO NOT SUBMIT
                                     if let Err(e) = estimator.notify_event(
                                         &mempool_tx.tx.payload,
                                         &receipt.execution_cost,
+                                        &ExecutionCost::max_value(),
                                     ) {
                                         warn!("Error updating estimator";
                                               "txid" => %mempool_tx.metadata.txid,
@@ -1562,9 +1564,11 @@ impl StacksBlockBuilder {
                             Ok(tx_receipt) => {
                                 num_txs += 1;
                                 if update_estimator {
+                                    // DO NOT SUBMIT
                                     if let Err(e) = estimator.notify_event(
                                         &txinfo.tx.payload,
                                         &tx_receipt.execution_cost,
+                                        &ExecutionCost::max_value(),
                                     ) {
                                         warn!("Error updating estimator";
                                               "txid" => %txinfo.metadata.txid,

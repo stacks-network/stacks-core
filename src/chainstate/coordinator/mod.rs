@@ -768,7 +768,9 @@ impl<
                     }
 
                     if let Some(ref mut estimator) = self.cost_estimator {
-                        estimator.notify_block(&block_receipt.tx_receipts);
+                        // DO NOT SUBMIT
+                        estimator
+                            .notify_block(&block_receipt.tx_receipts, &ExecutionCost::max_value());
                     }
 
                     if let Some(ref mut estimator) = self.fee_estimator {

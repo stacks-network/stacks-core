@@ -122,6 +122,7 @@ pub trait CostEstimator: Send {
         &mut self,
         tx: &TransactionPayload,
         actual_cost: &ExecutionCost,
+        block_limit: &ExecutionCost,
     ) -> Result<(), EstimatorError>;
 
     /// This method is used by a stacks-node to obtain an estimate for a given transaction payload.
@@ -134,7 +135,7 @@ pub trait CostEstimator: Send {
     ///
     /// A default implementation is provided to implementing structs that processes the transaction
     /// receipts by feeding them into `CostEstimator::notify_event()`
-    fn notify_block(&mut self, receipts: &[StacksTransactionReceipt]) {
+    fn notify_block(&mut self, receipts: &[StacksTransactionReceipt], block_limit: &ExecutionCost) {
         // iterate over receipts, and for all the tx receipts, notify the event
         for current_receipt in receipts.iter() {
             let current_txid = match current_receipt.transaction {
@@ -146,7 +147,9 @@ pub trait CostEstimator: Send {
                 TransactionOrigin::Stacks(ref tx) => &tx.payload,
             };
 
-            if let Err(e) = self.notify_event(tx_payload, &current_receipt.execution_cost) {
+            if let Err(e) =
+                self.notify_event(tx_payload, &current_receipt.execution_cost, block_limit)
+            {
                 info!("CostEstimator failed to process event";
                       "txid" => %current_txid,
                       "error" => %e,
@@ -216,6 +219,7 @@ impl CostEstimator for () {
         &mut self,
         _tx: &TransactionPayload,
         _actual_cost: &ExecutionCost,
+        _block_limit: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
         Ok(())
     }
@@ -247,6 +251,7 @@ impl CostEstimator for UnitEstimator {
         &mut self,
         _tx: &TransactionPayload,
         _actual_cost: &ExecutionCost,
+        _block_limit: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
         Ok(())
     }

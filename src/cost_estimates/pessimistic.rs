@@ -250,14 +250,15 @@ impl CostEstimator for PessimisticEstimator {
         &mut self,
         tx: &TransactionPayload,
         actual_cost: &ExecutionCost,
+        block_limit: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
         if self.log_error {
             // only log the estimate error if an estimate could be constructed
             if let Ok(estimated_cost) = self.estimate_cost(tx) {
-                let estimated_scalar = estimated_cost
-                    .proportion_dot_product(&BLOCK_LIMIT_MAINNET, PROPORTION_RESOLUTION);
+                let estimated_scalar =
+                    estimated_cost.proportion_dot_product(&block_limit, PROPORTION_RESOLUTION);
                 let actual_scalar =
-                    actual_cost.proportion_dot_product(&BLOCK_LIMIT_MAINNET, PROPORTION_RESOLUTION);
+                    actual_cost.proportion_dot_product(&block_limit, PROPORTION_RESOLUTION);
                 info!("PessimisticEstimator received event";
                       "key" => %PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost),
                       "estimate" => estimated_scalar,
