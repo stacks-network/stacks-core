@@ -102,6 +102,7 @@ pub trait BurnStateDB {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
+    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch>;
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -143,6 +144,10 @@ impl BurnStateDB for &dyn BurnStateDB {
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         (*self).get_stacks_epoch(height)
+    }
+
+    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        (*self).get_stacks_epoch_by_epoch_id(epoch_id)
     }
 }
 
@@ -237,6 +242,10 @@ impl BurnStateDB for NullBurnStateDB {
             end_height: u64::MAX,
             block_limit: ExecutionCost::max_value(),
         })
+    }
+
+    fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        self.get_stacks_epoch(0)
     }
 }
 

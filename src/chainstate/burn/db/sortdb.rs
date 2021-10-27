@@ -3329,6 +3329,15 @@ impl SortitionDB {
         ];
         query_row(conn, sql, args)
     }
+
+    pub fn get_stacks_epoch_by_epoch_id(
+        conn: &DBConn,
+        epoch_id: &StacksEpochId,
+    ) -> Result<Option<StacksEpoch>, db_error> {
+        let sql = "SELECT * FROM epochs WHERE epoch_id = ?1 LIMIT 1";
+        let args: &[&dyn ToSql] = &[&(*epoch_id as u32)];
+        query_row(conn, sql, args)
+    }
 }
 
 impl<'a> SortitionHandleTx<'a> {

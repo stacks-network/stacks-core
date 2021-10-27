@@ -1883,6 +1883,9 @@ mod test {
                 block_limit: ExecutionCost::max_value(),
             })
         }
+        fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+            self.get_stacks_epoch(0)
+        }
     }
 
     fn docs_execute(marf: &mut MarfedKV, program: &str) {
