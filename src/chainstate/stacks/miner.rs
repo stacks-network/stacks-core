@@ -132,6 +132,7 @@ pub struct StacksMicroblockBuilder<'a> {
     unconfirmed: bool,
     runtime: MicroblockMinerRuntime,
     settings: BlockBuilderSettings,
+        burn_dbconn: &'a dyn BurnStateDB,
 }
 
 impl<'a> StacksMicroblockBuilder<'a> {
@@ -201,6 +202,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             header_reader,
             unconfirmed: false,
             settings: settings,
+burn_dbconn,
         })
     }
 
@@ -272,6 +274,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             header_reader,
             unconfirmed: true,
             settings: settings,
+            burn_dbconn,
         })
     }
 
@@ -506,12 +509,14 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             Ok(Some(receipt)) => {
                                 bytes_so_far += mempool_tx.metadata.len;
 
+                                // REVIEW QUESTION: Should we unwrap here or match?
+                                let stacks_epoch = self.burn_dbconn.get_stacks_epoch(self.anchor_block_height as u32).expect("No epoch found for height.");
                                 if update_estimator {
                                     // DO NOT SUBMIT
                                     if let Err(e) = estimator.notify_event(
                                         &mempool_tx.tx.payload,
                                         &receipt.execution_cost,
-                                        &ExecutionCost::max_value(),
+                                        &stacks_epoch.block_limit,
                                     ) {
                                         warn!("Error updating estimator";
                                               "txid" => %mempool_tx.metadata.txid,
