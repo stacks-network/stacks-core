@@ -428,12 +428,15 @@ impl FromRow<StacksEpoch> for StacksEpoch {
 
         let start_height = u64::from_column(row, "start_block_height")?;
         let end_height = u64::from_column(row, "end_block_height")?;
-        // DO NOT SUBMIT
+
+        let block_limit_json: String = row.get_unwrap("block_limit");
+        let block_limit: ExecutionCost =
+            serde_json::from_str(&block_limit_json).map_err(|e| db_error::SerializationError(e))?;
         Ok(StacksEpoch {
             epoch_id,
             start_height,
             end_height,
-            block_limit: ExecutionCost::max_value(),
+            block_limit,
         })
     }
 }
@@ -605,6 +608,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
          start_block_height INTEGER NOT NULL,
          end_block_height INTEGER NOT NULL,
          epoch_id INTEGER NOT NULL,
+         block_limit TEXT NOT NULL,
          PRIMARY KEY(start_block_height,epoch_id)
      );"#,
 ];
@@ -2226,9 +2230,11 @@ impl SortitionDB {
                 &(epoch.epoch_id as u32),
                 &u64_to_sql(epoch.start_height)?,
                 &u64_to_sql(epoch.end_height)?,
+                &serde_json::to_string(&epoch.block_limit)
+                    .expect("Failed to serialize block limit."),
             ];
             db_tx.execute(
-                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height) VALUES (?1,?2,?3)",
+                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height,block_limit) VALUES (?1,?2,?3,?4)",
                 args
             )?;
         }
