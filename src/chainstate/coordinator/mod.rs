@@ -58,6 +58,7 @@ use crate::types::chainstate::{
     StacksBlockId,
 };
 use crate::util::boot::boot_code_id;
+use vm::database::BurnStateDB;
 
 pub use self::comm::CoordinatorCommunication;
 
@@ -768,7 +769,9 @@ impl<
                     }
 
                     if let Some(ref mut estimator) = self.cost_estimator {
-                        // DO NOT SUBMIT
+                        let burn_block_height = block_receipt.header.burn_header_height;
+                        let burn_db = self.sortition_db.index_conn();
+                        let epoch = burn_db.get_stacks_epoch(burn_block_height);
                         estimator
                             .notify_block(&block_receipt.tx_receipts, &ExecutionCost::max_value());
                     }

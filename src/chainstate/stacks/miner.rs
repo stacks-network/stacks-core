@@ -7278,7 +7278,7 @@ pub mod test {
 
                     // enough for the first stx-transfer, but not for the analysis of the smart
                     // contract.
-                    // DO NOT SUBMIT
+                    // DO NOT SUBMIT: this test will fail
                     let execution_cost = ExecutionCost {
                         write_length: 100,
                         write_count: 100,
@@ -9137,7 +9137,7 @@ pub mod test {
         )
         .unwrap();
 
-        // DO NOT SUBMIT
+        // DO NOT SUBMIT: this test will probably fail
         let execution_limit = ExecutionCost {
             write_length: 15_000_000, // roughly 15 mb
             write_count: 500,
