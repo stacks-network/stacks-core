@@ -773,7 +773,7 @@ impl<
                         let burn_db = self.sortition_db.index_conn();
                         let epoch = burn_db.get_stacks_epoch(burn_block_height);
                         estimator
-                            .notify_block(&block_receipt.tx_receipts, &ExecutionCost::max_value());
+                            .notify_block(&block_receipt.tx_receipts, &epoch.block_limit);
                     }
 
                     if let Some(ref mut estimator) = self.fee_estimator {

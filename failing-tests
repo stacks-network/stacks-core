@@ -2,7 +2,15 @@ failures:
     chainstate::stacks::miner::test::test_build_anchored_blocks_skip_too_expensive
     chainstate::stacks::miner::test::test_mempool_mining_heuristics
     clarity_vm::clarity::tests::test_block_limit
+    // net::neighbors::test::test_step_walk_2_neighbors_plain
+    // net::neighbors::test::test_step_walk_2_neighbors_state_timeout
+    // net::neighbors::test::test_step_walk_2_neighbors_walk_timeout
+    net::poll::test::test_bind
+
+
+failure at head
+    net::neighbors::test::test_step_walk_2_neighbors_different_networks
     net::neighbors::test::test_step_walk_2_neighbors_plain
     net::neighbors::test::test_step_walk_2_neighbors_state_timeout
     net::neighbors::test::test_step_walk_2_neighbors_walk_timeout
-    net::poll::test::test_bind
+    net::p2p::test::test_event_id_no_connecting_leaks

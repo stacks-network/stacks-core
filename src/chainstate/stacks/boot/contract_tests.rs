@@ -248,6 +248,7 @@ impl HeadersDB for TestSimHeadersDB {
         }
     }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        warn!("check");
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32)
         } else {

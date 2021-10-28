@@ -122,6 +122,7 @@ impl HeadersDB for &dyn HeadersDB {
         (*self).get_burn_block_time_for_block(bhh)
     }
     fn get_burn_block_height_for_block(&self, bhh: &StacksBlockId) -> Option<u32> {
+        warn!("check");
         (*self).get_burn_block_height_for_block(bhh)
     }
     fn get_miner_address(&self, bhh: &StacksBlockId) -> Option<StacksAddress> {
@@ -147,6 +148,7 @@ impl BurnStateDB for &dyn BurnStateDB {
     }
 
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        warn!("get_epoch");
         (*self).get_stacks_epoch_by_epoch_id(epoch_id)
     }
 }
@@ -206,6 +208,10 @@ impl HeadersDB for NullHeadersDB {
         }
     }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        // Note: We call this one.
+        let bt = backtrace::Backtrace::new();
+        warn!("get_burn_block_height_for_block:bt {:?}", bt);
+        warn!("check");
         if *id_bhh
             == StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -245,6 +251,8 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        // this is the one we use
+        warn!("get_epoch");
         self.get_stacks_epoch(0)
     }
 }

@@ -64,6 +64,8 @@ use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
 use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util::secp256k1::MessageSignature;
+use crate::types::chainstate::SortitionId;
+use types::chainstate::BurnchainHeaderHash;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -277,8 +279,10 @@ impl ClarityInstance {
         header_db: &dyn HeadersDB,
         burn_state_db: &dyn BurnStateDB,
     ) -> StacksEpoch {
+        warn!("check");
         let epoch_found = match header_db.get_burn_block_height_for_block(stacks_block) {
             Some(burn_height) => {
+                warn!("burn_height {}", burn_height);
                 // special case the Stacks 2.0 genesis block -- it occurs at a zero burn block height
                 if burn_height == 0 {
                     None
@@ -289,12 +293,17 @@ impl ClarityInstance {
                     )))
                 }
             }
-            None => None,
+            None => {
+                warn!("burn_height None");
+                None}
+            ,
         };
 
         if epoch_found.is_some() {
+            warn!("epoch_found:true");
             epoch_found.unwrap()
         } else {
+            warn!("epoch_found:false");
             burn_state_db
                 .get_stacks_epoch_by_epoch_id(&StacksEpochId::Epoch20)
                 .expect(&format!("Failed to get Stacks epoch for Epoch20"))
@@ -308,9 +317,12 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
+        let bt = backtrace::Backtrace::new();
+        warn!("begin_block:bt {:?}", bt);
         let mut datastore = self.datastore.begin(current, next);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
+        warn!("epoch {:?}", &epoch);
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
@@ -1028,13 +1040,16 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
     {
+        warn!("check");
         let expr_args: Vec<_> = args
             .iter()
             .map(|x| SymbolicExpression::atom_value(x.clone()))
             .collect();
 
+        warn!("check");
         self.with_abort_callback(
             |vm_env| {
+        warn!("check");
                 vm_env
                     .execute_transaction(
                         sender.clone(),
@@ -1047,6 +1062,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             abort_call_back,
         )
         .and_then(|(value, assets, events, aborted)| {
+        warn!("check");
             if aborted {
                 Err(Error::AbortedByCallback(Some(value), assets, events))
             } else {
@@ -1837,6 +1853,46 @@ mod tests {
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
+pub struct BlockLimitBurnStateDB {}
+impl BurnStateDB for BlockLimitBurnStateDB {
+    fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
+        None
+    }
+
+    fn get_burn_header_hash(
+        &self,
+        _height: u32,
+        _sortition_id: &SortitionId,
+    ) -> Option<BurnchainHeaderHash> {
+        None
+    }
+
+    fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
+        warn!("get_stacks_epoch1");
+        // Note: We return this StacksEpoch for every input, because this test is not exercising
+        // this method. 
+        Some(StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: u64::MAX,
+            block_limit: ExecutionCost {
+            write_length: u64::MAX,
+            write_count: u64::MAX,
+            read_count: u64::MAX,
+            read_length: u64::MAX,
+            runtime: 100,
+        },
+        })
+    }
+
+    fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        // this is the one we use
+        warn!("get_epoch");
+        self.get_stacks_epoch(0)
+    }
+}
+
+let burn_state_db = BlockLimitBurnStateDB {};
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
@@ -1883,7 +1939,7 @@ mod tests {
                 &StacksBlockId([1 as u8; 32]),
                 &StacksBlockId([2 as u8; 32]),
                 &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &burn_state_db,
             );
             assert!(match conn
                 .as_transaction(|tx| tx.run_contract_call(

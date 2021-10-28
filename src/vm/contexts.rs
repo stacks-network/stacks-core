@@ -956,25 +956,32 @@ impl<'a, 'b> Environment<'a, 'b> {
         args: &[SymbolicExpression],
         read_only: bool,
     ) -> Result<Value> {
+        warn!("check");
         let contract_size = self
             .global_context
             .database
             .get_contract_size(contract_identifier)?;
         runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
 
+        warn!("check");
         self.global_context.add_memory(contract_size)?;
 
+        warn!("check");
         finally_drop_memory!(self.global_context, contract_size; {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
 
             let func = contract.contract_context.lookup_function(tx_name)
                 .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
+        warn!("check");
             if !func.is_public() {
+        warn!("check");
                 return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             } else if read_only && !func.is_read_only() {
+        warn!("check");
                 return Err(CheckErrors::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
             }
 
+        warn!("check");
             let args: Result<Vec<Value>> = args.iter()
                 .map(|arg| {
                     let value = arg.match_atom_value()
@@ -984,6 +991,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 })
                 .collect();
 
+        warn!("check");
             let args = args?;
 
             let func_identifier = func.get_identifier();
@@ -994,9 +1002,12 @@ impl<'a, 'b> Environment<'a, 'b> {
             let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
             self.call_stack.remove(&func_identifier, true)?;
 
+        warn!("check");
             match res {
                 Ok(value) => {
+        warn!("check");
                     handle_contract_call_special_cases(&mut self.global_context, self.sender.as_ref(), contract_identifier, tx_name, &value)?;
+        warn!("check");
                     Ok(value)
                 },
                 Err(e) => Err(e)
