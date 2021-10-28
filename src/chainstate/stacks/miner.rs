@@ -7149,6 +7149,8 @@ pub mod test {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: i64::MAX as u64,
+            // enough for the first stx-transfer, but not for the analysis of the smart
+            // contract.
             block_limit: ExecutionCost {
                 write_length: 100,
                 write_count: 100,
@@ -7157,8 +7159,6 @@ pub mod test {
                 runtime: 3350,
             },
         }]);
-
-        warn!("peer_config {:#?}", &peer_config);
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -7289,17 +7289,6 @@ pub mod test {
 
                         sender_nonce += 1;
                     }
-
-                    // enough for the first stx-transfer, but not for the analysis of the smart
-                    // contract.
-                    // DO NOT SUBMIT: this test will fail
-                    let execution_cost = ExecutionCost {
-                        write_length: 100,
-                        write_count: 100,
-                        read_length: 100,
-                        read_count: 100,
-                        runtime: 3350,
-                    };
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
@@ -9161,15 +9150,6 @@ pub mod test {
             true,
         )
         .unwrap();
-
-        // DO NOT SUBMIT: this test will probably fail
-        let execution_limit = ExecutionCost {
-            write_length: 15_000_000, // roughly 15 mb
-            write_count: 500,
-            read_length: 100_000_000,
-            read_count: 7_750,
-            runtime: 5_000_000_000,
-        };
 
         let mut mempool = MemPoolDB::open_test(false, chain_id, &chainstate.root_path).unwrap();
 

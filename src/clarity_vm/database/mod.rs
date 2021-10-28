@@ -43,7 +43,6 @@ impl HeadersDB for DBConn {
     }
 
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
-        warn!("check");
         get_stacks_header_info(self, id_bhh).map(|x| x.burn_header_height)
     }
 
@@ -108,7 +107,6 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     }
 
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
-        warn!("get_epoch");
         SortitionDB::get_stacks_epoch_by_epoch_id(self.tx(), epoch_id)
             .expect("BUG: failed to get epoch for epoch id")
     }
@@ -140,7 +138,6 @@ impl BurnStateDB for SortitionDBConn<'_> {
     }
 
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
-        warn!("get_epoch");
         SortitionDB::get_stacks_epoch_by_epoch_id(self.conn(), epoch_id)
             .expect("BUG: failed to get epoch for epoch id")
     }

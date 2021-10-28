@@ -2098,6 +2098,7 @@ impl SortitionDB {
         };
 
         if create_flag {
+            // instantiate!
             db.instantiate(
                 first_block_height,
                 first_burn_hash,
