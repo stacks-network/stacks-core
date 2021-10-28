@@ -416,6 +416,102 @@ fn epoch205_map_delete() {
     );
 }
 
+#[test]
+// Test the nft changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are stored to the datastore.
+fn epoch205_nfts() {
+    // test nft-mint
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-mint? db (list 1 2 3 4 5) tx-sender)
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-mint? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20) tx-sender)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+
+    // test nft-transfer
+    //  these transfers fail, but the cost tabulation is still the same
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-transfer? db (list 1 2 3 4 5)
+                             tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-transfer? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+                             tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+
+    // test nft-burn
+    //  these burns fail, but the cost tabulation is still the same
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-burn? db (list 1 2 3 4 5)
+                             'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-burn? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+                             'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+
+    // test nft-get-owner?
+    //  these calls fail, but the cost tabulation is still the same
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-get-owner? db (list 1 2 3 4 5))
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-get-owner? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
 fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let contract_trait = "(define-trait trait-1 (
                             (foo-exec (int) (response int int))
