@@ -13,6 +13,8 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::{self, ContractContext};
 
+const DOCS_GENERATION_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
+
 #[derive(Serialize)]
 struct ContractRef {
     public_functions: Vec<FunctionRef>,
@@ -206,7 +208,7 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
         false,
         conn,
         LimitedCostTracker::new_free(),
-        StacksEpochId::Epoch2_05,
+        DOCS_GENERATION_EPOCH,
     );
     global_context.execute(|g| {
         let parsed = vm::ast::build_ast(&contract_id, program, &mut ())?.expressions;

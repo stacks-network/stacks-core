@@ -304,6 +304,10 @@ impl<'a> ClarityTx<'a> {
         self.block.cost_so_far()
     }
 
+    pub fn get_epoch(&self) -> StacksEpochId {
+        self.block.get_epoch()
+    }
+
     /// Set the ClarityTx's cost tracker.
     /// Returns the replaced cost tracker.
     fn set_cost_tracker(&mut self, new_tracker: LimitedCostTracker) -> LimitedCostTracker {

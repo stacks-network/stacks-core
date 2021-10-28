@@ -1192,9 +1192,10 @@ impl ConversationHttp {
 
         let data_opt_res =
             chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                let epoch = clarity_tx.get_epoch();
                 let cost_track = clarity_tx
                     .with_clarity_db_readonly(|clarity_db| {
-                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db)
+                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db, epoch)
                     })
                     .map_err(|_| {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
