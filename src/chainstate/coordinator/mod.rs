@@ -771,9 +771,10 @@ impl<
                     if let Some(ref mut estimator) = self.cost_estimator {
                         let burn_block_height = block_receipt.header.burn_header_height;
                         let burn_db = self.sortition_db.index_conn();
-                        let epoch = burn_db.get_stacks_epoch(burn_block_height);
-                        estimator
-                            .notify_block(&block_receipt.tx_receipts, &epoch.block_limit);
+                        let epoch = burn_db
+                            .get_stacks_epoch(burn_block_height)
+                            .expect("Could not fetch epoch for height.");
+                        estimator.notify_block(&block_receipt.tx_receipts, &epoch.block_limit);
                     }
 
                     if let Some(ref mut estimator) = self.fee_estimator {

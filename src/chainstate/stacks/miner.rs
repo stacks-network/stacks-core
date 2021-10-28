@@ -7145,6 +7145,20 @@ pub mod test {
         let mut peer_config =
             TestPeerConfig::new("test_build_anchored_blocks_skip_too_expensive", 2006, 2007);
         peer_config.initial_balances = initial_balances;
+        peer_config.epochs = Some(vec![StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: i64::MAX as u64,
+            block_limit: ExecutionCost {
+                write_length: 100,
+                write_count: 100,
+                read_length: 100,
+                read_count: 100,
+                runtime: 3350,
+            },
+        }]);
+
+        warn!("peer_config {:#?}", &peer_config);
 
         let mut peer = TestPeer::new(peer_config);
 

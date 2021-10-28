@@ -77,7 +77,7 @@ fn handle_pox_api_contract_call(
     function_name: &str,
     value: &Value,
 ) -> Result<()> {
-        warn!("check");
+    warn!("check");
     if function_name == "stack-stx" || function_name == "delegate-stack-stx" {
         warn!("check");
         debug!(
@@ -100,7 +100,7 @@ fn handle_pox_api_contract_call(
             Ok((stacker, locked_amount, unlock_height)) => {
                 // if this fails, then there's a bug in the contract (since it already does
                 // the necessary checks)
-        warn!("check");
+                warn!("check");
                 match StacksChainState::pox_lock(
                     &mut global_context.database,
                     &stacker,
@@ -108,9 +108,9 @@ fn handle_pox_api_contract_call(
                     unlock_height as u64,
                 ) {
                     Ok(_) => {
-        warn!("check");
+                        warn!("check");
                         if let Some(batch) = global_context.event_batches.last_mut() {
-        warn!("check");
+                            warn!("check");
                             batch.events.push(StacksTransactionEvent::STXEvent(
                                 STXEventType::STXLockEvent(STXLockEventData {
                                     locked_amount,
@@ -121,25 +121,25 @@ fn handle_pox_api_contract_call(
                         }
                     }
                     Err(e) => {
-        warn!("check");
+                        warn!("check");
                         panic!(
                             "FATAL: failed to lock {} from {} until {}: '{:?}'",
                             locked_amount, stacker, unlock_height, &e
                         );
                     }
                 }
-        warn!("check");
+                warn!("check");
 
                 return Ok(());
             }
             Err(_) => {
-        warn!("check");
+                warn!("check");
                 // nothing to do -- the function failed
                 return Ok(());
             }
         }
     }
-        warn!("check");
+    warn!("check");
     // nothing to do
     Ok(())
 }
@@ -152,12 +152,12 @@ pub fn handle_contract_call_special_cases(
     function_name: &str,
     result: &Value,
 ) -> Result<()> {
-        warn!("check");
+    warn!("check");
     if *contract_id == boot_code_id("pox", global_context.mainnet) {
         warn!("check");
         return handle_pox_api_contract_call(global_context, sender, function_name, result);
     }
-        warn!("check");
+    warn!("check");
     // TODO: insert more special cases here, as needed
     Ok(())
 }
