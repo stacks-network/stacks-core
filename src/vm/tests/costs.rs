@@ -208,6 +208,23 @@ fn exec_cost(contract: &str, epoch: StacksEpochId) -> ExecutionCost {
     cost_after
 }
 
+/// Assert that the relative difference between `cost_small` and `cost_large`
+///  grows in v205
+fn check_cost_growth_200_v_205(
+    cost_small_200: u64,
+    cost_large_200: u64,
+    cost_small_205: u64,
+    cost_large_205: u64,
+) {
+    let growth_200 = (cost_large_200 - cost_small_200) as f64 / cost_small_200 as f64;
+    let growth_205 = (cost_large_205 - cost_small_205) as f64 / cost_small_205 as f64;
+
+    assert!(
+        growth_205 > growth_200,
+        "The difference between larger and smaller exec runtimes should grow in epoch 2.05"
+    );
+}
+
 #[test]
 // Test the `concat` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
 // cost larger when larger objects are fed into `concat` from the datastore.
@@ -236,9 +253,11 @@ fn epoch205_concat() {
     let large_cost_epoch_205 = exec_cost(large_exec_with_concat, StacksEpochId::Epoch2_05).runtime
         - exec_cost(large_exec_without_concat, StacksEpochId::Epoch2_05).runtime;
 
-    assert!(
-        large_cost_epoch_205 - small_cost_epoch_205 > large_cost_epoch_200 - small_cost_epoch_200,
-        "The difference between larger and smaller exec runtimes should grow in epoch 2.05"
+    check_cost_growth_200_v_205(
+        small_cost_epoch_200,
+        large_cost_epoch_200,
+        small_cost_epoch_205,
+        large_cost_epoch_205,
     );
 }
 
@@ -259,10 +278,11 @@ fn epoch205_var_get() {
     let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
     let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
 
-    assert!(
-        larger_cost_epoch_205.runtime - smaller_cost_epoch_205.runtime
-            > larger_cost_epoch_200.runtime - smaller_cost_epoch_200.runtime,
-        "The difference between larger and smaller exec runtimes should grow in epoch 2.05"
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
     );
 }
 
@@ -283,10 +303,11 @@ fn epoch205_var_set() {
     let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
     let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
 
-    assert!(
-        larger_cost_epoch_205.runtime - smaller_cost_epoch_205.runtime
-            > larger_cost_epoch_200.runtime - smaller_cost_epoch_200.runtime,
-        "The difference between larger and smaller exec runtimes should grow in epoch 2.05"
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
     );
 }
 
@@ -309,10 +330,11 @@ fn epoch205_map_get() {
     let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
     let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
 
-    assert!(
-        larger_cost_epoch_205.runtime - smaller_cost_epoch_205.runtime
-            > larger_cost_epoch_200.runtime - smaller_cost_epoch_200.runtime,
-        "The difference between larger and smaller exec runtimes should grow in epoch 2.05"
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
     );
 }
 
@@ -333,10 +355,11 @@ fn epoch205_map_set() {
     let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
     let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
 
-    assert!(
-        larger_cost_epoch_205.runtime - smaller_cost_epoch_205.runtime
-            > larger_cost_epoch_200.runtime - smaller_cost_epoch_200.runtime,
-        "The difference between larger and smaller exec runtimes should grow in epoch 2.05"
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
     );
 }
 
@@ -357,10 +380,11 @@ fn epoch205_map_insert() {
     let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
     let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
 
-    assert!(
-        larger_cost_epoch_205.runtime - smaller_cost_epoch_205.runtime
-            > larger_cost_epoch_200.runtime - smaller_cost_epoch_200.runtime,
-        "The difference between larger and smaller exec runtimes should grow in epoch 2.05"
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
     );
 }
 
@@ -384,10 +408,11 @@ fn epoch205_map_delete() {
     let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
     let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
 
-    assert!(
-        larger_cost_epoch_205.runtime - smaller_cost_epoch_205.runtime
-            > larger_cost_epoch_200.runtime - smaller_cost_epoch_200.runtime,
-        "The difference between larger and smaller exec runtimes should grow in epoch 2.05"
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
     );
 }
 

@@ -49,6 +49,7 @@ use crate::types::chainstate::{
     StacksBlockId, VRFSeed,
 };
 use crate::types::proof::TrieMerkleProof;
+use crate::vm::types::byte_len_of_serialization;
 
 use super::key_value_wrapper::ValueResult;
 
@@ -300,7 +301,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn put_with_size<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> u64 {
         let serialized = value.serialize();
         self.store.put(&key, &serialized);
-        serialized.len() as u64 / 2
+        byte_len_of_serialization(&serialized)
     }
 
     pub fn get<T>(&mut self, key: &str) -> Option<T>
@@ -859,6 +860,8 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    /// Same as lookup_variable, but returns the byte-size of the looked up
+    ///  Clarity value as well as the value.
     pub fn lookup_variable_with_size(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1004,7 +1007,7 @@ impl<'a> ClarityDatabase<'a> {
         match result {
             None => Ok(ValueResult {
                 value: Value::none(),
-                serialized_byte_len: key_serialized.len() as u64 / 2,
+                serialized_byte_len: byte_len_of_serialization(&key_serialized),
             }),
             Some(ValueResult {
                 value,
@@ -1012,7 +1015,7 @@ impl<'a> ClarityDatabase<'a> {
             }) => Ok(ValueResult {
                 value,
                 serialized_byte_len: serialized_byte_len
-                    .checked_add(key_serialized.len() as u64 / 2)
+                    .checked_add(byte_len_of_serialization(&key_serialized))
                     .expect("Overflowed Clarity key/value size"),
             }),
         }
@@ -1106,7 +1109,7 @@ impl<'a> ClarityDatabase<'a> {
         }
 
         let key_serialized = key_value.serialize();
-        let key_serialized_byte_len = key_serialized.len() as u64 / 2;
+        let key_serialized_byte_len = byte_len_of_serialization(&key_serialized);
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
             StoreType::DataMap,
@@ -1149,7 +1152,7 @@ impl<'a> ClarityDatabase<'a> {
         }
 
         let key_serialized = key_value.serialize();
-        let key_serialized_byte_len = key_serialized.len() as u64 / 2;
+        let key_serialized_byte_len = byte_len_of_serialization(&key_serialized);
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
             StoreType::DataMap,

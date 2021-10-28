@@ -235,6 +235,8 @@ pub fn special_fetch_variable_v200(
         .lookup_variable(contract, var_name, data_types)
 }
 
+/// The Stacks v205 version of fetch_variable uses the actual stored size of the
+///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_fetch_variable_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -304,6 +306,8 @@ pub fn special_set_variable_v200(
         .map(|data| data.value)
 }
 
+/// The Stacks v205 version of set_variable uses the actual stored size of the
+///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_set_variable_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -374,6 +378,8 @@ pub fn special_fetch_entry_v200(
         .fetch_entry(contract, map_name, &key, data_types)
 }
 
+/// The Stacks v205 version of fetch_entry uses the actual stored size of the
+///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_fetch_entry_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -475,6 +481,8 @@ pub fn special_set_entry_v200(
         .map(|data| data.value)
 }
 
+/// The Stacks v205 version of set_entry uses the actual stored size of the
+///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_set_entry_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -557,6 +565,8 @@ pub fn special_insert_entry_v200(
         .map(|data| data.value)
 }
 
+/// The Stacks v205 version of insert_entry uses the actual stored size of the
+///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_insert_entry_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -636,6 +646,8 @@ pub fn special_delete_entry_v200(
         .map(|data| data.value)
 }
 
+/// The Stacks v205 version of delete_entry uses the actual stored size of the
+///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_delete_entry_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
