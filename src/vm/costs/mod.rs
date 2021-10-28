@@ -890,12 +890,12 @@ impl CostTracker for LimitedCostTracker {
         add_memory(self, memory)
     }
     fn drop_memory(&mut self, memory: u64) {
-        if self.non_free.is_none() {
+        if self.non_free.is_some() {
             drop_memory(self, memory)
         }
     }
     fn reset_memory(&mut self) {
-        if self.non_free.is_none() {
+        if self.non_free.is_some() {
             self.memory = 0;
         }
     }
