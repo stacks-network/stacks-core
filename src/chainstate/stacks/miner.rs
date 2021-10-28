@@ -9146,7 +9146,18 @@ pub mod test {
             0,
             &BurnchainHeaderHash([1; 32]),
             1,
-            &StacksEpoch::unit_test_pre_2_05(0),
+            &[StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: i64::MAX as u64,
+                block_limit: ExecutionCost {
+                    write_length: 15_000_000, // roughly 15 mb
+                    write_count: 500,
+                    read_length: 100_000_000,
+                    read_count: 7_750,
+                    runtime: 5_000_000_000,
+                },
+            }],
             true,
         )
         .unwrap();

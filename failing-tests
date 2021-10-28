@@ -1,5 +1,5 @@
 failures:
-    chainstate::stacks::miner::test::test_build_anchored_blocks_skip_too_expensive
+    chainstate::stacks::miner::test::test_build_anchored_blocks_skip_too_expensive -- passing
     chainstate::stacks::miner::test::test_mempool_mining_heuristics
     clarity_vm::clarity::tests::test_block_limit -- passing
     // net::neighbors::test::test_step_walk_2_neighbors_plain
