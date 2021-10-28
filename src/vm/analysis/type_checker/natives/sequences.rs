@@ -17,7 +17,7 @@
 use std::convert::TryFrom;
 use std::convert::TryInto;
 use vm::functions::NativeFunctions;
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 pub use vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
 use vm::types::{FunctionType, TypeSignature};
 use vm::types::{SequenceSubtype::*, StringSubtype::*};
@@ -97,6 +97,43 @@ pub fn check_special_map(
                 // ex: (map concat (list "hello " "hi ") "world") would fail, because
                 // strings are handled as sequences.
                 return Err(CheckErrors::ExpectedSequence(argument_type).into());
+            }
+        };
+        func_args.push(entry_type);
+    }
+
+    let mapped_type = function_type.check_args(checker, &func_args)?;
+    TypeSignature::list_of(mapped_type, min_args)
+        .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
+}
+
+pub fn bench_analysis_iterable_function_helper(
+    checker: &mut TypeChecker,
+    arg_types: &[TypeSignature],
+    context: &TypingContext,
+) -> TypeResult {
+    let function_type = FunctionType::RandomVariadic;
+
+    let mut func_args = vec![];
+    let mut min_args = u32::MAX;
+    for argument_type in arg_types.iter() {
+        let entry_type = match argument_type {
+            TypeSignature::SequenceType(sequence) => {
+                let (entry_type, len) = match sequence {
+                    ListType(list_data) => unimplemented!(),
+                    BufferType(buffer_data) => (TypeSignature::min_buffer(), buffer_data.into()),
+                    StringType(ASCII(ascii_data)) => {
+                        (TypeSignature::min_string_ascii(), ascii_data.into())
+                    }
+                    StringType(UTF8(utf8_data)) => {
+                        (TypeSignature::min_string_utf8(), utf8_data.into())
+                    }
+                };
+                min_args = min_args.min(len);
+                entry_type
+            }
+            _ => {
+                return Err(CheckErrors::ExpectedSequence(argument_type.clone()).into());
             }
         };
         func_args.push(entry_type);

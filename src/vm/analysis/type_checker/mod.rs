@@ -460,32 +460,16 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         result
     }
 
-    pub fn bench_type_check(
+    pub fn bench_analysis_visit_helper(
         &mut self,
         expr: &SymbolicExpression,
         context: &TypingContext,
     ) -> TypeResult {
-        runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
-
-        let mut result = TypeChecker::dummy_inner_type_check(expr, context);
-
-        if let Err(ref mut error) = result {
-            if !error.has_expression() {
-                error.set_expression(expr);
-            }
-        }
-
-        result
-    }
-
-    pub fn dummy_inner_type_check(
-        expr: &SymbolicExpression,
-        context: &TypingContext,
-    ) -> TypeResult {
-        let mut rng = rand::thread_rng();
-        match rng.gen_bool(0.5) {
-            true => Ok(TypeSignature::UIntType),
-            false => Err(CheckErrors::UnexpectedTraitOrFieldReference.into()),
+        match expr.expr {
+            AtomValue(ref value) | LiteralValue(ref value) => Ok(TypeSignature::BoolType),
+            Atom(ref name) => Ok(TypeSignature::BoolType),
+            List(ref expression) => Ok(TypeSignature::BoolType),
+            TraitReference(_, _) | Field(_) => Ok(TypeSignature::BoolType),
         }
     }
 
@@ -496,6 +480,23 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     ) -> TypeResult {
         let mut types_returned = self.type_check_all(args, context)?;
 
+        let last_return = types_returned
+            .pop()
+            .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
+
+        for type_return in types_returned.iter() {
+            if type_return.is_response_type() {
+                return Err(CheckErrors::UncheckedIntermediaryResponses.into());
+            }
+        }
+        Ok(last_return)
+    }
+
+    pub fn bench_analysis_check_let_helper(
+        &mut self,
+        mut types_returned: Vec<TypeSignature>,
+        context: &TypingContext,
+    ) -> TypeResult {
         let last_return = types_returned
             .pop()
             .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
@@ -697,6 +698,18 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             } else {
                 Err(CheckErrors::UndefinedVariable(name.to_string()).into())
             }
+        }
+    }
+
+    pub fn bench_analysis_lookup_variable_depth_helper(
+        &mut self,
+        name: &str,
+        context: &TypingContext,
+    ) -> TypeResult {
+        if let Some(type_result) = context.lookup_variable_type(name) {
+            Ok(type_result.clone())
+        } else {
+            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
     }
 
@@ -957,11 +970,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    pub fn bench_try_type_check_define(
-        &mut self,
-        expression: &SymbolicExpression,
-        context: &mut TypingContext,
-    ) -> CheckResult<Option<()>> {
+    pub fn bench_analysis_bind_name_helper(&mut self, type_sig: TypeSignature) -> CheckResult<()> {
         // setup
         let mut rng = rand::thread_rng();
         let char_name = (0..15)
@@ -969,59 +978,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             .collect::<String>();
         let clar_name = ClarityName::try_from(char_name.clone()).unwrap();
 
-        if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
-            match define_type {
-                DefineFunctionsParsed::Constant { name, value } => {
-                    let (_, v_type) = self.type_check_define_variable(name, value, context)?;
-                    runtime_cost(
-                        ClarityCostFunction::AnalysisBindName,
-                        self,
-                        v_type.type_size()?,
-                    )?;
-                    self.contract_context.add_variable_type(clar_name, v_type)?;
-                }
-                DefineFunctionsParsed::ConstantBench { name, value } => {
-                    let (_, v_type) = self.type_check_define_variable(name, value, context)?;
-                    runtime_cost(
-                        ClarityCostFunction::AnalysisBindName,
-                        self,
-                        v_type.type_size()?,
-                    )?;
-                    self.contract_context.add_variable_type(clar_name, v_type)?;
-                }
-                DefineFunctionsParsed::PersistedVariable {
-                    name,
-                    data_type,
-                    initial,
-                } => {
-                    let (_, v_type) = self
-                        .type_check_define_persisted_variable(name, data_type, initial, context)?;
-                    runtime_cost(
-                        ClarityCostFunction::AnalysisBindName,
-                        self,
-                        v_type.type_size()?,
-                    )?;
-
-                    self.contract_context
-                        .add_persisted_variable_type(clar_name, v_type)?;
-                }
-
-                DefineFunctionsParsed::NonFungibleToken { name, nft_type } => {
-                    let (_, token_type) = self.type_check_define_nft(name, nft_type, context)?;
-                    runtime_cost(
-                        ClarityCostFunction::AnalysisBindName,
-                        self,
-                        token_type.type_size()?,
-                    )?;
-
-                    self.contract_context.add_nft(clar_name, token_type)?;
-                }
-                _ => panic!("unexpected define type for benchmark."),
-            };
-            Ok(Some(()))
-        } else {
-            // not a define.
-            Ok(None)
+        match rng.gen_bool(0.5) {
+            true => self.contract_context.add_variable_type(clar_name, type_sig),
+            false => self.contract_context.add_nft(clar_name, type_sig),
         }
     }
 

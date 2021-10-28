@@ -53,6 +53,11 @@ pub fn check_special_some(
     Ok(resp_type)
 }
 
+pub fn bench_analysis_option_cons_helper(type_sig: TypeSignature) -> TypeResult {
+    let resp_type = TypeSignature::new_option(type_sig)?;
+    Ok(resp_type)
+}
+
 pub fn check_special_error(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
