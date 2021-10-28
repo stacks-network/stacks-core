@@ -580,7 +580,6 @@ impl LimitedCostTracker {
         limit: ExecutionCost,
         clarity_db: &mut ClarityDatabase,
     ) -> Result<LimitedCostTracker> {
-        let bt = backtrace::Backtrace::new();
         let mut cost_tracker = LimitedCostTracker {
             cost_function_references: HashMap::new(),
             cost_contracts: HashMap::new(),
