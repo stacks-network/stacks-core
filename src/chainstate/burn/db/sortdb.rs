@@ -2097,10 +2097,7 @@ impl SortitionDB {
             first_burn_header_hash: first_burn_hash.clone(),
         };
 
-        warn!("create_flag {}", create_flag);
         if create_flag {
-            warn!("create_flag {}", create_flag);
-            // instantiate!
             db.instantiate(
                 first_block_height,
                 first_burn_hash,
@@ -2108,7 +2105,6 @@ impl SortitionDB {
                 epochs,
             )?;
         } else {
-            warn!("create_flag {}", create_flag);
             // validate -- must contain the given first block and first block hash
             let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
             if !snapshot.is_initial()

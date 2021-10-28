@@ -49,9 +49,6 @@ impl HeadersDB for TestHeadersDB {
     }
 
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
-        let bt = backtrace::Backtrace::new();
-        warn!("get_burn_block_height_for_block:bt {:?}", bt);
-        warn!("check");
         if id_bhh == &StacksBlockId::sentinel() {
             Some(0)
         } else {
