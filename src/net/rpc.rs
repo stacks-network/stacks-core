@@ -1602,6 +1602,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         handler_args: &RPCHandlerArgs,
+        sortdb: &SortitionDB,
         tx: &TransactionPayload,
         estimated_len: u64,
     ) -> Result<(), net_error> {
@@ -2106,6 +2107,7 @@ impl ConversationHttp {
                     &mut reply,
                     &req,
                     handler_opts,
+                    sortdb,
                     tx,
                     estimated_len,
                 )?;
