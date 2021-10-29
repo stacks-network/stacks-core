@@ -224,7 +224,13 @@ impl StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
                 start_height: first_burnchain_height + 4,
                 end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost::max_value(),
+                block_limit: ExecutionCost {
+                    write_length: 205205,
+                    write_count: 205205,
+                    read_length: 205205,
+                    read_count: 205205,
+                    runtime: 205205,
+                },
             },
         ]
     }

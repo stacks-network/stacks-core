@@ -2063,10 +2063,6 @@ impl SortitionDB {
         epochs: &[StacksEpoch],
         readwrite: bool,
     ) -> Result<SortitionDB, db_error> {
-        let bt = backtrace::Backtrace::new();
-        warn!("connect:bt {:?}", bt);
-
-        warn!("connect:epochs {:?}", &epochs);
         let create_flag = match fs::metadata(path) {
             Err(e) => {
                 if e.kind() == ErrorKind::NotFound {

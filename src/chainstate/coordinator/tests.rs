@@ -2654,6 +2654,24 @@ fn test_epoch_switch_cost_contract_instantiation() {
             expected_epoch
         );
 
+        // This value is hard-coded for 2.05 in `StacksEpoch::unit_test_2_05`.
+        assert_eq!(
+            chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_stacks_epoch(burn_block_height as u32).unwrap()
+                        })
+                    },
+                )
+                .unwrap()
+                .block_limit
+                .runtime,
+            205205
+        );
+
         // check that costs-2 contract DNE before epoch 2.05, and that it does exist after
         let does_costs_2_contract_exist = chainstate
             .with_read_only_clarity_tx(
