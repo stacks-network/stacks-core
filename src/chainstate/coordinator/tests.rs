@@ -2654,7 +2654,12 @@ fn test_epoch_switch_cost_contract_instantiation() {
             expected_epoch
         );
 
-        // This value is hard-coded for 2.05 in `StacksEpoch::unit_test_2_05`.
+        // These expectations are according to according to hard-coded values in
+        // `StacksEpoch::unit_test_2_05`.
+        let expected_runtime = match burn_block_height {
+            x if x < 4 => u64::MAX,
+            _ => 205205,
+        };
         assert_eq!(
             chainstate
                 .with_read_only_clarity_tx(
@@ -2669,7 +2674,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
                 .unwrap()
                 .block_limit
                 .runtime,
-            205205
+            expected_runtime
         );
 
         // check that costs-2 contract DNE before epoch 2.05, and that it does exist after
