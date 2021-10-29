@@ -885,7 +885,6 @@ impl Node {
             .get_stacks_epoch(tip.block_height as u64)
             .expect("Could not find a stacks epoch.");
         if let Some(estimator) = cost_estimator.as_mut() {
-            // DO NOT SUBMIT
             estimator.notify_block(&processed_block.tx_receipts, &stacks_epoch.block_limit);
         }
 

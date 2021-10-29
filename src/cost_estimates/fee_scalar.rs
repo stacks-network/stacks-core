@@ -165,7 +165,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
     fn notify_block(
         &mut self,
         receipt: &StacksEpochReceipt,
-        _block_limit: &ExecutionCost,
+        block_limit: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
         let mut all_fee_rates: Vec<_> = receipt
             .tx_receipts
@@ -191,10 +191,9 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                     | TransactionPayload::SmartContract(_) => {
                         // These transaction payload types all "work" the same: they have associated ExecutionCosts
                         // and contibute to the block length limit with their tx_len
-                        // DO NOT SUBMIT: fix this
                         self.metric.from_cost_and_len(
                             &tx_receipt.execution_cost,
-                            &tx_receipt.execution_cost,
+                            &block_limit,
                             tx_size,
                         )
                     }
