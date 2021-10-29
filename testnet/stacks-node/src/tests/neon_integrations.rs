@@ -278,6 +278,7 @@ pub mod test_observer {
 }
 
 const PANIC_TIMEOUT_SECS: u64 = 600;
+/// Returns `false` on a timeout, true otherwise.
 pub fn next_block_and_wait(
     btc_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
@@ -5846,6 +5847,8 @@ fn select_transactions_where(
 /// This function will call `next_block_and_wait` until the burnchain height underlying `BitcoinRegtestController`
 /// reaches *at least* `target_height`.
 ///
+/// Returns `false` if `next_block_and_wait` times out.
+///
 /// Note: The user cannot assume that the block height reached is *exactly* `target_height`. It
 /// seems that the chain may often advanced `1` block past `target_height`.
 fn run_until_burnchain_height(
@@ -5856,25 +5859,23 @@ fn run_until_burnchain_height(
 ) -> bool {
     let current = burnchain_height.load(Ordering::SeqCst);
     eprintln!(
-        "run_until_burnchain_height: Issuing block at {}, waiting for bump ({})",
+        "run_until_burnchain_height: Issuing block at {}, current burnchain height is ({})",
         get_epoch_time_secs(),
         current
     );
 
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
-    let start = Instant::now();
     while burnchain_height.load(Ordering::SeqCst) <= target_height {
         let current = burnchain_height.load(Ordering::SeqCst);
         eprintln!(
-            "Issuing block at {}, waiting for bump ({})",
+        "run_until_burnchain_height: Issuing block at {}, current burnchain height is ({})",
             get_epoch_time_secs(),
             current
         );
-        if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
-            error!("Timed out waiting for block to process, trying to continue test");
+        let next_result = next_block_and_wait(btc_regtest_controller, &blocks_processed);
+        if !next_result {
             return false;
         }
-        next_block_and_wait(btc_regtest_controller, &blocks_processed);
     }
 
     true
