@@ -5868,7 +5868,7 @@ fn run_until_burnchain_height(
     while burnchain_height.load(Ordering::SeqCst) <= target_height {
         let current = burnchain_height.load(Ordering::SeqCst);
         eprintln!(
-        "run_until_burnchain_height: Issuing block at {}, current burnchain height is ({})",
+            "run_until_burnchain_height: Issuing block at {}, current burnchain height is ({})",
             get_epoch_time_secs(),
             current
         );
