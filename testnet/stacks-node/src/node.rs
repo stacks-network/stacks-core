@@ -55,6 +55,7 @@ use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::PoxConstants;
+use stacks::vm::database::BurnStateDB;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
@@ -878,8 +879,14 @@ impl Node {
         let mut cost_estimator = self.config.make_cost_estimator();
         let mut fee_estimator = self.config.make_fee_estimator();
 
+        let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        let stacks_epoch = db
+            .index_conn()
+            .get_stacks_epoch(tip.block_height as u64)
+            .expect("Could not find a stacks epoch.");
         if let Some(estimator) = cost_estimator.as_mut() {
-            estimator.notify_block(&processed_block.tx_receipts);
+            // DO NOT SUBMIT
+            estimator.notify_block(&processed_block.tx_receipts, &stacks_epoch.block_limit);
         }
 
         if let Some(estimator) = fee_estimator.as_mut() {

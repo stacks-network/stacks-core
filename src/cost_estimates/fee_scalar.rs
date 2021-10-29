@@ -187,8 +187,12 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                     | TransactionPayload::SmartContract(_) => {
                         // These transaction payload types all "work" the same: they have associated ExecutionCosts
                         // and contibute to the block length limit with their tx_len
-                        self.metric
-                            .from_cost_and_len(&tx_receipt.execution_cost, tx_size)
+                        // DO NOT SUBMIT: fix this
+                        self.metric.from_cost_and_len(
+                            &tx_receipt.execution_cost,
+                            &tx_receipt.execution_cost,
+                            tx_size,
+                        )
                     }
                 };
                 let fee_rate = fee as f64
