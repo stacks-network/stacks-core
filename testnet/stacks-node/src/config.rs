@@ -26,7 +26,6 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
