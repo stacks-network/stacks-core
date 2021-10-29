@@ -879,17 +879,18 @@ impl Node {
         let mut cost_estimator = self.config.make_cost_estimator();
         let mut fee_estimator = self.config.make_fee_estimator();
 
+        // REVIEW QUESTION: Should this go in the "if block"?
         let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         let stacks_epoch = db
             .index_conn()
-            .get_stacks_epoch(tip.block_height as u64)
+            .get_stacks_epoch(tip.block_height as u32)
             .expect("Could not find a stacks epoch.");
         if let Some(estimator) = cost_estimator.as_mut() {
             estimator.notify_block(&processed_block.tx_receipts, &stacks_epoch.block_limit);
         }
 
         if let Some(estimator) = fee_estimator.as_mut() {
-            if let Err(e) = estimator.notify_block(&processed_block) {
+            if let Err(e) = estimator.notify_block(&processed_block, &stacks_epoch.block_limit) {
                 warn!("FeeEstimator failed to process block receipt";
                       "stacks_block" => %processed_block.header.anchored_header.block_hash(),
                       "stacks_height" => %processed_block.header.block_height,
