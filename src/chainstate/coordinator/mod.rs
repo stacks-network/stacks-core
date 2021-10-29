@@ -778,7 +778,17 @@ impl<
                     }
 
                     if let Some(ref mut estimator) = self.fee_estimator {
-                        if let Err(e) = estimator.notify_block(&block_receipt) {
+                        let tip =
+                            SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())
+                                .unwrap();
+                        let stacks_epoch = self
+                            .sortition_db
+                            .index_conn()
+                            .get_stacks_epoch(tip.block_height as u32)
+                            .expect("Could not find a stacks epoch.");
+                        if let Err(e) =
+                            estimator.notify_block(&block_receipt, &stacks_epoch.block_limit)
+                        {
                             warn!("FeeEstimator failed to process block receipt";
                                   "stacks_block" => %block_hash,
                                   "stacks_height" => %block_receipt.header.block_height,

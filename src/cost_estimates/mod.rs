@@ -39,7 +39,11 @@ pub use self::pessimistic::PessimisticEstimator;
 pub trait FeeEstimator {
     /// This method is invoked by the `stacks-node` to update the fee estimator with a new
     ///  block receipt.
-    fn notify_block(&mut self, receipt: &StacksEpochReceipt) -> Result<(), EstimatorError>;
+    fn notify_block(
+        &mut self,
+        receipt: &StacksEpochReceipt,
+        block_limit: &ExecutionCost,
+    ) -> Result<(), EstimatorError>;
     /// Get the current estimates for fee rate
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError>;
 }
@@ -233,7 +237,11 @@ impl CostEstimator for () {
 /// Null `FeeEstimator` implementation: this is useful in rust typing when supplying
 /// a `None` value to the `ChainsCoordinator` estimator field.
 impl FeeEstimator for () {
-    fn notify_block(&mut self, _receipt: &StacksEpochReceipt) -> Result<(), EstimatorError> {
+    fn notify_block(
+        &mut self,
+        _receipt: &StacksEpochReceipt,
+        _block_limit: &ExecutionCost,
+    ) -> Result<(), EstimatorError> {
         Ok(())
     }
 

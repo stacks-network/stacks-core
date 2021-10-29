@@ -167,8 +167,10 @@ fn test_fee_estimator() {
     );
 
     let empty_block_receipt = make_block_receipt(vec![]);
+    // REVIEW QUESTION: tests seem to be passing with `max_value` here. Is that right?
+    let block_limit = ExecutionCost::max_value();
     estimator
-        .notify_block(&empty_block_receipt)
+        .notify_block(&empty_block_receipt, &block_limit)
         .expect("Should be able to process an empty block");
 
     assert_eq!(
@@ -184,7 +186,7 @@ fn test_fee_estimator() {
     )]);
 
     estimator
-        .notify_block(&coinbase_only_receipt)
+        .notify_block(&coinbase_only_receipt, &block_limit)
         .expect("Should be able to process an empty block");
 
     assert_eq!(
@@ -201,7 +203,7 @@ fn test_fee_estimator() {
     ]);
 
     estimator
-        .notify_block(&single_tx_receipt)
+        .notify_block(&single_tx_receipt, &block_limit)
         .expect("Should be able to process block receipt");
 
     assert_eq!(
@@ -222,7 +224,7 @@ fn test_fee_estimator() {
     ]);
 
     estimator
-        .notify_block(&double_tx_receipt)
+        .notify_block(&double_tx_receipt, &block_limit)
         .expect("Should be able to process block receipt");
 
     // estimate should increase for "high" and "middle":
@@ -241,7 +243,7 @@ fn test_fee_estimator() {
     // estimate should increase for "high" and "middle":
     // new value: 10 * 1/2 + 5.5 * 1/2 = 7.75
     estimator
-        .notify_block(&double_tx_receipt)
+        .notify_block(&double_tx_receipt, &block_limit)
         .expect("Should be able to process block receipt");
     assert_eq!(
         estimator
@@ -257,7 +259,7 @@ fn test_fee_estimator() {
     // estimate should increase for "high" and "middle":
     // new value: 10 * 1/2 + 7.75 * 1/2 = 8.875
     estimator
-        .notify_block(&double_tx_receipt)
+        .notify_block(&double_tx_receipt, &block_limit)
         .expect("Should be able to process block receipt");
     assert_eq!(
         estimator
@@ -273,7 +275,7 @@ fn test_fee_estimator() {
     // estimate should increase for "high" and "middle":
     // new value: 10 * 1/2 + 8.875 * 1/2 = 9.4375
     estimator
-        .notify_block(&double_tx_receipt)
+        .notify_block(&double_tx_receipt, &block_limit)
         .expect("Should be able to process block receipt");
     assert_eq!(
         estimator
@@ -289,7 +291,7 @@ fn test_fee_estimator() {
     // estimate should increase for "high" and "middle":
     // new value: 10 * 1/2 + 9.4375 * 1/2 = 9
     estimator
-        .notify_block(&double_tx_receipt)
+        .notify_block(&double_tx_receipt, &block_limit)
         .expect("Should be able to process block receipt");
     assert_eq!(
         estimator
@@ -313,7 +315,7 @@ fn test_fee_estimator() {
     receipts.shuffle(&mut rng);
 
     estimator
-        .notify_block(&make_block_receipt(receipts))
+        .notify_block(&make_block_receipt(receipts), &block_limit)
         .expect("Should be able to process block receipt");
 
     assert_eq!(

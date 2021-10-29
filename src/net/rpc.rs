@@ -1619,9 +1619,14 @@ impl ConversationHttp {
                         .send(http, fd);
                 }
             };
-            // DO NOT SUBMIT: use block limit.
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            use vm::database::BurnStateDB;
+            let stacks_epoch = sortdb
+                .index_conn()
+                .get_stacks_epoch(tip.block_height as u32)
+                .expect("Could not find a stacks epoch.");
             let scalar_cost =
-                metric.from_cost_and_len(&estimated_cost, &estimated_cost, estimated_len);
+                metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
             let fee_rates = match fee_estimator.get_rate_estimates() {
                 Ok(x) => x,
                 Err(e) => {

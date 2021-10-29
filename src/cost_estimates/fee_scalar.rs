@@ -162,7 +162,11 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
 }
 
 impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
-    fn notify_block(&mut self, receipt: &StacksEpochReceipt) -> Result<(), EstimatorError> {
+    fn notify_block(
+        &mut self,
+        receipt: &StacksEpochReceipt,
+        _block_limit: &ExecutionCost,
+    ) -> Result<(), EstimatorError> {
         let mut all_fee_rates: Vec<_> = receipt
             .tx_receipts
             .iter()
