@@ -308,6 +308,7 @@ pub const STACKS_EPOCHS_MAINNET: &[StacksEpoch] = &[
         epoch_id: StacksEpochId::Epoch2_05,
         start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
         end_height: STACKS_EPOCH_MAX,
+        // TODO: Fill this in with the determined 2.05 costs.
         block_limit: ExecutionCost {
             write_length: 15_000_000,
             write_count: 7_750,

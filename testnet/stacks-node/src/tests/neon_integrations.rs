@@ -71,6 +71,7 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
+use stacks::core::StacksEpoch;
 use stacks::core::StacksEpochId;
 use stacks::vm::ContractName;
 use std::convert::TryFrom;
@@ -5854,7 +5855,6 @@ fn run_until_burnchain_height(
     target_height: u64,
 ) -> bool {
     let current = burnchain_height.load(Ordering::SeqCst);
-    warn!("run_until_burnchain_height current {}", &current);
     eprintln!(
         "run_until_burnchain_height: Issuing block at {}, waiting for bump ({})",
         get_epoch_time_secs(),
@@ -5877,12 +5877,6 @@ fn run_until_burnchain_height(
         next_block_and_wait(btc_regtest_controller, &blocks_processed);
     }
 
-    {
-        let current = burnchain_height.load(Ordering::SeqCst);
-        eprintln!("Expected vs actual: {} vs. {}", target_height, current);
-    }
-
-    // assert_eq!(burnchain_height.load(Ordering::SeqCst), target_height);
     true
 }
 
@@ -5968,6 +5962,33 @@ fn test_cost_limit_switch_version205() {
             runtime: 5000000000,
         },
     );
+    conf.burnchain.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 220,
+            block_limit: ExecutionCost {
+                write_length: 100000000,
+                write_count: 1000,
+                read_length: 1000000000,
+                read_count: 150,
+                runtime: 5000000000,
+            },
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 220,
+            end_height: 9223372036854775807,
+            block_limit: ExecutionCost {
+                write_length: 100000000,
+                write_count: 1000,
+                read_length: 1000000000,
+                read_count: 50,
+                runtime: 5000000000,
+            },
+        },
+    ]);
+
     conf.initial_balances.push(InitialBalance {
         address: alice_pd.clone(),
         amount: 10492300000,
