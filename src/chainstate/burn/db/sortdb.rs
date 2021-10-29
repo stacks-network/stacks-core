@@ -2262,7 +2262,7 @@ impl SortitionDB {
         Ok(version)
     }
 
-    fn apply_schema_2(tx: &SortitionHandleTx) -> Result<(), db_error> {
+    fn apply_schema_2(tx: &SortitionDBTx) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_2 {
             tx.execute_batch(sql_exec)?;
         }
@@ -2280,10 +2280,9 @@ impl SortitionDB {
                     return Ok(());
                 }
                 if version == "1" {
-                    let tip = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
-                    let db_tx = SortitionHandleTx::begin(self, &tip.sortition_id)?;
-                    SortitionDB::apply_schema_2(&db_tx)?;
-                    db_tx.commit()?;
+                    let tx = self.tx_begin()?;
+                    SortitionDB::apply_schema_2(&tx)?;
+                    tx.commit()?;
                     Ok(())
                 } else {
                     panic!("The schema version of the sortition DB is invalid.")
