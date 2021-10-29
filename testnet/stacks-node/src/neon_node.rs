@@ -626,7 +626,6 @@ fn spawn_peer(
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
-    let block_limit = config.block_limit.clone();
     let exit_at_block_height = config.burnchain.process_exit_at_block_height;
 
     this.bind(p2p_sock, rpc_sock).unwrap();
@@ -637,7 +636,6 @@ fn spawn_peer(
         is_mainnet,
         config.burnchain.chain_id,
         &stacks_chainstate_path,
-        block_limit,
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
@@ -839,13 +837,9 @@ fn spawn_miner_relayer(
     //   should address via #1449
     let mut sortdb = SortitionDB::open(&burn_db_path, true).map_err(NetError::DBError)?;
 
-    let (mut chainstate, _) = StacksChainState::open_with_block_limit(
-        is_mainnet,
-        chain_id,
-        &stacks_chainstate_path,
-        config.block_limit.clone(),
-    )
-    .map_err(|e| NetError::ChainstateError(e.to_string()))?;
+    let (mut chainstate, _) =
+        StacksChainState::open_with_block_limit(is_mainnet, chain_id, &stacks_chainstate_path)
+            .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
     let mut last_mined_blocks: HashMap<
         BurnchainHeaderHash,
@@ -2124,7 +2118,6 @@ impl NeonGenesisNode {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
-            config.block_limit.clone(),
         ) {
             Ok(res) => res,
             Err(err) => panic!(

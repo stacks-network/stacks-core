@@ -80,7 +80,6 @@ impl<'a> Tenure {
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.config.get_chainstate_path_str(),
-            self.config.block_limit.clone(),
         )
         .unwrap();
 
@@ -93,7 +92,7 @@ impl<'a> Tenure {
             self.vrf_proof.clone(),
             self.microblock_pubkeyhash.clone(),
             &self.coinbase_tx,
-            BlockBuilderSettings::limited(self.config.block_limit.clone()),
+            BlockBuilderSettings::limited(),
             None,
         )
         .unwrap();
@@ -117,7 +116,6 @@ impl<'a> Tenure {
             false,
             CHAIN_ID_TESTNET,
             &self.config.get_chainstate_path_str(),
-            self.config.block_limit.clone(),
         )
         .unwrap();
         chain_state

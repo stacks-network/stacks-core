@@ -1750,7 +1750,9 @@ fn block_limit_runtime_test() {
 
     // use a shorter runtime limit. the current runtime limit
     //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
-    conf.block_limit.runtime = 1_000_000_000;
+
+    // DO NOT SUBMIT: what does this line do?
+    // conf.block_limit.runtime = 1_000_000_000;
     conf.burnchain.commit_anchor_block_within = 5000;
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();

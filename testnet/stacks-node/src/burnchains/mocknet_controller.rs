@@ -19,6 +19,7 @@ use stacks::util::hash::Sha256Sum;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use stacks::vm::costs::ExecutionCost;
 
 /// MocknetController is simulating a simplistic burnchain.
 pub struct MocknetController {
@@ -98,6 +99,7 @@ impl BurnchainController for MocknetController {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: 0,
                 end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
             }],
             true,
         ) {

@@ -12,8 +12,7 @@ use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::StacksEpoch;
 use stacks::core::{
-    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use stacks::cost_estimates::metrics::CostMetric;
@@ -290,7 +289,6 @@ pub struct Config {
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
     pub miner: MinerConfig,
-    pub block_limit: ExecutionCost,
     pub estimation: FeeEstimationConfig,
 }
 
@@ -744,8 +742,6 @@ impl Config {
             None => HELIUM_DEFAULT_CONNECTION_OPTIONS.clone(),
         };
 
-        let block_limit = BLOCK_LIMIT_MAINNET.clone();
-
         let estimation = match config_file.fee_estimation {
             Some(f) => FeeEstimationConfig::from(f),
             None => FeeEstimationConfig::default(),
@@ -757,7 +753,6 @@ impl Config {
             initial_balances,
             events_observers,
             connection_options,
-            block_limit,
             estimation,
             miner,
         }
@@ -853,7 +848,6 @@ impl Config {
 
     pub fn make_block_builder_settings(&self, attempt: u64) -> BlockBuilderSettings {
         BlockBuilderSettings {
-            execution_cost: self.block_limit.clone(),
             max_miner_time_ms: if attempt <= 1 {
                 // first attempt to mine a block -- do so right away
                 self.miner.first_attempt_time_ms
@@ -888,7 +882,6 @@ impl std::default::Default for Config {
         };
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
-        let block_limit = HELIUM_BLOCK_LIMIT.clone();
         let estimation = FeeEstimationConfig::default();
 
         Config {
@@ -897,7 +890,6 @@ impl std::default::Default for Config {
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
-            block_limit,
             estimation,
             miner: MinerConfig::default(),
         }
