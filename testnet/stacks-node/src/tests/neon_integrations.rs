@@ -5942,27 +5942,6 @@ fn test_cost_limit_switch_version205() {
     let (mut conf, _) = neon_integration_test_conf();
 
     // Create a schedule where we lower the read_count on Epoch2_05.
-    let mut epoch_cost_limit = HashMap::new();
-    epoch_cost_limit.insert(
-        StacksEpochId::Epoch20,
-        ExecutionCost {
-            write_length: 100000000,
-            write_count: 1000,
-            read_length: 1000000000,
-            read_count: 150,
-            runtime: 5000000000,
-        },
-    );
-    epoch_cost_limit.insert(
-        StacksEpochId::Epoch2_05,
-        ExecutionCost {
-            write_length: 100000000,
-            write_count: 1000,
-            read_length: 1000000000,
-            read_count: 50,
-            runtime: 5000000000,
-        },
-    );
     conf.burnchain.epochs = Some(vec![
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
