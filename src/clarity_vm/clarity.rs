@@ -299,7 +299,6 @@ impl ClarityInstance {
                 .get_stacks_epoch_by_epoch_id(&StacksEpochId::Epoch20)
                 .expect(&format!("Failed to get Stacks epoch for Epoch20"))
         )
-        }
     }
 
     pub fn begin_block<'a>(
