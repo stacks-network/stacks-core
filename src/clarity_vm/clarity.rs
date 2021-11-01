@@ -294,12 +294,11 @@ impl ClarityInstance {
             None => None,
         };
 
-        if epoch_found.is_some() {
-            epoch_found.unwrap()
-        } else {
+        epoch_found.unwrap_or_else(||
             burn_state_db
                 .get_stacks_epoch_by_epoch_id(&StacksEpochId::Epoch20)
                 .expect(&format!("Failed to get Stacks epoch for Epoch20"))
+        )
         }
     }
 

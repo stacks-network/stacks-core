@@ -429,9 +429,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
         let start_height = u64::from_column(row, "start_block_height")?;
         let end_height = u64::from_column(row, "end_block_height")?;
 
-        let block_limit_json: String = row.get_unwrap("block_limit");
-        let block_limit: ExecutionCost =
-            serde_json::from_str(&block_limit_json).map_err(|e| db_error::SerializationError(e))?;
+        let block_limit = row.get_unwrap("block_limit");
         Ok(StacksEpoch {
             epoch_id,
             start_height,
