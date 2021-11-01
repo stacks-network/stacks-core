@@ -123,6 +123,14 @@ pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u
 
 pub const POX_MAX_NUM_CYCLES: u8 = 12;
 
+// Stacks 1.0 did not allow smart contracts so all limits are 0.
+pub const BLOCK_LIMIT_MAINNET_10: ExecutionCost = ExecutionCost {
+    write_length: 0,
+    write_count: 0,
+    read_length: 0,
+    read_count: 0,
+    runtime: 0,
+};
 pub const BLOCK_LIMIT_MAINNET_20: ExecutionCost = ExecutionCost {
     write_length: 15_000_000, // roughly 15 mb
     write_count: 7_750,
@@ -317,7 +325,7 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
             end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
@@ -340,7 +348,7 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
             end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
@@ -351,44 +359,28 @@ lazy_static! {
     ];
 }
 
-pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch10,
-        start_height: 0,
-        end_height: 0,
-        block_limit: ExecutionCost {
-            write_length: 15_000_000,
-            write_count: 7_750,
-            read_length: 100_000_000,
-            read_count: 7_750,
-            runtime: 5_000_000_000,
+lazy_static! {
+    pub static ref STACKS_EPOCHS_REGTEST: [StacksEpoch; 3] = [
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
         },
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: 0,
-        end_height: 1000,
-        block_limit: ExecutionCost {
-            write_length: 15_000_000,
-            write_count: 7_750,
-            read_length: 100_000_000,
-            read_count: 7_750,
-            runtime: 5_000_000_000,
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1000,
+            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
         },
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch2_05,
-        start_height: 1000,
-        end_height: STACKS_EPOCH_MAX,
-        block_limit: ExecutionCost {
-            write_length: 15_000_000,
-            write_count: 7_750,
-            read_length: 100_000_000,
-            read_count: 7_750,
-            runtime: 5_000_000_000,
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1000,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
         },
-    },
-];
+    ];
+}
 
 /// Stacks 2.05 epoch marker.  All block-commits in 2.05 must have a memo bitfield with this value
 /// *or greater*.

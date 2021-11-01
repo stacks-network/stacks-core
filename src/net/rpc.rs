@@ -98,7 +98,8 @@ use vm::{
     analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
-        BurnStateDB, clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
+        clarity_store::ContractCommitment, BurnStateDB, ClarityDatabase, ClaritySerializable,
+        STXBalance,
     },
     errors::Error as ClarityRuntimeError,
     errors::Error::Unchecked,
