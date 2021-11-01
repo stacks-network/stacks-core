@@ -58,22 +58,8 @@ use burnchains::Txid;
 use chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET};
 use util::boot::{boot_code_addr, boot_code_id};
 
-const BLOCK_LIMIT_MAINNET_STACKS20: ExecutionCost = ExecutionCost {
-    write_length: 15_000_000, // roughly 15 mb
-    write_count: 7_750,
-    read_length: 100_000_000,
-    read_count: 7_750,
-    runtime: 5_000_000_000,
-};
-
-const HELIUM_BLOCK_LIMIT_STACKS20: ExecutionCost = ExecutionCost {
-    write_length: 15_0_000_000,
-    write_count: 5_0_000,
-    read_length: 1_000_000_000,
-    read_count: 5_0_000,
-    // allow much more runtime in helium blocks than mainnet
-    runtime: 100_000_000_000,
-};
+use core::BLOCK_LIMIT_MAINNET_20;
+use core::HELIUM_BLOCK_LIMIT_20;
 
 use serde::Serialize;
 use serde_json::json;
@@ -228,9 +214,9 @@ fn run_analysis<C: ClarityStorage>(
     let cost_track = LimitedCostTracker::new(
         mainnet,
         if mainnet {
-            BLOCK_LIMIT_MAINNET_STACKS20.clone()
+            BLOCK_LIMIT_MAINNET_20.clone()
         } else {
-            HELIUM_BLOCK_LIMIT_STACKS20.clone()
+            HELIUM_BLOCK_LIMIT_20.clone()
         },
         &mut marf_kv.get_clarity_db(header_db, &NULL_BURN_STATE_DB),
     )
@@ -401,9 +387,9 @@ where
     let cost_track = LimitedCostTracker::new(
         mainnet,
         if mainnet {
-            BLOCK_LIMIT_MAINNET_STACKS20.clone()
+            BLOCK_LIMIT_MAINNET_20.clone()
         } else {
-            HELIUM_BLOCK_LIMIT_STACKS20.clone()
+            HELIUM_BLOCK_LIMIT_20.clone()
         },
         &mut db,
     )
