@@ -4237,17 +4237,20 @@ impl StacksChainState {
         let mut receipts = vec![];
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
+            let mut tx_index: u32 = 0;
             for tx in microblock.txs.iter() {
                 let (tx_fee, mut tx_receipt) =
                     StacksChainState::process_transaction(clarity_tx, tx, false)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
+                tx_receipt.tx_index = tx_index;
                 fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
                 burns = burns
                     .checked_add(tx_receipt.stx_burned as u128)
                     .expect("Burns overflow");
                 receipts.push(tx_receipt);
+                tx_index += 1;
             }
         }
         Ok((fees, burns, receipts))
@@ -4359,6 +4362,7 @@ impl StacksChainState {
                             contract_analysis: None,
                             execution_cost,
                             microblock_header: None,
+                            tx_index: 0,
                         };
 
                         all_receipts.push(receipt);
@@ -4413,6 +4417,7 @@ impl StacksChainState {
                                 contract_analysis: None,
                                 execution_cost: ExecutionCost::zero(),
                                 microblock_header: None,
+                                tx_index: 0,
                             }),
                             Err(e) => {
                                 info!("TransferStx burn op processing error.";
@@ -4438,14 +4443,17 @@ impl StacksChainState {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
+        let mut tx_index: u32 = 0;
         for tx in block.txs.iter() {
-            let (tx_fee, tx_receipt) =
+            let (tx_fee, mut tx_receipt) =
                 StacksChainState::process_transaction(clarity_tx, tx, false)?;
             fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
+            tx_receipt.tx_index = tx_index;
             burns = burns
                 .checked_add(tx_receipt.stx_burned as u128)
                 .expect("Burns overflow");
             receipts.push(tx_receipt);
+            tx_index += 1;
         }
         Ok((fees, burns, receipts))
     }
