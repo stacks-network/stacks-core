@@ -1620,7 +1620,7 @@ impl ConversationHttp {
                         .send(http, fd);
                 }
             };
-            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
             let stacks_epoch = sortdb
                 .index_conn()
                 .get_stacks_epoch(tip.block_height as u32)
