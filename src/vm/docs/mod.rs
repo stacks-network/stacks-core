@@ -1849,7 +1849,6 @@ mod test {
             Some(1557860301)
         }
         fn get_burn_block_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
-            warn!("check");
             Some(567890)
         }
         fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {

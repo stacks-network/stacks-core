@@ -612,7 +612,6 @@ impl HeadersDB for CLIHeadersDB {
         }
     }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
-        warn!("check");
         let conn = self.conn();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
             Some(height as u32)

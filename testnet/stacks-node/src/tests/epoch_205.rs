@@ -387,8 +387,6 @@ fn select_transactions_where(
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if test_fn(&parsed) {
-                eprintln!("show-block {:#?}", &block);
-                eprintln!("show-parsed {:#?}", &parsed);
                 result.push(parsed);
             }
         }
