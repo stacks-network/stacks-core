@@ -123,7 +123,7 @@ pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u
 
 pub const POX_MAX_NUM_CYCLES: u8 = 12;
 
-pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
+pub const BLOCK_LIMIT_MAINNET_20: ExecutionCost = ExecutionCost {
     write_length: 15_000_000, // roughly 15 mb
     write_count: 7_750,
     read_length: 100_000_000,
@@ -131,7 +131,7 @@ pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
     runtime: 5_000_000_000,
 };
 
-pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
+pub const HELIUM_BLOCK_LIMIT_20: ExecutionCost = ExecutionCost {
     write_length: 15_0_000_000,
     write_count: 5_0_000,
     read_length: 1_000_000_000,
