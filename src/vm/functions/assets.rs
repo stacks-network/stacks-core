@@ -394,7 +394,7 @@ pub fn special_mint_asset_v205(
         }?;
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(expected_asset_type.size() as u64)?;
+        env.add_memory(asset_size)?;
 
         env.global_context.database.set_nft_owner(
             &env.contract_context.contract_identifier,
@@ -555,7 +555,7 @@ pub fn special_transfer_asset_v205(
         }
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(expected_asset_type.size() as u64)?;
+        env.add_memory(asset_size)?;
 
         env.global_context.database.set_nft_owner(
             &env.contract_context.contract_identifier,
@@ -1019,7 +1019,7 @@ pub fn special_burn_asset_v205(
         }
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(expected_asset_type.size() as u64)?;
+        env.add_memory(asset_size)?;
 
         env.global_context.database.burn_nft(
             &env.contract_context.contract_identifier,
