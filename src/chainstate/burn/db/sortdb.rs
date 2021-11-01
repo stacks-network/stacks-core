@@ -2228,8 +2228,7 @@ impl SortitionDB {
                 &(epoch.epoch_id as u32),
                 &u64_to_sql(epoch.start_height)?,
                 &u64_to_sql(epoch.end_height)?,
-                &serde_json::to_string(&epoch.block_limit)
-                    .expect("Failed to serialize block limit."),
+                &epoch.block_limit,
             ];
             db_tx.execute(
                 "INSERT INTO epochs (epoch_id,start_block_height,end_block_height,block_limit) VALUES (?1,?2,?3,?4)",

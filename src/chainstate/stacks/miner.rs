@@ -519,7 +519,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             Ok(Some(receipt)) => {
                                 bytes_so_far += mempool_tx.metadata.len;
 
-                                // REVIEW QUESTION: Should we unwrap here or match?
                                 let stacks_epoch = self
                                     .burn_dbconn
                                     .get_stacks_epoch(self.burn_block_height as u32)
