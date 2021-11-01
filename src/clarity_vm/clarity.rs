@@ -294,11 +294,11 @@ impl ClarityInstance {
             None => None,
         };
 
-        epoch_found.unwrap_or_else(||
+        epoch_found.unwrap_or_else(|| {
             burn_state_db
                 .get_stacks_epoch_by_epoch_id(&StacksEpochId::Epoch20)
                 .expect(&format!("Failed to get Stacks epoch for Epoch20"))
-        )
+        })
     }
 
     pub fn begin_block<'a>(
@@ -326,6 +326,35 @@ impl ClarityInstance {
             cost_track,
             mainnet: self.mainnet,
             epoch: epoch.epoch_id,
+        }
+    }
+
+    pub fn begin_block_cli_testing<'a>(
+        &'a mut self,
+        current: &StacksBlockId,
+        next: &StacksBlockId,
+        header_db: &'a dyn HeadersDB,
+        burn_state_db: &'a dyn BurnStateDB,
+        epoch: StacksEpochId,
+        block_limit: ExecutionCost,
+    ) -> ClarityBlockConnection<'a> {
+        let mut datastore = self.datastore.begin(current, next);
+
+        let cost_track = {
+            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            Some(
+                LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db)
+                    .expect("FAIL: problem instantiating cost tracking"),
+            )
+        };
+
+        ClarityBlockConnection {
+            datastore,
+            header_db,
+            burn_state_db,
+            cost_track,
+            mainnet: self.mainnet,
+            epoch,
         }
     }
 

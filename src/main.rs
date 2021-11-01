@@ -29,12 +29,18 @@ extern crate slog;
 
 use std::io;
 use std::io::prelude::*;
+use std::path::PathBuf;
 use std::process;
 use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
 
 use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
+use blockstack_lib::chainstate::burn::db::sortdb::SortitionHandleConn;
+use blockstack_lib::clarity_vm::clarity::ClarityBlockConnection;
+use blockstack_lib::clarity_vm::clarity::ClarityConnection;
+use blockstack_lib::core::StacksEpochId;
 use blockstack_lib::cost_estimates::UnitEstimator;
+use blockstack_lib::vm::costs::LimitedCostTracker;
 use cost_estimates::metrics::UnitMetric;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
@@ -48,6 +54,7 @@ use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::miner::*;
+use blockstack_lib::chainstate::stacks::Error as ChainstateError;
 use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId};
@@ -72,6 +79,145 @@ use blockstack_lib::{
     net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
     vm::representations::UrlString,
 };
+
+fn process_transaction(
+    clarity_block: &mut ClarityBlockConnection,
+    tx: &StacksTransaction,
+) -> Result<(), ChainstateError> {
+    let mut transaction = clarity_block.start_transaction_processing();
+    let (origin_account, payer_account) =
+        StacksChainState::check_transaction_nonces(&mut transaction, tx, true)?;
+
+    let tx_receipt =
+        StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
+
+    let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
+    let fee = tx.get_tx_fee();
+    StacksChainState::pay_transaction_fee(&mut transaction, fee, new_payer_account)?;
+
+    // update the account nonces
+    StacksChainState::update_account_nonce(
+        &mut transaction,
+        &origin_account.principal,
+        origin_account.nonce,
+    );
+    if origin_account != payer_account {
+        StacksChainState::update_account_nonce(
+            &mut transaction,
+            &payer_account.principal,
+            payer_account.nonce,
+        );
+    }
+
+    transaction.commit();
+
+    Ok(())
+}
+
+fn execute_block_transactions(arguments: &[String]) {
+    let workdir = &arguments[0];
+    let burn_block_height: u64 = arguments[1]
+        .parse()
+        .expect("Burn block height must be supplied as a positive integer");
+
+    let post_epoch: bool = true;
+
+    let epoch = if post_epoch {
+        StacksEpochId::Epoch2_05
+    } else {
+        StacksEpochId::Epoch20
+    };
+    let limit = core::BLOCK_LIMIT_MAINNET_20;
+
+    let mode = "mainnet";
+    let mut path = PathBuf::from(workdir);
+    path.push(mode);
+    path.push("chainstate");
+    let chainstate_path = path.to_str().expect("Unable to produce path").to_string();
+
+    let mut path = PathBuf::from(workdir);
+    path.push(mode);
+    path.push("burnchain");
+    path.push("sortition");
+    let sort_path = path.to_str().expect("Unable to produce path").to_string();
+
+    let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, &chainstate_path).unwrap();
+    let mut sortition_db = SortitionDB::open(&sort_path, true).unwrap();
+
+    let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn())
+        .unwrap()
+        .sortition_id;
+
+    let snapshot_at_height = {
+        let conn = sortition_db.index_conn();
+        SortitionHandleConn::open_reader(&conn, &sortition_tip)
+            .unwrap()
+            .get_block_snapshot_by_height(burn_block_height)
+            .unwrap()
+            .unwrap()
+    };
+
+    if !snapshot_at_height.sortition {
+        eprintln!("No stacks block at burn height = {}", burn_block_height);
+        return;
+    }
+
+    let stacks_bhh = snapshot_at_height.winning_stacks_block_hash;
+    let consensus_hash = snapshot_at_height.consensus_hash;
+    let stacks_block_id = StacksBlockId::new(&consensus_hash, &stacks_bhh);
+
+    let mut staging_block =
+        StacksChainState::load_staging_block_info(chainstate.db(), &stacks_block_id)
+            .expect("Error reading chainstate for block info")
+            .expect("Failed to load stacks block at provided burn height");
+
+    staging_block.block_data =
+        StacksChainState::load_block_bytes(&chainstate.blocks_path, &consensus_hash, &&stacks_bhh)
+            .expect("Failed to load block data for stacks block at provided burn height")
+            .expect("Could not find block data for stacks block at provided burn height");
+
+    let block = StacksChainState::extract_stacks_block(&staging_block)
+        .expect("Failed to parse block data for stacks block at provided burn height");
+
+    let par_bhh = staging_block.parent_anchored_block_hash;
+    let par_ch = staging_block.consensus_hash;
+    let par_block_id = StacksBlockId::new(&par_ch, &par_bhh);
+
+    let headers_db = chainstate.state_index.sqlite_conn();
+
+    let burn_state_db = sortition_db.index_conn();
+    let mut block_conn = chainstate.clarity_state.begin_block_cli_testing(
+        &par_block_id,
+        &StacksBlockId::sentinel(),
+        headers_db,
+        &burn_state_db,
+        epoch,
+        limit.clone(),
+    );
+
+    if post_epoch {
+        block_conn
+            .initialize_epoch_2_05()
+            .expect("Failed to apply epoch 2.05 initialization");
+
+        let new_cost_tracker = block_conn
+            .with_clarity_db_readonly_owned(|mut clarity_db| {
+                let cost_tracker = LimitedCostTracker::new(true, limit, &mut clarity_db);
+                (cost_tracker, clarity_db)
+            })
+            .expect("FAIL: problem instantiating cost tracking");
+
+        block_conn.set_cost_tracker(new_cost_tracker);
+    }
+
+    for tx in block.txs.iter() {
+        process_transaction(&mut block_conn, tx).expect("Failed to process block transaction");
+    }
+
+    let total_cost = block_conn.cost_so_far();
+
+    println!("Total cost => {}", total_cost);
+}
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -489,6 +635,14 @@ simulating a miner.
         tx_signer.sign_origin(&sk).unwrap();
         let coinbase_tx = tx_signer.get_tx().unwrap();
 
+        let stacks20_block_limit_mainnet = ExecutionCost {
+            write_length: 15_000_000, // roughly 15 mb
+            write_count: 7_750,
+            read_length: 100_000_000,
+            read_count: 7_750,
+            runtime: 5_000_000_000,
+        };
+
         let mut settings = BlockBuilderSettings::limited();
         settings.max_miner_time_ms = max_time;
         settings.mempool_settings.min_tx_fee = min_fee;
@@ -715,8 +869,6 @@ simulating a miner.
     }
 
     if argv[1] == "process-block" {
-        use chainstate::burn::db::sortdb::SortitionDB;
-        use chainstate::stacks::db::StacksChainState;
         let path = &argv[2];
         let sort_path = &argv[3];
         let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, path).unwrap();
@@ -729,6 +881,11 @@ simulating a miner.
         return;
     }
 
+    if argv[1] == "exec-block-transactions" {
+        execute_block_transactions(&argv[2..]);
+        return;
+    }
+
     if argv[1] == "replay-chainstate" {
         use blockstack_lib::types::chainstate::StacksAddress;
         use blockstack_lib::types::chainstate::StacksBlockHeader;
@@ -736,10 +893,8 @@ simulating a miner.
         use burnchains::db::BurnchainDB;
         use burnchains::Address;
         use burnchains::Burnchain;
-        use chainstate::burn::db::sortdb::SortitionDB;
         use chainstate::burn::BlockSnapshot;
         use chainstate::stacks::db::blocks::StagingBlock;
-        use chainstate::stacks::db::StacksChainState;
         use chainstate::stacks::index::MarfTrieId;
         use core::*;
         use net::relay::Relayer;

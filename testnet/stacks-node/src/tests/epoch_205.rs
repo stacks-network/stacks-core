@@ -1,8 +1,8 @@
-use std::env;
-use std::thread;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use stacks::util::get_epoch_time_secs;
+use std::env;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::thread;
 
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::Txid;
@@ -11,13 +11,13 @@ use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::chainstate::stacks::TransactionPayload;
 use stacks::codec::StacksMessageCodec;
+use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochId;
 use stacks::types::chainstate::BlockHeaderHash;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::chainstate::StacksAddress;
 use stacks::util::hash::hex_bytes;
 use stacks::vm::types::PrincipalData;
-use stacks::core::StacksEpoch;
-use stacks::core::StacksEpochId;
 use stacks::vm::ContractName;
 use std::convert::TryFrom;
 

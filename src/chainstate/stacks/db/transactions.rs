@@ -290,7 +290,7 @@ fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
 
 impl StacksChainState {
     /// Get the payer account
-    fn get_payer_account<T: ClarityConnection>(
+    pub fn get_payer_account<T: ClarityConnection>(
         clarity_tx: &mut T,
         tx: &StacksTransaction,
     ) -> StacksAccount {
@@ -368,7 +368,7 @@ impl StacksChainState {
     /// Pay the transaction fee (but don't credit it to the miner yet).
     /// Does not touch the account nonce.
     /// Consumes the account object, since it invalidates it.
-    fn pay_transaction_fee(
+    pub fn pay_transaction_fee(
         clarity_tx: &mut ClarityTransactionConnection,
         fee: u64,
         payer_account: StacksAccount,
