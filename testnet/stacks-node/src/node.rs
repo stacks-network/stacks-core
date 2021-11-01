@@ -879,7 +879,6 @@ impl Node {
         let mut cost_estimator = self.config.make_cost_estimator();
         let mut fee_estimator = self.config.make_fee_estimator();
 
-        // REVIEW QUESTION: Should this go in the "if block"?
         let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         let stacks_epoch = db
             .index_conn()

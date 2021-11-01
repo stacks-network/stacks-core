@@ -131,6 +131,15 @@ pub const BLOCK_LIMIT_MAINNET_20: ExecutionCost = ExecutionCost {
     runtime: 5_000_000_000,
 };
 
+// TODO: Fill this in with the determined 2.05 costs.
+pub const BLOCK_LIMIT_MAINNET_205: ExecutionCost = ExecutionCost {
+    write_length: 15_000_000, // roughly 15 mb
+    write_count: 7_750,
+    read_length: 100_000_000,
+    read_count: 7_750,
+    runtime: 5_000_000_000,
+};
+
 pub const HELIUM_BLOCK_LIMIT_20: ExecutionCost = ExecutionCost {
     write_length: 15_0_000_000,
     write_count: 5_0_000,
@@ -302,72 +311,47 @@ impl Ord for StacksEpoch {
     }
 }
 
-pub const STACKS_EPOCHS_MAINNET: &[StacksEpoch] = &[
+lazy_static! {
+
+pub static ref STACKS_EPOCHS_MAINNET: [StacksEpoch;3] = [
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch10,
         start_height: 0,
         end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        block_limit: ExecutionCost {
-            write_length: 15_000_000,
-            write_count: 7_750,
-            read_length: 100_000_000,
-            read_count: 7_750,
-            runtime: 5_000_000_000,
-        },
+        block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
     },
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
         start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
         end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
-        block_limit: ExecutionCost {
-            write_length: 15_000_000,
-            write_count: 7_750,
-            read_length: 100_000_000,
-            read_count: 7_750,
-            runtime: 5_000_000_000,
-        },
+        block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
     },
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch2_05,
         start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
         end_height: STACKS_EPOCH_MAX,
-        // TODO: Fill this in with the determined 2.05 costs.
-        block_limit: ExecutionCost {
-            write_length: 15_000_000,
-            write_count: 7_750,
-            read_length: 100_000_000,
-            read_count: 7_750,
-            runtime: 5_000_000_000,
-        },
+        block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
     },
 ];
+}
 
-pub const STACKS_EPOCHS_TESTNET: &[StacksEpoch] = &[
+lazy_static! {
+
+pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch;2] = [
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch10,
         start_height: 0,
-        end_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-        block_limit: ExecutionCost {
-            write_length: 15_000_000,
-            write_count: 7_750,
-            read_length: 100_000_000,
-            read_count: 7_750,
-            runtime: 5_000_000_000,
-        },
+        end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+        block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
     },
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
-        start_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-        end_height: STACKS_EPOCH_MAX,
-        block_limit: ExecutionCost {
-            write_length: 15_000_000,
-            write_count: 7_750,
-            read_length: 100_000_000,
-            read_count: 7_750,
-            runtime: 5_000_000_000,
-        },
-    }, // TODO: add Epoch2_05 when its start height is decided
+        start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+        end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+        block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+    },
 ];
+}
 
 pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
     StacksEpoch {

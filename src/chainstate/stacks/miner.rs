@@ -1576,7 +1576,6 @@ impl StacksBlockBuilder {
                             Ok(tx_receipt) => {
                                 num_txs += 1;
                                 if update_estimator {
-                                    // REVIEW QUESTION: Should we unwrap here or match?
                                     let stacks_epoch = burn_dbconn
                                         .get_stacks_epoch(
                                             parent_stacks_header.burn_header_height as u32,

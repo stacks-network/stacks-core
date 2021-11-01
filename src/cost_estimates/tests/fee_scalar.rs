@@ -167,7 +167,6 @@ fn test_fee_estimator() {
     );
 
     let empty_block_receipt = make_block_receipt(vec![]);
-    // REVIEW QUESTION: tests seem to be passing with `max_value` here. Is that right?
     let block_limit = ExecutionCost::max_value();
     estimator
         .notify_block(&empty_block_receipt, &block_limit)
