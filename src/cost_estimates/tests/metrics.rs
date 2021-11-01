@@ -1,4 +1,5 @@
 use chainstate::stacks::MAX_BLOCK_LEN;
+use core::BLOCK_LIMIT_MAINNET_20;
 use cost_estimates::metrics::{CostMetric, ProportionalDotProduct};
 use vm::costs::ExecutionCost;
 
@@ -115,13 +116,6 @@ fn test_proportional_dot_product() {
 
 #[test]
 fn test_proportional_dot_product_with_mainnet_lims() {
-    let block_limit: ExecutionCost = ExecutionCost {
-        write_length: 15_000_000, // roughly 15 mb
-        write_count: 7_750,
-        read_length: 100_000_000,
-        read_count: 7_750,
-        runtime: 5_000_000_000,
-    };
     let metric = ProportionalDotProduct::new(MAX_BLOCK_LEN as u64);
 
     // an execution cost equal to the limit should be maxed in each dimension,
@@ -135,7 +129,7 @@ fn test_proportional_dot_product_with_mainnet_lims() {
                 read_count: 7_750,
                 runtime: 5_000_000_000,
             },
-            &block_limit,
+            &BLOCK_LIMIT_MAINNET_20,
             2 * 1024 * 1024
         ),
         60_000
@@ -151,7 +145,7 @@ fn test_proportional_dot_product_with_mainnet_lims() {
                 read_count: 775,
                 runtime: 5_000_000,
             },
-            &block_limit,
+            &BLOCK_LIMIT_MAINNET_20,
             1024
         ),
         3024
@@ -167,7 +161,7 @@ fn test_proportional_dot_product_with_mainnet_lims() {
                 read_count: 7_751,
                 runtime: 50_000_000_000,
             },
-            &block_limit,
+            &BLOCK_LIMIT_MAINNET_20,
             2 * 1024 * 1024 + 1
         ),
         60_000

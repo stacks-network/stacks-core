@@ -312,45 +312,43 @@ impl Ord for StacksEpoch {
 }
 
 lazy_static! {
-
-pub static ref STACKS_EPOCHS_MAINNET: [StacksEpoch;3] = [
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch10,
-        start_height: 0,
-        end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
-        block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch2_05,
-        start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
-        end_height: STACKS_EPOCH_MAX,
-        block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
-    },
-];
+    pub static ref STACKS_EPOCHS_MAINNET: [StacksEpoch; 3] = [
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+        },
+    ];
 }
 
 lazy_static! {
-
-pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch;2] = [
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch10,
-        start_height: 0,
-        end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
-        block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
-    },
-];
+    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 2] = [
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+        },
+    ];
 }
 
 pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
