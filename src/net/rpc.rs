@@ -98,7 +98,7 @@ use vm::{
     analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
-        clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
+        BurnStateDB, clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
     },
     errors::Error as ClarityRuntimeError,
     errors::Error::Unchecked,
@@ -1620,7 +1620,6 @@ impl ConversationHttp {
                 }
             };
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-            use vm::database::BurnStateDB;
             let stacks_epoch = sortdb
                 .index_conn()
                 .get_stacks_epoch(tip.block_height as u32)
