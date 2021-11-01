@@ -632,7 +632,7 @@ fn spawn_peer(
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
     let sortdb = SortitionDB::open(&burn_db_path, false).map_err(NetError::DBError)?;
 
-    let (mut chainstate, _) = StacksChainState::open_with_block_limit(
+    let (mut chainstate, _) = StacksChainState::open(
         is_mainnet,
         config.burnchain.chain_id,
         &stacks_chainstate_path,
@@ -837,9 +837,8 @@ fn spawn_miner_relayer(
     //   should address via #1449
     let mut sortdb = SortitionDB::open(&burn_db_path, true).map_err(NetError::DBError)?;
 
-    let (mut chainstate, _) =
-        StacksChainState::open_with_block_limit(is_mainnet, chain_id, &stacks_chainstate_path)
-            .map_err(|e| NetError::ChainstateError(e.to_string()))?;
+    let (mut chainstate, _) = StacksChainState::open(is_mainnet, chain_id, &stacks_chainstate_path)
+        .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
     let mut last_mined_blocks: HashMap<
         BurnchainHeaderHash,

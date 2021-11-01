@@ -913,8 +913,7 @@ simulating a miner.
             )
             .unwrap();
         let (mut p2p_chainstate, _) =
-            StacksChainState::open_with_block_limit(false, 0x80000000, new_chainstate_path)
-                .unwrap();
+            StacksChainState::open(false, 0x80000000, new_chainstate_path).unwrap();
 
         let _ = thread::spawn(move || {
             loop {

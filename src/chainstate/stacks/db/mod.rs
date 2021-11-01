@@ -1316,28 +1316,12 @@ impl StacksChainState {
         StacksChainState::open(self.mainnet, self.chain_id, &self.root_path)
     }
 
-    /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
-    /// parameters, but with a block limit
-    pub fn reopen_limited(
-        &self,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(self.mainnet, self.chain_id, &self.root_path, None)
-    }
-
     pub fn open_testnet<F>(
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(false, chain_id, path_str, boot_data)
-    }
-
-    pub fn open_with_block_limit(
-        mainnet: bool,
-        chain_id: u32,
-        path_str: &str,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None)
     }
 
     pub fn open_and_exec(

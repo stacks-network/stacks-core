@@ -1330,7 +1330,7 @@ impl StacksBlockBuilder {
         mut txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
-        let (mut chainstate, _) = chainstate_handle.reopen_limited()?; // used for processing a block up to the given limit
+        let (mut chainstate, _) = chainstate_handle.reopen()?;
         let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
@@ -1492,7 +1492,7 @@ impl StacksBlockBuilder {
             &tip_consensus_hash, &tip_block_hash, tip_height
         );
 
-        let (mut chainstate, _) = chainstate_handle.reopen_limited()?; // used for processing a block up to the given limit
+        let (mut chainstate, _) = chainstate_handle.reopen()?;
 
         let mut builder = StacksBlockBuilder::make_block_builder(
             chainstate.mainnet,
