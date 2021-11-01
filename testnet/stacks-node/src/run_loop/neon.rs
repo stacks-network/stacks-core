@@ -111,7 +111,6 @@ impl RunLoop {
 
     #[cfg(test)]
     fn set_burnchain_height(&self, burnchain_height: u64) {
-        warn!("set_burnchain_height {:?}", burnchain_height);
         self.burnchain_height
             .fetch_update(
                 std::sync::atomic::Ordering::SeqCst,
