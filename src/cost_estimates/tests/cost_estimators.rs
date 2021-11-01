@@ -27,6 +27,7 @@ use crate::cost_estimates::PessimisticEstimator;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
+use core::BLOCK_LIMIT_MAINNET_20;
 
 fn instantiate_test_db() -> PessimisticEstimator {
     let mut path = env::temp_dir();
@@ -59,14 +60,6 @@ impl CostMetric for TestCostMetric {
         0f64
     }
 }
-
-const BLOCK_LIMIT_MAINNET_STACKS20: ExecutionCost = ExecutionCost {
-    write_length: 15_000_000, // roughly 15 mb
-    write_count: 7_750,
-    read_length: 100_000_000,
-    read_count: 7_750,
-    runtime: 5_000_000_000,
-};
 
 #[test]
 fn test_empty_pessimistic_estimator() {
@@ -196,7 +189,7 @@ fn test_cost_estimator_notify_block() {
             },
         ),
     ];
-    estimator.notify_block(&block, &BLOCK_LIMIT_MAINNET_STACKS20);
+    estimator.notify_block(&block, &BLOCK_LIMIT_MAINNET_20);
 
     assert_eq!(
         estimator
@@ -231,7 +224,7 @@ fn test_pessimistic_cost_estimator_declining_average() {
                 read_count: 10,
                 runtime: 10,
             },
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -258,7 +251,7 @@ fn test_pessimistic_cost_estimator_declining_average() {
                 read_count: 1,
                 runtime: 1,
             },
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -294,7 +287,7 @@ fn test_pessimistic_cost_estimator() {
                 read_count: 1,
                 runtime: 1,
             },
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -323,7 +316,7 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -344,7 +337,7 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -369,7 +362,7 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -394,7 +387,7 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -419,7 +412,7 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -444,7 +437,7 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -469,7 +462,7 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -494,7 +487,7 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -519,7 +512,7 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -547,7 +540,7 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
@@ -575,7 +568,7 @@ fn test_pessimistic_cost_estimator() {
                 read_count: 1,
                 runtime: 1,
             },
-            &BLOCK_LIMIT_MAINNET_STACKS20,
+            &BLOCK_LIMIT_MAINNET_20,
         )
         .expect("Should be able to process event");
 
