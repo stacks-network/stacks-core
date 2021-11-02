@@ -18,11 +18,11 @@ use stacks::types::chainstate::{StacksAddress, StacksMicroblockHeader};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::hex_bytes;
 use stacks::util::strings::StacksString;
+use stacks::vm::costs::ExecutionCost;
 use stacks::vm::database::BurnStateDB;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
 use stacks::{address::AddressHashMode, util::hash::to_hex};
-use stacks::vm::costs::ExecutionCost;
 
 use crate::helium::RunLoop;
 

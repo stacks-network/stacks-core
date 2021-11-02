@@ -259,7 +259,7 @@ impl ClarityBlockConnection<'_> {
     pub fn block_limit(&self) -> Option<ExecutionCost> {
         match self.cost_track {
             Some(ref track) => Some(track.get_limit()),
-            None => None
+            None => None,
         }
     }
 }

@@ -122,7 +122,7 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx1,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
 
@@ -135,7 +135,7 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx2,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
 
@@ -153,7 +153,7 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx3,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
 
@@ -171,7 +171,7 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx4,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
 
@@ -189,7 +189,7 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx4,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
             }

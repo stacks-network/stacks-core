@@ -483,7 +483,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
 
         mem_pool.reset_last_known_nonces()?;
-        let block_limit = clarity_tx.block_limit().expect("No block limit found for clarity_tx.");
+        let block_limit = clarity_tx
+            .block_limit()
+            .expect("No block limit found for clarity_tx.");
         mem_pool.estimate_tx_rates(100, &block_limit)?;
 
         debug!(
@@ -1510,11 +1512,9 @@ impl StacksBlockBuilder {
 
         mempool.reset_last_known_nonces()?;
 
-                                    let stacks_epoch = burn_dbconn
-                                        .get_stacks_epoch(
-                                            parent_stacks_header.burn_header_height as u32,
-                                        )
-                                        .expect("No epoch found for burn block height.");
+        let stacks_epoch = burn_dbconn
+            .get_stacks_epoch(parent_stacks_header.burn_header_height as u32)
+            .expect("No epoch found for burn block height.");
         mempool.estimate_tx_rates(100, &stacks_epoch.block_limit)?;
 
         let mut considered = HashSet::new(); // txids of all transactions we looked at
@@ -6884,7 +6884,7 @@ pub mod test {
                                     &parent_header_hash,
                                     &stx_transfer,
                                     None,
-                                &ExecutionCost::max_value(),
+                                    &ExecutionCost::max_value(),
                                 )
                                 .unwrap();
                         }
@@ -6908,7 +6908,7 @@ pub mod test {
                                     &parent_header_hash,
                                     &stx_transfer,
                                     None,
-                                &ExecutionCost::max_value(),
+                                    &ExecutionCost::max_value(),
                                 )
                                 .unwrap();
                         }
@@ -7055,7 +7055,7 @@ pub mod test {
                             &parent_header_hash,
                             &tx,
                             None,
-                                &ExecutionCost::max_value(),
+                            &ExecutionCost::max_value(),
                         )
                         .unwrap();
                 }
@@ -9279,7 +9279,7 @@ pub mod test {
                     &parent_header_info.anchored_header.block_hash(),
                     &tx,
                     None,
-                                &ExecutionCost::max_value(),
+                    &ExecutionCost::max_value(),
                 )
                 .unwrap()
         }
@@ -9303,7 +9303,7 @@ pub mod test {
                     &parent_header_info.anchored_header.block_hash(),
                     &tx,
                     None,
-                                &ExecutionCost::max_value(),
+                    &ExecutionCost::max_value(),
                 )
                 .unwrap()
         }

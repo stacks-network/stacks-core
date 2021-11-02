@@ -12,9 +12,9 @@ use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::util::hash::hex_bytes;
 
 use super::PUBLISH_CONTRACT;
+use stacks::vm::costs::ExecutionCost;
 use std::env;
 use std::io::{BufRead, BufReader};
-use stacks::vm::costs::ExecutionCost;
 
 pub enum BitcoinCoreError {
     SpawnFailed(String),

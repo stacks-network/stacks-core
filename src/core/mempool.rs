@@ -39,9 +39,9 @@ use chainstate::stacks::{
     db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, index::Error as MarfError,
     Error as ChainstateError, StacksTransaction,
 };
+use core::ExecutionCost;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
-use core::ExecutionCost;
 use monitoring::increment_stx_mempool_gc;
 use std::time::Instant;
 use util::db::query_row_columns;
@@ -657,7 +657,11 @@ impl MemPoolDB {
     /// at most `max_updates` entries in the database before returning.
     ///
     /// Returns `Ok(number_updated)` on success
-    pub fn estimate_tx_rates(&mut self, max_updates: u32,block_limit:&ExecutionCost) -> Result<u32, db_error> {
+    pub fn estimate_tx_rates(
+        &mut self,
+        max_updates: u32,
+        block_limit: &ExecutionCost,
+    ) -> Result<u32, db_error> {
         let sql_tx = tx_begin_immediate(&mut self.db)?;
         let txs: Vec<MemPoolTxInfo> = query_rows(
             &sql_tx,
@@ -1227,7 +1231,7 @@ impl MemPoolDB {
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        block_limit:&ExecutionCost,
+        block_limit: &ExecutionCost,
     ) -> Result<(), MemPoolRejection> {
         let estimator_result = cost_estimates::estimate_fee_rate(
             tx,
@@ -1272,7 +1276,7 @@ impl MemPoolDB {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx_bytes: Vec<u8>,
-        block_limit:&ExecutionCost,
+        block_limit: &ExecutionCost,
     ) -> Result<(), MemPoolRejection> {
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(MemPoolRejection::DeserializationFailure)?;

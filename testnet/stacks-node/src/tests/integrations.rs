@@ -217,7 +217,7 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-&ExecutionCost::max_value(),
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
                 let publish_tx =
@@ -229,7 +229,7 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-&ExecutionCost::max_value(),
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
                 let publish_tx =
@@ -241,7 +241,7 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-&ExecutionCost::max_value(),
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
             } else if round == 2 {
@@ -261,7 +261,7 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-&ExecutionCost::max_value(),
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
             } else if round >= 3 {
@@ -278,9 +278,13 @@ fn integration_test_get_info() {
                 eprintln!("update-info submitted");
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx,
-&ExecutionCost::max_value()
-                                )
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        tx,
+                        &ExecutionCost::max_value(),
+                    )
                     .unwrap();
             }
 
@@ -294,9 +298,13 @@ fn integration_test_get_info() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx_xfer,
-&ExecutionCost::max_value()
-                                )
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        tx_xfer,
+                        &ExecutionCost::max_value(),
+                    )
                     .unwrap();
             }
 
@@ -1056,7 +1064,7 @@ fn contract_stx_transfer() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1070,7 +1078,7 @@ fn contract_stx_transfer() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
             } else if round == 3 {
@@ -1084,9 +1092,13 @@ fn contract_stx_transfer() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx,
-&ExecutionCost::max_value()
-                                )
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                    )
                     .unwrap();
 
                 let tx = make_contract_call(
@@ -1100,9 +1112,13 @@ fn contract_stx_transfer() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx,
-&ExecutionCost::max_value()
-                                )
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        tx,
+                        &ExecutionCost::max_value(),
+                    )
                     .unwrap();
             } else if round == 4 {
                 // let's testing "chaining": submit MAXIMUM_MEMPOOL_TX_CHAINING - 1 txs, which should succeed
@@ -1125,7 +1141,7 @@ fn contract_stx_transfer() {
                             &header_hash,
                             &xfer_to_contract,
                             None,
-&ExecutionCost::max_value()
+                            &ExecutionCost::max_value(),
                         )
                         .unwrap();
                 }
@@ -1142,7 +1158,7 @@ fn contract_stx_transfer() {
                         &header_hash,
                         &xfer_to_contract,
                         None,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap_err()
                 {
@@ -1358,7 +1374,7 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1371,7 +1387,7 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
             } else if round == 3 {
@@ -1384,7 +1400,7 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
             } else if round == 4 {
@@ -1397,7 +1413,7 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
             }
@@ -1494,9 +1510,13 @@ fn mine_contract_twice() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx,
-&ExecutionCost::max_value()
-                                )
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                    )
                     .unwrap();
 
                 // throw an extra "run" in.
@@ -1590,7 +1610,7 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1607,7 +1627,7 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
 
@@ -1620,7 +1640,7 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
 
@@ -1628,18 +1648,26 @@ fn bad_contract_tx_rollback() {
                     make_contract_publish(&contract_sk, 0, 10, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx,
-&ExecutionCost::max_value()
-                                )
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                    )
                     .unwrap();
 
                 let publish_tx =
                     make_contract_publish(&contract_sk, 1, 10, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx,
-&ExecutionCost::max_value()
-                                )
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                    )
                     .unwrap();
             }
 
@@ -1835,9 +1863,13 @@ fn block_limit_runtime_test() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx,
-&ExecutionCost::max_value()
-                                )
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                    )
                     .unwrap();
             } else if round > 1 {
                 eprintln!("Begin Round: {}", round);
@@ -1859,9 +1891,13 @@ fn block_limit_runtime_test() {
                     );
                     tenure
                         .mem_pool
-                        .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, tx,
-&ExecutionCost::max_value()
-                                    )
+                        .submit_raw(
+                            &mut chainstate_copy,
+                            consensus_hash,
+                            block_hash,
+                            tx,
+                            &ExecutionCost::max_value(),
+                        )
                         .unwrap();
                 }
             }
@@ -1945,7 +1981,7 @@ fn mempool_errors() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-&ExecutionCost::max_value()
+                        &ExecutionCost::max_value(),
                     )
                     .unwrap();
             }

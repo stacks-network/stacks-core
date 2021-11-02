@@ -76,6 +76,7 @@ use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
 use util::secp256k1::Secp256k1PublicKey;
+use vm::database::BurnStateDB;
 
 use crate::types::chainstate::{PoxId, SortitionId, StacksBlockHeader};
 
@@ -4381,6 +4382,7 @@ impl PeerNetwork {
     /// Has to be done here, since only the p2p network has the unconfirmed state.
     fn store_transaction(
         mempool: &mut MemPoolDB,
+        sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
@@ -4392,10 +4394,20 @@ impl PeerNetwork {
             debug!("Already have tx {}", txid);
             return false;
         }
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        let stacks_epoch = sortdb
+            .index_conn()
+            .get_stacks_epoch(tip.block_height as u32)
+            .expect("Could not find a stacks epoch.");
 
-        // DO NOT SUBMIT
-        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx, event_observer, &ExecutionCost::max_value())
-        {
+        if let Err(e) = mempool.submit(
+            chainstate,
+            consensus_hash,
+            block_hash,
+            &tx,
+            event_observer,
+            &stacks_epoch.block_limit,
+        ) {
             warn!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
         }
@@ -4424,6 +4436,7 @@ impl PeerNetwork {
             for (relayers, tx) in tx_data.into_iter() {
                 if PeerNetwork::store_transaction(
                     mempool,
+                    sortdb,
                     chainstate,
                     &canonical_consensus_hash,
                     &canonical_block_hash,

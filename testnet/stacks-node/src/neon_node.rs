@@ -68,8 +68,8 @@ use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
-use stacks::monitoring;
 use crate::stacks::vm::database::BurnStateDB;
+use stacks::monitoring;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 
@@ -1834,10 +1834,10 @@ impl InitializedNeonNode {
                     config.burnchain.chain_id,
                 );
 
-        let stacks_epoch = burn_db
-            .index_conn()
-            .get_stacks_epoch(burn_block.block_height as u32)
-            .expect("Could not find a stacks epoch.");
+                let stacks_epoch = burn_db
+                    .index_conn()
+                    .get_stacks_epoch(burn_block.block_height as u32)
+                    .expect("Could not find a stacks epoch.");
 
                 // submit the poison payload, privately, so we'll mine it when building the
                 // anchored block.
@@ -1847,7 +1847,7 @@ impl InitializedNeonNode {
                     &stacks_parent_header.anchored_header.block_hash(),
                     &poison_microblock_tx,
                     Some(event_observer),
-                                &stacks_epoch.block_limit,
+                    &stacks_epoch.block_limit,
                 ) {
                     warn!(
                         "Detected but failed to mine poison-microblock transaction: {:?}",
