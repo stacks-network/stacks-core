@@ -293,7 +293,7 @@ impl ClarityInstance {
                 }
             }
             None => GENESIS_EPOCH,
-        }
+        };
     }
 
     pub fn begin_block<'a>(
