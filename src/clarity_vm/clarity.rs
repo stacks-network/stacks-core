@@ -254,6 +254,14 @@ impl ClarityBlockConnection<'_> {
             None => ExecutionCost::zero(),
         }
     }
+
+    /// Returns the block limit for the block being created.
+    pub fn block_limit(&self) -> Option<ExecutionCost> {
+        match self.cost_track {
+            Some(ref track) => Some(track.get_limit()),
+            None => None
+        }
+    }
 }
 
 impl ClarityInstance {
@@ -280,6 +288,7 @@ impl ClarityInstance {
         header_db: &dyn HeadersDB,
         burn_state_db: &dyn BurnStateDB,
     ) -> StacksEpoch {
+        // Step 1: Try to find the epoch according to block.
         let epoch_found = match header_db.get_burn_block_height_for_block(stacks_block) {
             Some(burn_height) => {
                 // special case the Stacks 2.0 genesis block -- it occurs at a zero burn block height
@@ -295,10 +304,11 @@ impl ClarityInstance {
             None => None,
         };
 
+        // Step 2: If not found, default to Epoch20.
         match epoch_found {
             Some(epoch) => epoch,
             None => burn_state_db
-                .get_stacks_epoch_by_epoch_id(GENESIS_EPOCH)
+                .get_stacks_epoch_by_epoch_id(&GENESIS_EPOCH)
                 .expect("Failed to get Stacks epoch for GENESIS_EPOCH"),
         }
     }
@@ -318,7 +328,7 @@ impl ClarityInstance {
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
-                    self.block_limit.clone(),
+                    epoch.block_limit.clone(),
                     &mut clarity_db,
                     epoch.epoch_id,
                 )
@@ -450,9 +460,9 @@ impl ClarityInstance {
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
-                    self.block_limit.clone(),
+                    epoch.block_limit.clone(),
                     &mut clarity_db,
-                    epoch,
+                    epoch.epoch_id,
                 )
                 .expect("FAIL: problem instantiating cost tracking"),
             )

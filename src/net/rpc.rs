@@ -1699,12 +1699,14 @@ impl ConversationHttp {
                 false,
             )
         } else {
+        // DO NOT SUBMIT
             match mempool.submit(
                 chainstate,
                 &consensus_hash,
                 &block_hash,
                 &tx,
                 event_observer,
+&ExecutionCost::max_value(),
             ) {
                 Ok(_) => {
                     debug!("Mempool accepted POSTed transaction {}", &txid);

@@ -26,6 +26,7 @@ use stacks::{address::AddressHashMode, chainstate::stacks::TransactionAnchorMode
 
 use crate::helium::RunLoop;
 use crate::Keychain;
+use stacks::vm::costs::ExecutionCost;
 
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
@@ -121,6 +122,7 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx1,
+&ExecutionCost::max_value()
                     )
                     .unwrap();
 
@@ -133,6 +135,7 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx2,
+&ExecutionCost::max_value()
                     )
                     .unwrap();
 
@@ -150,6 +153,7 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx3,
+&ExecutionCost::max_value()
                     )
                     .unwrap();
 
@@ -167,6 +171,7 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx4,
+&ExecutionCost::max_value()
                     )
                     .unwrap();
 
@@ -184,6 +189,7 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx4,
+&ExecutionCost::max_value()
                     )
                     .unwrap();
             }

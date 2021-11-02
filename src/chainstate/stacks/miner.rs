@@ -483,7 +483,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
 
         mem_pool.reset_last_known_nonces()?;
-        mem_pool.estimate_tx_rates(100)?;
+        let block_limit = clarity_tx.block_limit().expect("No block limit found for clarity_tx.");
+        mem_pool.estimate_tx_rates(100, &block_limit)?;
 
         debug!(
             "Microblock transaction selection begins (child of {}), bytes so far: {}",
@@ -1508,7 +1509,13 @@ impl StacksBlockBuilder {
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
         mempool.reset_last_known_nonces()?;
-        mempool.estimate_tx_rates(100)?;
+
+                                    let stacks_epoch = burn_dbconn
+                                        .get_stacks_epoch(
+                                            parent_stacks_header.burn_header_height as u32,
+                                        )
+                                        .expect("No epoch found for burn block height.");
+        mempool.estimate_tx_rates(100, &stacks_epoch.block_limit)?;
 
         let mut considered = HashSet::new(); // txids of all transactions we looked at
         let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
@@ -6600,6 +6607,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
@@ -6739,6 +6747,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
@@ -6875,6 +6884,7 @@ pub mod test {
                                     &parent_header_hash,
                                     &stx_transfer,
                                     None,
+                                &ExecutionCost::max_value(),
                                 )
                                 .unwrap();
                         }
@@ -6898,6 +6908,7 @@ pub mod test {
                                     &parent_header_hash,
                                     &stx_transfer,
                                     None,
+                                &ExecutionCost::max_value(),
                                 )
                                 .unwrap();
                         }
@@ -7044,6 +7055,7 @@ pub mod test {
                             &parent_header_hash,
                             &tx,
                             None,
+                                &ExecutionCost::max_value(),
                         )
                         .unwrap();
                 }
@@ -7245,6 +7257,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -7264,6 +7277,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &contract_tx,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -7282,6 +7296,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -7435,6 +7450,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &contract_tx,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
@@ -7591,6 +7607,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &contract_tx,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
@@ -7725,6 +7742,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -7750,6 +7768,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -8094,6 +8113,7 @@ pub mod test {
                                 &parent_tip_ch,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -8120,6 +8140,7 @@ pub mod test {
                                 &parent_tip_ch,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -8154,6 +8175,7 @@ pub mod test {
                                 &parent_tip_ch,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -8180,6 +8202,7 @@ pub mod test {
                                 &parent_tip_ch,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -8445,6 +8468,7 @@ pub mod test {
                                         &parent_consensus_hash,
                                         &parent_header_hash,
                                         tx_bytes,
+                                &ExecutionCost::max_value(),
                                     )
                                     .unwrap();
                             }
@@ -8775,6 +8799,7 @@ pub mod test {
                                         &parent_consensus_hash,
                                         &parent_header_hash,
                                         tx_bytes,
+                                &ExecutionCost::max_value(),
                                     )
                                     .unwrap();
                             }
@@ -8848,6 +8873,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
@@ -8878,6 +8904,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
@@ -9252,6 +9279,7 @@ pub mod test {
                     &parent_header_info.anchored_header.block_hash(),
                     &tx,
                     None,
+                                &ExecutionCost::max_value(),
                 )
                 .unwrap()
         }
@@ -9275,6 +9303,7 @@ pub mod test {
                     &parent_header_info.anchored_header.block_hash(),
                     &tx,
                     None,
+                                &ExecutionCost::max_value(),
                 )
                 .unwrap()
         }
