@@ -532,13 +532,9 @@ impl EventBatch {
 impl<'a> OwnedEnvironment<'a> {
     #[cfg(test)]
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+        let epoch = StacksEpochId::Epoch2_05;
         OwnedEnvironment {
-            context: GlobalContext::new(
-                false,
-                database,
-                LimitedCostTracker::new_free(),
-                StacksEpochId::Epoch2_05,
-            ),
+            context: GlobalContext::new(false, database, LimitedCostTracker::new_free(), epoch),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
@@ -549,7 +545,7 @@ impl<'a> OwnedEnvironment<'a> {
         mut database: ClarityDatabase<'a>,
         epoch: StacksEpochId,
     ) -> OwnedEnvironment<'a> {
-        let cost_track = LimitedCostTracker::new_max_limit(&mut database)
+        let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch)
             .expect("FAIL: problem instantiating cost tracking");
         OwnedEnvironment {
             context: GlobalContext::new(false, database, cost_track, epoch),

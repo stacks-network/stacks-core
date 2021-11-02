@@ -63,6 +63,8 @@ pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 //  them again.
 pub const TX_BLOCK_LIMIT_PROPORTION_HEURISTIC: u64 = 20;
 
+pub const GENESIS_EPOCH: StacksEpochId = StacksEpochId::Epoch20;
+
 /// The number of blocks which will share the block bonus
 ///   from burn blocks that occurred without a sortition.
 ///   (See: https://forum.stacks.org/t/pox-consensus-and-stx-future-supply)

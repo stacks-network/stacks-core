@@ -58,6 +58,7 @@ use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::core::StacksEpoch;
 use crate::core::StacksEpochId;
+use crate::core::GENESIS_EPOCH;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::SortitionId;
 use crate::types::chainstate::StacksBlockId;
@@ -283,7 +284,7 @@ impl ClarityInstance {
             Some(burn_height) => {
                 // special case the Stacks 2.0 genesis block -- it occurs at a zero burn block height
                 if burn_height == 0 {
-                    None
+                    GENESIS_EPOCH
                 } else {
                     Some(burn_state_db.get_stacks_epoch(burn_height).expect(&format!(
                         "Failed to get Stacks epoch for height = {}",
@@ -291,14 +292,8 @@ impl ClarityInstance {
                     )))
                 }
             }
-            None => None,
-        };
-
-        epoch_found.unwrap_or_else(|| {
-            burn_state_db
-                .get_stacks_epoch_by_epoch_id(&StacksEpochId::Epoch20)
-                .expect(&format!("Failed to get Stacks epoch for Epoch20"))
-        })
+            None => GENESIS_EPOCH,
+        }
     }
 
     pub fn begin_block<'a>(
@@ -314,8 +309,13 @@ impl ClarityInstance {
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(self.mainnet, epoch.block_limit.clone(), &mut clarity_db)
-                    .expect("FAIL: problem instantiating cost tracking"),
+                LimitedCostTracker::new(
+                    self.mainnet,
+                    self.block_limit.clone(),
+                    &mut clarity_db,
+                    epoch,
+                )
+                .expect("FAIL: problem instantiating cost tracking"),
             )
         };
 
@@ -338,9 +338,9 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let datastore = self.datastore.begin(current, next);
 
-        let cost_track = Some(LimitedCostTracker::new_free());
+        let epoch = GENESIS_EPOCH;
 
-        let epoch = StacksEpochId::Epoch20;
+        let cost_track = Some(LimitedCostTracker::new_free());
 
         ClarityBlockConnection {
             datastore,
@@ -363,6 +363,8 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let writable = self.datastore.begin(current, next);
 
+        let epoch = GENESIS_EPOCH;
+
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
@@ -371,7 +373,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: false,
-            epoch: StacksEpochId::Epoch20,
+            epoch,
         };
 
         conn.as_transaction(|clarity_db| {
@@ -435,11 +437,17 @@ impl ClarityInstance {
         let mut datastore = self.datastore.begin_unconfirmed(current);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
+
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(self.mainnet, epoch.block_limit.clone(), &mut clarity_db)
-                    .expect("FAIL: problem instantiating cost tracking"),
+                LimitedCostTracker::new(
+                    self.mainnet,
+                    self.block_limit.clone(),
+                    &mut clarity_db,
+                    epoch,
+                )
+                .expect("FAIL: problem instantiating cost tracking"),
             )
         };
 

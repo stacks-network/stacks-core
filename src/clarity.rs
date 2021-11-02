@@ -136,6 +136,8 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     })
 }
 
+pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
+
 struct EvalInput {
     marf_kv: MarfedKV,
     contract_identifier: QualifiedContractIdentifier,
@@ -219,6 +221,7 @@ fn run_analysis<C: ClarityStorage>(
             HELIUM_BLOCK_LIMIT_20.clone()
         },
         &mut marf_kv.get_clarity_db(header_db, &NULL_BURN_STATE_DB),
+        DEFAULT_CLI_EPOCH,
     )
     .unwrap();
     analysis::run_analysis(
@@ -392,10 +395,10 @@ where
             HELIUM_BLOCK_LIMIT_20.clone()
         },
         &mut db,
+        DEFAULT_CLI_EPOCH,
     )
     .unwrap();
-    let mut vm_env =
-        OwnedEnvironment::new_cost_limited(mainnet, db, cost_track, StacksEpochId::Epoch2_05);
+    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track, DEFAULT_CLI_EPOCH);
     let result = f(&mut vm_env);
     let cost = vm_env.get_cost_total();
     (result, cost)
@@ -412,7 +415,7 @@ pub fn vm_execute(program: &str) -> Result<Option<Value>, Error> {
         false,
         conn,
         LimitedCostTracker::new_free(),
-        StacksEpochId::Epoch2_05,
+        DEFAULT_CLI_EPOCH,
     );
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
@@ -742,7 +745,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         match analysis_result {
             Ok(_) => {
                 let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-                let mut vm_env = OwnedEnvironment::new_free(mainnet, db, StacksEpochId::Epoch2_05);
+                let mut vm_env = OwnedEnvironment::new_free(mainnet, db, DEFAULT_CLI_EPOCH);
                 vm_env
                     .initialize_contract(contract_identifier, &contract_content)
                     .unwrap();
@@ -770,7 +773,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     ];
 
     let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-    let mut vm_env = OwnedEnvironment::new_free(mainnet, db, StacksEpochId::Epoch2_05);
+    let mut vm_env = OwnedEnvironment::new_free(mainnet, db, DEFAULT_CLI_EPOCH);
     vm_env
         .execute_transaction(
             sender,
@@ -1062,7 +1065,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             };
             let mut marf = MemoryBackingStore::new();
             let mut vm_env =
-                OwnedEnvironment::new_free(mainnet, marf.as_clarity_db(), StacksEpochId::Epoch2_05);
+                OwnedEnvironment::new_free(mainnet, marf.as_clarity_db(), DEFAULT_CLI_EPOCH);
             let mut exec_env = vm_env.get_exec_environment(None);
             let mut analysis_marf = MemoryBackingStore::new();
 
@@ -1128,7 +1131,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let mut analysis_marf = MemoryBackingStore::new();
             let mut marf = MemoryBackingStore::new();
             let mut vm_env =
-                OwnedEnvironment::new_free(true, marf.as_clarity_db(), StacksEpochId::Epoch2_05);
+                OwnedEnvironment::new_free(true, marf.as_clarity_db(), DEFAULT_CLI_EPOCH);
 
             let contract_id = QualifiedContractIdentifier::transient();
 

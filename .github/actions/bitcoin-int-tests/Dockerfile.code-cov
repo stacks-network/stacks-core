@@ -2,9 +2,11 @@ FROM rust:bullseye AS build
 
 WORKDIR /build
 
+# Don't run grcov until https://github.com/mozilla/grcov/issues/700 is resolved
+# RUN cargo install grcov
+
 RUN rustup override set nightly && \
-    rustup component add llvm-tools-preview && \
-    cargo install grcov
+    rustup component add llvm-tools-preview
 
 ENV RUSTFLAGS="-Zinstrument-coverage" \
     LLVM_PROFILE_FILE="stacks-blockchain-%p-%m.profraw"
@@ -14,6 +16,8 @@ COPY . .
 RUN cargo build && \
     cargo test
 
+# Don't run grcov until https://github.com/mozilla/grcov/issues/700 is resolved
+#
 # Generate coverage report and upload it to codecov
-RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info && \
-    bash -c "bash <(curl -s https://codecov.io/bash)"
+# RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info && \
+#    bash -c "bash <(curl -s https://codecov.io/bash)"
