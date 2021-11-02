@@ -282,7 +282,10 @@ impl ClarityInstance {
 
     /// Returns the Stacks epoch of the burn block that elected `stacks_block`
     ///
-    /// If the burn height of `stacks_block` cannot be found, default to Epoch20.
+    /// 1) If this is a test, and the burn_height is set to 0, return Epoch20.
+    ///    TODO: remove this case
+    /// 2) Otherwise return the epoch found according to the height.
+    /// 3) Default to Epoch20, if not found.
     fn get_epoch_of(
         stacks_block: &StacksBlockId,
         header_db: &dyn HeadersDB,
@@ -291,7 +294,7 @@ impl ClarityInstance {
         // Step 1: Try to find the epoch according to block.
         let epoch_found = match header_db.get_burn_block_height_for_block(stacks_block) {
             Some(burn_height) => {
-                // special case the Stacks 2.0 genesis block -- it occurs at a zero burn block height
+                // Note: Special case for test. Allow `burn_height == 0` to return default.
                 if cfg!(test) && burn_height == 0 {
                     None
                 } else {
