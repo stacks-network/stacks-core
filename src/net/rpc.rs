@@ -1682,6 +1682,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
         consensus_hash: ConsensusHash,
         block_hash: BlockHeaderHash,
         mempool: &mut MemPoolDB,
@@ -1699,14 +1700,18 @@ impl ConversationHttp {
                 false,
             )
         } else {
-        // DO NOT SUBMIT
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+            let stacks_epoch = sortdb
+                .index_conn()
+                .get_stacks_epoch(tip.block_height as u32)
+                .expect("Could not find a stacks epoch.");
             match mempool.submit(
                 chainstate,
                 &consensus_hash,
                 &block_hash,
                 &tx,
                 event_observer,
-&ExecutionCost::max_value(),
+                &stacks_epoch.block_limit,
             ) {
                 Ok(_) => {
                     debug!("Mempool accepted POSTed transaction {}", &txid);
@@ -2192,6 +2197,7 @@ impl ConversationHttp {
                             &mut reply,
                             &req,
                             chainstate,
+                            sortdb,
                             tip.consensus_hash,
                             tip.anchored_block_hash,
                             mempool,
