@@ -289,6 +289,10 @@ impl ClarityConnection for ClarityTx<'_> {
     {
         self.block.with_analysis_db_readonly(to_do)
     }
+
+    fn get_epoch(&self) -> StacksEpochId {
+        self.block.get_epoch()
+    }
 }
 
 impl<'a> ClarityTx<'a> {
@@ -298,6 +302,10 @@ impl<'a> ClarityTx<'a> {
 
     pub fn cost_so_far(&self) -> ExecutionCost {
         self.block.cost_so_far()
+    }
+
+    pub fn get_epoch(&self) -> StacksEpochId {
+        self.block.get_epoch()
     }
 
     /// Set the ClarityTx's cost tracker.
