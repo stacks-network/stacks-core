@@ -133,6 +133,8 @@ pub const BLOCK_LIMIT_MAINNET_10: ExecutionCost = ExecutionCost {
     read_count: 0,
     runtime: 0,
 };
+
+// Block limit in Stacks 2.0.
 pub const BLOCK_LIMIT_MAINNET_20: ExecutionCost = ExecutionCost {
     write_length: 15_000_000, // roughly 15 mb
     write_count: 7_750,
@@ -141,15 +143,16 @@ pub const BLOCK_LIMIT_MAINNET_20: ExecutionCost = ExecutionCost {
     runtime: 5_000_000_000,
 };
 
-// TODO: Fill this in with the determined 2.05 costs.
+// Block limit in Stacks 2.05.
 pub const BLOCK_LIMIT_MAINNET_205: ExecutionCost = ExecutionCost {
-    write_length: 15_000_000, // roughly 15 mb
-    write_count: 7_750,
+    write_length: 15_000_000,
+    write_count: 15_000,
     read_length: 100_000_000,
-    read_count: 7_750,
+    read_count: 15_000,
     runtime: 5_000_000_000,
 };
 
+// Block limit for the testnet in Stacks 2.0.
 pub const HELIUM_BLOCK_LIMIT_20: ExecutionCost = ExecutionCost {
     write_length: 15_0_000_000,
     write_count: 5_0_000,
