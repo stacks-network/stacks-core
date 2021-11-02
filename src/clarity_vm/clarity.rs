@@ -284,7 +284,7 @@ impl ClarityInstance {
             Some(burn_height) => {
                 // special case the Stacks 2.0 genesis block -- it occurs at a zero burn block height
                 if burn_height == 0 {
-                    GENESIS_EPOCH
+                    None
                 } else {
                     Some(burn_state_db.get_stacks_epoch(burn_height).expect(&format!(
                         "Failed to get Stacks epoch for height = {}",
@@ -292,8 +292,15 @@ impl ClarityInstance {
                     )))
                 }
             }
-            None => GENESIS_EPOCH,
+            None => None,
         };
+
+        match epoch_found {
+            Some(epoch) => epoch,
+            None => burn_state_db
+                .get_stacks_epoch_by_epoch_id(GENESIS_EPOCH)
+                .expect("Failed to get Stacks epoch for GENESIS_EPOCH"),
+        }
     }
 
     pub fn begin_block<'a>(
@@ -313,7 +320,7 @@ impl ClarityInstance {
                     self.mainnet,
                     self.block_limit.clone(),
                     &mut clarity_db,
-                    epoch,
+                    epoch.epoch_id,
                 )
                 .expect("FAIL: problem instantiating cost tracking"),
             )

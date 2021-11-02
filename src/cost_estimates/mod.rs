@@ -105,7 +105,7 @@ pub fn estimate_fee_rate<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
     tx: &StacksTransaction,
     estimator: &CE,
     metric: &CM,
-    block_limit:&ExecutionCost,
+    block_limit: &ExecutionCost,
 ) -> Result<f64, EstimatorError> {
     let cost_estimate = estimator.estimate_cost(&tx.payload)?;
     // DO NOT SUBMIT: fix this
