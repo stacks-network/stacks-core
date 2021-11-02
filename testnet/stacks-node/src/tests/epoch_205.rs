@@ -396,32 +396,31 @@ fn select_transactions_where(
 }
 
 /// This function will call `next_block_and_wait` until the burnchain height underlying `BitcoinRegtestController`
-/// reaches *at least* `target_height`.
+/// reaches *exactly* `target_height`.
 ///
 /// Returns `false` if `next_block_and_wait` times out.
-///
-/// Note: The user cannot assume that the block height reached is *exactly* `target_height`. It
-/// seems that the chain may often advanced `1` block past `target_height`.
 fn run_until_burnchain_height(
     btc_regtest_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
     burnchain_height: &Arc<AtomicU64>,
     target_height: u64,
 ) -> bool {
-    let current = burnchain_height.load(Ordering::SeqCst);
+    let current_height = burnchain_height.load(Ordering::SeqCst);
     eprintln!(
-        "run_until_burnchain_height: Issuing block at {}, current burnchain height is ({})",
+        "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({})",
         get_epoch_time_secs(),
-        current
+        current_height
     );
 
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    let mut final_height = current_height;
     while burnchain_height.load(Ordering::SeqCst) <= target_height {
-        let current = burnchain_height.load(Ordering::SeqCst);
+        let current_height = burnchain_height.load(Ordering::SeqCst);
+        final_height = current_height;
         eprintln!(
-            "run_until_burnchain_height: Issuing block at {}, current burnchain height is ({})",
+            "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({})",
             get_epoch_time_secs(),
-            current
+            current_height
         );
         let next_result = next_block_and_wait(btc_regtest_controller, &blocks_processed);
         if !next_result {
@@ -429,6 +428,7 @@ fn run_until_burnchain_height(
         }
     }
 
+    assert_eq!(final_height, target_height);
     true
 }
 
@@ -497,7 +497,7 @@ fn test_cost_limit_switch_version205() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
-            end_height: 220,
+            end_height: 215,
             block_limit: ExecutionCost {
                 write_length: 100000000,
                 write_count: 1000,
@@ -508,7 +508,7 @@ fn test_cost_limit_switch_version205() {
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 220,
+            start_height: 215,
             end_height: 9223372036854775807,
             block_limit: ExecutionCost {
                 write_length: 100000000,
@@ -584,7 +584,7 @@ fn test_cost_limit_switch_version205() {
         &mut btc_regtest_controller,
         &blocks_processed,
         &burnchain_height,
-        215,
+        212,
     );
 
     // Check that we have defined the contract.
@@ -619,7 +619,7 @@ fn test_cost_limit_switch_version205() {
         &mut btc_regtest_controller,
         &blocks_processed,
         &burnchain_height,
-        220,
+        214,
     );
 
     // Check that we have processed the contract successfully, by checking that the contract call
@@ -643,7 +643,7 @@ fn test_cost_limit_switch_version205() {
         &mut btc_regtest_controller,
         &blocks_processed,
         &burnchain_height,
-        230,
+        216,
     );
     submit_tx(
         &http_origin,
@@ -663,7 +663,7 @@ fn test_cost_limit_switch_version205() {
         &mut btc_regtest_controller,
         &blocks_processed,
         &burnchain_height,
-        235,
+        218,
     );
 
     // Bob's calls didn't work because he called after the block limit was lowered.
