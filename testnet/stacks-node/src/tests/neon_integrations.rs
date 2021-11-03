@@ -351,7 +351,6 @@ pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
         .body(tx.clone())
         .send()
         .unwrap();
-    eprintln!("{:#?}", res);
     if res.status().is_success() {
         let res: String = res.json().unwrap();
         assert_eq!(

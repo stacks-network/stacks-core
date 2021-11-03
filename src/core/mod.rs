@@ -376,13 +376,13 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1000,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone()
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1000,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone()
         },
     ];
 }
