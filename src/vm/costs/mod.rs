@@ -591,7 +591,7 @@ impl LimitedCostTracker {
             free: false,
             mainnet,
         };
-        assert!(clarity_db.is_stack_empty());
+        //        assert!(clarity_db.is_stack_empty());
         cost_tracker.load_costs(clarity_db, true)?;
         Ok(cost_tracker)
     }

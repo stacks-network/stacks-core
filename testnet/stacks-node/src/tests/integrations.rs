@@ -839,6 +839,7 @@ fn integration_test_get_info() {
                 eprintln!("Test: POST {}", path);
 
                 let body = json!({ "transaction_payload": payload_hex.clone() });
+                info!("POST body\n {}", body);
 
                 let res = client.post(&path)
                     .json(&body)

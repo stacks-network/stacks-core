@@ -88,7 +88,7 @@ fn process_transaction(
     let (origin_account, payer_account) =
         StacksChainState::check_transaction_nonces(&mut transaction, tx, true)?;
 
-    let tx_receipt =
+    let _tx_receipt =
         StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
 
     let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
@@ -120,7 +120,7 @@ fn execute_block_transactions(arguments: &[String]) {
         .parse()
         .expect("Burn block height must be supplied as a positive integer");
 
-    let post_epoch: bool = true;
+    let post_epoch: bool = &arguments[2] == "fork";
 
     let epoch = if post_epoch {
         StacksEpochId::Epoch2_05
@@ -141,8 +141,9 @@ fn execute_block_transactions(arguments: &[String]) {
     path.push("sortition");
     let sort_path = path.to_str().expect("Unable to produce path").to_string();
 
-    let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, &chainstate_path).unwrap();
-    let mut sortition_db = SortitionDB::open(&sort_path, true).unwrap();
+    let (mut chainstate, _) =
+        StacksChainState::open(true, core::CHAIN_ID_MAINNET, &chainstate_path).unwrap();
+    let sortition_db = SortitionDB::open(&sort_path, true).unwrap();
 
     let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn())
         .unwrap()
@@ -180,15 +181,19 @@ fn execute_block_transactions(arguments: &[String]) {
         .expect("Failed to parse block data for stacks block at provided burn height");
 
     let par_bhh = staging_block.parent_anchored_block_hash;
-    let par_ch = staging_block.consensus_hash;
+    let par_ch = staging_block.parent_consensus_hash;
     let par_block_id = StacksBlockId::new(&par_ch, &par_bhh);
 
     let headers_db = chainstate.state_index.sqlite_conn();
 
     let burn_state_db = sortition_db.index_conn();
+
+    let next_block_bytes: [u8; 32] = rand::random();
+    let next_block_id = StacksBlockId::from_bytes(&next_block_bytes).unwrap();
+
     let mut block_conn = chainstate.clarity_state.begin_block_cli_testing(
         &par_block_id,
-        &StacksBlockId::sentinel(),
+        &next_block_id,
         headers_db,
         &burn_state_db,
         epoch,
@@ -216,7 +221,18 @@ fn execute_block_transactions(arguments: &[String]) {
 
     let total_cost = block_conn.cost_so_far();
 
-    println!("Total cost => {}", total_cost);
+    block_conn.rollback_block();
+
+    println!(
+        "{}, {}, {}, {}, {}, {}, {}",
+        burn_block_height,
+        if post_epoch { "2.05" } else { "2.00" },
+        total_cost.runtime,
+        total_cost.write_length,
+        total_cost.write_count,
+        total_cost.read_length,
+        total_cost.read_count,
+    );
 }
 
 fn main() {
@@ -635,7 +651,7 @@ simulating a miner.
         tx_signer.sign_origin(&sk).unwrap();
         let coinbase_tx = tx_signer.get_tx().unwrap();
 
-        let stacks20_block_limit_mainnet = ExecutionCost {
+        let _stacks20_block_limit_mainnet = ExecutionCost {
             write_length: 15_000_000, // roughly 15 mb
             write_count: 7_750,
             read_length: 100_000_000,

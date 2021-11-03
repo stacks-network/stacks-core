@@ -47,6 +47,7 @@ use vm::types::{
 };
 use vm::ContractName;
 
+use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::TransactionAuth;
 use crate::chainstate::stacks::TransactionPayload;
@@ -737,9 +738,9 @@ impl<'a> ClarityBlockConnection<'a> {
             // instantiate costs 2 contract...
             // TODO - replace once costs-2 contract is updated with new costs
             let cost_2_code = if mainnet {
-                &*BOOT_CODE_COSTS
+                &*BOOT_CODE_COSTS_2
             } else {
-                &*BOOT_CODE_COSTS
+                &*BOOT_CODE_COSTS_2
             };
 
             let payload = TransactionPayload::SmartContract(TransactionSmartContract {
