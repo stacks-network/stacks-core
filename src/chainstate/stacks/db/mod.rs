@@ -153,6 +153,7 @@ pub struct MinerRewardInfo {
     pub from_stacks_block_hash: BlockHeaderHash,
 }
 
+/// This is the block receipt for a Stacks block
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksEpochReceipt {
     pub header: StacksHeaderInfo,
@@ -164,6 +165,10 @@ pub struct StacksEpochReceipt {
     pub parent_burn_block_hash: BurnchainHeaderHash,
     pub parent_burn_block_height: u32,
     pub parent_burn_block_timestamp: u64,
+    /// This is the Stacks epoch that the block was evaluated in,
+    /// which is the Stacks epoch that this block's parent was elected
+    /// in.
+    pub evaluated_epoch: StacksEpochId,
 }
 
 #[derive(Debug, Clone, PartialEq)]

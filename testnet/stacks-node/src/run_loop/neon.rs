@@ -106,9 +106,6 @@ impl RunLoop {
         self.burnchain_height.clone()
     }
 
-    #[cfg(not(test))]
-    fn get_burnchain_height_arc(&self) {}
-
     #[cfg(test)]
     fn set_burnchain_height(&self, burnchain_height: u64) {
         self.burnchain_height

@@ -769,22 +769,20 @@ impl<
                     }
 
                     if let Some(ref mut estimator) = self.cost_estimator {
-                        let burn_block_height = block_receipt.header.burn_header_height;
-                        let burn_db = self.sortition_db.index_conn();
-                        let epoch = burn_db
-                            .get_stacks_epoch(burn_block_height)
-                            .expect("Could not fetch epoch for height.");
-                        estimator.notify_block(&block_receipt.tx_receipts, &epoch.block_limit);
-                    }
-
-                    if let Some(ref mut estimator) = self.fee_estimator {
-                        let tip =
-                            SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())
-                                .unwrap();
                         let stacks_epoch = self
                             .sortition_db
                             .index_conn()
-                            .get_stacks_epoch(tip.block_height as u32)
+                            .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
+                            .expect("Could not find a stacks epoch.");
+                        estimator
+                            .notify_block(&block_receipt.tx_receipts, &stacks_epoch.block_limit);
+                    }
+
+                    if let Some(ref mut estimator) = self.fee_estimator {
+                        let stacks_epoch = self
+                            .sortition_db
+                            .index_conn()
+                            .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
                             .expect("Could not find a stacks epoch.");
                         if let Err(e) =
                             estimator.notify_block(&block_receipt, &stacks_epoch.block_limit)

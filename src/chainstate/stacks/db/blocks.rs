@@ -4286,6 +4286,7 @@ impl StacksChainState {
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
+            evaluated_epoch,
         ) = {
             let (parent_consensus_hash, parent_block_hash) = if block.is_first_mined() {
                 // has to be the sentinal hashes if this block has no parent
@@ -4389,6 +4390,8 @@ impl StacksChainState {
                 &MINER_BLOCK_HEADER_HASH,
             );
 
+            let evaluated_epoch = clarity_tx.get_epoch();
+
             debug!(
                 "Parent block {}/{} cost {:?}",
                 &parent_consensus_hash, &parent_block_hash, &parent_block_cost
@@ -4487,7 +4490,8 @@ impl StacksChainState {
                    "total_burns" => %block.header.total_work.burn,
                    "microblock_parent" => %last_microblock_hash,
                    "microblock_parent_seq" => %last_microblock_seq,
-                   "microblock_parent_count" => %microblocks.len());
+                   "microblock_parent_count" => %microblocks.len(),
+                   "evaluated_epoch" => %evaluated_epoch);
 
             // is this stacks block the first of a new epoch?
             let mut receipts = StacksChainState::process_epoch_transition(
@@ -4671,6 +4675,7 @@ impl StacksChainState {
                 parent_burn_block_hash,
                 parent_burn_block_height,
                 parent_burn_block_timestamp,
+                evaluated_epoch,
             )
         };
 
@@ -4708,6 +4713,7 @@ impl StacksChainState {
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
+            evaluated_epoch,
         };
 
         Ok(epoch_receipt)
