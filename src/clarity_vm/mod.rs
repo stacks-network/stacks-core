@@ -4,4 +4,5 @@ pub mod clarity;
 /// Stacks blockchain specific Clarity database implementations and wrappers
 pub mod database;
 
+#[cfg(test)]
 mod tests;

@@ -23,6 +23,7 @@ use std::convert::TryFrom;
 use util::log;
 use vm::costs::ExecutionCost;
 
+use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 
 pub use self::mempool::MemPoolDB;
@@ -103,6 +104,11 @@ pub const BITCOIN_REGTEST_FIRST_BLOCK_HASH: &str =
 
 pub const FIRST_STACKS_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 pub const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
+
+lazy_static! {
+    pub static ref FIRST_STACKS_BLOCK_ID: StacksBlockId =
+        StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+}
 
 pub const BOOT_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0xff; 32]);
 pub const BURNCHAIN_BOOT_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0xff; 20]);

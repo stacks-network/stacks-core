@@ -25,9 +25,9 @@ use util::db::{DBConn, FromRow};
 use vm::analysis::AnalysisDatabase;
 use vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
-    NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::{InterpreterResult, RuntimeErrorType};
+use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};

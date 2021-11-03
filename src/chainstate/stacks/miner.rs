@@ -44,7 +44,7 @@ use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
 use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use util::vrf::*;
-use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
+use vm::database::BurnStateDB;
 
 use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;

@@ -17,6 +17,7 @@
 use std::convert::TryFrom;
 use std::error;
 use std::fmt;
+use std::thread;
 
 use chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
@@ -58,6 +59,7 @@ use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::core::StacksEpoch;
 use crate::core::StacksEpochId;
+use crate::core::FIRST_STACKS_BLOCK_ID;
 use crate::core::GENESIS_EPOCH;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::SortitionId;
@@ -281,39 +283,29 @@ impl ClarityInstance {
     }
 
     /// Returns the Stacks epoch of the burn block that elected `stacks_block`
-    ///
-    /// 1) If this is a test, and the burn_height is set to 0, return Epoch20. (Issue #2907)
-    /// 2) Otherwise return the epoch found according to the height.
-    /// 3) Default to Epoch20, if no epoch found in (2).
     fn get_epoch_of(
         stacks_block: &StacksBlockId,
         header_db: &dyn HeadersDB,
         burn_state_db: &dyn BurnStateDB,
     ) -> StacksEpoch {
-        // Step 1: Try to find the epoch according to block.
-        let epoch_found = match header_db.get_burn_block_height_for_block(stacks_block) {
-            Some(burn_height) => {
-                // We hard-code this special case to use Epoch20 for `burn_height` 0 to keep unit
-                // tests passing. Issue #2907 is open to remove this case.
-                if cfg!(test) && burn_height == 0 {
-                    None
-                } else {
-                    Some(burn_state_db.get_stacks_epoch(burn_height).expect(&format!(
-                        "Failed to get Stacks epoch for height = {}",
-                        burn_height
-                    )))
-                }
-            }
-            None => None,
-        };
-
-        // Step 2: If not found, default to Epoch20.
-        match epoch_found {
-            Some(epoch) => epoch,
-            None => burn_state_db
+        // Special case the first Stacks block -- it is not elected in any burn block
+        //  so we specifically set its epoch to GENESIS_EPOCH.
+        if stacks_block == &*FIRST_STACKS_BLOCK_ID {
+            return burn_state_db
                 .get_stacks_epoch_by_epoch_id(&GENESIS_EPOCH)
-                .expect("Failed to get Stacks epoch for GENESIS_EPOCH"),
+                .expect("Failed to obtain the Genesis StacksEpoch");
         }
+
+        let burn_height = header_db
+            .get_burn_block_height_for_block(stacks_block)
+            .expect(&format!(
+                "Failed to get burn block height of {}",
+                stacks_block
+            ));
+        burn_state_db.get_stacks_epoch(burn_height).expect(&format!(
+            "Failed to get Stacks epoch for height = {}",
+            burn_height
+        ))
     }
 
     pub fn begin_block<'a>(
@@ -481,6 +473,8 @@ impl ClarityInstance {
         }
     }
 
+    /// Open a read-only connection at `at_block`. This will be evaluated in the Stacks epoch that
+    ///  was active *during* the evaluation of `at_block`
     pub fn read_only_connection<'a>(
         &'a mut self,
         at_block: &StacksBlockId,
@@ -491,23 +485,33 @@ impl ClarityInstance {
             .expect(&format!("BUG: failed to open block {}", at_block))
     }
 
+    /// Open a read-only connection at `at_block`. This will be evaluated in the Stacks epoch that
+    ///  was active *during* the evaluation of `at_block`
     pub fn read_only_connection_checked<'a>(
         &'a mut self,
         at_block: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> Result<ClarityReadOnlyConnection<'a>, Error> {
-        let datastore = self.datastore.begin_read_only_checked(Some(at_block))?;
-        let epoch = Self::get_epoch_of(at_block, header_db, burn_state_db);
+        let mut datastore = self.datastore.begin_read_only_checked(Some(at_block))?;
+        let epoch = {
+            let mut db = datastore.as_clarity_db(header_db, burn_state_db);
+            db.begin();
+            let result = db.get_clarity_epoch_version();
+            db.roll_back();
+            result
+        };
 
         Ok(ClarityReadOnlyConnection {
             datastore,
             header_db,
             burn_state_db,
-            epoch: epoch.epoch_id,
+            epoch,
         })
     }
 
+    /// Evaluate program read-only at `at_block`. This will be evaluated in the Stacks epoch that
+    ///  was active *during* the evaluation of `at_block`
     pub fn eval_read_only(
         &mut self,
         at_block: &StacksBlockId,
@@ -517,11 +521,15 @@ impl ClarityInstance {
         program: &str,
     ) -> Result<Value, Error> {
         let mut read_only_conn = self.datastore.begin_read_only(Some(at_block));
-        let clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
+        let mut clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
+        let epoch_id = {
+            clarity_db.begin();
+            let result = clarity_db.get_clarity_epoch_version();
+            clarity_db.roll_back();
+            result
+        };
 
-        let epoch = Self::get_epoch_of(at_block, header_db, burn_state_db);
-
-        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db, epoch.epoch_id);
+        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db, epoch_id);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
@@ -862,10 +870,21 @@ impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
 
 impl<'a, 'b> Drop for ClarityTransactionConnection<'a, 'b> {
     fn drop(&mut self) {
-        self.cost_track
-            .as_mut()
-            .expect("BUG: Transaction connection lost cost_tracker handle.")
-            .reset_memory();
+        if thread::panicking() {
+            // if the thread is panicking, we've likely lost our cost_tracker handle,
+            //  so don't expect() one, or we'll end up panicking while panicking.
+            match self.cost_track.as_mut() {
+                Some(t) => t.reset_memory(),
+                None => {
+                    error!("Failed to reset the memory of the Clarity transaction's cost_track handle while thread panicking");
+                }
+            }
+        } else {
+            self.cost_track
+                .as_mut()
+                .expect("BUG: Transaction connection lost cost_tracker handle.")
+                .reset_memory();
+        }
     }
 }
 
@@ -1185,8 +1204,10 @@ mod tests {
 
     use chainstate::stacks::index::storage::TrieFileStorage;
     use vm::analysis::errors::CheckErrors;
-    use vm::database::{ClarityBackingStore, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+    use vm::database::{ClarityBackingStore, STXBalance};
     use vm::types::{StandardPrincipalData, Value};
+
+    use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
     use crate::clarity_vm::database::marf::MarfedKV;
     use crate::types::proof::ClarityMarfTrieId;
@@ -1204,8 +1225,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1213,8 +1234,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
@@ -1243,8 +1264,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1252,8 +1273,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             // S1G2081040G2081040G2081040G208105NK8PE5 is the transient address
@@ -1294,8 +1315,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1303,8 +1324,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             {
@@ -1379,8 +1400,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1388,8 +1409,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -1437,8 +1458,8 @@ mod tests {
             let mut conn = clarity_instance.begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -1498,8 +1519,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1520,8 +1541,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_unconfirmed(
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             conn.as_transaction(|conn| {
@@ -1543,8 +1564,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_unconfirmed(
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             conn.as_transaction(|conn| {
@@ -1562,8 +1583,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_unconfirmed(
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             conn.as_transaction(|conn| {
@@ -1580,8 +1601,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_unconfirmed(
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             conn.as_transaction(|conn| {
@@ -1626,8 +1647,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1635,8 +1656,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             let contract = "
@@ -1823,8 +1844,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1832,8 +1853,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             conn.as_transaction(|clarity_tx| {
@@ -1909,8 +1930,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1918,8 +1939,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
 
             let contract = "
@@ -1950,7 +1971,7 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([1 as u8; 32]),
                 &StacksBlockId([2 as u8; 32]),
-                &NULL_HEADER_DB,
+                &TEST_HEADER_DB,
                 &burn_state_db,
             );
             assert!(match conn

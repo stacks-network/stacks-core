@@ -1962,7 +1962,7 @@ pub mod test {
     use chainstate::stacks::db::*;
     use chainstate::stacks::*;
     use stx_genesis::GenesisData;
-    use vm::database::NULL_BURN_STATE_DB;
+    use vm::tests::TEST_BURN_STATE_DB;
 
     use crate::util::boot::boot_code_test_addr;
 
@@ -2028,7 +2028,7 @@ pub mod test {
 
         // verify that the boot code is there
         let mut conn = chainstate.block_begin(
-            &NULL_BURN_STATE_DB,
+            &TEST_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &MINER_BLOCK_CONSENSUS_HASH,
