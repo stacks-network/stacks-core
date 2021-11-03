@@ -601,15 +601,16 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
     "CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
     "CREATE TABLE db_config(version TEXT NOT NULL);",
-    r#"
+];
+
+const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
      CREATE TABLE epochs (
          start_block_height INTEGER NOT NULL,
          end_block_height INTEGER NOT NULL,
          epoch_id INTEGER NOT NULL,
          block_limit TEXT NOT NULL,
          PRIMARY KEY(start_block_height,epoch_id)
-     );"#,
-];
+     );"#];
 
 pub struct SortitionDB {
     pub readwrite: bool,
@@ -2028,27 +2029,15 @@ impl SortitionDB {
         let marf = SortitionDB::open_index(&index_path)?;
         let first_snapshot = SortitionDB::get_first_block_snapshot(marf.sqlite_conn())?;
 
-        let db = SortitionDB {
+        let mut db = SortitionDB {
             marf,
             readwrite,
             first_block_height: first_snapshot.block_height,
             first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
         };
 
-        // TODO - add schema application method for sortition DB
-        let expected_version = SORTITION_DB_VERSION.to_string();
-        match db.get_schema_version() {
-            Ok(Some(actual_version)) => {
-                if expected_version != actual_version {
-                    panic!("The schema version of the sortition DB is incorrect. Expected = {}, Actual = {}",
-                           expected_version, actual_version);
-                } else {
-                    Ok(db)
-                }
-            }
-            Ok(None) => panic!("The schema version of the sortition DB is incorrect."),
-            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
-        }
+        db.check_schema_version_and_update()?;
+        Ok(db)
     }
 
     /// Open the burn database at the given path.  Open read-only or read/write.
@@ -2116,20 +2105,8 @@ impl SortitionDB {
             }
         }
 
-        // TODO - add schema application method for sortition DB
-        let expected_version = SORTITION_DB_VERSION.to_string();
-        match db.get_schema_version() {
-            Ok(Some(actual_version)) => {
-                if expected_version != actual_version {
-                    panic!("The schema version of the sortition DB is incorrect. Expected = {}, Actual = {}",
-                           expected_version, actual_version);
-                } else {
-                    Ok(db)
-                }
-            }
-            Ok(None) => panic!("The schema version of the sortition DB is incorrect."),
-            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
-        }
+        db.check_schema_version_and_update()?;
+        Ok(db)
     }
 
     /// Open a burn database at random tmp dir (used for testing)
@@ -2221,6 +2198,9 @@ impl SortitionDB {
         for row_text in SORTITION_DB_INITIAL_SCHEMA {
             db_tx.execute_batch(row_text)?;
         }
+        for row_text in SORTITION_DB_SCHEMA_2 {
+            db_tx.execute_batch(row_text)?;
+        }
 
         let epochs = SortitionDB::validate_epochs(epochs_ref);
         for epoch in epochs.into_iter() {
@@ -2286,6 +2266,37 @@ impl SortitionDB {
             )
             .optional()?;
         Ok(version)
+    }
+
+    fn apply_schema_2(tx: &SortitionDBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_2 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute("INSERT INTO db_config (version) VALUES (?1)", &["2"])?;
+
+        Ok(())
+    }
+
+    fn check_schema_version_and_update(&mut self) -> Result<(), db_error> {
+        match self.get_schema_version() {
+            Ok(Some(version)) => {
+                let expected_version = SORTITION_DB_VERSION.to_string();
+                if version == expected_version {
+                    return Ok(());
+                }
+                if version == "1" {
+                    let tx = self.tx_begin()?;
+                    SortitionDB::apply_schema_2(&tx)?;
+                    tx.commit()?;
+                    Ok(())
+                } else {
+                    panic!("The schema version of the sortition DB is invalid.")
+                }
+            }
+            Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
+            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+        }
     }
 }
 
