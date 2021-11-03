@@ -2125,6 +2125,71 @@ impl SortitionDB {
         )
     }
 
+    #[cfg(test)]
+    pub fn connect_v1(
+        path: &str,
+        first_block_height: u64,
+        first_burn_hash: &BurnchainHeaderHash,
+        first_burn_header_timestamp: u64,
+        readwrite: bool,
+    ) -> Result<SortitionDB, db_error> {
+        let create_flag = match fs::metadata(path) {
+            Err(e) => {
+                if e.kind() == ErrorKind::NotFound {
+                    // need to create
+                    if readwrite {
+                        true
+                    } else {
+                        return Err(db_error::NoDBError);
+                    }
+                } else {
+                    return Err(db_error::IOError(e));
+                }
+            }
+            Ok(_md) => false,
+        };
+
+        let (db_path, index_path) = db_mkdirs(path)?;
+        debug!(
+            "Connect/Open {} sortdb '{}' as '{}', with index as '{}'",
+            if create_flag { "(create)" } else { "" },
+            db_path,
+            if readwrite { "readwrite" } else { "readonly" },
+            index_path
+        );
+
+        let marf = SortitionDB::open_index(&index_path)?;
+
+        let mut db = SortitionDB {
+            marf,
+            readwrite,
+            first_block_height,
+            first_burn_header_hash: first_burn_hash.clone(),
+        };
+
+        if create_flag {
+            // instantiate!
+            db.instantiate_v1(
+                first_block_height,
+                first_burn_hash,
+                first_burn_header_timestamp,
+            )?;
+        } else {
+            // validate -- must contain the given first block and first block hash
+            let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
+            if !snapshot.is_initial()
+                || snapshot.block_height != first_block_height
+                || snapshot.burn_header_hash != *first_burn_hash
+            {
+                error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
+                       snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
+                return Err(db_error::Corruption);
+            }
+        }
+
+        Ok(db)
+    }
+
     /// Validate all Stacks Epochs. Since this is data that always comes from a static variable,
     /// any invalid StacksEpoch structuring should result in a runtime panic.
     fn validate_epochs(epochs_ref: &[StacksEpoch]) -> Vec<StacksEpoch> {
@@ -2214,6 +2279,57 @@ impl SortitionDB {
             "INSERT INTO db_config (version) VALUES (?1)",
             &[&SORTITION_DB_VERSION],
         )?;
+
+        db_tx.instantiate_index()?;
+
+        let mut first_sn = first_snapshot.clone();
+        first_sn.sortition_id = SortitionId::sentinel();
+        let index_root =
+            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
+        first_snapshot.index_root = index_root;
+
+        db_tx.insert_block_snapshot(&first_snapshot)?;
+        db_tx.store_transition_ops(
+            &first_snapshot.sortition_id,
+            &BurnchainStateTransition::noop(),
+        )?;
+
+        db_tx.commit()?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn instantiate_v1(
+        &mut self,
+        first_block_height: u64,
+        first_burn_header_hash: &BurnchainHeaderHash,
+        first_burn_header_timestamp: u64,
+    ) -> Result<(), db_error> {
+        debug!("Instantiate SortDB");
+
+        sql_pragma(self.conn(), "PRAGMA journal_mode = WAL;")?;
+
+        let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
+
+        // create first (sentinel) snapshot
+        debug!("Make first snapshot");
+        let mut first_snapshot = BlockSnapshot::initial(
+            first_block_height,
+            first_burn_header_hash,
+            first_burn_header_timestamp,
+        );
+
+        assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
+        assert_eq!(
+            first_snapshot.parent_burn_header_hash,
+            BurnchainHeaderHash::sentinel()
+        );
+
+        for row_text in SORTITION_DB_INITIAL_SCHEMA {
+            db_tx.execute_batch(row_text)?;
+        }
+
+        db_tx.execute("INSERT INTO db_config (version) VALUES (?1)", &[&"1"])?;
 
         db_tx.instantiate_index()?;
 
@@ -4096,6 +4212,46 @@ pub mod tests {
         )
         .unwrap();
         let _db = SortitionDB::connect_test(123, &first_burn_hash).unwrap();
+    }
+
+    #[test]
+    fn test_v1_to_v2_migration() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+
+        let first_block_height = 123;
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        // create a v1 sortition DB
+        let db = SortitionDB::connect_v1(
+            &db_path_dir,
+            first_block_height,
+            &first_burn_hash,
+            get_epoch_time_secs(),
+            true,
+        )
+        .unwrap();
+        let res = SortitionDB::get_stacks_epoch(db.conn(), first_block_height);
+        assert!(res.is_err());
+        assert!(format!("{:?}", res).contains("no such table: epochs"));
+
+        // create a v2 sortition DB at the same path as the v1 DB.
+        // the schema migration should be successfully applied, and the epochs table should exist.
+        let db = SortitionDB::connect(
+            &db_path_dir,
+            first_block_height,
+            &first_burn_hash,
+            get_epoch_time_secs(),
+            &StacksEpoch::unit_test_2_05(first_block_height),
+            true,
+        )
+        .unwrap();
+        assert!(SortitionDB::get_stacks_epoch(db.conn(), first_block_height).is_ok());
     }
 
     #[test]
