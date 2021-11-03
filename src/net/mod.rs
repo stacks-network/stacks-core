@@ -1213,11 +1213,18 @@ pub struct RPCNeighborsInfo {
     pub outbound: Vec<RPCNeighbor>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum TipRequest {
+    UseLatestAnchoredTip,
+    UseLatestUnconfirmedTip,
+    SpecificTip(StacksBlockId),
+}
+
 /// All HTTP request paths we support, and the arguments they carry in their paths
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
-    GetPoxInfo(HttpRequestMetadata, Option<StacksBlockId>, bool),
+    GetPoxInfo(HttpRequestMetadata, TipRequest),
     GetNeighbors(HttpRequestMetadata),
     GetBlock(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
@@ -1226,22 +1233,15 @@ pub enum HttpRequestType {
     GetTransactionUnconfirmed(HttpRequestMetadata, Txid),
     PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
     PostBlock(HttpRequestMetadata, ConsensusHash, StacksBlock),
-    PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
-    GetAccount(
-        HttpRequestMetadata,
-        PrincipalData,
-        Option<StacksBlockId>,
-        bool,
-        bool,
-    ),
+    PostMicroblock(HttpRequestMetadata, StacksMicroblock, TipRequest),
+    GetAccount(HttpRequestMetadata, PrincipalData, TipRequest, bool),
     GetMapEntry(
         HttpRequestMetadata,
         StacksAddress,
         ContractName,
         ClarityName,
         Value,
-        Option<StacksBlockId>,
-        bool,
+        TipRequest,
         bool,
     ),
     CallReadOnlyFunction(
@@ -1251,25 +1251,17 @@ pub enum HttpRequestType {
         PrincipalData,
         ClarityName,
         Vec<Value>,
-        Option<StacksBlockId>,
-        bool,
+        TipRequest,
     ),
     GetTransferCost(HttpRequestMetadata),
     GetContractSrc(
         HttpRequestMetadata,
         StacksAddress,
         ContractName,
-        Option<StacksBlockId>,
-        bool,
-        bool,
-    ),
-    GetContractABI(
-        HttpRequestMetadata,
-        StacksAddress,
-        ContractName,
-        Option<StacksBlockId>,
+        TipRequest,
         bool,
     ),
+    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName, TipRequest),
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
     GetAttachmentsInv(HttpRequestMetadata, StacksBlockId, HashSet<u32>),
@@ -1278,8 +1270,7 @@ pub enum HttpRequestType {
         StacksAddress,
         ContractName,
         TraitIdentifier,
-        Option<StacksBlockId>,
-        bool,
+        TipRequest,
     ),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),

@@ -54,7 +54,6 @@ use net::http::*;
 use net::p2p::PeerMap;
 use net::p2p::PeerNetwork;
 use net::relay::Relayer;
-use net::ClientError;
 use net::Error as net_error;
 use net::HttpRequestMetadata;
 use net::HttpRequestType;
@@ -79,6 +78,7 @@ use net::{
     GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
 };
 use net::{BlocksData, GetIsTraitImplementedResponse};
+use net::{ClientError, TipRequest};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
 use util::db::DBConn;
@@ -1513,95 +1513,87 @@ impl ConversationHttp {
     /// will return different values here.
     ///
     /// # Inputs
-    /// - `tip_opt` is given by the HTTP request as the optional query parameter for the chain tip
-    /// hash.  It will be None if there was no parameter given.
-    /// - `use_latest_tip` is also an optional query parameter, and defaults to false.
-    ///
-    /// The order of chain tips this method prefers is as follows:
-    /// * If `use_latest_tip` is true, the method attempts to return the unconfirmed chain tip,
-    ///     and returns the confirmed stacks chain tip if that doesn't work.
-    /// * If `tip_opt` is Some(tip), the method returns tip.
-    /// * Otherwise, the function considers the canonical Stacks chain tip.
+    /// - `tip_req` is given by the HTTP request as the optional query parameter for the chain tip
+    /// hash.  It will be UseLatestAnchoredTip if there was no parameter given. If it is set to
+    /// `latest`, the parameter will be set to UseLatestUnconfirmedTip.
     fn handle_load_stacks_chain_tip<W: Write>(
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
-        tip_opt: Option<&StacksBlockId>,
+        tip_req: &TipRequest,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
-        use_latest_tip: bool,
     ) -> Result<Option<StacksBlockId>, net_error> {
-        if use_latest_tip {
-            let unconfirmed_chain_tip_opt = match &mut chainstate.unconfirmed_state {
-                Some(unconfirmed_state) => {
-                    if unconfirmed_state.is_readable() {
-                        // Check if underlying MARF trie exists before returning unconfirmed chain tip
-                        let trie_exists = match unconfirmed_state
-                            .clarity_inst
-                            .trie_exists_for_block(&unconfirmed_state.unconfirmed_chain_tip)
-                        {
-                            Ok(res) => res,
-                            Err(e) => {
-                                let response_metadata = HttpResponseMetadata::from(req);
-                                warn!("Failed to load Stacks chain tip; error checking underlying trie");
-                                let response = HttpResponseType::ServerError(
-                                    response_metadata,
-                                    format!("Failed to load Stacks chain tip: {:?}", e),
-                                );
-                                return response.send(http, fd).and_then(|_| Ok(None));
-                            }
-                        };
+        match tip_req {
+            TipRequest::UseLatestUnconfirmedTip => {
+                let unconfirmed_chain_tip_opt = match &mut chainstate.unconfirmed_state {
+                    Some(unconfirmed_state) => {
+                        if unconfirmed_state.is_readable() {
+                            // Check if underlying MARF trie exists before returning unconfirmed chain tip
+                            let trie_exists = match unconfirmed_state
+                                .clarity_inst
+                                .trie_exists_for_block(&unconfirmed_state.unconfirmed_chain_tip)
+                            {
+                                Ok(res) => res,
+                                Err(e) => {
+                                    let response_metadata = HttpResponseMetadata::from(req);
+                                    warn!("Failed to load Stacks chain tip; error checking underlying trie");
+                                    let response = HttpResponseType::ServerError(
+                                        response_metadata,
+                                        format!("Failed to load Stacks chain tip: {:?}", e),
+                                    );
+                                    return response.send(http, fd).and_then(|_| Ok(None));
+                                }
+                            };
 
-                        if trie_exists {
-                            Some(unconfirmed_state.unconfirmed_chain_tip)
+                            if trie_exists {
+                                Some(unconfirmed_state.unconfirmed_chain_tip)
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }
-                    } else {
-                        None
                     }
-                }
-                None => None,
-            };
+                    None => None,
+                };
 
-            if let Some(unconfirmed_chain_tip) = unconfirmed_chain_tip_opt {
-                Ok(Some(unconfirmed_chain_tip))
-            } else {
-                match chainstate.get_stacks_chain_tip(sortdb)? {
-                    Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
-                        &tip.consensus_hash,
-                        &tip.anchored_block_hash,
-                    ))),
-                    None => {
-                        let response_metadata = HttpResponseMetadata::from(req);
-                        warn!("Failed to load Stacks chain tip");
-                        let response = HttpResponseType::ServerError(
-                            response_metadata,
-                            format!("Failed to load Stacks chain tip"),
-                        );
-                        response.send(http, fd).and_then(|_| Ok(None))
+                if let Some(unconfirmed_chain_tip) = unconfirmed_chain_tip_opt {
+                    Ok(Some(unconfirmed_chain_tip))
+                } else {
+                    match chainstate.get_stacks_chain_tip(sortdb)? {
+                        Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
+                            &tip.consensus_hash,
+                            &tip.anchored_block_hash,
+                        ))),
+                        None => {
+                            let response_metadata = HttpResponseMetadata::from(req);
+                            warn!("Failed to load Stacks chain tip");
+                            let response = HttpResponseType::ServerError(
+                                response_metadata,
+                                format!("Failed to load Stacks chain tip"),
+                            );
+                            response.send(http, fd).and_then(|_| Ok(None))
+                        }
                     }
                 }
             }
-        } else {
-            match tip_opt {
-                Some(tip) => Ok(Some(*tip).clone()),
-                None => match chainstate.get_stacks_chain_tip(sortdb)? {
-                    Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
-                        &tip.consensus_hash,
-                        &tip.anchored_block_hash,
-                    ))),
-                    None => {
-                        let response_metadata = HttpResponseMetadata::from(req);
-                        warn!("Failed to load Stacks chain tip");
-                        let response = HttpResponseType::ServerError(
-                            response_metadata,
-                            format!("Failed to load Stacks chain tip"),
-                        );
-                        response.send(http, fd).and_then(|_| Ok(None))
-                    }
-                },
-            }
+            TipRequest::SpecificTip(tip) => Ok(Some(*tip).clone()),
+            TipRequest::UseLatestAnchoredTip => match chainstate.get_stacks_chain_tip(sortdb)? {
+                Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
+                    &tip.consensus_hash,
+                    &tip.anchored_block_hash,
+                ))),
+                None => {
+                    let response_metadata = HttpResponseMetadata::from(req);
+                    warn!("Failed to load Stacks chain tip");
+                    let response = HttpResponseType::ServerError(
+                        response_metadata,
+                        format!("Failed to load Stacks chain tip"),
+                    );
+                    response.send(http, fd).and_then(|_| Ok(None))
+                }
+            },
         }
     }
 
@@ -1609,24 +1601,17 @@ impl ConversationHttp {
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
-        tip_opt: Option<&StacksBlockId>,
+        tip: StacksBlockId,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, net_error> {
-        match tip_opt {
-            Some(tip) => match chainstate.get_block_header_hashes(&tip)? {
-                Some((ch, bl)) => {
-                    return Ok(Some((ch, bl)));
-                }
-                None => {}
-            },
-            None => match chainstate.get_stacks_chain_tip(sortdb)? {
-                Some(tip) => {
-                    return Ok(Some((tip.consensus_hash, tip.anchored_block_hash)));
-                }
-                None => {}
-            },
+        match chainstate.get_block_header_hashes(&tip)? {
+            Some((ch, bl)) => {
+                return Ok(Some((ch, bl)));
+            }
+            None => {}
         }
+
         let response_metadata = HttpResponseMetadata::from(req);
         warn!("Failed to load Stacks chain tip");
         let response = HttpResponseType::ServerError(
@@ -1900,15 +1885,14 @@ impl ConversationHttp {
                 )?;
                 None
             }
-            HttpRequestType::GetPoxInfo(ref _md, ref tip_opt, ref use_latest_tip) => {
+            HttpRequestType::GetPoxInfo(ref _md, ref tip_req) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
-                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_getpoxinfo(
                         &mut self.connection.protocol,
@@ -1981,21 +1965,14 @@ impl ConversationHttp {
                 )?;
                 None
             }
-            HttpRequestType::GetAccount(
-                ref _md,
-                ref principal,
-                ref tip_opt,
-                ref with_proof,
-                ref use_latest_tip,
-            ) => {
+            HttpRequestType::GetAccount(ref _md, ref principal, ref tip_req, ref with_proof) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
-                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_get_account_entry(
                         &mut self.connection.protocol,
@@ -2016,18 +1993,16 @@ impl ConversationHttp {
                 ref contract_name,
                 ref map_name,
                 ref key,
-                ref tip_opt,
+                ref tip_req,
                 ref with_proof,
-                ref use_latest_tip,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
-                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_get_map_entry(
                         &mut self.connection.protocol,
@@ -2057,17 +2032,15 @@ impl ConversationHttp {
                 ref _md,
                 ref contract_addr,
                 ref contract_name,
-                ref tip_opt,
-                ref use_latest_tip,
+                ref tip_req,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
-                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_get_contract_abi(
                         &mut self.connection.protocol,
@@ -2089,17 +2062,15 @@ impl ConversationHttp {
                 ref as_sender,
                 ref func_name,
                 ref args,
-                ref tip_opt,
-                ref use_latest_tip,
+                ref tip_req,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
-                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_readonly_function_call(
                         &mut self.connection.protocol,
@@ -2122,18 +2093,16 @@ impl ConversationHttp {
                 ref _md,
                 ref contract_addr,
                 ref contract_name,
-                ref tip_opt,
+                ref tip_req,
                 ref with_proof,
-                ref use_latest_tip,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
-                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_get_contract_src(
                         &mut self.connection.protocol,
@@ -2226,34 +2195,45 @@ impl ConversationHttp {
                 }
                 None
             }
-            HttpRequestType::PostMicroblock(ref _md, ref mblock, ref tip_opt) => {
-                if let Some((consensus_hash, block_hash)) =
-                    ConversationHttp::handle_load_stacks_chain_tip_hashes(
-                        &mut self.connection.protocol,
-                        &mut reply,
-                        &req,
-                        tip_opt.as_ref(),
-                        sortdb,
-                        chainstate,
-                    )?
-                {
-                    let accepted = ConversationHttp::handle_post_microblock(
-                        &mut self.connection.protocol,
-                        &mut reply,
-                        &req,
-                        &consensus_hash,
-                        &block_hash,
-                        chainstate,
-                        mblock,
-                    )?;
-                    if accepted {
-                        // forward to peer network
-                        let tip =
-                            StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
-                        ret = Some(StacksMessageType::Microblocks(MicroblocksData {
-                            index_anchor_block: tip,
-                            microblocks: vec![(*mblock).clone()],
-                        }));
+            HttpRequestType::PostMicroblock(ref _md, ref mblock, ref tip_req) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    tip_req,
+                    sortdb,
+                    chainstate,
+                )? {
+                    if let Some((consensus_hash, block_hash)) =
+                        ConversationHttp::handle_load_stacks_chain_tip_hashes(
+                            &mut self.connection.protocol,
+                            &mut reply,
+                            &req,
+                            tip,
+                            sortdb,
+                            chainstate,
+                        )?
+                    {
+                        let accepted = ConversationHttp::handle_post_microblock(
+                            &mut self.connection.protocol,
+                            &mut reply,
+                            &req,
+                            &consensus_hash,
+                            &block_hash,
+                            chainstate,
+                            mblock,
+                        )?;
+                        if accepted {
+                            // forward to peer network
+                            let tip = StacksBlockHeader::make_index_block_hash(
+                                &consensus_hash,
+                                &block_hash,
+                            );
+                            ret = Some(StacksMessageType::Microblocks(MicroblocksData {
+                                index_anchor_block: tip,
+                                microblocks: vec![(*mblock).clone()],
+                            }));
+                        }
                     }
                 }
                 None
@@ -2271,17 +2251,15 @@ impl ConversationHttp {
                 ref contract_addr,
                 ref contract_name,
                 ref trait_id,
-                ref tip_opt,
-                ref use_latest_tip,
+                ref tip_req,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
-                    *use_latest_tip,
                 )? {
                     ConversationHttp::handle_get_is_trait_implemented(
                         &mut self.connection.protocol,
@@ -2679,15 +2657,10 @@ impl ConversationHttp {
     }
 
     /// Make a new getinfo request to this endpoint
-    pub fn new_getpoxinfo(
-        &self,
-        tip_opt: Option<StacksBlockId>,
-        use_latest_tip: bool,
-    ) -> HttpRequestType {
+    pub fn new_getpoxinfo(&self, tip_req: TipRequest) -> HttpRequestType {
         HttpRequestType::GetPoxInfo(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
-            tip_opt,
-            use_latest_tip,
+            tip_req,
         )
     }
 
@@ -2769,12 +2742,12 @@ impl ConversationHttp {
     pub fn new_post_microblock(
         &self,
         mblock: StacksMicroblock,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
     ) -> HttpRequestType {
         HttpRequestType::PostMicroblock(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             mblock,
-            tip_opt,
+            tip_req,
         )
     }
 
@@ -2782,16 +2755,14 @@ impl ConversationHttp {
     pub fn new_getaccount(
         &self,
         principal: PrincipalData,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
         with_proof: bool,
-        use_latest_tip: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetAccount(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             principal,
-            tip_opt,
+            tip_req,
             with_proof,
-            use_latest_tip,
         )
     }
 
@@ -2802,9 +2773,8 @@ impl ConversationHttp {
         contract_name: ContractName,
         map_name: ClarityName,
         key: Value,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
         with_proof: bool,
-        use_latest_tip: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetMapEntry(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
@@ -2812,9 +2782,8 @@ impl ConversationHttp {
             contract_name,
             map_name,
             key,
-            tip_opt,
+            tip_req,
             with_proof,
-            use_latest_tip,
         )
     }
 
@@ -2823,17 +2792,15 @@ impl ConversationHttp {
         &self,
         contract_addr: StacksAddress,
         contract_name: ContractName,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
         with_proof: bool,
-        use_latest_tip: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetContractSrc(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             contract_addr,
             contract_name,
-            tip_opt,
+            tip_req,
             with_proof,
-            use_latest_tip,
         )
     }
 
@@ -2842,15 +2809,13 @@ impl ConversationHttp {
         &self,
         contract_addr: StacksAddress,
         contract_name: ContractName,
-        tip_opt: Option<StacksBlockId>,
-        use_latest_tip: bool,
+        tip_req: TipRequest,
     ) -> HttpRequestType {
         HttpRequestType::GetContractABI(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             contract_addr,
             contract_name,
-            tip_opt,
-            use_latest_tip,
+            tip_req,
         )
     }
 
@@ -2862,8 +2827,7 @@ impl ConversationHttp {
         sender: PrincipalData,
         function_name: ClarityName,
         function_args: Vec<Value>,
-        tip_opt: Option<StacksBlockId>,
-        use_latest_tip: bool,
+        tip_req: TipRequest,
     ) -> HttpRequestType {
         HttpRequestType::CallReadOnlyFunction(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
@@ -2872,8 +2836,7 @@ impl ConversationHttp {
             sender,
             function_name,
             function_args,
-            tip_opt,
-            use_latest_tip,
+            tip_req,
         )
     }
 
@@ -3438,9 +3401,8 @@ mod test {
     #[ignore]
     fn test_rpc_getpoxinfo() {
         /// Test v2/pox (aka GetPoxInfo) endpoint.
-        /// In this test, we don't set any tip parameters (meaning `use_latest_tip` is false, and
-        /// `tip_opt` is None). Thus, the query for pox info will be against the canonical Stacks
-        /// tip, which we expect to succeed.
+        /// In this test, `tip_req` is set to UseLatestAnchoredTip.
+        /// Thus, the query for pox info will be against the canonical Stacks tip, which we expect to succeed.
         let pox_server_info = RefCell::new(None);
         test_rpc(
             "test_rpc_getpoxinfo",
@@ -3453,7 +3415,6 @@ mod test {
              ref mut convo_client,
              ref mut peer_server,
              ref mut convo_server| {
-                let use_latest_tip = false;
                 let mut sortdb = peer_server.sortdb.as_mut().unwrap();
                 let chainstate = &mut peer_server.stacks_node.as_mut().unwrap().chainstate;
                 let stacks_block_id = {
@@ -3471,7 +3432,7 @@ mod test {
                 )
                 .unwrap();
                 *pox_server_info.borrow_mut() = Some(pox_info);
-                convo_client.new_getpoxinfo(None, use_latest_tip)
+                convo_client.new_getpoxinfo(TipRequest::UseLatestAnchoredTip)
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
@@ -3493,7 +3454,7 @@ mod test {
     #[ignore]
     fn test_rpc_getpoxinfo_use_latest_tip() {
         /// Test v2/pox (aka GetPoxInfo) endpoint.
-        /// In this test, we set `use_latest_tip` to true, and we expect that querying for pox
+        /// In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying for pox
         /// info against the unconfirmed state will succeed.
         let pox_server_info = RefCell::new(None);
         test_rpc(
@@ -3507,7 +3468,6 @@ mod test {
              ref mut convo_client,
              ref mut peer_server,
              ref mut convo_server| {
-                let use_latest_tip = true;
                 let mut sortdb = peer_server.sortdb.as_mut().unwrap();
                 let chainstate = &mut peer_server.stacks_node.as_mut().unwrap().chainstate;
                 let stacks_block_id = chainstate
@@ -3524,7 +3484,7 @@ mod test {
                 )
                 .unwrap();
                 *pox_server_info.borrow_mut() = Some(pox_info);
-                convo_client.new_getpoxinfo(None, use_latest_tip)
+                convo_client.new_getpoxinfo(TipRequest::UseLatestUnconfirmedTip)
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
@@ -4246,8 +4206,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
                     "hello-world".try_into().unwrap(),
-                    None,
-                    false,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },
@@ -4290,8 +4249,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
-                    None,
-                    false,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },
@@ -4315,7 +4273,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_contract_src_with_unconfirmed_tip() {
         /// Test v2/contracts/source (aka GetContractSrc) endpoint.
-        /// In this test, we set `tip_opt` to be the unconfirmed chain tip.
+        /// In this test, we set `tip_req` to be the unconfirmed chain tip.
         /// The contract source we are querying for exists in the unconfirmed state, so we expect
         /// the query to succeed.
         test_rpc(
@@ -4340,8 +4298,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
-                    Some(unconfirmed_tip),
-                    false,
+                    TipRequest::SpecificTip(unconfirmed_tip),
                     false,
                 )
             },
@@ -4365,7 +4322,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_contract_src_use_latest_tip() {
         /// Test v2/contracts/source (aka GetContractSrc) endpoint.
-        /// In this test, we set `use_latest_tip` to true.
+        /// In this test, we set `tip_req` to UseLatestUnconfirmedTip.
         /// The contract source we are querying for exists in the unconfirmed state, so we expect
         /// the query to succeed.
         test_rpc(
@@ -4383,9 +4340,8 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
-                    true,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4422,8 +4378,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
-                    None,
-                    false,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },
@@ -4445,7 +4400,7 @@ mod test {
         );
     }
 
-    /// In this test, the query parameter `use_latest_tip` is set to true, and so we expect the
+    /// In this test, the query parameter `tip_req` is set to UseLatestUnconfirmedTip, and so we expect the
     /// tip used for the query to be the latest microblock.
     /// We check that the account state matches the state in the most recent microblock.
     #[test]
@@ -4466,9 +4421,8 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
-                    true,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4489,7 +4443,7 @@ mod test {
         );
     }
 
-    /// In this test, the query parameter `use_latest_tip` is set to true, but we did not generate
+    /// In this test, the query parameter `tip_req` is set to UseLatestUnconfirmedTip, but we did not generate
     /// microblocks in the rpc test. Thus, we expect the tip used for the query to be the previous
     /// anchor block (which is the latest tip).
     /// We check that the account state matches the state in the previous anchor block.
@@ -4511,9 +4465,8 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
-                    true,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4559,8 +4512,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
-                    Some(unconfirmed_tip),
-                    false,
+                    TipRequest::SpecificTip(unconfirmed_tip),
                     false,
                 )
             },
@@ -4612,8 +4564,7 @@ mod test {
                         TupleData::from_data(vec![("account".into(), Value::Principal(principal))])
                             .unwrap(),
                     ),
-                    None,
-                    false,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },
@@ -4644,7 +4595,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_map_entry_unconfirmed() {
         /// Test v2/map_entry (aka GetMapEntry) endpoint.
-        /// In this test, we set `use_latest_tip` to true, and we expect that querying for map data
+        /// In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying for map data
         /// against the unconfirmed state will succeed.
         test_rpc(
             "test_rpc_get_map_entry_unconfirmed",
@@ -4677,8 +4628,7 @@ mod test {
                         TupleData::from_data(vec![("account".into(), Value::Principal(principal))])
                             .unwrap(),
                     ),
-                    Some(unconfirmed_tip),
-                    false,
+                    TipRequest::SpecificTip(unconfirmed_tip),
                     false,
                 )
             },
@@ -4732,9 +4682,8 @@ mod test {
                         TupleData::from_data(vec![("account".into(), Value::Principal(principal))])
                             .unwrap(),
                     ),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
-                    true,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4781,8 +4730,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
-                    None,
-                    false,
+                    TipRequest::UseLatestAnchoredTip,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4805,7 +4753,7 @@ mod test {
     #[ignore]
     fn test_rpc_get_contract_abi_unconfirmed() {
         /// Test /v2/contracts/interface (aka GetContractABI) endpoint.
-        /// In this test, we set `use_latest_tip` to true, and we expect that querying
+        /// In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying
         /// against the unconfirmed state will succeed.
         test_rpc(
             "test_rpc_get_contract_abi_unconfirmed",
@@ -4829,8 +4777,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
-                    Some(unconfirmed_tip),
-                    false,
+                    TipRequest::SpecificTip(unconfirmed_tip),
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4864,8 +4811,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
-                    None,
-                    true,
+                    TipRequest::UseLatestAnchoredTip,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4907,8 +4853,7 @@ mod test {
                         .to_account_principal(),
                     "ro-test".try_into().unwrap(),
                     vec![],
-                    None,
-                    false,
+                    TipRequest::UseLatestAnchoredTip,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4934,7 +4879,7 @@ mod test {
     #[ignore]
     fn test_rpc_call_read_only_use_latest_tip() {
         /// Test /v2/contracts/call-read (aka CallReadOnlyFunction) endpoint.
-        /// In this test, we set `use_latest_tip` to true , and we expect that querying
+        /// In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying
         /// against the unconfirmed state will succeed.
         test_rpc(
             "test_rpc_call_read_only_use_latest_tip",
@@ -4956,8 +4901,7 @@ mod test {
                         .to_account_principal(),
                     "ro-test".try_into().unwrap(),
                     vec![],
-                    None,
-                    true,
+                    TipRequest::UseLatestAnchoredTip,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -5012,8 +4956,7 @@ mod test {
                         .to_account_principal(),
                     "ro-test".try_into().unwrap(),
                     vec![],
-                    Some(unconfirmed_tip),
-                    false,
+                    TipRequest::SpecificTip(unconfirmed_tip),
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
