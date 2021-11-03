@@ -246,7 +246,6 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
-        // this is the one we use
         self.get_stacks_epoch(0)
     }
 }
