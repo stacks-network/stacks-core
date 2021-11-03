@@ -4395,10 +4395,19 @@ impl PeerNetwork {
             return false;
         }
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        let stacks_epoch = sortdb
+        let stacks_epoch = match sortdb
             .index_conn()
             .get_stacks_epoch(tip.block_height as u32)
-            .expect("Could not find a stacks epoch.");
+        {
+            Some(epoch) => epoch,
+            None => {
+                warn!(
+                        "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                return false;
+            }
+        };
 
         if let Err(e) = mempool.submit(
             chainstate,

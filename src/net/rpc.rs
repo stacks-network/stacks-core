@@ -1621,11 +1621,19 @@ impl ConversationHttp {
                         .send(http, fd);
                 }
             };
+
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
             let stacks_epoch = sortdb
                 .index_conn()
                 .get_stacks_epoch(tip.block_height as u32)
-                .expect("Could not find a stacks epoch.");
+                .ok_or_else(|| {
+                    warn!(
+                        "Failed to get fee rate estimate because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
+                })?;
+
             let scalar_cost =
                 metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
             let fee_rates = match fee_estimator.get_rate_estimates() {
@@ -1704,7 +1712,14 @@ impl ConversationHttp {
             let stacks_epoch = sortdb
                 .index_conn()
                 .get_stacks_epoch(tip.block_height as u32)
-                .expect("Could not find a stacks epoch.");
+                .ok_or_else(|| {
+                    warn!(
+                        "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
+                })?;
+
             match mempool.submit(
                 chainstate,
                 &consensus_hash,

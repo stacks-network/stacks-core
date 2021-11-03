@@ -1,6 +1,6 @@
 use stacks::util::get_epoch_time_secs;
 use std::env;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::thread;
 
@@ -24,7 +24,6 @@ use std::convert::TryFrom;
 use crate::config::EventKeyType;
 use crate::config::EventObserverConfig;
 use crate::config::InitialBalance;
-use crate::neon;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::make_contract_call;
 use crate::tests::make_contract_publish;
@@ -33,6 +32,7 @@ use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
 use crate::BurnchainController;
 use crate::Keychain;
+use crate::{neon, Config};
 use stacks::core;
 
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
@@ -402,21 +402,13 @@ fn select_transactions_where(
 fn run_until_burnchain_height(
     btc_regtest_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
-    burnchain_height: &Arc<AtomicU64>,
     target_height: u64,
+    conf: &Config,
 ) -> bool {
-    let current_height = burnchain_height.load(Ordering::SeqCst);
-    eprintln!(
-        "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({})",
-        get_epoch_time_secs(),
-        current_height
-    );
+    let tip_info = get_chain_info(&conf);
+    let mut current_height = tip_info.burn_block_height;
 
-    next_block_and_wait(btc_regtest_controller, &blocks_processed);
-    let mut final_height = current_height;
-    while burnchain_height.load(Ordering::SeqCst) <= target_height {
-        let current_height = burnchain_height.load(Ordering::SeqCst);
-        final_height = current_height;
+    while current_height < target_height {
         eprintln!(
             "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({})",
             get_epoch_time_secs(),
@@ -426,9 +418,11 @@ fn run_until_burnchain_height(
         if !next_result {
             return false;
         }
+        let tip_info = get_chain_info(&conf);
+        current_height = tip_info.burn_block_height;
     }
 
-    assert_eq!(final_height, target_height);
+    assert_eq!(current_height, target_height);
     true
 }
 
@@ -550,9 +544,8 @@ fn test_cost_limit_switch_version205() {
 
     btc_regtest_controller.bootstrap_chain(200);
 
-    let mut run_loop = neon::RunLoop::new(conf);
+    let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let burnchain_height = run_loop.get_burnchain_height_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -560,12 +553,7 @@ fn test_cost_limit_switch_version205() {
 
     // Wait until block 210, so we now that the burnchain is ready.
     wait_for_runloop(&blocks_processed);
-    run_until_burnchain_height(
-        &mut btc_regtest_controller,
-        &blocks_processed,
-        &burnchain_height,
-        210,
-    );
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 210, &conf);
 
     // Publish the contract so we can use it.
     submit_tx(
@@ -580,12 +568,7 @@ fn test_cost_limit_switch_version205() {
     );
 
     // Wait to make sure the contract is published.
-    run_until_burnchain_height(
-        &mut btc_regtest_controller,
-        &blocks_processed,
-        &burnchain_height,
-        212,
-    );
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 212, &conf);
 
     // Check that we have defined the contract.
     let increment_contract_defines = select_transactions_where(
@@ -615,12 +598,7 @@ fn test_cost_limit_switch_version205() {
     );
 
     // Wait for the contract call to process.
-    run_until_burnchain_height(
-        &mut btc_regtest_controller,
-        &blocks_processed,
-        &burnchain_height,
-        214,
-    );
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 214, &conf);
 
     // Check that we have processed the contract successfully, by checking that the contract call
     // is in the block record.
@@ -639,12 +617,7 @@ fn test_cost_limit_switch_version205() {
     test_observer::clear();
 
     // The cost contract was switched at height 220. So, now we expect Bob's call to fail.
-    run_until_burnchain_height(
-        &mut btc_regtest_controller,
-        &blocks_processed,
-        &burnchain_height,
-        216,
-    );
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 216, &conf);
     submit_tx(
         &http_origin,
         &make_contract_call(
@@ -659,12 +632,7 @@ fn test_cost_limit_switch_version205() {
     );
 
     // Wait for the contract to finish.
-    run_until_burnchain_height(
-        &mut btc_regtest_controller,
-        &blocks_processed,
-        &burnchain_height,
-        218,
-    );
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 218, &conf);
 
     // Bob's calls didn't work because he called after the block limit was lowered.
     let increment_calls_bob = select_transactions_where(

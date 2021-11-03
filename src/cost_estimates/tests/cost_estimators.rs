@@ -20,6 +20,7 @@ use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
+use crate::core::StacksEpochId;
 use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::FeeRateEstimate;
@@ -103,6 +104,7 @@ fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksEpoch
         parent_burn_block_hash: BurnchainHeaderHash([0; 32]),
         parent_burn_block_height: 1,
         parent_burn_block_timestamp: 1,
+        evaluated_epoch: StacksEpochId::Epoch20,
     }
 }
 

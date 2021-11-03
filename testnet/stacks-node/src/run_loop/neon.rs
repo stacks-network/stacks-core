@@ -35,7 +35,6 @@ pub struct RunLoop {
     config: Config,
     pub callbacks: RunLoopCallbacks,
     blocks_processed: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    burnchain_height: std::sync::Arc<std::sync::atomic::AtomicU64>,
     microblocks_processed: std::sync::Arc<std::sync::atomic::AtomicU64>,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
 }
@@ -67,7 +66,6 @@ impl RunLoop {
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
             blocks_processed: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            burnchain_height: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             microblocks_processed: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
@@ -100,25 +98,6 @@ impl RunLoop {
 
     #[cfg(not(test))]
     fn bump_blocks_processed(&self) {}
-
-    #[cfg(test)]
-    pub fn get_burnchain_height_arc(&self) -> std::sync::Arc<std::sync::atomic::AtomicU64> {
-        self.burnchain_height.clone()
-    }
-
-    #[cfg(test)]
-    fn set_burnchain_height(&self, burnchain_height: u64) {
-        self.burnchain_height
-            .fetch_update(
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
-                |_old| Some(burnchain_height),
-            )
-            .expect("Could not update arc burnchain_height.");
-    }
-
-    #[cfg(not(test))]
-    fn set_burnchain_height(&self, _burnchain_height: u64) {}
 
     /// Starts the testnet runloop.
     ///
@@ -438,7 +417,6 @@ impl RunLoop {
                     }
                 };
 
-            self.set_burnchain_height(next_burnchain_height);
             target_burnchain_block_height = cmp::min(
                 next_burnchain_height,
                 target_burnchain_block_height + pox_constants.reward_cycle_length as u64,
