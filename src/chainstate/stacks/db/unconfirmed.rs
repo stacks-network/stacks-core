@@ -401,14 +401,9 @@ impl StacksChainState {
             "Dropping unconfirmed state off of {} ({})",
             &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
         );
-        let clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
-            self.config(),
-            &NULL_HEADER_DB,
-            &mut unconfirmed.clarity_inst,
-            &NULL_BURN_STATE_DB,
-            &unconfirmed.confirmed_chain_tip,
-        );
-        clarity_tx.rollback_unconfirmed();
+        unconfirmed
+            .clarity_inst
+            .drop_unconfirmed_state(&unconfirmed.confirmed_chain_tip);
         debug!(
             "Dropped unconfirmed state off of {} ({})",
             &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip

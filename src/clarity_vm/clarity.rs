@@ -440,6 +440,11 @@ impl ClarityInstance {
         conn
     }
 
+    pub fn drop_unconfirmed_state(&mut self, block: &StacksBlockId) {
+        let datastore = self.datastore.begin_unconfirmed(block);
+        datastore.rollback_unconfirmed()
+    }
+
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
         current: &StacksBlockId,
