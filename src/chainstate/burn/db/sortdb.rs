@@ -596,15 +596,16 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         PRIMARY KEY(consensus_hash, stacks_block_hash)
     );"#,
     "CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
-    "CREATE TABLE db_config(version TEXT NOT NULL);",
-    r#"
+    "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
+];
+
+const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
      CREATE TABLE epochs (
          start_block_height INTEGER NOT NULL,
          end_block_height INTEGER NOT NULL,
          epoch_id INTEGER NOT NULL,
          PRIMARY KEY(start_block_height,epoch_id)
-     );"#,
-];
+     );"#];
 
 pub struct SortitionDB {
     pub readwrite: bool,
@@ -2023,27 +2024,15 @@ impl SortitionDB {
         let marf = SortitionDB::open_index(&index_path)?;
         let first_snapshot = SortitionDB::get_first_block_snapshot(marf.sqlite_conn())?;
 
-        let db = SortitionDB {
+        let mut db = SortitionDB {
             marf,
             readwrite,
             first_block_height: first_snapshot.block_height,
             first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
         };
 
-        // TODO - add schema application method for sortition DB
-        let expected_version = SORTITION_DB_VERSION.to_string();
-        match db.get_schema_version() {
-            Ok(Some(actual_version)) => {
-                if expected_version != actual_version {
-                    panic!("The schema version of the sortition DB is incorrect. Expected = {}, Actual = {}",
-                           expected_version, actual_version);
-                } else {
-                    Ok(db)
-                }
-            }
-            Ok(None) => panic!("The schema version of the sortition DB is incorrect."),
-            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
-        }
+        db.check_schema_version_and_update()?;
+        Ok(db)
     }
 
     /// Open the burn database at the given path.  Open read-only or read/write.
@@ -2111,20 +2100,8 @@ impl SortitionDB {
             }
         }
 
-        // TODO - add schema application method for sortition DB
-        let expected_version = SORTITION_DB_VERSION.to_string();
-        match db.get_schema_version() {
-            Ok(Some(actual_version)) => {
-                if expected_version != actual_version {
-                    panic!("The schema version of the sortition DB is incorrect. Expected = {}, Actual = {}",
-                           expected_version, actual_version);
-                } else {
-                    Ok(db)
-                }
-            }
-            Ok(None) => panic!("The schema version of the sortition DB is incorrect."),
-            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
-        }
+        db.check_schema_version_and_update()?;
+        Ok(db)
     }
 
     /// Open a burn database at random tmp dir (used for testing)
@@ -2146,6 +2123,71 @@ impl SortitionDB {
             &StacksEpoch::unit_test_pre_2_05(first_block_height),
             true,
         )
+    }
+
+    #[cfg(test)]
+    pub fn connect_v1(
+        path: &str,
+        first_block_height: u64,
+        first_burn_hash: &BurnchainHeaderHash,
+        first_burn_header_timestamp: u64,
+        readwrite: bool,
+    ) -> Result<SortitionDB, db_error> {
+        let create_flag = match fs::metadata(path) {
+            Err(e) => {
+                if e.kind() == ErrorKind::NotFound {
+                    // need to create
+                    if readwrite {
+                        true
+                    } else {
+                        return Err(db_error::NoDBError);
+                    }
+                } else {
+                    return Err(db_error::IOError(e));
+                }
+            }
+            Ok(_md) => false,
+        };
+
+        let (db_path, index_path) = db_mkdirs(path)?;
+        debug!(
+            "Connect/Open {} sortdb '{}' as '{}', with index as '{}'",
+            if create_flag { "(create)" } else { "" },
+            db_path,
+            if readwrite { "readwrite" } else { "readonly" },
+            index_path
+        );
+
+        let marf = SortitionDB::open_index(&index_path)?;
+
+        let mut db = SortitionDB {
+            marf,
+            readwrite,
+            first_block_height,
+            first_burn_header_hash: first_burn_hash.clone(),
+        };
+
+        if create_flag {
+            // instantiate!
+            db.instantiate_v1(
+                first_block_height,
+                first_burn_hash,
+                first_burn_header_timestamp,
+            )?;
+        } else {
+            // validate -- must contain the given first block and first block hash
+            let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
+            if !snapshot.is_initial()
+                || snapshot.block_height != first_block_height
+                || snapshot.burn_header_hash != *first_burn_hash
+            {
+                error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
+                       snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
+                return Err(db_error::Corruption);
+            }
+        }
+
+        Ok(db)
     }
 
     /// Validate all Stacks Epochs. Since this is data that always comes from a static variable,
@@ -2216,6 +2258,9 @@ impl SortitionDB {
         for row_text in SORTITION_DB_INITIAL_SCHEMA {
             db_tx.execute_batch(row_text)?;
         }
+        for row_text in SORTITION_DB_SCHEMA_2 {
+            db_tx.execute_batch(row_text)?;
+        }
 
         let epochs = SortitionDB::validate_epochs(epochs_ref);
         for epoch in epochs.into_iter() {
@@ -2231,8 +2276,62 @@ impl SortitionDB {
         }
 
         db_tx.execute(
-            "INSERT INTO db_config (version) VALUES (?1)",
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
             &[&SORTITION_DB_VERSION],
+        )?;
+
+        db_tx.instantiate_index()?;
+
+        let mut first_sn = first_snapshot.clone();
+        first_sn.sortition_id = SortitionId::sentinel();
+        let index_root =
+            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
+        first_snapshot.index_root = index_root;
+
+        db_tx.insert_block_snapshot(&first_snapshot)?;
+        db_tx.store_transition_ops(
+            &first_snapshot.sortition_id,
+            &BurnchainStateTransition::noop(),
+        )?;
+
+        db_tx.commit()?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn instantiate_v1(
+        &mut self,
+        first_block_height: u64,
+        first_burn_header_hash: &BurnchainHeaderHash,
+        first_burn_header_timestamp: u64,
+    ) -> Result<(), db_error> {
+        debug!("Instantiate SortDB");
+
+        sql_pragma(self.conn(), "PRAGMA journal_mode = WAL;")?;
+
+        let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
+
+        // create first (sentinel) snapshot
+        debug!("Make first snapshot");
+        let mut first_snapshot = BlockSnapshot::initial(
+            first_block_height,
+            first_burn_header_hash,
+            first_burn_header_timestamp,
+        );
+
+        assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
+        assert_eq!(
+            first_snapshot.parent_burn_header_hash,
+            BurnchainHeaderHash::sentinel()
+        );
+
+        for row_text in SORTITION_DB_INITIAL_SCHEMA {
+            db_tx.execute_batch(row_text)?;
+        }
+
+        db_tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &[&"1"],
         )?;
 
         db_tx.instantiate_index()?;
@@ -2280,6 +2379,40 @@ impl SortitionDB {
             )
             .optional()?;
         Ok(version)
+    }
+
+    fn apply_schema_2(tx: &SortitionDBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_2 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["2"],
+        )?;
+
+        Ok(())
+    }
+
+    fn check_schema_version_and_update(&mut self) -> Result<(), db_error> {
+        match self.get_schema_version() {
+            Ok(Some(version)) => {
+                let expected_version = SORTITION_DB_VERSION.to_string();
+                if version == expected_version {
+                    return Ok(());
+                }
+                if version == "1" {
+                    let tx = self.tx_begin()?;
+                    SortitionDB::apply_schema_2(&tx)?;
+                    tx.commit()?;
+                    Ok(())
+                } else {
+                    panic!("The schema version of the sortition DB is invalid.")
+                }
+            }
+            Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
+            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+        }
     }
 }
 
@@ -4085,6 +4218,46 @@ pub mod tests {
         )
         .unwrap();
         let _db = SortitionDB::connect_test(123, &first_burn_hash).unwrap();
+    }
+
+    #[test]
+    fn test_v1_to_v2_migration() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+
+        let first_block_height = 123;
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        // create a v1 sortition DB
+        let db = SortitionDB::connect_v1(
+            &db_path_dir,
+            first_block_height,
+            &first_burn_hash,
+            get_epoch_time_secs(),
+            true,
+        )
+        .unwrap();
+        let res = SortitionDB::get_stacks_epoch(db.conn(), first_block_height);
+        assert!(res.is_err());
+        assert!(format!("{:?}", res).contains("no such table: epochs"));
+
+        // create a v2 sortition DB at the same path as the v1 DB.
+        // the schema migration should be successfully applied, and the epochs table should exist.
+        let db = SortitionDB::connect(
+            &db_path_dir,
+            first_block_height,
+            &first_burn_hash,
+            get_epoch_time_secs(),
+            &StacksEpoch::unit_test_2_05(first_block_height),
+            true,
+        )
+        .unwrap();
+        assert!(SortitionDB::get_stacks_epoch(db.conn(), first_block_height).is_ok());
     }
 
     #[test]
