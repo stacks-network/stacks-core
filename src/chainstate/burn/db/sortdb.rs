@@ -596,7 +596,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         PRIMARY KEY(consensus_hash, stacks_block_hash)
     );"#,
     "CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
-    "CREATE TABLE db_config(version TEXT NOT NULL);",
+    "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
 ];
 
 const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
@@ -2276,7 +2276,7 @@ impl SortitionDB {
         }
 
         db_tx.execute(
-            "INSERT INTO db_config (version) VALUES (?1)",
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
             &[&SORTITION_DB_VERSION],
         )?;
 
@@ -2329,7 +2329,10 @@ impl SortitionDB {
             db_tx.execute_batch(row_text)?;
         }
 
-        db_tx.execute("INSERT INTO db_config (version) VALUES (?1)", &[&"1"])?;
+        db_tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &[&"1"],
+        )?;
 
         db_tx.instantiate_index()?;
 
@@ -2383,7 +2386,10 @@ impl SortitionDB {
             tx.execute_batch(sql_exec)?;
         }
 
-        tx.execute("INSERT INTO db_config (version) VALUES (?1)", &["2"])?;
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["2"],
+        )?;
 
         Ok(())
     }
