@@ -15,6 +15,7 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+use stacks::clarity::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::BLOCK_LIMIT_MAINNET;
@@ -33,7 +34,6 @@ use stacks::util::hash::{bytes_to_hex, hex_bytes};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::vm::database::ClarityDeserializable;
-use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
 use stacks::{
@@ -73,11 +73,7 @@ use super::{
     SK_2,
 };
 
-use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
-use stacks::types::chainstate::VRFSeed;
-
-fn neon_integration_test_conf() -> (Config, StacksAddress) {
+pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
 
     let keychain = Keychain::default(conf.node.seed.clone());
@@ -112,7 +108,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     (conf, miner_account)
 }
 
-mod test_observer {
+pub mod test_observer {
     use std::convert::Infallible;
     use std::sync::Mutex;
     use std::thread;
@@ -279,7 +275,7 @@ mod test_observer {
 }
 
 const PANIC_TIMEOUT_SECS: u64 = 600;
-fn next_block_and_wait(
+pub fn next_block_and_wait(
     btc_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
 ) -> bool {
@@ -306,7 +302,7 @@ fn next_block_and_wait(
     true
 }
 
-fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
+pub fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) == 0 {
         if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
@@ -346,7 +342,7 @@ fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) ->
 }
 
 /// returns Txid string
-fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
+pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/transactions", http_origin);
     let res = client
@@ -372,7 +368,7 @@ fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
     }
 }
 
-fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
+pub fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
@@ -619,12 +615,12 @@ fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128 {
 }
 
 #[derive(Debug)]
-struct Account {
-    balance: u128,
-    nonce: u64,
+pub struct Account {
+    pub balance: u128,
+    pub nonce: u64,
 }
 
-fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
+pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/accounts/{}?proof=0", http_origin, account);
     let res = client
@@ -3901,7 +3897,6 @@ fn pox_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
@@ -5047,124 +5042,6 @@ fn antientropy_integration_test() {
     eprintln!("Follower node finished");
 
     test_observer::clear();
-    channel.stop_chains_coordinator();
-}
-
-#[test]
-#[ignore]
-fn epoch_2_05_transition_empty_blocks() {
-    // very simple test to verify that the miner will keep making valid (empty) blocks after the
-    // transition.  Really tests that the block-commits are well-formed before and after the epoch
-    // transition.
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    let (mut conf, miner_account) = neon_integration_test_conf();
-    let keychain = Keychain::default(conf.node.seed.clone());
-
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
-    btcd_controller
-        .start_bitcoind()
-        .map_err(|_e| ())
-        .expect("Failed starting bitcoind");
-
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-
-    // advance to *almost* 2.05
-    let epoch_2_05 = core::STACKS_EPOCHS_REGTEST
-        .last()
-        .as_ref()
-        .unwrap()
-        .start_height;
-
-    btc_regtest_controller.bootstrap_chain(epoch_2_05 - 5);
-
-    eprintln!("Chain bootstrapped...");
-
-    let mut run_loop = neon::RunLoop::new(conf.clone());
-    let blocks_processed = run_loop.get_blocks_processed_arc();
-
-    let channel = run_loop.get_coordinator_channel().unwrap();
-
-    thread::spawn(move || run_loop.start(None, 0));
-
-    // give the run loop some time to start up!
-    wait_for_runloop(&blocks_processed);
-
-    // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let tip_info = get_chain_info(&conf);
-    let key_block_ptr = tip_info.burn_block_height as u32;
-    let key_vtxindex = 1; // nothing else here but the coinbase
-
-    // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
-    let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
-
-    // these should all succeed across the epoch boundary
-    for i in 0..5 {
-        // also, make *huge* block-commits with invalid marker bytes once we reach the new
-        // epoch, and verify that it fails.
-        let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height + 1 >= epoch_2_05 {
-            let burn_fee_cap = 100000000; // 1 BTC
-            let sunset_burn =
-                burnchain.expected_sunset_burn(tip_info.burn_block_height + 1, burn_fee_cap);
-            let rest_commit = burn_fee_cap - sunset_burn;
-
-            let commit_outs = if tip_info.burn_block_height + 1 < burnchain.pox_constants.sunset_end
-                && !burnchain.is_in_prepare_phase(tip_info.burn_block_height + 1)
-            {
-                vec![
-                    StacksAddress::burn_address(conf.is_mainnet()),
-                    StacksAddress::burn_address(conf.is_mainnet()),
-                ]
-            } else {
-                vec![StacksAddress::burn_address(conf.is_mainnet())]
-            };
-
-            // let's commit
-            let burn_parent_modulus =
-                (tip_info.burn_block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
-            let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-                sunset_burn,
-                block_header_hash: BlockHeaderHash([0xff; 32]),
-                burn_fee: rest_commit,
-                input: (Txid([0; 32]), 0),
-                apparent_sender: keychain.get_burnchain_signer(),
-                key_block_ptr,
-                key_vtxindex,
-                memo: vec![0], // bad epoch marker
-                new_seed: VRFSeed([0x11; 32]),
-                parent_block_ptr: 0,
-                parent_vtxindex: 0,
-                // to be filled in
-                vtxindex: 0,
-                txid: Txid([0u8; 32]),
-                block_height: 0,
-                burn_header_hash: BurnchainHeaderHash::zero(),
-                burn_parent_modulus,
-                commit_outs,
-            });
-            let mut op_signer = keychain.generate_op_signer();
-            let res = bitcoin_controller.submit_operation(op, &mut op_signer, 1);
-            assert!(res, "Failed to submit block-commit");
-        }
-
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    }
-
-    let account = get_account(&http_origin, &miner_account);
-    assert_eq!(account.nonce, 6);
-
     channel.stop_chains_coordinator();
 }
 

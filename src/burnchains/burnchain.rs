@@ -78,7 +78,7 @@ use util::vrf::VRFPublicKey;
 
 use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
-use burnchains::bitcoin::indexer::{get_bitcoin_stacks_epochs, BitcoinIndexer};
+use burnchains::bitcoin::indexer::BitcoinIndexer;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {

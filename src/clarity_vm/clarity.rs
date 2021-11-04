@@ -57,6 +57,7 @@ use crate::chainstate::stacks::TransactionVersion;
 use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::core::StacksEpochId;
+use crate::core::GENESIS_EPOCH;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
@@ -92,6 +93,7 @@ pub struct ClarityBlockConnection<'a> {
     burn_state_db: &'a dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
     mainnet: bool,
+    epoch: StacksEpochId,
 }
 
 ///
@@ -106,12 +108,14 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     burn_state_db: &'a dyn BurnStateDB,
     cost_track: &'a mut Option<LimitedCostTracker>,
     mainnet: bool,
+    epoch: StacksEpochId,
 }
 
 pub struct ClarityReadOnlyConnection<'a> {
     datastore: ReadOnlyMarfStore<'a>,
     header_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
+    epoch: StacksEpochId,
 }
 
 #[derive(Debug)]
@@ -270,6 +274,31 @@ impl ClarityInstance {
         self.mainnet
     }
 
+    /// Returns the Stacks epoch of the burn block that elected `stacks_block`
+    fn get_epoch_of(
+        stacks_block: &StacksBlockId,
+        header_db: &dyn HeadersDB,
+        burn_state_db: &dyn BurnStateDB,
+    ) -> StacksEpochId {
+        match header_db.get_burn_block_height_for_block(stacks_block) {
+            Some(burn_height) => {
+                // special case the Stacks 2.0 genesis block -- it occurs at a zero burn block height
+                if burn_height == 0 {
+                    GENESIS_EPOCH
+                } else {
+                    burn_state_db
+                        .get_stacks_epoch(burn_height)
+                        .expect(&format!(
+                            "Failed to get Stacks epoch for height = {}",
+                            burn_height
+                        ))
+                        .epoch_id
+                }
+            }
+            None => GENESIS_EPOCH,
+        }
+    }
+
     pub fn begin_block<'a>(
         &'a mut self,
         current: &StacksBlockId,
@@ -279,11 +308,18 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin(current, next);
 
+        let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
+
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(self.mainnet, self.block_limit.clone(), &mut clarity_db)
-                    .expect("FAIL: problem instantiating cost tracking"),
+                LimitedCostTracker::new(
+                    self.mainnet,
+                    self.block_limit.clone(),
+                    &mut clarity_db,
+                    epoch,
+                )
+                .expect("FAIL: problem instantiating cost tracking"),
             )
         };
 
@@ -293,6 +329,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            epoch,
         }
     }
 
@@ -305,6 +342,8 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let datastore = self.datastore.begin(current, next);
 
+        let epoch = GENESIS_EPOCH;
+
         let cost_track = Some(LimitedCostTracker::new_free());
 
         ClarityBlockConnection {
@@ -313,6 +352,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            epoch,
         }
     }
 
@@ -327,6 +367,8 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let writable = self.datastore.begin(current, next);
 
+        let epoch = GENESIS_EPOCH;
+
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
@@ -335,6 +377,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: false,
+            epoch,
         };
 
         conn.as_transaction(|clarity_db| {
@@ -397,11 +440,18 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin_unconfirmed(current);
 
+        let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
+
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(self.mainnet, self.block_limit.clone(), &mut clarity_db)
-                    .expect("FAIL: problem instantiating cost tracking"),
+                LimitedCostTracker::new(
+                    self.mainnet,
+                    self.block_limit.clone(),
+                    &mut clarity_db,
+                    epoch,
+                )
+                .expect("FAIL: problem instantiating cost tracking"),
             )
         };
 
@@ -411,6 +461,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            epoch,
         }
     }
 
@@ -431,11 +482,13 @@ impl ClarityInstance {
         burn_state_db: &'a dyn BurnStateDB,
     ) -> Result<ClarityReadOnlyConnection<'a>, Error> {
         let datastore = self.datastore.begin_read_only_checked(Some(at_block))?;
+        let epoch = Self::get_epoch_of(at_block, header_db, burn_state_db);
 
         Ok(ClarityReadOnlyConnection {
             datastore,
             header_db,
             burn_state_db,
+            epoch,
         })
     }
 
@@ -449,7 +502,10 @@ impl ClarityInstance {
     ) -> Result<Value, Error> {
         let mut read_only_conn = self.datastore.begin_read_only(Some(at_block));
         let clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
-        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db);
+
+        let epoch = Self::get_epoch_of(at_block, header_db, burn_state_db);
+
+        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db, epoch);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
@@ -469,6 +525,8 @@ pub trait ClarityConnection {
     where
         F: FnOnce(&mut AnalysisDatabase) -> R;
 
+    fn get_epoch(&self) -> StacksEpochId;
+
     fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(&mut ClarityDatabase) -> R,
@@ -486,8 +544,10 @@ pub trait ClarityConnection {
     where
         F: FnOnce(&mut Environment) -> Result<R, InterpreterError>,
     {
+        let epoch_id = self.get_epoch();
         self.with_clarity_db_readonly_owned(|clarity_db| {
-            let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track);
+            let mut vm_env =
+                OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track, epoch_id);
             let result = vm_env
                 .execute_in_env(sender, to_do)
                 .map(|(result, _, _)| result);
@@ -523,6 +583,10 @@ impl ClarityConnection for ClarityBlockConnection<'_> {
         db.roll_back();
         result
     }
+
+    fn get_epoch(&self) -> StacksEpochId {
+        self.epoch
+    }
 }
 
 impl ClarityConnection for ClarityReadOnlyConnection<'_> {
@@ -549,6 +613,10 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
         let result = to_do(&mut db);
         db.roll_back();
         result
+    }
+
+    fn get_epoch(&self) -> StacksEpochId {
+        self.epoch
     }
 }
 
@@ -715,6 +783,7 @@ impl<'a> ClarityBlockConnection<'a> {
             burn_state_db,
             log: Some(log),
             mainnet,
+            epoch: self.epoch,
         }
     }
 
@@ -768,6 +837,10 @@ impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
             db.roll_back();
             result
         })
+    }
+
+    fn get_epoch(&self) -> StacksEpochId {
+        self.epoch
     }
 }
 
@@ -883,7 +956,8 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
                 // wrap the whole contract-call in a claritydb transaction,
                 //   so we can abort on call_back's boolean retun
                 db.begin();
-                let mut vm_env = OwnedEnvironment::new_cost_limited(self.mainnet, db, cost_track);
+                let mut vm_env =
+                    OwnedEnvironment::new_cost_limited(self.mainnet, db, cost_track, self.epoch);
                 let result = to_do(&mut vm_env);
                 let (mut db, cost_track) = vm_env
                     .destruct()

@@ -88,7 +88,10 @@ impl TryFrom<u32> for BitcoinNetworkType {
     }
 }
 
-pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> Vec<StacksEpoch> {
+/// Get the default epochs definitions for the given BitcoinNetworkType.
+/// Should *not* be used except by the BitcoinIndexer when no epochs vector
+/// was specified.
+fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> Vec<StacksEpoch> {
     match network_id {
         BitcoinNetworkType::Mainnet => STACKS_EPOCHS_MAINNET.to_vec(),
         BitcoinNetworkType::Testnet => STACKS_EPOCHS_TESTNET.to_vec(),
@@ -109,6 +112,7 @@ pub struct BitcoinIndexerConfig {
     pub spv_headers_path: String,
     pub first_block: u64,
     pub magic_bytes: MagicBytes,
+    pub epochs: Option<Vec<StacksEpoch>>,
 }
 
 #[derive(Debug)]
@@ -130,22 +134,8 @@ pub struct BitcoinIndexer {
 }
 
 impl BitcoinIndexerConfig {
-    pub fn default(first_block: u64) -> BitcoinIndexerConfig {
-        BitcoinIndexerConfig {
-            peer_host: "bitcoin.blockstack.com".to_string(),
-            peer_port: 8333,
-            rpc_port: 8332,
-            rpc_ssl: false,
-            username: Some("blockstack".to_string()),
-            password: Some("blockstacksystem".to_string()),
-            timeout: 30,
-            spv_headers_path: "./headers.sqlite".to_string(),
-            first_block,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
-        }
-    }
-
-    pub fn default_regtest(spv_headers_path: String) -> BitcoinIndexerConfig {
+    #[cfg(test)]
+    pub fn test_default(spv_headers_path: String) -> BitcoinIndexerConfig {
         BitcoinIndexerConfig {
             peer_host: "127.0.0.1".to_string(),
             peer_port: 18444,
@@ -154,9 +144,10 @@ impl BitcoinIndexerConfig {
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 30,
-            spv_headers_path: spv_headers_path,
+            spv_headers_path,
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            epochs: None,
         }
     }
 }
@@ -716,7 +707,10 @@ impl BurnchainIndexer for BitcoinIndexer {
     /// Get a vector of the stacks epochs. This notion of epochs is dependent on the burn block height.
     /// Valid epochs include stacks 1.0, stacks 2.0, stacks 2.05, and so on.
     fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
-        get_bitcoin_stacks_epochs(self.runtime.network_id)
+        match self.config.epochs {
+            Some(ref epochs) => epochs.clone(),
+            None => get_bitcoin_stacks_epochs(self.runtime.network_id),
+        }
     }
 
     /// Read downloaded headers within a range
@@ -965,7 +959,7 @@ mod test {
         assert_eq!(spv_client_reorg.read_block_headers(2, 10).unwrap().len(), 2);
 
         let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::default_regtest(path_1.to_string()),
+            BitcoinIndexerConfig::test_default(path_1.to_string()),
             BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
         );
         let common_ancestor_height = indexer
@@ -1137,7 +1131,7 @@ mod test {
         assert_eq!(spv_client_reorg.read_block_headers(2, 10).unwrap().len(), 2);
 
         let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::default_regtest(path_1.to_string()),
+            BitcoinIndexerConfig::test_default(path_1.to_string()),
             BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
         );
         let common_ancestor_height = indexer
@@ -1215,6 +1209,7 @@ mod test {
             spv_headers_path: "/tmp/test_indexer_sync_headers.sqlite".to_string(),
             first_block: 0,
             magic_bytes: MagicBytes([105, 100]),
+            epochs: None,
         };
 
         if fs::metadata(&indexer_conf.spv_headers_path).is_ok() {

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::core::StacksEpochId;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
@@ -24,6 +25,7 @@ use chainstate::stacks::index::storage::TrieFileStorage;
 use clarity_vm::clarity::ClarityInstance;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
+use std::collections::HashMap;
 use util::hash::hex_bytes;
 use vm::contexts::Environment;
 use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
@@ -147,6 +149,369 @@ fn execute_transaction(
     env.execute_transaction(issuer, contract_identifier.clone(), tx, args)
 }
 
+fn exec_cost(contract: &str, epoch: StacksEpochId) -> ExecutionCost {
+    let marf_kv = MarfedKV::temporary();
+    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    clarity_instance
+        .begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+        )
+        .commit_block();
+
+    let mut marf_kv = clarity_instance.destroy();
+
+    let mut store = marf_kv.begin(
+        &StacksBlockHeader::make_index_block_hash(
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+        ),
+        &StacksBlockId([1 as u8; 32]),
+    );
+
+    let mut owned_env = OwnedEnvironment::new_max_limit(
+        store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+        epoch,
+    );
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p1_principal = match p1 {
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!(),
+    };
+    let contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "self".into());
+
+    owned_env
+        .initialize_contract(contract_id.clone(), contract)
+        .unwrap();
+
+    let cost_before = owned_env.get_cost_total();
+
+    eprintln!("{}", &contract);
+    execute_transaction(
+        &mut owned_env,
+        p1_principal.into(),
+        &contract_id,
+        "execute",
+        &[],
+    )
+    .unwrap();
+
+    let (_db, tracker) = owned_env.destruct().unwrap();
+    let mut cost_after = tracker.get_total();
+    cost_after.sub(&cost_before).unwrap();
+    cost_after
+}
+
+/// Assert that the relative difference between `cost_small` and `cost_large`
+///  grows in v205
+fn check_cost_growth_200_v_205(
+    cost_small_200: u64,
+    cost_large_200: u64,
+    cost_small_205: u64,
+    cost_large_205: u64,
+) {
+    let growth_200 = (cost_large_200 - cost_small_200) as f64 / cost_small_200 as f64;
+    let growth_205 = (cost_large_205 - cost_small_205) as f64 / cost_small_205 as f64;
+
+    assert!(
+        growth_205 > growth_200,
+        "The difference between larger and smaller exec runtimes should grow in epoch 2.05"
+    );
+}
+
+#[test]
+// Test the `concat` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are fed into `concat` from the datastore.
+// Capture the cost of just the concat operation by measuring the cost of contracts that do everything but concat, and
+//  ones that do the same and concat.
+fn epoch205_concat() {
+    let small_exec_without_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
+        (define-public (execute)
+               (begin (var-get db) (var-get db) (ok 1)))";
+    let small_exec_with_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
+        (define-public (execute)
+               (begin (concat (var-get db) (var-get db)) (ok 1)))";
+    let large_exec_without_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+        (define-public (execute)
+               (begin (var-get db) (var-get db) (ok 1)))";
+    let large_exec_with_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+        (define-public (execute)
+               (begin (concat (var-get db) (var-get db)) (ok 1)))";
+
+    let small_cost_epoch_200 = exec_cost(small_exec_with_concat, StacksEpochId::Epoch20).runtime
+        - exec_cost(small_exec_without_concat, StacksEpochId::Epoch20).runtime;
+    let small_cost_epoch_205 = exec_cost(small_exec_with_concat, StacksEpochId::Epoch2_05).runtime
+        - exec_cost(small_exec_without_concat, StacksEpochId::Epoch2_05).runtime;
+    let large_cost_epoch_200 = exec_cost(large_exec_with_concat, StacksEpochId::Epoch20).runtime
+        - exec_cost(large_exec_without_concat, StacksEpochId::Epoch20).runtime;
+    let large_cost_epoch_205 = exec_cost(large_exec_with_concat, StacksEpochId::Epoch2_05).runtime
+        - exec_cost(large_exec_without_concat, StacksEpochId::Epoch2_05).runtime;
+
+    check_cost_growth_200_v_205(
+        small_cost_epoch_200,
+        large_cost_epoch_200,
+        small_cost_epoch_205,
+        large_cost_epoch_205,
+    );
+}
+
+#[test]
+// Test the `var-get` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are fetched from the datastore.
+fn epoch205_var_get() {
+    let smaller_exec = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
+      (define-public (execute)
+        (begin (var-get db)
+               (ok 1)))";
+    let larger_exec = "(define-data-var db (list 500 int) (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+      (define-public (execute)
+        (begin (var-get db)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+// Test the `var-set` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are stored to the datastore.
+fn epoch205_var_set() {
+    let smaller_exec = "(define-data-var db (list 500 int) (list 1))
+      (define-public (execute)
+        (begin (var-set db (list 1 2 3 4 5))
+               (ok 1)))";
+    let larger_exec = "(define-data-var db (list 500 int) (list 1))
+      (define-public (execute)
+        (begin (var-set db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+// Test the `map-get` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are fetched from the datastore.
+fn epoch205_map_get() {
+    let smaller_exec = "(define-map db int (list 500 int))
+      (map-set db 0 (list 1 2 3 4 5))
+      (define-public (execute)
+        (begin (map-get? db 0)
+               (ok 1)))";
+    let larger_exec = "(define-map db int (list 500 int))
+      (map-set db 0 (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+      (define-public (execute)
+        (begin (map-get? db 0)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+// Test the `map-set` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are stored to the datastore.
+fn epoch205_map_set() {
+    let smaller_exec = "(define-map db int (list 500 int))
+      (define-public (execute)
+        (begin (map-set db 0 (list 1 2 3 4 5))
+               (ok 1)))";
+    let larger_exec = "(define-map db int (list 500 int))
+      (define-public (execute)
+        (begin (map-set db 0 (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+// Test the `map-insert` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are stored to the datastore.
+fn epoch205_map_insert() {
+    let smaller_exec = "(define-map db int (list 500 int))
+      (define-public (execute)
+        (begin (map-insert db 0 (list 1 2 3 4 5))
+               (ok 1)))";
+    let larger_exec = "(define-map db int (list 500 int))
+      (define-public (execute)
+        (begin (map-insert db 0 (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+// Test the `map-delete` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are used as keys to the datastore.
+fn epoch205_map_delete() {
+    let smaller_exec = "(define-map db (list 500 int) int)
+      (map-set db (list 1 2 3 4 5) 0)
+      (define-public (execute)
+        (begin (map-delete db (list 1 2 3 4 5))
+               (ok 1)))";
+    let larger_exec = "(define-map db (list 500 int) int)
+      (map-set db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20) 0)
+      (define-public (execute)
+        (begin (map-delete db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+               (ok 1)))";
+
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+// Test the nft changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are stored to the datastore.
+fn epoch205_nfts() {
+    // test nft-mint
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-mint? db (list 1 2 3 4 5) tx-sender)
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-mint? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20) tx-sender)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+
+    // test nft-transfer
+    //  these transfers fail, but the cost tabulation is still the same
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-transfer? db (list 1 2 3 4 5)
+                             tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-transfer? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+                             tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+
+    // test nft-burn
+    //  these burns fail, but the cost tabulation is still the same
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-burn? db (list 1 2 3 4 5)
+                             'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-burn? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+                             'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+
+    // test nft-get-owner?
+    //  these calls fail, but the cost tabulation is still the same
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-get-owner? db (list 1 2 3 4 5))
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-get-owner? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
 fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let contract_trait = "(define-trait trait-1 (
                             (foo-exec (int) (response int int))
@@ -210,8 +575,10 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
         &StacksBlockId([1 as u8; 32]),
     );
 
-    let mut owned_env =
-        OwnedEnvironment::new_max_limit(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+    let mut owned_env = OwnedEnvironment::new_max_limit(
+        store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+        StacksEpochId::Epoch2_05,
+    );
 
     owned_env
         .initialize_contract(trait_contract_id.clone(), contract_trait)
@@ -342,6 +709,7 @@ fn test_cost_contract_short_circuits() {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
         );
 
         execute_transaction(
@@ -363,6 +731,7 @@ fn test_cost_contract_short_circuits() {
         let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
         );
 
         execute_transaction(
@@ -414,6 +783,7 @@ fn test_cost_contract_short_circuits() {
 
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
         );
 
         execute_transaction(
@@ -435,6 +805,7 @@ fn test_cost_contract_short_circuits() {
         let mut store = marf_kv.begin(&StacksBlockId([5 as u8; 32]), &StacksBlockId([6 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
         );
 
         execute_transaction(
@@ -700,6 +1071,7 @@ fn test_cost_voting_integration() {
         let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
         );
 
         execute_transaction(
@@ -797,6 +1169,7 @@ fn test_cost_voting_integration() {
         let mut store = marf_kv.begin(&StacksBlockId([4 as u8; 32]), &StacksBlockId([5 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
             store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
         );
 
         execute_transaction(

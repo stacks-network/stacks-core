@@ -232,6 +232,7 @@ impl BitcoinRegtestController {
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
+                epochs: burnchain_config.epochs,
             }
         };
 
@@ -268,6 +269,7 @@ impl BitcoinRegtestController {
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
+                epochs: burnchain_config.epochs,
             }
         };
 
