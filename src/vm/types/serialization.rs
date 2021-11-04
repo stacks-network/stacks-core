@@ -37,6 +37,7 @@ use vm::types::{
 };
 
 use crate::codec::{Error as codec_error, StacksMessageCodec};
+use crate::vm::types::byte_len_of_serialization;
 
 /// Errors that may occur in serialization or deserialization
 /// If deserialization failed because the described type is a bad type and
@@ -650,6 +651,40 @@ impl Value {
         Value::try_deserialize_hex(hex, expected)
             .expect("ERROR: Failed to parse Clarity hex string")
     }
+
+    pub fn serialized_size(&self) -> u32 {
+        let mut counter = WriteCounter { count: 0 };
+        self.serialize_write(&mut counter)
+            .expect("Error: Failed to count serialization length of Clarity value");
+        counter.count
+    }
+}
+
+/// A writer that just counts the bytes written
+struct WriteCounter {
+    count: u32,
+}
+
+impl Write for WriteCounter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let input: u32 = buf.len().try_into().map_err(|_e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Serialization size would overflow u32",
+            )
+        })?;
+        self.count = self.count.checked_add(input).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Serialization size would overflow u32",
+            )
+        })?;
+        Ok(input as usize)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 impl ClaritySerializable for Value {
@@ -712,6 +747,12 @@ mod tests {
         assert_eq!(
             &v,
             &Value::try_deserialize_hex_untyped(&v.serialize()).unwrap()
+        );
+        // test the serialized_size implementation
+        assert_eq!(
+            v.serialized_size(),
+            v.serialize().len() as u32 / 2,
+            "serialized_size() should return the byte length of the serialization (half the length of the hex encoding)",
         );
     }
 
@@ -1062,6 +1103,17 @@ mod tests {
                 expected,
                 &Value::try_deserialize_hex_untyped(&format!("0x{}", test))
             );
+        }
+
+        // test the serialized_size implementation
+        for (test, expected) in tests.iter() {
+            if let Ok(value) = expected {
+                assert_eq!(
+                    value.serialized_size(),
+                    test.len() as u32 / 2,
+                    "serialized_size() should return the byte length of the serialization (half the length of the hex encoding)",
+                );
+            }
         }
     }
 

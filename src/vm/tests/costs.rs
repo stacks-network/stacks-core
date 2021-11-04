@@ -225,6 +225,106 @@ fn check_cost_growth_200_v_205(
     );
 }
 
+/*
+hash160
+sha256
+sha512
+sha512trunc256
+keccak256
+ */
+
+fn test_input_size_epoch_200_205(
+    large_input: &str,
+    large_baseline: &str,
+    small_input: &str,
+    small_baseline: &str,
+) {
+    let large_epoch_200 = exec_cost(large_input, StacksEpochId::Epoch20).runtime
+        - exec_cost(large_baseline, StacksEpochId::Epoch20).runtime;
+    let large_epoch_205 = exec_cost(large_input, StacksEpochId::Epoch2_05).runtime
+        - exec_cost(large_baseline, StacksEpochId::Epoch2_05).runtime;
+    let small_epoch_200 = exec_cost(small_input, StacksEpochId::Epoch20).runtime
+        - exec_cost(small_baseline, StacksEpochId::Epoch20).runtime;
+    let small_epoch_205 = exec_cost(small_input, StacksEpochId::Epoch2_05).runtime
+        - exec_cost(small_baseline, StacksEpochId::Epoch2_05).runtime;
+
+    assert_eq!(
+        large_epoch_200, small_epoch_200,
+        "In epoch 2.00, both inputs should have the same runtime"
+    );
+    assert!(
+        large_epoch_205 > small_epoch_205,
+        "In epoch 2.05, runtime with a larger input should be greater"
+    );
+}
+
+fn test_hash_fn_input_sizes_200_205(hash_function: &str) {
+    let large_input = format!(
+        "(define-public (execute) (begin ({} 0x1234567890) (ok 1)))",
+        hash_function
+    );
+    let small_input = format!(
+        "(define-public (execute) (begin ({} 0x1234) (ok 1)))",
+        hash_function
+    );
+    let large_base = "(define-public (execute) (begin 0x1234567890 (ok 1)))";
+    let small_base = "(define-public (execute) (begin 0x1234 (ok 1)))";
+
+    test_input_size_epoch_200_205(&large_input, large_base, &small_input, small_base);
+}
+
+#[test]
+fn epoch205_hash_fns_input_size() {
+    test_hash_fn_input_sizes_200_205("hash160");
+    test_hash_fn_input_sizes_200_205("sha256");
+    test_hash_fn_input_sizes_200_205("sha512");
+    test_hash_fn_input_sizes_200_205("sha512/256");
+    test_hash_fn_input_sizes_200_205("keccak256");
+}
+
+#[test]
+fn epoch205_tuple_merge_input_size() {
+    let tuple_merge_uint = "(define-public (execute)
+                                   (begin (merge { a: 1 } { a: 1 }) (ok 1)))";
+    let tuple_uint = "(define-public (execute)
+                                   (begin { a: 1 } { a: 1 } (ok 1)))";
+    let tuple_merge_bool = "(define-public (execute)
+                                   (begin (merge { a: true } { a: true }) (ok 1)))";
+    let tuple_bool = "(define-public (execute)
+                                   (begin { a: true } { a: true } (ok 1)))";
+
+    test_input_size_epoch_200_205(tuple_merge_uint, tuple_uint, tuple_merge_bool, tuple_bool);
+}
+
+#[test]
+fn epoch205_index_of_input_size() {
+    let index_of_list_6 = "(define-public (execute)
+                              (begin (index-of (list u1 u1 u1 u1 u1 u1) u2) (ok 1)))";
+    let list_6 = "(define-public (execute)
+                              (begin (list u1 u1 u1 u1 u1 u1) (ok 1)))";
+
+    let index_of_list_2 = "(define-public (execute)
+                              (begin (index-of (list u1 u1) u2) (ok 1)))";
+    let list_2 = "(define-public (execute)
+                              (begin (list u1 u1) (ok 1)))";
+
+    test_input_size_epoch_200_205(index_of_list_6, list_6, index_of_list_2, list_2);
+}
+
+#[test]
+fn epoch205_eq_input_size() {
+    let eq_with_uints = "(define-public (execute)
+                          (begin (is-eq u1 u1 u1 u1 u1 u1) (ok 1)))";
+    let uints_no_eq = "(define-public (execute)
+                          (begin u1 u1 u1 u1 u1 u1 (ok 1)))";
+    let eq_with_bools = "(define-public (execute)
+                          (begin (is-eq true true true true true true) (ok 1)))";
+    let bools_no_eq = "(define-public (execute)
+                          (begin true true true true true true (ok 1)))";
+
+    test_input_size_epoch_200_205(eq_with_uints, uints_no_eq, eq_with_bools, bools_no_eq);
+}
+
 #[test]
 // Test the `concat` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
 // cost larger when larger objects are fed into `concat` from the datastore.
