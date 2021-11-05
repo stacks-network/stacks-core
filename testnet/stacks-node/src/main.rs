@@ -150,29 +150,64 @@ fn main() {
         }
     };
 
-    let conf = Config::from_config_file(config_file);
+    let mut conf = Config::from_config_file(config_file);
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
+    warn!("conf {:#?}", &conf);
 
-    let num_round: u64 = 0; // Infinite number of rounds
 
-    if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
-        let mut run_loop = helium::RunLoop::new(conf);
-        if let Err(e) = run_loop.start(num_round) {
-            warn!("Helium runloop exited: {}", e);
-            return;
-        }
-    } else if conf.burnchain.mode == "neon"
-        || conf.burnchain.mode == "xenon"
-        || conf.burnchain.mode == "krypton"
-        || conf.burnchain.mode == "mainnet"
-    {
-        let mut run_loop = neon::RunLoop::new(conf);
-        run_loop.start(None, mine_start.unwrap_or(0));
-    } else {
-        println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
-    }
+use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochId;
+use stacks::vm::costs::ExecutionCost;
+    conf.burnchain.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 215,
+            block_limit: ExecutionCost {
+                write_length: 100000000,
+                write_count: 1000,
+                read_length: 1000000000,
+                read_count: 150,
+                runtime: 5000000000,
+            },
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 215,
+            end_height: 9223372036854775807,
+            block_limit: ExecutionCost {
+                write_length: 100000000,
+                write_count: 1000,
+                read_length: 1000000000,
+                read_count: 50,
+                runtime: 5000000000,
+            },
+        },
+    ]);
+
+    let pretty_toml = toml::ser::to_string_pretty(&conf.burnchain).unwrap();
+    warn!("pretty_toml {}", &pretty_toml);
+
+//    let num_round: u64 = 0; // Infinite number of rounds
+//
+//    if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
+//        let mut run_loop = helium::RunLoop::new(conf);
+//        if let Err(e) = run_loop.start(num_round) {
+//            warn!("Helium runloop exited: {}", e);
+//            return;
+//        }
+//    } else if conf.burnchain.mode == "neon"
+//        || conf.burnchain.mode == "xenon"
+//        || conf.burnchain.mode == "krypton"
+//        || conf.burnchain.mode == "mainnet"
+//    {
+//        let mut run_loop = neon::RunLoop::new(conf);
+//        run_loop.start(None, mine_start.unwrap_or(0));
+//    } else {
+//        println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
+//    }
 }
 
 fn version() -> String {
