@@ -38,7 +38,8 @@ pub enum CallableType {
     UserFunction(DefinedFunction),
     NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
     /// These native functions have a new method for calculating input size in 2.05
-    /// If the global context's epoch is >= 2.05, then the NativeCostInputHandle field is applied
+    /// If the global context's epoch is >= 2.05, the fn field is applied to obtain
+    /// the input to the cost function.
     NativeFunction205(
         &'static str,
         NativeHandle,
@@ -75,14 +76,6 @@ pub enum NativeHandle {
     SingleArg(&'static dyn Fn(Value) -> Result<Value>),
     DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value>),
     MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value>),
-}
-
-/// Used to calculate the input uint to a cost function from the
-///  input arguments of the associated native function
-pub enum NativeCostInputHandle {
-    SingleArg(&'static dyn Fn(&Value) -> Result<u64>),
-    DoubleArg(&'static dyn Fn(&Value, &Value) -> Result<u64>),
-    MoreArg(&'static dyn Fn(&[Value]) -> Result<u64>),
 }
 
 impl NativeHandle {
