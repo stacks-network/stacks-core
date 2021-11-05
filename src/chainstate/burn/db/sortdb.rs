@@ -2240,7 +2240,7 @@ impl SortitionDB {
         first_burn_header_timestamp: u64,
         epochs_ref: &[StacksEpoch],
     ) -> Result<(), db_error> {
-        debug!("Instantiate SortDB");
+        info!("Instantiating SortDB with epochs {:?}", &epochs_ref);
 
         sql_pragma(self.conn(), "PRAGMA journal_mode = WAL;")?;
 

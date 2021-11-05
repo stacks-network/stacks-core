@@ -706,9 +706,22 @@ impl BurnchainIndexer for BitcoinIndexer {
 
     /// Get a vector of the stacks epochs. This notion of epochs is dependent on the burn block height.
     /// Valid epochs include stacks 1.0, stacks 2.0, stacks 2.05, and so on.
+    ///
+    /// Choose according to:
+    /// 1) Use the epochs defined on the underlying `BitcoinIndexerConfig`, if they exist.
+    /// 2) Use hard-coded static values, otherwise.
+    ///
+    /// It is an error to set custom epochs if running on `Mainnet`.
+    ///
+    /// # Panics
+    ///
+    /// * If network type is `Mainnet` and the underlying config has tried to set `epochs`.
     fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
         match self.config.epochs {
-            Some(ref epochs) => epochs.clone(),
+            Some(ref epochs) => {
+                assert!(self.runtime.network_id != BitcoinNetworkType::Mainnet);
+                epochs.clone()
+            }
             None => get_bitcoin_stacks_epochs(self.runtime.network_id),
         }
     }

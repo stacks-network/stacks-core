@@ -156,10 +156,9 @@ fn main() {
     debug!("connection configuration {:?}", &conf.connection_options);
     warn!("conf {:#?}", &conf);
 
-
-use stacks::core::StacksEpoch;
-use stacks::core::StacksEpochId;
-use stacks::vm::costs::ExecutionCost;
+    use stacks::core::StacksEpoch;
+    use stacks::core::StacksEpochId;
+    use stacks::vm::costs::ExecutionCost;
     conf.burnchain.epochs = Some(vec![
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
@@ -190,24 +189,24 @@ use stacks::vm::costs::ExecutionCost;
     let pretty_toml = toml::ser::to_string_pretty(&conf.burnchain).unwrap();
     warn!("pretty_toml {}", &pretty_toml);
 
-//    let num_round: u64 = 0; // Infinite number of rounds
-//
-//    if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
-//        let mut run_loop = helium::RunLoop::new(conf);
-//        if let Err(e) = run_loop.start(num_round) {
-//            warn!("Helium runloop exited: {}", e);
-//            return;
-//        }
-//    } else if conf.burnchain.mode == "neon"
-//        || conf.burnchain.mode == "xenon"
-//        || conf.burnchain.mode == "krypton"
-//        || conf.burnchain.mode == "mainnet"
-//    {
-//        let mut run_loop = neon::RunLoop::new(conf);
-//        run_loop.start(None, mine_start.unwrap_or(0));
-//    } else {
-//        println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
-//    }
+    //    let num_round: u64 = 0; // Infinite number of rounds
+    //
+    //    if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
+    //        let mut run_loop = helium::RunLoop::new(conf);
+    //        if let Err(e) = run_loop.start(num_round) {
+    //            warn!("Helium runloop exited: {}", e);
+    //            return;
+    //        }
+    //    } else if conf.burnchain.mode == "neon"
+    //        || conf.burnchain.mode == "xenon"
+    //        || conf.burnchain.mode == "krypton"
+    //        || conf.burnchain.mode == "mainnet"
+    //    {
+    //        let mut run_loop = neon::RunLoop::new(conf);
+    //        run_loop.start(None, mine_start.unwrap_or(0));
+    //    } else {
+    //        println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
+    //    }
 }
 
 fn version() -> String {
