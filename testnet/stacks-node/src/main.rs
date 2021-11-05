@@ -150,7 +150,6 @@ fn main() {
         }
     };
 
-    warn!("config_file {:#?}", &config_file);
     let conf = Config::from_config_file(config_file);
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
