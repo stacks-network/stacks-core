@@ -23,6 +23,7 @@ use std::convert::TryFrom;
 use util::log;
 use vm::costs::ExecutionCost;
 
+use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 
 pub use self::mempool::MemPoolDB;
@@ -104,6 +105,11 @@ pub const BITCOIN_REGTEST_FIRST_BLOCK_HASH: &str =
 pub const FIRST_STACKS_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 pub const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 
+lazy_static! {
+    pub static ref FIRST_STACKS_BLOCK_ID: StacksBlockId =
+        StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+}
+
 pub const BOOT_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0xff; 32]);
 pub const BURNCHAIN_BOOT_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0xff; 20]);
 
@@ -125,7 +131,17 @@ pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u
 
 pub const POX_MAX_NUM_CYCLES: u8 = 12;
 
-pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
+// Stacks 1.0 did not allow smart contracts so all limits are 0.
+pub const BLOCK_LIMIT_MAINNET_10: ExecutionCost = ExecutionCost {
+    write_length: 0,
+    write_count: 0,
+    read_length: 0,
+    read_count: 0,
+    runtime: 0,
+};
+
+// Block limit in Stacks 2.0.
+pub const BLOCK_LIMIT_MAINNET_20: ExecutionCost = ExecutionCost {
     write_length: 15_000_000, // roughly 15 mb
     write_count: 7_750,
     read_length: 100_000_000,
@@ -133,7 +149,17 @@ pub const BLOCK_LIMIT_MAINNET: ExecutionCost = ExecutionCost {
     runtime: 5_000_000_000,
 };
 
-pub const HELIUM_BLOCK_LIMIT: ExecutionCost = ExecutionCost {
+// Block limit in Stacks 2.05.
+pub const BLOCK_LIMIT_MAINNET_205: ExecutionCost = ExecutionCost {
+    write_length: 15_000_000,
+    write_count: 15_000,
+    read_length: 100_000_000,
+    read_count: 15_000,
+    runtime: 5_000_000_000,
+};
+
+// Block limit for the testnet in Stacks 2.0.
+pub const HELIUM_BLOCK_LIMIT_20: ExecutionCost = ExecutionCost {
     write_length: 15_0_000_000,
     write_count: 5_0_000,
     read_length: 1_000_000_000,
@@ -192,6 +218,7 @@ pub struct StacksEpoch {
     pub epoch_id: StacksEpochId,
     pub start_height: u64,
     pub end_height: u64,
+    pub block_limit: ExecutionCost,
 }
 
 impl StacksEpoch {
@@ -207,11 +234,13 @@ impl StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
                 end_height: first_burnchain_height,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
                 end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
             },
         ]
     }
@@ -228,16 +257,25 @@ impl StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
                 end_height: first_burnchain_height,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
                 end_height: first_burnchain_height + 4,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
                 start_height: first_burnchain_height + 4,
                 end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost {
+                    write_length: 205205,
+                    write_count: 205205,
+                    read_length: 205205,
+                    read_count: 205205,
+                    runtime: 205205,
+                },
             },
         ]
     }
@@ -261,16 +299,19 @@ impl StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
                 end_height: first_burnchain_height,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
                 end_height: epoch_2_05_block_height,
+                block_limit: ExecutionCost::max_value(),
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
                 start_height: epoch_2_05_block_height,
                 end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
             },
         ]
     }
@@ -289,54 +330,68 @@ impl Ord for StacksEpoch {
     }
 }
 
-pub const STACKS_EPOCHS_MAINNET: &[StacksEpoch] = &[
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch10,
-        start_height: 0,
-        end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch2_05,
-        start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
-        end_height: STACKS_EPOCH_MAX,
-    },
-];
+lazy_static! {
+    pub static ref STACKS_EPOCHS_MAINNET: [StacksEpoch; 3] = [
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+        },
+    ];
+}
 
-pub const STACKS_EPOCHS_TESTNET: &[StacksEpoch] = &[
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch10,
-        start_height: 0,
-        end_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-        end_height: STACKS_EPOCH_MAX,
-    }, // TODO: add Epoch2_05 when its start height is decided
-];
+lazy_static! {
+    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 2] = [
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+        },
+    ];
+}
 
-pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch10,
-        start_height: 0,
-        end_height: 0,
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: 0,
-        end_height: 1000,
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch2_05,
-        start_height: 1000,
-        end_height: STACKS_EPOCH_MAX,
-    },
-];
+lazy_static! {
+    pub static ref STACKS_EPOCHS_REGTEST: [StacksEpoch; 3] = [
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1000,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone()
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1000,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone()
+        },
+    ];
+}
 
 /// Stacks 2.05 epoch marker.  All block-commits in 2.05 must have a memo bitfield with this value
 /// *or greater*.

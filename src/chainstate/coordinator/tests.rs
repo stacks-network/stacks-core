@@ -256,7 +256,6 @@ pub fn setup_states(
         others.iter_mut(),
     );
 
-    let block_limit = ExecutionCost::max_value();
     let initial_balances = initial_balances.unwrap_or(vec![]);
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
@@ -291,7 +290,6 @@ pub fn setup_states(
             0x80000000,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
-            block_limit.clone(),
         )
         .unwrap();
     }
@@ -2654,6 +2652,29 @@ fn test_epoch_switch_cost_contract_instantiation() {
                 .unwrap()
                 .epoch_id,
             expected_epoch
+        );
+
+        // These expectations are according to according to hard-coded values in
+        // `StacksEpoch::unit_test_2_05`.
+        let expected_runtime = match burn_block_height {
+            x if x < 4 => u64::MAX,
+            _ => 205205,
+        };
+        assert_eq!(
+            chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_stacks_epoch(burn_block_height as u32).unwrap()
+                        })
+                    },
+                )
+                .unwrap()
+                .block_limit
+                .runtime,
+            expected_runtime
         );
 
         // check that costs-2 contract DNE before epoch 2.05, and that it does exist after

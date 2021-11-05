@@ -46,7 +46,6 @@ use vm::costs::ExecutionCost;
 use vm::costs::LimitedCostTracker;
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
-    NULL_HEADER_DB,
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
@@ -58,8 +57,8 @@ use burnchains::Txid;
 use chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET};
 use util::boot::{boot_code_addr, boot_code_id};
 
-use core::BLOCK_LIMIT_MAINNET;
-use core::HELIUM_BLOCK_LIMIT;
+use core::BLOCK_LIMIT_MAINNET_20;
+use core::HELIUM_BLOCK_LIMIT_20;
 
 use serde::Serialize;
 use serde_json::json;
@@ -216,9 +215,9 @@ fn run_analysis<C: ClarityStorage>(
     let cost_track = LimitedCostTracker::new(
         mainnet,
         if mainnet {
-            BLOCK_LIMIT_MAINNET.clone()
+            BLOCK_LIMIT_MAINNET_20.clone()
         } else {
-            HELIUM_BLOCK_LIMIT.clone()
+            HELIUM_BLOCK_LIMIT_20.clone()
         },
         &mut marf_kv.get_clarity_db(header_db, &NULL_BURN_STATE_DB),
         DEFAULT_CLI_EPOCH,
@@ -390,9 +389,9 @@ where
     let cost_track = LimitedCostTracker::new(
         mainnet,
         if mainnet {
-            BLOCK_LIMIT_MAINNET.clone()
+            BLOCK_LIMIT_MAINNET_20.clone()
         } else {
-            HELIUM_BLOCK_LIMIT.clone()
+            HELIUM_BLOCK_LIMIT_20.clone()
         },
         &mut db,
         DEFAULT_CLI_EPOCH,

@@ -98,7 +98,8 @@ use vm::{
     analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
-        clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
+        clarity_store::ContractCommitment, BurnStateDB, ClarityDatabase, ClaritySerializable,
+        STXBalance,
     },
     errors::Error as ClarityRuntimeError,
     errors::Error::Unchecked,
@@ -1603,6 +1604,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         handler_args: &RPCHandlerArgs,
+        sortdb: &SortitionDB,
         tx: &TransactionPayload,
         estimated_len: u64,
     ) -> Result<(), net_error> {
@@ -1619,7 +1621,21 @@ impl ConversationHttp {
                         .send(http, fd);
                 }
             };
-            let scalar_cost = metric.from_cost_and_len(&estimated_cost, estimated_len);
+
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+            let stacks_epoch = sortdb
+                .index_conn()
+                .get_stacks_epoch(tip.block_height as u32)
+                .ok_or_else(|| {
+                    warn!(
+                        "Failed to get fee rate estimate because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
+                })?;
+
+            let scalar_cost =
+                metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
             let fee_rates = match fee_estimator.get_rate_estimates() {
                 Ok(x) => x,
                 Err(e) => {
@@ -1674,6 +1690,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
         consensus_hash: ConsensusHash,
         block_hash: BlockHeaderHash,
         mempool: &mut MemPoolDB,
@@ -1691,12 +1708,25 @@ impl ConversationHttp {
                 false,
             )
         } else {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+            let stacks_epoch = sortdb
+                .index_conn()
+                .get_stacks_epoch(tip.block_height as u32)
+                .ok_or_else(|| {
+                    warn!(
+                        "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
+                })?;
+
             match mempool.submit(
                 chainstate,
                 &consensus_hash,
                 &block_hash,
                 &tx,
                 event_observer,
+                &stacks_epoch.block_limit,
             ) {
                 Ok(_) => {
                     debug!("Mempool accepted POSTed transaction {}", &txid);
@@ -2105,6 +2135,7 @@ impl ConversationHttp {
                     &mut reply,
                     &req,
                     handler_opts,
+                    sortdb,
                     tx,
                     estimated_len,
                 )?;
@@ -2181,6 +2212,7 @@ impl ConversationHttp {
                             &mut reply,
                             &req,
                             chainstate,
+                            sortdb,
                             tip.consensus_hash,
                             tip.anchored_block_hash,
                             mempool,

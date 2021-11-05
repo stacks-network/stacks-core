@@ -26,6 +26,7 @@ use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use vm::contracts::Contract;
 use vm::costs::CostOverflowingMath;
+use vm::costs::ExecutionCost;
 use vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
     DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
@@ -102,6 +103,7 @@ pub trait BurnStateDB {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
+    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch>;
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -143,6 +145,10 @@ impl BurnStateDB for &dyn BurnStateDB {
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         (*self).get_stacks_epoch(height)
+    }
+
+    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        (*self).get_stacks_epoch_by_epoch_id(epoch_id)
     }
 }
 
@@ -235,7 +241,12 @@ impl BurnStateDB for NullBurnStateDB {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: u64::MAX,
+            block_limit: ExecutionCost::max_value(),
         })
+    }
+
+    fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        self.get_stacks_epoch(0)
     }
 }
 

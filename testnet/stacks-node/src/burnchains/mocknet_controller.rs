@@ -19,6 +19,7 @@ use stacks::util::hash::Sha256Sum;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use stacks::vm::costs::ExecutionCost;
 
 /// MocknetController is simulating a simplistic burnchain.
 pub struct MocknetController {
@@ -89,16 +90,22 @@ impl BurnchainController for MocknetController {
         &mut self,
         _ignored_target_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
+        // If `config` sets a value, use that. Otherwise, use a default.
+        let epoch_vector = match &self.config.burnchain.epochs {
+            Some(epochs) => epochs.clone(),
+            None => vec![StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+            }],
+        };
         let db = match SortitionDB::connect(
             &self.config.get_burn_db_file_path(),
             0,
             &BurnchainHeaderHash::zero(),
             get_epoch_time_secs(),
-            &vec![StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: 0,
-                end_height: STACKS_EPOCH_MAX,
-            }],
+            &epoch_vector,
             true,
         ) {
             Ok(db) => db,

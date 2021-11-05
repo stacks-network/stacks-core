@@ -44,7 +44,7 @@ use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
 use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use util::vrf::*;
-use vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
+use vm::database::BurnStateDB;
 
 use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
@@ -54,15 +54,13 @@ use crate::types::proof::TrieHash;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
-    pub execution_cost: ExecutionCost,
     pub max_miner_time_ms: u64,
     pub mempool_settings: MemPoolWalkSettings,
 }
 
 impl BlockBuilderSettings {
-    pub fn limited(execution_cost: ExecutionCost) -> BlockBuilderSettings {
+    pub fn limited() -> BlockBuilderSettings {
         BlockBuilderSettings {
-            execution_cost: execution_cost,
             max_miner_time_ms: u64::max_value(),
             mempool_settings: MemPoolWalkSettings::default(),
         }
@@ -70,7 +68,6 @@ impl BlockBuilderSettings {
 
     pub fn max_value() -> BlockBuilderSettings {
         BlockBuilderSettings {
-            execution_cost: ExecutionCost::max_value(),
             max_miner_time_ms: u64::max_value(),
             mempool_settings: MemPoolWalkSettings::zero(),
         }
@@ -473,7 +470,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
 
         mem_pool.reset_last_known_nonces()?;
-        mem_pool.estimate_tx_rates(100)?;
+        let block_limit = clarity_tx
+            .block_limit()
+            .expect("No block limit found for clarity_tx.");
+        mem_pool.estimate_tx_rates(100, &block_limit)?;
 
         debug!(
             "Microblock transaction selection begins (child of {}), bytes so far: {}",
@@ -513,6 +513,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                     if let Err(e) = estimator.notify_event(
                                         &mempool_tx.tx.payload,
                                         &receipt.execution_cost,
+                                        &block_limit,
                                     ) {
                                         warn!("Error updating estimator";
                                               "txid" => %mempool_tx.metadata.txid,
@@ -1315,8 +1316,7 @@ impl StacksBlockBuilder {
         mut txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
-        let (mut chainstate, _) =
-            chainstate_handle.reopen_limited(chainstate_handle.block_limit.clone())?; // used for processing a block up to the given limit
+        let (mut chainstate, _) = chainstate_handle.reopen()?;
         let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
@@ -1457,7 +1457,6 @@ impl StacksBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
-        let execution_budget = settings.execution_cost;
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;
 
@@ -1475,11 +1474,11 @@ impl StacksBlockBuilder {
         );
 
         debug!(
-            "Build anchored block off of {}/{} height {} budget {:?}",
-            &tip_consensus_hash, &tip_block_hash, tip_height, &execution_budget
+            "Build anchored block off of {}/{} height {}",
+            &tip_consensus_hash, &tip_block_hash, tip_height
         );
 
-        let (mut chainstate, _) = chainstate_handle.reopen_limited(execution_budget)?; // used for processing a block up to the given limit
+        let (mut chainstate, _) = chainstate_handle.reopen()?;
 
         let mut builder = StacksBlockBuilder::make_block_builder(
             chainstate.mainnet,
@@ -1492,10 +1491,16 @@ impl StacksBlockBuilder {
         let ts_start = get_epoch_time_ms();
 
         let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
+
+        let block_limit = epoch_tx
+            .block_limit()
+            .expect("Failed to obtain block limit from miner's block connection");
+
         builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
 
         mempool.reset_last_known_nonces()?;
-        mempool.estimate_tx_rates(100)?;
+
+        mempool.estimate_tx_rates(100, &block_limit)?;
 
         let mut considered = HashSet::new(); // txids of all transactions we looked at
         let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
@@ -1566,6 +1571,7 @@ impl StacksBlockBuilder {
                                     if let Err(e) = estimator.notify_event(
                                         &txinfo.tx.payload,
                                         &tx_receipt.execution_cost,
+                                        &block_limit,
                                     ) {
                                         warn!("Error updating estimator";
                                               "txid" => %txinfo.metadata.txid,
@@ -1703,7 +1709,6 @@ pub mod test {
     use chainstate::stacks::db::*;
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
-    use core::BLOCK_LIMIT_MAINNET;
     use net::test::*;
     use util::sleep_ms;
     use util::vrf::VRFProof;
@@ -6582,6 +6587,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
@@ -6721,6 +6727,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
@@ -6736,7 +6743,6 @@ pub mod test {
                         &coinbase_tx,
                         // no time to mine anything, so all blocks should be empty
                         BlockBuilderSettings {
-                            execution_cost: ExecutionCost::max_value(),
                             max_miner_time_ms: 0,
                             ..BlockBuilderSettings::max_value()
                         },
@@ -6858,6 +6864,7 @@ pub mod test {
                                     &parent_header_hash,
                                     &stx_transfer,
                                     None,
+                                    &ExecutionCost::max_value(),
                                 )
                                 .unwrap();
                         }
@@ -6881,6 +6888,7 @@ pub mod test {
                                     &parent_header_hash,
                                     &stx_transfer,
                                     None,
+                                    &ExecutionCost::max_value(),
                                 )
                                 .unwrap();
                         }
@@ -7027,11 +7035,10 @@ pub mod test {
                             &parent_header_hash,
                             &tx,
                             None,
+                            &ExecutionCost::max_value(),
                         )
                         .unwrap();
                 }
-
-                let execution_cost = BLOCK_LIMIT_MAINNET;
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
@@ -7042,7 +7049,7 @@ pub mod test {
                     vrf_proof,
                     Hash160([0 as u8; 20]),
                     &coinbase_tx,
-                    BlockBuilderSettings::limited(execution_cost),
+                    BlockBuilderSettings::limited(),
                     None,
                 )
                 .unwrap();
@@ -7128,6 +7135,20 @@ pub mod test {
         let mut peer_config =
             TestPeerConfig::new("test_build_anchored_blocks_skip_too_expensive", 2006, 2007);
         peer_config.initial_balances = initial_balances;
+        peer_config.epochs = Some(vec![StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: i64::MAX as u64,
+            // enough for the first stx-transfer, but not for the analysis of the smart
+            // contract.
+            block_limit: ExecutionCost {
+                write_length: 100,
+                write_count: 100,
+                read_length: 100,
+                read_count: 100,
+                runtime: 3350,
+            },
+        }]);
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -7216,6 +7237,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -7235,6 +7257,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &contract_tx,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -7253,21 +7276,12 @@ pub mod test {
                                 &parent_header_hash,
                                 &stx_transfer,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
                         sender_nonce += 1;
                     }
-
-                    // enough for the first stx-transfer, but not for the analysis of the smart
-                    // contract.
-                    let execution_cost = ExecutionCost {
-                        write_length: 100,
-                        write_count: 100,
-                        read_length: 100,
-                        read_count: 100,
-                        runtime: 3350,
-                    };
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
                         chainstate,
@@ -7278,7 +7292,7 @@ pub mod test {
                         vrf_proof,
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
-                        BlockBuilderSettings::limited(execution_cost),
+                        BlockBuilderSettings::limited(),
                         None,
                     )
                     .unwrap();
@@ -7416,11 +7430,10 @@ pub mod test {
                                 &parent_header_hash,
                                 &contract_tx,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
-
-                    let execution_cost = ExecutionCost::max_value();
 
                     let anchored_block = {
                         let mempool_to_use = if tenure_id < num_blocks - 1 {
@@ -7438,7 +7451,7 @@ pub mod test {
                             vrf_proof,
                             Hash160([tenure_id as u8; 20]),
                             &coinbase_tx,
-                            BlockBuilderSettings::limited(execution_cost),
+                            BlockBuilderSettings::limited(),
                             None,
                         )
                         .unwrap()
@@ -7574,6 +7587,7 @@ pub mod test {
                                 &parent_header_hash,
                                 &contract_tx,
                                 None,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
@@ -7708,6 +7722,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -7733,6 +7748,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -8077,6 +8093,7 @@ pub mod test {
                                 &parent_tip_ch,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -8103,6 +8120,7 @@ pub mod test {
                                 &parent_tip_ch,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -8137,6 +8155,7 @@ pub mod test {
                                 &parent_tip_ch,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -8163,6 +8182,7 @@ pub mod test {
                                 &parent_tip_ch,
                                 &parent_header_hash,
                                 contract_tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
 
@@ -8428,6 +8448,7 @@ pub mod test {
                                         &parent_consensus_hash,
                                         &parent_header_hash,
                                         tx_bytes,
+                                &ExecutionCost::max_value(),
                                     )
                                     .unwrap();
                             }
@@ -8758,6 +8779,7 @@ pub mod test {
                                         &parent_consensus_hash,
                                         &parent_header_hash,
                                         tx_bytes,
+                                &ExecutionCost::max_value(),
                                     )
                                     .unwrap();
                             }
@@ -8831,6 +8853,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
@@ -8861,6 +8884,7 @@ pub mod test {
                                 &parent_consensus_hash,
                                 &parent_header_hash,
                                 tx_bytes,
+                                &ExecutionCost::max_value(),
                             )
                             .unwrap();
                     }
@@ -9019,15 +9043,9 @@ pub mod test {
             get_bulk_initial_namespaces: None,
         };
 
-        StacksChainState::open_and_exec(
-            mainnet,
-            chain_id,
-            &path,
-            Some(&mut boot_data),
-            ExecutionCost::max_value(),
-        )
-        .unwrap()
-        .0
+        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data))
+            .unwrap()
+            .0
     }
 
     static CONTRACT: &'static str = "
@@ -9122,18 +9140,21 @@ pub mod test {
             0,
             &BurnchainHeaderHash([1; 32]),
             1,
-            &StacksEpoch::unit_test_pre_2_05(0),
+            &[StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: i64::MAX as u64,
+                block_limit: ExecutionCost {
+                    write_length: 15_000_000, // roughly 15 mb
+                    write_count: 500,
+                    read_length: 100_000_000,
+                    read_count: 7_750,
+                    runtime: 5_000_000_000,
+                },
+            }],
             true,
         )
         .unwrap();
-
-        let execution_limit = ExecutionCost {
-            write_length: 15_000_000, // roughly 15 mb
-            write_count: 500,
-            read_length: 100_000_000,
-            read_count: 7_750,
-            runtime: 5_000_000_000,
-        };
 
         let mut mempool = MemPoolDB::open_test(false, chain_id, &chainstate.root_path).unwrap();
 
@@ -9238,6 +9259,7 @@ pub mod test {
                     &parent_header_info.anchored_header.block_hash(),
                     &tx,
                     None,
+                    &ExecutionCost::max_value(),
                 )
                 .unwrap()
         }
@@ -9261,6 +9283,7 @@ pub mod test {
                     &parent_header_info.anchored_header.block_hash(),
                     &tx,
                     None,
+                    &ExecutionCost::max_value(),
                 )
                 .unwrap()
         }
@@ -9295,7 +9318,7 @@ pub mod test {
                 VRFProof::empty(),
                 Hash160([block_index; 20]),
                 &coinbase_tx,
-                BlockBuilderSettings::limited(execution_limit.clone()),
+                BlockBuilderSettings::limited(),
                 None,
             )
             .unwrap();

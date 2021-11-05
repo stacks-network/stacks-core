@@ -39,6 +39,7 @@ use chainstate::stacks::{
     db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, index::Error as MarfError,
     Error as ChainstateError, StacksTransaction,
 };
+use core::ExecutionCost;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use monitoring::increment_stx_mempool_gc;
@@ -656,7 +657,11 @@ impl MemPoolDB {
     /// at most `max_updates` entries in the database before returning.
     ///
     /// Returns `Ok(number_updated)` on success
-    pub fn estimate_tx_rates(&mut self, max_updates: u32) -> Result<u32, db_error> {
+    pub fn estimate_tx_rates(
+        &mut self,
+        max_updates: u32,
+        block_limit: &ExecutionCost,
+    ) -> Result<u32, db_error> {
         let sql_tx = tx_begin_immediate(&mut self.db)?;
         let txs: Vec<MemPoolTxInfo> = query_rows(
             &sql_tx,
@@ -671,6 +676,7 @@ impl MemPoolDB {
                 &tx_to_estimate.tx,
                 self.cost_estimator.as_ref(),
                 self.metric.as_ref(),
+                block_limit,
             );
             let fee_rate_f64 = match estimator_result {
                 Ok(x) => Some(x),
@@ -1225,11 +1231,13 @@ impl MemPoolDB {
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        block_limit: &ExecutionCost,
     ) -> Result<(), MemPoolRejection> {
         let estimator_result = cost_estimates::estimate_fee_rate(
             tx,
             self.cost_estimator.as_ref(),
             self.metric.as_ref(),
+            block_limit,
         );
 
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
@@ -1268,6 +1276,7 @@ impl MemPoolDB {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx_bytes: Vec<u8>,
+        block_limit: &ExecutionCost,
     ) -> Result<(), MemPoolRejection> {
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(MemPoolRejection::DeserializationFailure)?;
@@ -1276,6 +1285,7 @@ impl MemPoolDB {
             &tx,
             self.cost_estimator.as_ref(),
             self.metric.as_ref(),
+            block_limit,
         );
 
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
@@ -1373,9 +1383,9 @@ mod tests {
     use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*, strings::StacksString};
     use vm::{
         database::HeadersDB,
-        database::NULL_BURN_STATE_DB,
         errors::Error as ClarityError,
         errors::RuntimeErrorType,
+        tests::TEST_BURN_STATE_DB,
         types::{PrincipalData, QualifiedContractIdentifier},
         ClarityName, ContractName, Value,
     };
@@ -1435,7 +1445,7 @@ mod tests {
         let c_tx = StacksChainState::chainstate_block_begin(
             &chainstate_tx,
             clar_tx,
-            &NULL_BURN_STATE_DB,
+            &TEST_BURN_STATE_DB,
             &parent.0,
             &parent.1,
             &block_consensus,
@@ -1585,7 +1595,7 @@ mod tests {
         mempool_settings.min_tx_fee = 10;
 
         chainstate.with_read_only_clarity_tx(
-            &NULL_BURN_STATE_DB,
+            &TEST_BURN_STATE_DB,
             &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
             |clarity_conn| {
                 let mut count_txs = 0;
@@ -1610,7 +1620,7 @@ mod tests {
         // Now that the mempool has iterated over those transactions, its view of the
         //  nonce for the origin address should have changed. Now it should find *no* transactions.
         chainstate.with_read_only_clarity_tx(
-            &NULL_BURN_STATE_DB,
+            &TEST_BURN_STATE_DB,
             &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
             |clarity_conn| {
                 let mut count_txs = 0;
@@ -1634,7 +1644,7 @@ mod tests {
             .expect("Should be able to reset nonces");
 
         chainstate.with_read_only_clarity_tx(
-            &NULL_BURN_STATE_DB,
+            &TEST_BURN_STATE_DB,
             &StacksBlockHeader::make_index_block_hash(&b_5.0, &b_5.1),
             |clarity_conn| {
                 let mut count_txs = 0;
@@ -1663,7 +1673,7 @@ mod tests {
         // The mempool iterator no longer does any consideration of what block accepted
         //  the transaction, so b_3 should have the same view.
         chainstate.with_read_only_clarity_tx(
-            &NULL_BURN_STATE_DB,
+            &TEST_BURN_STATE_DB,
             &StacksBlockHeader::make_index_block_hash(&b_3.0, &b_3.1),
             |clarity_conn| {
                 let mut count_txs = 0;
@@ -1690,7 +1700,7 @@ mod tests {
             .expect("Should be able to reset nonces");
 
         chainstate.with_read_only_clarity_tx(
-            &NULL_BURN_STATE_DB,
+            &TEST_BURN_STATE_DB,
             &StacksBlockHeader::make_index_block_hash(&b_4.0, &b_4.1),
             |clarity_conn| {
                 let mut count_txs = 0;

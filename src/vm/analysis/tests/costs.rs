@@ -21,13 +21,16 @@ use vm::contexts::Environment;
 use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::costs::ExecutionCost;
-use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use vm::database::ClarityDatabase;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
 use vm::tests::costs::get_simple_test;
-use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memory_environment};
+use vm::tests::{
+    execute, symbols_from_values, with_marfed_environment, with_memory_environment,
+    TEST_BURN_STATE_DB, TEST_HEADER_DB,
+};
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
 use crate::clarity_vm::database::marf::MarfedKV;
@@ -36,7 +39,7 @@ use crate::types::proof::ClarityMarfTrieId;
 
 pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf);
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -75,8 +78,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         )
         .commit_block();
 
@@ -84,8 +87,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
         let mut conn = clarity_instance.begin_block(
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         );
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
@@ -106,8 +109,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
         let mut conn = clarity_instance.begin_block(
             &StacksBlockId([1 as u8; 32]),
             &StacksBlockId([2 as u8; 32]),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         );
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
@@ -128,8 +131,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
         let mut conn = clarity_instance.begin_block(
             &StacksBlockId([2 as u8; 32]),
             &StacksBlockId([3 as u8; 32]),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         );
 
         conn.as_transaction(|conn| {

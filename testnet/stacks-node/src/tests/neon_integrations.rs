@@ -18,7 +18,6 @@ use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, Tr
 use stacks::clarity::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
-use stacks::core::BLOCK_LIMIT_MAINNET;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
@@ -275,6 +274,7 @@ pub mod test_observer {
 }
 
 const PANIC_TIMEOUT_SECS: u64 = 600;
+/// Returns `false` on a timeout, true otherwise.
 pub fn next_block_and_wait(
     btc_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
@@ -351,7 +351,6 @@ pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
         .body(tx.clone())
         .send()
         .unwrap();
-    eprintln!("{:#?}", res);
     if res.status().is_success() {
         let res: String = res.json().unwrap();
         assert_eq!(
@@ -2845,7 +2844,10 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     conf.node.microblock_frequency = 1_000;
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
-    conf.block_limit = BLOCK_LIMIT_MAINNET.clone();
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
+    conf.burnchain.epochs = Some(epochs);
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
@@ -3108,11 +3110,14 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 0;
     conf.node.microblock_frequency = 15000;
-    conf.block_limit = BLOCK_LIMIT_MAINNET.clone();
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
+    conf.burnchain.epochs = Some(epochs);
 
     test_observer::spawn();
     conf.events_observers.push(EventObserverConfig {
@@ -3720,9 +3725,6 @@ fn near_full_block_integration_test() {
     let tx = make_contract_publish(&spender_sk, 0, 58450, "max", &max_contract_src);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-
-    // Set block limit
-    conf.block_limit = BLOCK_LIMIT_MAINNET;
 
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),

@@ -58,6 +58,7 @@ use crate::types::chainstate::{
     StacksBlockId,
 };
 use crate::util::boot::boot_code_id;
+use vm::database::BurnStateDB;
 
 pub use self::comm::CoordinatorCommunication;
 
@@ -368,7 +369,6 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             chain_id,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
         )
         .unwrap();
         let canonical_sortition_tip =
@@ -769,11 +769,24 @@ impl<
                     }
 
                     if let Some(ref mut estimator) = self.cost_estimator {
-                        estimator.notify_block(&block_receipt.tx_receipts);
+                        let stacks_epoch = self
+                            .sortition_db
+                            .index_conn()
+                            .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
+                            .expect("Could not find a stacks epoch.");
+                        estimator
+                            .notify_block(&block_receipt.tx_receipts, &stacks_epoch.block_limit);
                     }
 
                     if let Some(ref mut estimator) = self.fee_estimator {
-                        if let Err(e) = estimator.notify_block(&block_receipt) {
+                        let stacks_epoch = self
+                            .sortition_db
+                            .index_conn()
+                            .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
+                            .expect("Could not find a stacks epoch.");
+                        if let Err(e) =
+                            estimator.notify_block(&block_receipt, &stacks_epoch.block_limit)
+                        {
                             warn!("FeeEstimator failed to process block receipt";
                                   "stacks_block" => %block_hash,
                                   "stacks_height" => %block_receipt.header.block_height,

@@ -31,6 +31,7 @@ use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
 use sha2::{Digest, Sha512Trunc256};
+use vm::costs::ExecutionCost;
 
 use address::AddressHashMode;
 use burnchains::bitcoin::BitcoinNetworkType;
@@ -427,10 +428,13 @@ impl FromRow<StacksEpoch> for StacksEpoch {
 
         let start_height = u64::from_column(row, "start_block_height")?;
         let end_height = u64::from_column(row, "end_block_height")?;
+
+        let block_limit = row.get_unwrap("block_limit");
         Ok(StacksEpoch {
             epoch_id,
             start_height,
             end_height,
+            block_limit,
         })
     }
 }
@@ -604,6 +608,7 @@ const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
          start_block_height INTEGER NOT NULL,
          end_block_height INTEGER NOT NULL,
          epoch_id INTEGER NOT NULL,
+         block_limit TEXT NOT NULL,
          PRIMARY KEY(start_block_height,epoch_id)
      );"#];
 
@@ -2268,9 +2273,10 @@ impl SortitionDB {
                 &(epoch.epoch_id as u32),
                 &u64_to_sql(epoch.start_height)?,
                 &u64_to_sql(epoch.end_height)?,
+                &epoch.block_limit,
             ];
             db_tx.execute(
-                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height) VALUES (?1,?2,?3)",
+                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height,block_limit) VALUES (?1,?2,?3,?4)",
                 args
             )?;
         }
@@ -3457,6 +3463,15 @@ impl SortitionDB {
             &u64_to_sql(burn_block_height)?,
             &u64_to_sql(burn_block_height)?,
         ];
+        query_row(conn, sql, args)
+    }
+
+    pub fn get_stacks_epoch_by_epoch_id(
+        conn: &DBConn,
+        epoch_id: &StacksEpochId,
+    ) -> Result<Option<StacksEpoch>, db_error> {
+        let sql = "SELECT * FROM epochs WHERE epoch_id = ?1 LIMIT 1";
+        let args: &[&dyn ToSql] = &[&(*epoch_id as u32)];
         query_row(conn, sql, args)
     }
 }
@@ -6980,16 +6995,19 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 8,
                     end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch2_05,
                     start_height: 12,
                     end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
                 },
             ],
             true,
@@ -7035,16 +7053,19 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 9,
                     end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
                 }, // discontinuity
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch2_05,
                     start_height: 12,
                     end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
                 },
             ],
             true,
@@ -7070,16 +7091,19 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 7,
                     end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
                 }, // overlap
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch2_05,
                     start_height: 12,
                     end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
                 },
             ],
             true,
@@ -7105,16 +7129,19 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 1,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
                 }, // should start at 0
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 8,
                     end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch2_05,
                     start_height: 12,
                     end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
                 },
             ],
             true,
@@ -7140,16 +7167,19 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 8,
                     end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch2_05,
                     start_height: 12,
                     end_height: 20,
+                    block_limit: ExecutionCost::max_value(),
                 }, // missing future
             ],
             true,
@@ -7175,16 +7205,19 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 8,
                     end_height: 7,
+                    block_limit: ExecutionCost::max_value(),
                 }, // invalid range
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch2_05,
                     start_height: 8,
                     end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
                 },
             ],
             true,

@@ -489,7 +489,7 @@ simulating a miner.
         tx_signer.sign_origin(&sk).unwrap();
         let coinbase_tx = tx_signer.get_tx().unwrap();
 
-        let mut settings = BlockBuilderSettings::limited(core::BLOCK_LIMIT_MAINNET.clone());
+        let mut settings = BlockBuilderSettings::limited();
         settings.max_miner_time_ms = max_time;
         settings.mempool_settings.min_tx_fee = min_fee;
 
@@ -793,14 +793,6 @@ simulating a miner.
             ),
         ];
 
-        // block limit that argon uses
-        let argon_block_limit: ExecutionCost = ExecutionCost {
-            write_length: 15_0_000_000,
-            write_count: 5_0_000,
-            read_length: 1_000_000_000,
-            read_count: 5_0_000,
-            runtime: 1_00_000_000,
-        };
         let burnchain = Burnchain::regtest(&burnchain_db_path);
         let spv_headers_path = "/tmp/replay-chainstate".to_string();
         let indexer_config = BitcoinIndexerConfig {
@@ -859,7 +851,6 @@ simulating a miner.
             0x80000000,
             new_chainstate_path,
             Some(&mut boot_data),
-            argon_block_limit,
         )
         .unwrap();
 
@@ -921,13 +912,8 @@ simulating a miner.
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
             )
             .unwrap();
-        let (mut p2p_chainstate, _) = StacksChainState::open_with_block_limit(
-            false,
-            0x80000000,
-            new_chainstate_path,
-            ExecutionCost::max_value(),
-        )
-        .unwrap();
+        let (mut p2p_chainstate, _) =
+            StacksChainState::open(false, 0x80000000, new_chainstate_path).unwrap();
 
         let _ = thread::spawn(move || {
             loop {

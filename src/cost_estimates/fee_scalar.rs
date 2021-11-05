@@ -15,8 +15,6 @@ use util::db::u64_to_sql;
 
 use vm::costs::ExecutionCost;
 
-use core::BLOCK_LIMIT_MAINNET;
-
 use chainstate::stacks::db::StacksEpochReceipt;
 use chainstate::stacks::events::TransactionOrigin;
 
@@ -164,7 +162,11 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
 }
 
 impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
-    fn notify_block(&mut self, receipt: &StacksEpochReceipt) -> Result<(), EstimatorError> {
+    fn notify_block(
+        &mut self,
+        receipt: &StacksEpochReceipt,
+        block_limit: &ExecutionCost,
+    ) -> Result<(), EstimatorError> {
         let mut all_fee_rates: Vec<_> = receipt
             .tx_receipts
             .iter()
@@ -189,8 +191,11 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                     | TransactionPayload::SmartContract(_) => {
                         // These transaction payload types all "work" the same: they have associated ExecutionCosts
                         // and contibute to the block length limit with their tx_len
-                        self.metric
-                            .from_cost_and_len(&tx_receipt.execution_cost, tx_size)
+                        self.metric.from_cost_and_len(
+                            &tx_receipt.execution_cost,
+                            &block_limit,
+                            tx_size,
+                        )
                     }
                 };
                 let fee_rate = fee as f64

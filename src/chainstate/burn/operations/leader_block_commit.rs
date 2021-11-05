@@ -886,6 +886,7 @@ mod tests {
 
     use rand::thread_rng;
     use rand::RngCore;
+    use vm::costs::ExecutionCost;
 
     struct OpFixture {
         txstr: String,
@@ -2271,16 +2272,19 @@ mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
                     end_height: first_block_height,
+                    block_limit: ExecutionCost::max_value(),
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: first_block_height,
                     end_height: epoch_2_05_start,
+                    block_limit: ExecutionCost::max_value(),
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch2_05,
                     start_height: epoch_2_05_start,
                     end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
                 },
             ],
             true,

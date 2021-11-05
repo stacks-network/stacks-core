@@ -16,6 +16,7 @@
 
 use vm::analysis::type_checker::natives::SimpleNativeFunction;
 use vm::analysis::type_checker::TypedNativeFunction;
+use vm::costs::ExecutionCost;
 use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::types::{FixedFunction, FunctionType, Value};
@@ -1813,6 +1814,7 @@ mod test {
     use super::make_json_api_reference;
 
     use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+    use vm::costs::ExecutionCost;
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
@@ -1878,7 +1880,11 @@ mod test {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: 0,
                 end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
             })
+        }
+        fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+            self.get_stacks_epoch(0)
         }
     }
 
