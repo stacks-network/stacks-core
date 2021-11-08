@@ -487,7 +487,6 @@ impl Config {
                     rbf_fee_increment: burnchain
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
-                    // Use the config file epochs if they are defined, otherwise use default.
                     epochs: match burnchain.epochs {
                         Some(epochs) => Some(epochs),
                         None => default_burnchain_config.epochs,

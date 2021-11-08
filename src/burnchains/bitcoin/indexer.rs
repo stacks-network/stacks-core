@@ -712,10 +712,6 @@ impl BurnchainIndexer for BitcoinIndexer {
     /// 2) Use hard-coded static values, otherwise.
     ///
     /// It is an error to set custom epochs if running on `Mainnet`.
-    ///
-    /// # Panics
-    ///
-    /// * If network type is `Mainnet` and the underlying config has tried to set `epochs`.
     fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
         match self.config.epochs {
             Some(ref epochs) => {
