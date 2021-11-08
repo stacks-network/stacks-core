@@ -708,10 +708,10 @@ impl BurnchainIndexer for BitcoinIndexer {
     /// Valid epochs include stacks 1.0, stacks 2.0, stacks 2.05, and so on.
     ///
     /// Choose according to:
-    /// 1) Use the epochs defined on the underlying `BitcoinIndexerConfig`, if they exist.
+    /// 1) Use the custom epochs defined on the underlying `BitcoinIndexerConfig`, if they exist.
     /// 2) Use hard-coded static values, otherwise.
     ///
-    /// It is an error to set custom epochs if running on `Mainnet`.
+    /// It is an error (panic) to set custom epochs if running on `Mainnet`.
     fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
         match self.config.epochs {
             Some(ref epochs) => {
