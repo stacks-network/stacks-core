@@ -463,12 +463,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     pub fn bench_analysis_visit_helper(
         &mut self,
         expr: &SymbolicExpression,
-        context: &TypingContext,
+        _context: &TypingContext,
     ) -> TypeResult {
         match expr.expr {
-            AtomValue(ref value) | LiteralValue(ref value) => Ok(TypeSignature::BoolType),
-            Atom(ref name) => Ok(TypeSignature::BoolType),
-            List(ref expression) => Ok(TypeSignature::BoolType),
+            AtomValue(_) | LiteralValue(_) => Ok(TypeSignature::BoolType),
+            Atom(_) => Ok(TypeSignature::BoolType),
+            List(_) => Ok(TypeSignature::BoolType),
             TraitReference(_, _) | Field(_) => Ok(TypeSignature::BoolType),
         }
     }
@@ -495,7 +495,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     pub fn bench_analysis_check_let_helper(
         &mut self,
         mut types_returned: Vec<TypeSignature>,
-        context: &TypingContext,
+        _context: &TypingContext,
     ) -> TypeResult {
         let last_return = types_returned
             .pop()
@@ -988,11 +988,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         db: &mut AnalysisDatabase,
         trait_identifier: &TraitIdentifier,
     ) {
-        let result = db
-            .get_defined_trait(
-                &trait_identifier.contract_identifier,
-                &trait_identifier.name,
-            )
-            .unwrap();
+        db.get_defined_trait(
+            &trait_identifier.contract_identifier,
+            &trait_identifier.name,
+        )
+        .unwrap();
     }
 }

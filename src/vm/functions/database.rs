@@ -206,8 +206,8 @@ pub fn special_contract_call_bench(
 
     let (contract_identifier, type_returns_constraint) = match &args[0].expr {
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(
-                                                                  ref contract_identifier,
-                                                              ))) => {
+            ref contract_identifier,
+        ))) => {
             // Static dispatch
             (contract_identifier, None)
         }
@@ -220,7 +220,7 @@ pub fn special_contract_call_bench(
                         return Err(CheckErrors::CircularReference(vec![contract_identifier
                             .name
                             .to_string()])
-                            .into());
+                        .into());
                     }
 
                     let contract_to_check = env
@@ -273,7 +273,7 @@ pub fn special_contract_call_bench(
                                 contract_identifier.to_string(),
                                 function_name.to_string(),
                             )
-                                .into());
+                            .into());
                         }
 
                         function_to_check.check_trait_expectations(
@@ -306,13 +306,10 @@ pub fn special_contract_call_bench(
         function_name,
         &rest_args_sizes,
     )? {
-        nested_env.run_free(|_free_env| {
-            Value::Bool(true)
-        })
+        nested_env.run_free(|_free_env| Value::Bool(true))
     } else {
         Value::Bool(true)
     };
-
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
@@ -593,7 +590,7 @@ pub fn special_get_block_info(
         _ => return Ok(Value::none()),
     };
 
-    let current_block_height = env.global_context.database.get_current_block_height();
+    let _current_block_height = env.global_context.database.get_current_block_height();
     // if height_value >= current_block_height {
     //     return Ok(Value::none());
     // }

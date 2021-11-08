@@ -72,15 +72,10 @@ pub fn special_and(
 }
 
 pub fn special_no_op(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
+    _args: &[SymbolicExpression],
+    _env: &mut Environment,
+    _context: &LocalContext,
 ) -> Result<Value> {
-    // for arg in args.iter() {
-    //     let evaluated = eval(&arg, env, context)?;
-    //     return Ok(evaluated);
-    // }
-
     Ok(Value::Bool(true))
 }
 pub fn native_not(input: Value) -> Result<Value> {
