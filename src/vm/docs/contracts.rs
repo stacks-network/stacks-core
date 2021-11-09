@@ -1,5 +1,5 @@
 use chainstate::stacks::boot::STACKS_BOOT_CODE_MAINNET;
-use vm::analysis::{mem_type_check, ContractAnalysis};
+use vm::analysis::{mem_type_check, mem_type_check_with_db, ContractAnalysis};
 use vm::docs::{get_input_type_string, get_output_type_string, get_signature};
 use vm::types::{FunctionType, Value};
 
@@ -220,10 +220,19 @@ fn produce_docs() -> BTreeMap<String, ContractRef> {
     let mut docs = BTreeMap::new();
     let support_docs = make_contract_support_docs();
 
+    let mut marf = MemoryBackingStore::new();
+    let mut analysis_db = marf.as_analysis_db();
     for (contract_name, content) in STACKS_BOOT_CODE_MAINNET.iter() {
         let (_, contract_analysis) =
-            mem_type_check(content).expect("BUG: failed to type check boot contract");
+            mem_type_check_with_db(content, contract_name, &mut analysis_db)
+                .expect("BUG: failed to type check boot contract");
 
+        // let contract_identifier = QualifiedContractIdentifier::local(contract_name).unwrap();
+        // println!(
+        //     "main - stored {}: {}",
+        //     contract_name,
+        //     analysis_db.has_contract(&contract_identifier)
+        // );
         if let Some(contract_support) = support_docs.get(*contract_name) {
             let ContractAnalysis {
                 public_function_types,

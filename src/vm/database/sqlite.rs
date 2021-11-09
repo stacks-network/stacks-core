@@ -135,7 +135,7 @@ impl SqliteConnection {
     ) -> Option<String> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 2] = [&bhh, &key];
-
+        println!("key: {:?}, block hash: {:?}", key, bhh);
         match conn
             .query_row(
                 "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
@@ -188,7 +188,8 @@ impl SqliteConnection {
     }
     pub fn open(filename: &str) -> Result<Connection> {
         let contract_db = SqliteConnection::inner_open(filename)?;
-        SqliteConnection::check_schema(&contract_db)?;
+        // SqliteConnection::check_schema(&contract_db)?;
+        SqliteConnection::initialize_conn(&contract_db)?;
         Ok(contract_db)
     }
     pub fn check_schema(conn: &Connection) -> Result<()> {

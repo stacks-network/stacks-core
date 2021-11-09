@@ -1613,6 +1613,7 @@ impl StacksNode {
                 ));
             account.nonce
         };
+        println!("nn: coinbase nonce is: {}", coinbase_nonce);
 
         Ok(MiningTenureInformation {
             stacks_parent_header: stacks_tip_header,
@@ -1683,6 +1684,8 @@ impl StacksNode {
                 coinbase_nonce: 0,
             }
         };
+
+        info!("miner info: coinbase nonce {}", coinbase_nonce);
 
         // has the tip changed from our previously-mined block for this epoch?
         let attempt = {

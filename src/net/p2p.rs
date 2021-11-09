@@ -5403,6 +5403,7 @@ mod test {
             first_block_height: 50,
             first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),
+            exit_contract_constants: ExitContractConstants::mainnet_default(),
         };
 
         let mut burnchain_view = BurnchainView {

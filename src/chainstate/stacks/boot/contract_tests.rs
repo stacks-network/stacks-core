@@ -5,7 +5,8 @@ use std::convert::TryInto;
 use address::AddressHashMode;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_EXIT_AT_RC_TESTNET,
+    BOOT_CODE_POX_TESTNET,
 };
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
@@ -55,6 +56,8 @@ lazy_static! {
     static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
     static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
+    pub static ref EXIT_AT_RC_CONTRACT_TESTNET: QualifiedContractIdentifier =
+        boot_code_id("exit-at-rc", false);
     static ref USER_KEYS: Vec<StacksPrivateKey> =
         (0..50).map(|_| StacksPrivateKey::new()).collect();
     static ref POX_ADDRS: Vec<Value> = (0..50u64)
@@ -1509,6 +1512,348 @@ fn test_vote_too_many_confirms() {
             .unwrap()
             .0,
             Value::error(Value::Int(17)).unwrap()
+        );
+    });
+}
+
+// Vote function tests:
+// Vote for invalid RCs to test minimum/maximum threshold (too early, too late)
+//  - have absolute minimum be lower than current reward cycle
+
+// Vary whether vote before or after the absolute minimum RC
+
+// Try to vote for multiple different reward cycle as same principal
+//      - before expiration
+//      - after expiration
+
+// Try to vote through contract (using contract-call?) - should fail
+
+// Try to vote with user that is not stacking - should fail
+
+// Make sure vote count makes sense at the end of the test
+#[test]
+fn test_vote_for_exit_rc() {
+    let mut sim = ClarityTestSim::new();
+    const REWARD_CYCLE_LENGTH: u128 = 1050;
+
+    // Fast forward to reward cycle 1
+    for _ in 0..(REWARD_CYCLE_LENGTH) {
+        sim.execute_next_block(|_| {});
+    }
+
+    let invalid_call_contract_id =
+        QualifiedContractIdentifier::local("invalid-call-contract").unwrap();
+
+    // initialize some stacking for user 0
+    // initialize relevant contracts
+    sim.execute_next_block(|env| {
+        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET)
+            .unwrap();
+
+        env.initialize_contract(
+            EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_EXIT_AT_RC_TESTNET,
+        )
+        .unwrap();
+
+        let invalid_call_contract = format!(
+            r##"
+            (define-public (call-by-proxy (proposed-exit-rc uint))
+                (begin
+                    (contract-call? '{} vote-for-exit-rc proposed-exit-rc)
+                )
+            )"##,
+            EXIT_AT_RC_CONTRACT_TESTNET.clone()
+        );
+        env.initialize_contract(invalid_call_contract_id.clone(), &invalid_call_contract)
+            .unwrap();
+    });
+
+    sim.execute_next_block(|env| {
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                POX_CONTRACT_TESTNET.clone(),
+                "stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[0].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(REWARD_CYCLE_LENGTH * 4)
+            ))
+        );
+    });
+
+    sim.execute_next_block(|env| {
+        // Current reward cycle = 1
+        // Vote for reward cycle below the absolute minimum allowable reward cycle (50 for mainnet)
+        // Should fail with error `ERR_INVALID_PROPOSED_RC`
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+                "vote-for-exit-rc",
+                &symbols_from_values(vec![Value::UInt(24),])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(21).into()
+            })
+        );
+
+        // Vote for reward cycle above the maximum reward cycle buffer for voting
+        // Should fail with error `ERR_INVALID_PROPOSED_RC`
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+                "vote-for-exit-rc",
+                &symbols_from_values(vec![Value::UInt(27),])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(21).into()
+            })
+        );
+
+        // Vote for valid reward cycle but through intermediary contract.
+        // Should fail with error `ERR_UNAUTHORIZED_CALLER`
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                invalid_call_contract_id.clone(),
+                "call-by-proxy",
+                &symbols_from_values(vec![Value::UInt(25),])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(10).into()
+            })
+        );
+
+        // Vote for reward cycle through user that is not stacking.
+        // Should fail with error `ERR_VOTER_NOT_STACKING`.
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[1]).into(),
+                EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+                "vote-for-exit-rc",
+                &symbols_from_values(vec![Value::UInt(25),])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(13).into()
+            })
+        );
+
+        // Vote for reward cycle.
+        // Should pass.
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+                "vote-for-exit-rc",
+                &symbols_from_values(vec![Value::UInt(25),])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::Bool(true).into()
+            })
+        );
+
+        // Try to vote again for the same reward cycle.
+        // Should fail since this user already has an active vote.
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+                "vote-for-exit-rc",
+                &symbols_from_values(vec![Value::UInt(25),])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(7).into()
+            })
+        );
+    });
+
+    // Fast forward to proposal expiration
+    for _ in 0..REWARD_CYCLE_LENGTH * 25 {
+        sim.execute_next_block(|_| {});
+    }
+
+    // Reward cycle = 26
+    sim.execute_next_block(|env| {
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                POX_CONTRACT_TESTNET.clone(),
+                "stack-stx",
+                &symbols_from_values(vec![
+                    Value::UInt(USTX_PER_HOLDER),
+                    POX_ADDRS[0].clone(),
+                    burn_height.clone(),
+                    Value::UInt(2),
+                ])
+            )
+            .unwrap()
+            .0,
+            execute(&format!(
+                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                Value::from(&USER_KEYS[0]),
+                Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(REWARD_CYCLE_LENGTH * 29)
+            ))
+        );
+    });
+
+    sim.execute_next_block(|env| {
+        // Vote for reward cycle below the minimum reward cycle buffer for voting
+        // Should fail with error `ERR_INVALID_PROPOSED_RC`
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+                "vote-for-exit-rc",
+                &symbols_from_values(vec![Value::UInt(27),])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(21).into()
+            })
+        );
+
+        // Vote for reward cycle.
+        // Should pass.
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+                "vote-for-exit-rc",
+                &symbols_from_values(vec![Value::UInt(33),])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::Bool(true).into()
+            })
+        );
+    });
+}
+
+// Veto function tests:
+// Need to ensure voter is previous miner
+//      - try sending vote from 2 miners ago (should fail)
+
+// Try veto'ing twice as miner in the same block - should fail
+
+// Make sure veto count makes sense at end of test
+#[test]
+fn test_miner_veto_for_exit_rc() {
+    let mut sim = ClarityTestSim::new();
+
+    // initialize the exit at reward cycle contract
+    sim.execute_next_block(|env| {
+        env.initialize_contract(
+            EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_EXIT_AT_RC_TESTNET,
+        )
+        .unwrap();
+    });
+
+    sim.execute_next_block(|env| {
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+
+        // veto from non-miner should not work
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0].clone()).into(),
+                EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+                "veto-exit-rc",
+                &symbols_from_values(vec![Value::UInt(25)])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(10).into()
+            })
+        );
+
+        // miner veto should work
+        assert_eq!(
+            env.execute_transaction(
+                (&MINER_KEY.clone()).into(),
+                EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+                "veto-exit-rc",
+                &symbols_from_values(vec![Value::UInt(25)])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::Bool(true).into()
+            })
+        );
+
+        // assert error if the miner already vetoed in this block
+        assert_eq!(
+            env.execute_transaction(
+                (&MINER_KEY.clone()).into(),
+                EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+                "veto-exit-rc",
+                &symbols_from_values(vec![Value::UInt(25)])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(9).into()
+            })
+        );
+    });
+
+    sim.execute_next_block(|env| {
+        // miner veto should work in the subsequent block
+        assert_eq!(
+            env.execute_transaction(
+                (&MINER_KEY.clone()).into(),
+                EXIT_AT_RC_CONTRACT_TESTNET.clone(),
+                "veto-exit-rc",
+                &symbols_from_values(vec![Value::UInt(25)])
+            )
+            .unwrap()
+            .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: Value::Bool(true).into()
+            })
         );
     });
 }

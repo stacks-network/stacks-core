@@ -29,7 +29,7 @@ pub use self::types::{AnalysisPass, ContractAnalysis};
 use vm::costs::LimitedCostTracker;
 use vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use vm::representations::SymbolicExpression;
-use vm::types::{QualifiedContractIdentifier, TypeSignature};
+use vm::types::{QualifiedContractIdentifier, StandardPrincipalData, TypeSignature};
 
 pub use self::analysis_db::AnalysisDatabase;
 pub use self::errors::{CheckError, CheckErrors, CheckResult};
@@ -70,6 +70,54 @@ pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, Cont
     }
 }
 
+/// Used by CLI tools like the docs generator. Not used in production
+#[cfg(test)]
+pub fn mem_type_check_with_db(
+    snippet: &str,
+    name: &str,
+    analysis_db: &mut AnalysisDatabase,
+) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+    use crate::clarity_vm::database::MemoryBackingStore;
+    use vm::ast::parse;
+    let contract_identifier = QualifiedContractIdentifier::local(name).unwrap();
+    println!(
+        "principal addr: {:?}, name: {}",
+        StandardPrincipalData::transient(),
+        name
+    );
+    let mut contract = parse(&contract_identifier, snippet).unwrap();
+    let cost_tracker = LimitedCostTracker::new_free();
+    let res = match run_analysis(
+        &contract_identifier,
+        &mut contract,
+        analysis_db,
+        true,
+        cost_tracker,
+    ) {
+        Ok(x) => {
+            // return the first type result of the type checker
+            let first_type = x
+                .type_map
+                .as_ref()
+                .unwrap()
+                .get_type(&x.expressions.last().unwrap())
+                .cloned();
+            Ok((first_type, x))
+        }
+        Err((e, _)) => Err(e),
+    };
+
+    analysis_db.execute(|db| {
+        println!("stored {}: {}", name, db.has_contract(&contract_identifier));
+        if true {
+            Ok(())
+        } else {
+            Err(())
+        }
+    });
+
+    res
+}
 // Legacy function
 // The analysis is not just checking type.
 #[cfg(test)]
@@ -115,6 +163,7 @@ pub fn run_analysis(
         }
         if save_contract {
             db.insert_contract(&contract_identifier, &contract_analysis)?;
+            println!("in run analysis: {}", db.has_contract(&contract_identifier));
         }
         Ok(())
     });

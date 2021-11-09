@@ -48,7 +48,9 @@ use chainstate::burn::operations::{
 };
 use chainstate::burn::Opcodes;
 use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
+use chainstate::coordinator::{
+    BlockExitRewardCycleInfo, Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
+};
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::index::marf::MARF;
@@ -83,6 +85,7 @@ use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, MARFValue, PoxId, SortitionId, VRFSeed,
 };
 use crate::types::proof::{ClarityMarfTrieId, TrieHash};
+use types::chainstate::StacksBlockId;
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
 
@@ -442,6 +445,24 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
+impl FromRow<BlockExitRewardCycleInfo> for BlockExitRewardCycleInfo {
+    fn from_row<'a>(row: &'a Row) -> Result<BlockExitRewardCycleInfo, db_error> {
+        let block_id = StacksBlockId::from_column(row, "block_id")?;
+        let block_reward_cycle = u64::from_column(row, "block_reward_cycle")?;
+        let curr_exit_proposal = Option::<u64>::from_column(row, "curr_exit_proposal")?;
+        let curr_exit_at_reward_cycle =
+            Option::<u64>::from_column(row, "curr_exit_at_reward_cycle")?;
+
+        let exit_cycle_info = BlockExitRewardCycleInfo {
+            block_id,
+            block_reward_cycle,
+            curr_exit_proposal,
+            curr_exit_at_reward_cycle,
+        };
+        Ok(exit_cycle_info)
+    }
+}
+
 pub const SORTITION_DB_VERSION: &'static str = "2";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
@@ -597,6 +618,27 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         PRIMARY KEY(consensus_hash, stacks_block_hash)
     );"#,
     "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
+    r#"
+    CREATE TABLE exit_at_reward_cycle_info (
+        block_id TEXT NOT NULL,
+        block_reward_cycle INTEGER NOT NULL,
+        curr_exit_proposal INTEGER,
+        curr_exit_at_reward_cycle INTEGER,
+
+        PRIMARY KEY(block_id)
+    );"#,
+    r#"
+    CREATE TABLE exit_at_reward_cycle_veto_info(
+        vetoed_exit_at_reward_cycle INTEGER NOT NULL,
+        
+        PRIMARY KEY(vetoed_exit_at_reward_cycle)
+    );"#,
+    r#"
+    CREATE TABLE exit_at_reward_cycle_proposal_info(
+        proposed_exit_at_reward_cycle INTEGER NOT NULL,
+        
+        PRIMARY KEY(proposed_exit_at_reward_cycle)
+    );"#,
 ];
 
 const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
@@ -3226,11 +3268,20 @@ impl SortitionDB {
         burnchain: &Burnchain,
         block: &BlockSnapshot,
     ) -> Result<bool, db_error> {
-        let reward_start_height = burnchain.reward_cycle_to_block_height(
-            burnchain
-                .block_height_to_reward_cycle(block.block_height)
-                .ok_or_else(|| db_error::NotFoundError)?,
-        );
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(block.block_height)
+            .ok_or_else(|| db_error::NotFoundError)?;
+
+        self.is_pox_active_in_reward_cycle(reward_cycle, burnchain, block)
+    }
+
+    pub fn is_pox_active_in_reward_cycle(
+        &self,
+        reward_cycle: u64,
+        burnchain: &Burnchain,
+        block: &BlockSnapshot,
+    ) -> Result<bool, db_error> {
+        let reward_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
         let sort_id_of_start =
             get_ancestor_sort_id(&self.index_conn(), reward_start_height, &block.sortition_id)?
                 .ok_or_else(|| db_error::NotFoundError)?;
@@ -3581,6 +3632,36 @@ impl SortitionDB {
         let args: &[&dyn ToSql] = &[&(*epoch_id as u32)];
         query_row(conn, sql, args)
     }
+
+    /// Get reward cycle info for a particular block
+    pub fn get_exit_at_reward_cycle_info(
+        conn: &Connection,
+        stacks_block_id: &StacksBlockId,
+    ) -> Result<Option<BlockExitRewardCycleInfo>, db_error> {
+        let qry = "SELECT * FROM exit_at_reward_cycle_info WHERE block_id = ?1";
+        let result = query_row_panic(conn, qry, &[&stacks_block_id], || {
+            "FATAL: multiple rows for reward cycle info for one block".into()
+        })?;
+        Ok(result)
+    }
+
+    pub fn get_vetoed_reward_cycles(
+        conn: &Connection,
+        minimum_reward_cycle: u64,
+    ) -> Result<Vec<u64>, db_error> {
+        let qry =
+            "SELECT * FROM exit_at_reward_cycle_veto_info WHERE vetoed_exit_at_reward_cycle > ?";
+        query_rows(conn, qry, &[&u64_to_sql(minimum_reward_cycle)?])
+    }
+
+    pub fn get_proposed_reward_cycles(
+        conn: &Connection,
+        minimum_reward_cycle: u64,
+    ) -> Result<Vec<u64>, db_error> {
+        let qry =
+            "SELECT * FROM exit_at_reward_cycle_proposal_info WHERE proposed_exit_at_reward_cycle > ?";
+        query_rows(conn, qry, &[&u64_to_sql(minimum_reward_cycle)?])
+    }
 }
 
 impl<'a> SortitionHandleTx<'a> {
@@ -3696,6 +3777,54 @@ impl<'a> SortitionHandleTx<'a> {
         ];
         self.execute(sql, args)?;
         self.store_burn_distribution(new_sortition, transition);
+        Ok(())
+    }
+
+    // TODO - maybe can just directly store the option type in database?
+    pub fn store_exit_at_reward_cycle_info(
+        &self,
+        exit_at_reward_cycle_info: BlockExitRewardCycleInfo,
+    ) -> Result<(), db_error> {
+        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_id, block_reward_cycle) VALUES (?, ?)";
+        let args: &[&dyn ToSql] = &[
+            &exit_at_reward_cycle_info.block_id,
+            &u64_to_sql(exit_at_reward_cycle_info.block_reward_cycle)?,
+        ];
+        self.execute(sql, args)?;
+
+        if let Some(exit_proposal) = exit_at_reward_cycle_info.curr_exit_proposal {
+            let sql =
+                "UPDATE exit_at_reward_cycle_info SET curr_exit_proposal = ? WHERE block_id = ?";
+            let args: &[&dyn ToSql] = &[
+                &u64_to_sql(exit_proposal)?,
+                &exit_at_reward_cycle_info.block_id,
+            ];
+            self.execute(sql, args)?;
+        }
+        if let Some(exit_at_reward_cycle) = exit_at_reward_cycle_info.curr_exit_at_reward_cycle {
+            let sql = "UPDATE exit_at_reward_cycle_info SET curr_exit_at_reward_cycle = ? WHERE block_id = ?";
+            let args: &[&dyn ToSql] = &[
+                &u64_to_sql(exit_at_reward_cycle)?,
+                &exit_at_reward_cycle_info.block_id,
+            ];
+            self.execute(sql, args)?;
+        }
+        Ok(())
+    }
+
+    pub fn store_new_veto(&self, new_vetoed_reward_cycle: u64) -> Result<(), db_error> {
+        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_veto_info (vetoed_exit_at_reward_cycle) VALUES (?)";
+        let args = &[&u64_to_sql(new_vetoed_reward_cycle)?];
+        self.execute(sql, args)?;
+
+        Ok(())
+    }
+
+    pub fn store_new_proposal(&self, new_proposal_reward_cycle: u64) -> Result<(), db_error> {
+        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_proposal_info (proposed_exit_at_reward_cycle) VALUES (?)";
+        let args = &[&u64_to_sql(new_proposal_reward_cycle)?];
+        self.execute(sql, args)?;
+
         Ok(())
     }
 

@@ -68,7 +68,7 @@ fn test_exact_block_costs() {
     let epoch_205_transition_height = 210;
     let transactions_to_broadcast = 25;
 
-    let (mut conf, _miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account, _miner_key) = neon_integration_test_conf();
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].end_height = epoch_205_transition_height;
     epochs[2].start_height = epoch_205_transition_height;
@@ -303,7 +303,7 @@ fn test_dynamic_db_method_costs() {
                (ok 1)))
     ";
 
-    let (mut conf, _miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account, _miner_key) = neon_integration_test_conf();
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].end_height = epoch_205_transition_height;
     epochs[2].start_height = epoch_205_transition_height;
@@ -499,7 +499,7 @@ fn transition_empty_blocks() {
 
     let epoch_2_05 = 210;
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _miner_key) = neon_integration_test_conf();
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
     epochs[1].end_height = epoch_2_05;
@@ -750,7 +750,7 @@ fn test_cost_limit_switch_version205() {
     let bob_addr = to_addr(&bob_sk);
     let bob_pd: PrincipalData = bob_addr.into();
 
-    let (mut conf, _) = neon_integration_test_conf();
+    let (mut conf, _, _) = neon_integration_test_conf();
 
     // Create a schedule where we lower the read_count on Epoch2_05.
     conf.burnchain.epochs = Some(vec![
@@ -991,7 +991,7 @@ fn bigger_microblock_streams_in_2_05() {
         })
         .collect();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _miner_key) = neon_integration_test_conf();
 
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {

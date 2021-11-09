@@ -149,7 +149,7 @@ pub struct MemoryBackingStore {
 
 impl MemoryBackingStore {
     pub fn new() -> MemoryBackingStore {
-        let side_store = SqliteConnection::memory().unwrap();
+        let side_store = SqliteConnection::open("/tmp/debug-exit-test").unwrap();
 
         let mut memory_marf = MemoryBackingStore { side_store };
 

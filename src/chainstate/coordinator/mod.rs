@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::fs;
 use std::path::PathBuf;
@@ -51,7 +51,7 @@ use util::db::Error as DBError;
 use vm::{
     costs::ExecutionCost,
     types::{PrincipalData, QualifiedContractIdentifier},
-    Value,
+    SymbolicExpression, Value,
 };
 
 use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
@@ -63,6 +63,20 @@ use crate::util::boot::boot_code_id;
 use vm::database::BurnStateDB;
 
 pub use self::comm::CoordinatorCommunication;
+use chainstate::burn::db::sortdb::{SortitionDBConn, SortitionHandleTx};
+use chainstate::stacks::index::marf::MarfConnection;
+use chainstate::stacks::Error::PoxNoRewardCycle;
+use clarity_vm::clarity::ClarityConnection;
+use core::{
+    BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+    POX_REWARD_CYCLE_LENGTH,
+};
+use std::iter::FromIterator;
+use util;
+use util::db::Error::NotFoundError;
+use vm::costs::LimitedCostTracker;
+use vm::database::ClarityDatabase;
+use vm::types::{StandardPrincipalData, TupleData};
 
 pub mod comm;
 #[cfg(test)]
@@ -75,6 +89,14 @@ pub enum PoxAnchorBlockStatus {
     SelectedAndKnown(BlockHeaderHash, Vec<StacksAddress>),
     SelectedAndUnknown(BlockHeaderHash),
     NotSelected,
+}
+
+pub struct BlockExitRewardCycleInfo {
+    pub block_id: StacksBlockId,
+    pub block_reward_cycle: u64,
+    // This value is non-None when consensus has been achieved, and there will be a veto cycle
+    pub curr_exit_proposal: Option<u64>,
+    pub curr_exit_at_reward_cycle: Option<u64>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -613,7 +635,44 @@ impl<
             };
 
             // at this point, we need to figure out if the sortition we are
-            //  about to process is the first block in reward cycle.
+            //  about to process is the first block in the exit reward cycle.
+            if let Some(chain_tip) = self.canonical_chain_tip {
+                // let canonical_sortition_tip = self.canonical_sortition_tip.as_ref().expect(
+                //     "FAIL: processing a new Stacks block, but don't have a canonical sortition tip",
+                // );
+                // let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
+
+                let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
+                    self.sortition_db.conn(),
+                    &chain_tip,
+                )?;
+
+                if let Some(exit_info) = exit_info_opt {
+                    if let Some(exit_reward_cycle) = exit_info.curr_exit_at_reward_cycle {
+                        let first_reward_cycle_in_epoch = self
+                            .burnchain
+                            .block_height_to_reward_cycle(BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT)
+                            .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
+                        let curr_reward_cycle = self
+                            .burnchain
+                            .block_height_to_reward_cycle(header.block_height)
+                            .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
+                        if curr_reward_cycle >= exit_reward_cycle
+                            && exit_reward_cycle > first_reward_cycle_in_epoch
+                        {
+                            // the burnchain has reached the exit reward cycle (as voted in the
+                            // "exit-at-rc" contract)
+                            // TODO - question, should I forcefully exit here?
+                            debug!("Reached the exit reward cycle that was voted on in the \
+                                'exit-at-rc' contract, ignoring subsequent burn blocks";
+                                       "exit_reward_cycle" => exit_reward_cycle,
+                                       "current_reward_cycle" => curr_reward_cycle);
+                            break;
+                        }
+                    }
+                }
+            }
+
             let reward_cycle_info = self.get_reward_cycle_info(&header)?;
             let (next_snapshot, _, reward_set_info) = self
                 .sortition_db
@@ -658,6 +717,277 @@ impl<
         Ok(())
     }
 
+    /// This function reads veto-related information from the exit-at-rc clarity contract.
+    /// It returns true if the veto succeeded, and false if it failed.
+    pub fn read_veto_state(
+        &mut self,
+        rc_cycle_of_veto: u64,
+        proposed_exit_rc: u64,
+    ) -> Result<bool, Error> {
+        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
+        let stacks_block_id = StacksBlockId::new(
+            &stacks_tip.canonical_stacks_tip_consensus_hash,
+            &stacks_tip.canonical_stacks_tip_hash,
+        );
+        let rc_length = self.burnchain.pox_constants.reward_cycle_length;
+        let veto_pct = self
+            .burnchain
+            .exit_contract_constants
+            .veto_confirmation_percent;
+        self.chain_state_db
+            .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
+                conn.with_clarity_db_readonly(|db| {
+                    // TODO - get contract ID manually
+                    let exit_at_rc_contract = boot_code_id("exit-at-rc", false);
+
+                    // from map rc-proposal-vetoes, use key pair (proposed_rc, curr_rc) to get the # of vetos
+                    let entry = db
+                        .fetch_entry_unknown_descriptor(
+                            &exit_at_rc_contract,
+                            "rc-proposal-vetoes",
+                            &Value::from(
+                                TupleData::from_data(vec![
+                                    ("proposed-rc".into(), Value::UInt(proposed_exit_rc as u128)),
+                                    ("curr-rc".into(), Value::UInt(rc_cycle_of_veto as u128)),
+                                ])
+                                .expect("BUG: failed to construct simple tuple"),
+                            ),
+                        )
+                        .expect("BUG: Failed querying rc-proposal-vetoes")
+                        .expect_optional();
+
+                    let num_vetos = match entry {
+                        Some(val) => {
+                            let tuple_data = val.expect_tuple();
+                            tuple_data
+                                .get("vetoes")
+                                .expect("BUG: malformed cost proposal tuple")
+                                .clone()
+                                .expect_u128()
+                        }
+                        None => 0,
+                    };
+
+                    println!(
+                        "in veto check, proposed_exit: {}, num vetos: {:?}",
+                        proposed_exit_rc, num_vetos
+                    );
+                    // Check if the percent veto crosses the minimum threshold
+                    let reward_cycle_length = rc_length;
+                    let percent_veto = num_vetos * 100 / (reward_cycle_length as u128);
+                    let veto_percent_threshold = veto_pct;
+
+                    Ok(percent_veto >= (veto_percent_threshold as u128))
+                })
+            })
+            .ok_or(Error::DBError(NotFoundError))?
+    }
+
+    /// Returns map of RC proposal to the number of votes for it, as well as the sum total of all
+    /// votes.
+    pub fn read_vote_state(
+        &mut self,
+        rc_cycle_of_vote: u64,
+        curr_exit_at_rc_opt: Option<u64>,
+    ) -> Result<(BTreeMap<u64, u128>, u128), Error> {
+        let mut vote_map = BTreeMap::new();
+        let mut min_rc = self
+            .burnchain
+            .exit_contract_constants
+            .absolute_minimum_exit_rc
+            .max(
+                rc_cycle_of_vote
+                    + self
+                        .burnchain
+                        .exit_contract_constants
+                        .minimum_rc_buffer_from_present,
+            );
+        let max_rc = rc_cycle_of_vote
+            + self
+                .burnchain
+                .exit_contract_constants
+                .maximum_rc_buffer_from_present;
+
+        // Check what value is stored for the current exit at rc.
+        // If there is an existing exit rc, make sure the minimum rc we consider for the votes is
+        // greater than it.
+        // let mut sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
+        // let curr_exit_at_rc_opt = sortdb_handle.get_exit_at_reward_cycle().unwrap_or(None);
+        if let Some(curr_exit_at_rc) = curr_exit_at_rc_opt {
+            min_rc = min_rc.max(curr_exit_at_rc + 1);
+        }
+        let mut total_votes = 0;
+
+        let mut invalid_reward_cycles =
+            SortitionDB::get_vetoed_reward_cycles(self.sortition_db.conn(), min_rc)?;
+        invalid_reward_cycles.extend(SortitionDB::get_proposed_reward_cycles(
+            self.sortition_db.conn(),
+            min_rc,
+        )?);
+        let invalid_reward_cycles: HashSet<u64> =
+            HashSet::from_iter(invalid_reward_cycles.into_iter());
+
+        // let ic = self.sortition_db.index_conn();
+        // let mut clarity_db = self.get_clarity_db(&ic)?;
+
+        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
+        let stacks_block_id = StacksBlockId::new(
+            &stacks_tip.canonical_stacks_tip_consensus_hash,
+            &stacks_tip.canonical_stacks_tip_hash,
+        );
+        println!(
+            "canonical: {:?}, bhh: {:?}, height: {:?}",
+            stacks_tip.canonical_stacks_tip_consensus_hash,
+            stacks_tip.canonical_stacks_tip_hash,
+            stacks_tip.block_height
+        );
+
+        self.chain_state_db
+            .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
+                conn.with_clarity_db_readonly(|db| {
+                    // TODO - get contract ID manually
+                    let exit_at_rc_contract = boot_code_id("exit-at-rc", false);
+
+                    for proposed_exit_rc in min_rc..max_rc {
+                        if invalid_reward_cycles.contains(&proposed_exit_rc) {
+                            continue;
+                        }
+                        // from map rc-proposal-votes, use key pair (proposed_rc, curr_rc) to get the # of vetos
+                        let entry_opt = db
+                            .fetch_entry_unknown_descriptor(
+                                &exit_at_rc_contract,
+                                "rc-proposal-votes",
+                                &Value::from(
+                                    TupleData::from_data(vec![
+                                        (
+                                            "proposed-rc".into(),
+                                            Value::UInt(proposed_exit_rc as u128),
+                                        ),
+                                        ("curr-rc".into(), Value::UInt(rc_cycle_of_vote as u128)),
+                                    ])
+                                    .expect("BUG: failed to construct simple tuple"),
+                                ),
+                            )
+                            .expect("BUG: Failed querying rc-proposal-votes")
+                            .expect_optional();
+                        println!("cc: vote for {}: {:?}", proposed_exit_rc, entry_opt);
+                        match entry_opt {
+                            Some(entry) => {
+                                let entry = entry.expect_tuple();
+                                let num_votes = entry
+                                    .get("votes")
+                                    .expect("BUG: malformed cost proposal tuple")
+                                    .clone()
+                                    .expect_u128();
+
+                                let new_num_votes = match vote_map.get(&proposed_exit_rc) {
+                                    Some(curr_votes) => curr_votes + num_votes,
+                                    None => num_votes,
+                                };
+                                vote_map.insert(proposed_exit_rc, new_num_votes);
+                                total_votes += num_votes;
+                            }
+                            None => {}
+                        };
+                    }
+                })
+            })
+            .ok_or(Error::DBError(NotFoundError))?;
+
+        Ok((vote_map, total_votes))
+    }
+
+    /// At the end of each reward cycle, we tally the votes for the exit at RC contract.
+    /// We need to read PoX contract state to see how much STX is staked into the protocol - we then
+    /// ensure that at least 50% of staked STX has a valid vote.
+    /// Regarding vote validity: we discard votes for invalid RCs - below the minimum, below a
+    /// previously confirmed exit RC.
+    pub fn tally_votes(
+        &mut self,
+        prev_rc_cycle: u64,
+        curr_exit_at_rc_opt: Option<u64>,
+    ) -> Result<Option<u64>, Error> {
+        println!("tv: prev rc: {}", prev_rc_cycle);
+        // read STX contract state
+        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
+        let new_canonical_stacks_block = stacks_tip.get_canonical_stacks_block_id();
+
+        let is_pox_active = self.sortition_db.is_pox_active_in_reward_cycle(
+            prev_rc_cycle,
+            &self.burnchain,
+            &stacks_tip,
+        );
+        // TODO: remove match & return error with `?`
+        match is_pox_active {
+            Err(e) => println!("tv: err getting pox active: {:?}", e),
+            Ok(active) => {
+                if !active {
+                    // PoX
+                    println!("tv: pox not active");
+                    return Ok(None);
+                }
+            }
+        }
+        println!("tv: pox is active");
+
+        let stacked_stx = self.chain_state_db.get_total_ustx_stacked(
+            &self.sortition_db,
+            &new_canonical_stacks_block,
+            prev_rc_cycle as u128,
+        )?;
+        // Want to round up here, so calculating (x + n - 1) / n here instead of (x / n)
+        let min_stx_for_valid_vote = ((stacked_stx
+            * self
+                .burnchain
+                .exit_contract_constants
+                .percent_stacked_stx_for_valid_vote as u128)
+            + 99)
+            / 100;
+        println!(
+            "cc: stacked: {}, min for vote: {}, percent: {}",
+            stacked_stx,
+            min_stx_for_valid_vote,
+            self.burnchain
+                .exit_contract_constants
+                .percent_stacked_stx_for_valid_vote as u128
+        );
+
+        // map of rc to num votes (equiv to the STX stacked)
+        // this map only includes valid votes
+        let (vote_map, total_votes) = self.read_vote_state(prev_rc_cycle, curr_exit_at_rc_opt)?;
+        println!("tv: total votes: {}", total_votes);
+        if total_votes < min_stx_for_valid_vote as u128 {
+            // not enough votes for a valid vote
+            println!("tv: not enough votes for a valid vote");
+            return Ok(None);
+        }
+
+        // Explanation of voting mechanics: a vote for RC x is a vote for the blockchain to exit at
+        // RC x OR up. To count the votes, we iterate from the lowest RC to highest RC in the vote
+        // map, until the total accrued votes surpasses the threshold for consensus.
+        let min_stx_for_consensus = (min_stx_for_valid_vote
+            * self
+                .burnchain
+                .exit_contract_constants
+                .vote_confirmation_percent as u128
+            + 99)
+            / 100;
+        println!("tv: min stx for consensus: {}", min_stx_for_consensus);
+        let mut accrued_votes = 0;
+        // Since vote map is a BTreeMap, iteration over keys will occur in a sorted order
+        for (curr_rc_proposal, curr_votes) in vote_map.iter() {
+            accrued_votes += curr_votes;
+            if accrued_votes > min_stx_for_consensus {
+                // If the accrued votes is greater than the minimum needed to achieve consensus,
+                // store this value for the upcoming veto
+                println!("tv: chose proposal: {:?}", curr_rc_proposal);
+                return Ok(Some(*curr_rc_proposal));
+            }
+        }
+        println!("tv: didnt find majority vote, ret None");
+        Ok(None)
+    }
+
     /// returns None if this burnchain block is _not_ the start of a reward cycle
     ///         otherwise, returns the required reward cycle info for this burnchain block
     ///                     in our current sortition view:
@@ -692,11 +1022,13 @@ impl<
     ///   otherwise returns None
     ///
     fn process_ready_blocks(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
-        let canonical_sortition_tip = self.canonical_sortition_tip.as_ref().expect(
+        let canonical_sortition_tip = self.canonical_sortition_tip.clone().expect(
             "FAIL: processing a new Stacks block, but don't have a canonical sortition tip",
         );
 
-        let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
+        let sortdb_handle = self
+            .sortition_db
+            .tx_handle_begin(&canonical_sortition_tip)?;
         let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
         let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
         update_stacks_tip_height(stacks_tip.canonical_stacks_tip_height as i64);
@@ -708,17 +1040,17 @@ impl<
                 //  TODO: we should update the staging block logic to prevent
                 //    blocks like these from getting processed at all.
                 let in_sortition_set = self.sortition_db.is_stacks_block_in_sortition_set(
-                    canonical_sortition_tip,
+                    &canonical_sortition_tip,
                     &block_receipt.header.anchored_header.block_hash(),
                 )?;
                 if in_sortition_set {
                     let new_canonical_block_snapshot = SortitionDB::get_block_snapshot(
                         self.sortition_db.conn(),
-                        canonical_sortition_tip,
+                        &canonical_sortition_tip,
                     )?
                     .expect(&format!(
                         "FAIL: could not find data for the canonical sortition {}",
-                        canonical_sortition_tip
+                        &canonical_sortition_tip
                     ));
                     let new_canonical_stacks_block =
                         new_canonical_block_snapshot.get_canonical_stacks_block_id();
@@ -805,7 +1137,7 @@ impl<
                         let metadata = &block_receipt.header;
                         let winner_txid = SortitionDB::get_block_snapshot_for_winning_stacks_block(
                             &self.sortition_db.index_conn(),
-                            canonical_sortition_tip,
+                            &canonical_sortition_tip,
                             &block_hash,
                         )
                         .expect("FAIL: could not find block snapshot for winning block hash")
@@ -831,7 +1163,7 @@ impl<
 
                         dispatcher.announce_block(
                             block,
-                            block_receipt.header,
+                            block_receipt.header.clone(),
                             block_receipt.tx_receipts,
                             &parent,
                             winner_txid,
@@ -845,12 +1177,105 @@ impl<
                         );
                     }
 
+                    // compute and store information relating to exiting at a reward cycle
+                    let current_reward_cycle = self
+                        .burnchain
+                        .block_height_to_reward_cycle(
+                            block_receipt.header.burn_header_height as u64,
+                        )
+                        .ok_or_else(|| DBError::NotFoundError)?;
+                    let mut current_exit_at_rc = None;
+                    let mut current_proposal = None;
+                    // get parent stacks block id
+                    let parent_block_snapshot = SortitionDB::get_block_snapshot(
+                        self.sortition_db.conn(),
+                        &new_canonical_block_snapshot.parent_sortition_id,
+                    )?
+                    .expect(&format!(
+                        "FAIL: could not find data for the canonical sortition {}",
+                        &new_canonical_block_snapshot.parent_sortition_id
+                    ));
+                    let parent_stacks_block = parent_block_snapshot.get_canonical_stacks_block_id();
+
+                    // look up parent in exit_at_reward_cycle_info table
+                    let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
+                        self.sortition_db.conn(),
+                        &parent_stacks_block,
+                    )?;
+                    // TODO: should I add panic if exit_info_opt is None when the parent block is not genesis block
+
+                    if let Some(parent_exit_info) = exit_info_opt {
+                        info!("cc: parent block info is non-None");
+                        if parent_exit_info.block_reward_cycle < current_reward_cycle {
+                            info!("cc: rc is greater than parent rc");
+                            // if reward cycle is diff from parent, first check if there is a veto happening
+                            // if veto happening, check veto
+                            if let Some(curr_exit_proposal) = parent_exit_info.curr_exit_proposal {
+                                let veto_passed = self.read_veto_state(
+                                    parent_exit_info.block_reward_cycle,
+                                    curr_exit_proposal,
+                                )?;
+                                // if veto fails, record exit block height
+                                if !veto_passed {
+                                    println!("cc: veto did not pass for {}", curr_exit_proposal);
+                                    current_exit_at_rc = Some(curr_exit_proposal);
+                                } else {
+                                    println!("cc: storing veto info for {}", curr_exit_proposal);
+                                    // record the veto in the table `exit_at_reward_cycle_veto_info`
+                                    let sortdb_handle = self
+                                        .sortition_db
+                                        .tx_handle_begin(&canonical_sortition_tip)?;
+                                    sortdb_handle.store_new_veto(curr_exit_proposal)?;
+                                    sortdb_handle.commit()?;
+                                }
+                            } else {
+                                // tally votes of previous reward cycle if there is no veto; if there is consensus, record it in proposal field
+                                current_proposal = self.tally_votes(
+                                    current_reward_cycle - 1,
+                                    parent_exit_info.curr_exit_at_reward_cycle,
+                                )?;
+                                if let Some(exit_proposal) = current_proposal {
+                                    println!("cc: storing proposal info for {:?}", exit_proposal);
+                                    // record the veto in the table `exit_at_reward_cycle_veto_info`
+                                    let sortdb_handle = self
+                                        .sortition_db
+                                        .tx_handle_begin(&canonical_sortition_tip)?;
+                                    sortdb_handle.store_new_proposal(exit_proposal)?;
+                                    sortdb_handle.commit()?;
+                                }
+                            }
+                        } else if parent_exit_info.block_reward_cycle == current_reward_cycle {
+                            current_proposal = parent_exit_info.curr_exit_proposal;
+                        }
+
+                        if current_exit_at_rc == None {
+                            current_exit_at_rc = parent_exit_info.curr_exit_at_reward_cycle;
+                        }
+                    }
+
+                    let exit_info = BlockExitRewardCycleInfo {
+                        block_id: new_canonical_stacks_block,
+                        block_reward_cycle: current_reward_cycle,
+                        curr_exit_proposal: current_proposal,
+                        curr_exit_at_reward_cycle: current_exit_at_rc,
+                    };
+                    println!(
+                        "cc: exit proposal is: {:?}, exit is: {:?}",
+                        exit_info.curr_exit_proposal, exit_info.curr_exit_at_reward_cycle
+                    );
+                    let sortdb_handle = self
+                        .sortition_db
+                        .tx_handle_begin(&canonical_sortition_tip)?;
+                    println!("cc: storing exit info");
+                    sortdb_handle.store_exit_at_reward_cycle_info(exit_info)?;
+                    sortdb_handle.commit()?;
+
                     // if, just after processing the block, we _know_ that this block is a pox anchor, that means
                     //   that sortitions have already begun processing that didn't know about this pox anchor.
                     //   we need to trigger an unwind
                     if let Some(pox_anchor) = self
                         .sortition_db
-                        .is_stacks_block_pox_anchor(&block_hash, canonical_sortition_tip)?
+                        .is_stacks_block_pox_anchor(&block_hash, &canonical_sortition_tip)?
                     {
                         info!("Discovered an old anchor block: {}", &pox_anchor);
                         return Ok(Some(pox_anchor));
@@ -859,7 +1284,9 @@ impl<
             }
             // TODO: do something with a poison result
 
-            let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
+            let sortdb_handle = self
+                .sortition_db
+                .tx_handle_begin(&canonical_sortition_tip)?;
             processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
         }
 

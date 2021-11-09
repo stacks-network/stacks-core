@@ -295,6 +295,7 @@ pub struct Burnchain {
     pub first_block_hash: BurnchainHeaderHash,
     pub first_block_timestamp: u32,
     pub pox_constants: PoxConstants,
+    pub exit_contract_constants: ExitContractConstants,
     pub initial_reward_start_block: u64,
 }
 
@@ -318,6 +319,44 @@ pub struct PoxConstants {
     /// first block height of sunset phase
     pub sunset_start: u64,
     _shadow: PhantomData<()>,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct ExitContractConstants {
+    pub veto_confirmation_percent: u8,
+    pub vote_confirmation_percent: u8,
+    pub percent_stacked_stx_for_valid_vote: u8,
+    pub absolute_minimum_exit_rc: u64,
+    pub minimum_rc_buffer_from_present: u64,
+    pub maximum_rc_buffer_from_present: u64,
+}
+
+impl ExitContractConstants {
+    pub fn new(
+        veto_confirmation_percent: u8,
+        vote_confirmation_percent: u8,
+        percent_stacked_stx_for_valid_vote: u8,
+        absolute_minimum_exit_rc: u64,
+        minimum_rc_buffer_from_present: u64,
+        maximum_rc_buffer_from_present: u64,
+    ) -> ExitContractConstants {
+        ExitContractConstants {
+            veto_confirmation_percent,
+            vote_confirmation_percent,
+            percent_stacked_stx_for_valid_vote,
+            absolute_minimum_exit_rc,
+            minimum_rc_buffer_from_present,
+            maximum_rc_buffer_from_present,
+        }
+    }
+
+    pub fn mainnet_default() -> ExitContractConstants {
+        ExitContractConstants::new(80, 50, 50, 50, 4, 52)
+    }
+
+    pub fn testnet_default() -> ExitContractConstants {
+        ExitContractConstants::new(80, 50, 50, 15, 4, 52)
+    }
 }
 
 impl PoxConstants {
