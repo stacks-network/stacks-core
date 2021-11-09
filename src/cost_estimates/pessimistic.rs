@@ -10,6 +10,7 @@ use rusqlite::{
 use serde_json::Value as JsonValue;
 
 use chainstate::stacks::TransactionPayload;
+use util::db::sqlite_open;
 use util::db::u64_to_sql;
 use vm::costs::ExecutionCost;
 
@@ -176,16 +177,16 @@ impl Samples {
 
 impl PessimisticEstimator {
     pub fn open(p: &Path, log_error: bool) -> Result<PessimisticEstimator, EstimatorError> {
-        let db = match Connection::open_with_flags(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE) {
-            Ok(db) => {
-                set_wal_mode(&db)?;
-                Ok(db)
-            }
-            Err(e) => {
+        let db =
+            sqlite_open(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE, false).or_else(|e| {
                 if let SqliteError::SqliteFailure(ref internal, _) = e {
                     if let rusqlite::ErrorCode::CannotOpen = internal.code {
-                        let mut db = Connection::open(p)?;
-                        set_wal_mode(&db)?;
+                        let mut db = sqlite_open(
+                            p,
+                            rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+                                | rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+                            false,
+                        )?;
                         let tx = tx_begin_immediate_sqlite(&mut db)?;
                         PessimisticEstimator::instantiate_db(&tx)?;
                         tx.commit()?;
@@ -196,8 +197,8 @@ impl PessimisticEstimator {
                 } else {
                     Err(e)
                 }
-            }
-        }?;
+            })?;
+
         Ok(PessimisticEstimator { db, log_error })
     }
 

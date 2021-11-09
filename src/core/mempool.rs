@@ -46,6 +46,7 @@ use monitoring::increment_stx_mempool_gc;
 use std::time::Instant;
 use util::db::query_row_columns;
 use util::db::query_rows;
+use util::db::sqlite_open;
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
 use util::db::u64_to_sql;
@@ -396,8 +397,6 @@ impl MemPoolTxInfo {
 
 impl MemPoolDB {
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
-        sql_pragma(conn, "PRAGMA journal_mode = WAL;")?;
-
         let tx = tx_begin_immediate(conn)?;
 
         for cmd in MEMPOOL_INITIAL_SCHEMA {
@@ -465,13 +464,7 @@ impl MemPoolDB {
             OpenFlags::SQLITE_OPEN_READ_WRITE
         };
 
-        let mut conn =
-            DBConn::open_with_flags(&db_path, open_flags).map_err(db_error::SqliteError)?;
-        conn.busy_handler(Some(tx_busy_handler))
-            .map_err(db_error::SqliteError)?;
-
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-
+        let mut conn = sqlite_open(&db_path, open_flags, true)?;
         if create_flag {
             // instantiate!
             MemPoolDB::instantiate_mempool_db(&mut conn)?;
