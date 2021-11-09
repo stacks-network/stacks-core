@@ -363,6 +363,34 @@ pub fn make_contract_call(
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
 }
 
+pub fn make_contract_call_mblock_only(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    contract_addr: &StacksAddress,
+    contract_name: &str,
+    function_name: &str,
+    function_args: &[Value],
+) -> Vec<u8> {
+    let contract_name = ContractName::from(contract_name);
+    let function_name = ClarityName::from(function_name);
+
+    let payload = TransactionContractCall {
+        address: contract_addr.clone(),
+        contract_name,
+        function_name,
+        function_args: function_args.iter().map(|x| x.clone()).collect(),
+    };
+
+    serialize_sign_standard_single_sig_tx_anchor_mode(
+        payload.into(),
+        sender,
+        nonce,
+        tx_fee,
+        TransactionAnchorMode::OffChainOnly,
+    )
+}
+
 fn make_microblock(
     privk: &StacksPrivateKey,
     chainstate: &mut StacksChainState,

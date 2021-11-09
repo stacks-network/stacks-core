@@ -61,6 +61,7 @@ use vm::types::PrincipalData;
 use clarity_vm::clarity::ClarityConnection;
 
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::StacksBlock;
 use crate::codec::StacksMessageCodec;
 use crate::cost_estimates;
 use crate::cost_estimates::metrics::CostMetric;
@@ -144,6 +145,13 @@ impl std::fmt::Display for MemPoolDropReason {
 
 pub trait MemPoolEventDispatcher {
     fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason);
+    fn mined_block_event(
+        &self,
+        target_burn_height: u64,
+        block: &StacksBlock,
+        block_size_bytes: u64,
+        consumed: &ExecutionCost,
+    );
 }
 
 #[derive(Debug, PartialEq, Clone)]

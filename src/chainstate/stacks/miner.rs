@@ -1663,6 +1663,15 @@ impl StacksBlockBuilder {
 
         let ts_end = get_epoch_time_ms();
 
+        if let Some(observer) = event_observer {
+            observer.mined_block_event(
+                SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height + 1,
+                &block,
+                size,
+                &consumed,
+            );
+        }
+
         debug!(
             "Miner: mined anchored block";
             "block_hash" => %block.block_hash(),

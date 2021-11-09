@@ -1,4 +1,5 @@
 use stacks::util::get_epoch_time_secs;
+use std::collections::HashMap;
 use std::env;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -26,6 +27,7 @@ use crate::config::EventObserverConfig;
 use crate::config::InitialBalance;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::make_contract_call;
+use crate::tests::make_contract_call_mblock_only;
 use crate::tests::make_contract_publish;
 use crate::tests::neon_integrations::*;
 use crate::tests::to_addr;
@@ -39,6 +41,195 @@ use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::types::chainstate::VRFSeed;
 use stacks::vm::costs::ExecutionCost;
+
+#[test]
+#[ignore]
+// Test that the miner code path and the follower code path end up with the exact same calculation of a
+//  a block's execution cost, budget expended, and total allotted budget.
+// This test will broadcast transactions from a single user account, where *even* nonce transactions
+//  are marked anchored block only and *odd* nonce transactions are marked microblock only. This will ensure
+//  that each anchored block (after the first) will confirm a 1-transaction microblock stream and contain 1
+//  transaction.
+fn test_exact_block_costs() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr = PrincipalData::from(to_addr(&spender_sk));
+    let spender_addr_c32 = StacksAddress::from(to_addr(&spender_sk));
+
+    let epoch_205_transition_height = 210;
+    let transactions_to_broadcast = 25;
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = epoch_205_transition_height;
+    epochs[2].start_height = epoch_205_transition_height;
+
+    conf.burnchain.epochs = Some(epochs);
+    conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 10_000;
+    conf.node.microblock_frequency = 500;
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_addr.clone(),
+        amount: 200_000_000,
+    });
+
+    let contract_name = "test-contract";
+    let contract_content = "
+      (define-data-var db2 (list 500 int) (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+      (define-public (db-get2)
+        (begin (var-get db2)
+               (ok 1)))
+    ";
+
+    let contract_publish_tx =
+        make_contract_publish(&spender_sk, 0, 210_000, contract_name, contract_content);
+
+    // make txs that alternate between
+    let txs: Vec<_> = (1..transactions_to_broadcast + 1)
+        .map(|nonce| {
+            if nonce % 2 == 0 {
+                make_contract_call(
+                    &spender_sk,
+                    nonce,
+                    200_000,
+                    &spender_addr_c32,
+                    contract_name,
+                    "db-get2",
+                    &[],
+                )
+            } else {
+                make_contract_call_mblock_only(
+                    &spender_sk,
+                    nonce,
+                    200_000,
+                    &spender_addr_c32,
+                    contract_name,
+                    "db-get2",
+                    &[],
+                )
+            }
+        })
+        .collect();
+
+    test_observer::spawn();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let tip_info = get_chain_info(&conf);
+    let current_burn_height = tip_info.burn_block_height as u32;
+    assert_eq!(current_burn_height, 204);
+
+    // broadcast the contract
+    submit_tx(&http_origin, &contract_publish_tx);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let tip_info = get_chain_info(&conf);
+    let current_burn_height = tip_info.burn_block_height as u32;
+    assert_eq!(current_burn_height, 205);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let tip_info = get_chain_info(&conf);
+    let current_burn_height = tip_info.burn_block_height as u32;
+    assert_eq!(current_burn_height, 206);
+
+    // broadcast the rest of our transactions
+    for tx in txs.iter() {
+        submit_tx(&http_origin, tx);
+    }
+
+    // produce 10 more blocks
+    for _i in 0..10 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let tip_info = get_chain_info(&conf);
+    let current_burn_height = tip_info.burn_block_height as u32;
+    assert_eq!(current_burn_height, 216);
+
+    let blocks = test_observer::get_blocks();
+    let mined_blocks = test_observer::get_mined_blocks();
+    let mut mined_blocks_map = HashMap::new();
+    for mined_block in mined_blocks.into_iter() {
+        mined_blocks_map.insert(mined_block.target_burn_block, mined_block);
+    }
+
+    //    let mut tested_heights = vec![];
+
+    for block in blocks {
+        let burn_height = block.get("burn_block_height").unwrap().as_i64().unwrap();
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        let anchor_cost = block
+            .get("anchored_block_consumed_cost")
+            .unwrap()
+            .get("runtime")
+            .unwrap()
+            .as_i64()
+            .unwrap();
+        let mblock_confirm_cost = block
+            .get("microblocks_confirmed_consumed_cost")
+            .unwrap()
+            .get("runtime")
+            .unwrap()
+            .as_i64()
+            .unwrap();
+
+        let mined_confirmed_cost = mined_blocks_map
+            .get(&(burn_height as u64))
+            .unwrap()
+            .anchor_consumed
+            .runtime;
+
+        eprintln!(
+            "Burn height = {}, confirmed_tx_count = {}, anchor_cost = {}, mblock_confirm_cost = {}, mined_confirmed_cost = {}",
+            burn_height, transactions.len(), anchor_cost, mblock_confirm_cost, mined_confirmed_cost,
+        );
+    }
+
+    // make sure that the test covered the blocks before, at, and after the epoch transition.
+    assert!(false);
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
 
 #[test]
 #[ignore]
