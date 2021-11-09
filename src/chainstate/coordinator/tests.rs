@@ -465,10 +465,34 @@ fn make_genesis_block_with_recipients(
     .unwrap();
 
     let iconn = sort_db.index_conn();
-    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap().0;
+    let (
+        mut chainstate_tx,
+        clarity_instance,
+        burn_tip,
+        burn_tip_height,
+        parent_microblocks,
+        parent_consensus_hash,
+        parent_header_hash,
+        mainnet,
+    ) = builder.pre_epoch_begin(state, &iconn).unwrap();
+    let mut epoch_tx = builder
+        .epoch_begin(
+            &mut chainstate_tx,
+            clarity_instance,
+            &iconn,
+            burn_tip,
+            burn_tip_height,
+            parent_microblocks,
+            parent_consensus_hash,
+            parent_header_hash,
+            mainnet,
+        )
+        .unwrap()
+        .0;
+
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
-    let block = builder.mine_anchored_block(&mut epoch_tx);
+    let block = builder.mine_anchored_block(&mut epoch_tx).unwrap();
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {
@@ -675,10 +699,34 @@ fn make_stacks_block_with_input(
         next_hash160(),
     )
     .unwrap();
-    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap().0;
+    let (
+        mut chainstate_tx,
+        clarity_instance,
+        burn_tip,
+        burn_tip_height,
+        parent_microblocks,
+        parent_consensus_hash,
+        parent_header_hash,
+        mainnet,
+    ) = builder.pre_epoch_begin(state, &iconn).unwrap();
+    let mut epoch_tx = builder
+        .epoch_begin(
+            &mut chainstate_tx,
+            clarity_instance,
+            &iconn,
+            burn_tip,
+            burn_tip_height,
+            parent_microblocks,
+            parent_consensus_hash,
+            parent_header_hash,
+            mainnet,
+        )
+        .unwrap()
+        .0;
+
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
-    let block = builder.mine_anchored_block(&mut epoch_tx);
+    let block = builder.mine_anchored_block(&mut epoch_tx).unwrap();
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {
