@@ -33,6 +33,8 @@ use std::process;
 use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
 
+use blockstack_lib::cost_estimates::UnitEstimator;
+use cost_estimates::metrics::UnitMetric;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
@@ -61,6 +63,7 @@ use blockstack_lib::{
         stacks::db::{StacksChainState, StacksHeaderInfo},
     },
     core::MemPoolDB,
+    util::db::sqlite_open,
     util::{hash::Hash160, vrf::VRFProof},
     vm::costs::ExecutionCost,
 };
@@ -454,8 +457,11 @@ simulating a miner.
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
 
-        let mut mempool_db =
-            MemPoolDB::open(true, chain_id, &chain_state_path).expect("Failed to open mempool db");
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
+
+        let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
+            .expect("Failed to open mempool db");
 
         let stacks_block = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
         let parent_header = StacksChainState::get_anchored_block_header_info(
@@ -603,7 +609,7 @@ simulating a miner.
         let value_opt = marf.get(&marf_bhh, marf_key).expect("Failed to read MARF");
 
         if let Some(value) = value_opt {
-            let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)
                 .expect("Failed to open DB");
             let args: &[&dyn ToSql] = &[&value.to_hex()];
             let res: Result<String, rusqlite::Error> = conn.query_row_and_then(

@@ -1980,17 +1980,18 @@ impl SortitionDB {
 
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open index at {}", index_path);
-        MARF::from_path(index_path).map_err(|_e| db_error::Corruption)
+        let marf = MARF::from_path(index_path).map_err(|_e| db_error::Corruption)?;
+        sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
+        Ok(marf)
     }
 
     /// Open the database on disk.  It must already exist and be instantiated.
     /// It's best not to call this if you are able to call connect().  If you must call this, do so
     /// after you call connect() somewhere else, since connect() performs additional validations.
     pub fn open(path: &str, readwrite: bool) -> Result<SortitionDB, db_error> {
-        let (db_path, index_path) = db_mkdirs(path)?;
+        let index_path = db_mkdirs(path)?;
         debug!(
-            "Open sortdb '{}' as '{}', with index as '{}'",
-            db_path,
+            "Open sortdb as '{}', with index as '{}'",
             if readwrite { "readwrite" } else { "readonly" },
             index_path
         );
@@ -2004,6 +2005,7 @@ impl SortitionDB {
             first_block_height: first_snapshot.block_height,
             first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
         };
+
         Ok(db)
     }
 
@@ -2032,11 +2034,10 @@ impl SortitionDB {
             Ok(_md) => false,
         };
 
-        let (db_path, index_path) = db_mkdirs(path)?;
+        let index_path = db_mkdirs(path)?;
         debug!(
-            "Connect/Open {} sortdb '{}' as '{}', with index as '{}'",
+            "Connect/Open {} sortdb as '{}', with index as '{}'",
             if create_flag { "(create)" } else { "" },
-            db_path,
             if readwrite { "readwrite" } else { "readonly" },
             index_path
         );
@@ -2101,7 +2102,8 @@ impl SortitionDB {
     ) -> Result<(), db_error> {
         debug!("Instantiate SortDB");
 
-        sql_pragma(self.conn(), "PRAGMA journal_mode = WAL;")?;
+        sql_pragma(self.conn(), "journal_mode", &"WAL")?;
+        sql_pragma(self.conn(), "foreign_keys", &true)?;
 
         let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
 

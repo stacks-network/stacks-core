@@ -16,6 +16,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
+use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
@@ -51,6 +52,7 @@ use vm::{
     Value,
 };
 
+use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockHeader,
     StacksBlockId,
@@ -146,6 +148,8 @@ pub struct ChainsCoordinator<
     T: BlockEventDispatcher,
     N: CoordinatorNotices,
     R: RewardSetProvider,
+    CE: CostEstimator + ?Sized,
+    FE: FeeEstimator + ?Sized,
 > {
     canonical_sortition_tip: Option<SortitionId>,
     canonical_chain_tip: Option<StacksBlockId>,
@@ -156,6 +160,8 @@ pub struct ChainsCoordinator<
     burnchain: Burnchain,
     attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     dispatcher: Option<&'a T>,
+    cost_estimator: Option<&'a mut CE>,
+    fee_estimator: Option<&'a mut FE>,
     reward_set_provider: R,
     notifier: N,
     atlas_config: AtlasConfig,
@@ -250,16 +256,18 @@ impl RewardSetProvider for OnChainRewardSetProvider {
     }
 }
 
-impl<'a, T: BlockEventDispatcher>
-    ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider>
+impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator + ?Sized>
+    ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider, CE, FE>
 {
     pub fn run(
         chain_state_db: StacksChainState,
         burnchain: Burnchain,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
-        dispatcher: &mut T,
+        dispatcher: &'a mut T,
         comms: CoordinatorReceivers,
         atlas_config: AtlasConfig,
+        cost_estimator: Option<&mut CE>,
+        fee_estimator: Option<&mut FE>,
     ) where
         T: BlockEventDispatcher,
     {
@@ -290,6 +298,8 @@ impl<'a, T: BlockEventDispatcher>
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
             reward_set_provider: OnChainRewardSetProvider(),
+            cost_estimator,
+            fee_estimator,
             atlas_config,
         };
 
@@ -318,7 +328,7 @@ impl<'a, T: BlockEventDispatcher>
     }
 }
 
-impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T, (), U> {
+impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T, (), U, (), ()> {
     #[cfg(test)]
     pub fn test_new(
         burnchain: &Burnchain,
@@ -326,7 +336,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
         path: &str,
         reward_set_provider: U,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
-    ) -> ChainsCoordinator<'a, T, (), U> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
         let burnchain = burnchain.clone();
 
         let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
@@ -354,6 +364,8 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             sortition_db,
             burnchain,
             dispatcher: None,
+            cost_estimator: None,
+            fee_estimator: None,
             reward_set_provider,
             notifier: (),
             attachments_tx,
@@ -500,8 +512,14 @@ fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
     );
 }
 
-impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
-    ChainsCoordinator<'a, T, N, U>
+impl<
+        'a,
+        T: BlockEventDispatcher,
+        N: CoordinatorNotices,
+        U: RewardSetProvider,
+        CE: CostEstimator + ?Sized,
+        FE: FeeEstimator + ?Sized,
+    > ChainsCoordinator<'a, T, N, U, CE, FE>
 {
     pub fn handle_new_stacks_block(&mut self) -> Result<(), Error> {
         if let Some(pox_anchor) = self.process_ready_blocks()? {
@@ -728,6 +746,19 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         };
                     }
 
+                    if let Some(ref mut estimator) = self.cost_estimator {
+                        estimator.notify_block(&block_receipt.tx_receipts);
+                    }
+
+                    if let Some(ref mut estimator) = self.fee_estimator {
+                        if let Err(e) = estimator.notify_block(&block_receipt) {
+                            warn!("FeeEstimator failed to process block receipt";
+                                  "stacks_block" => %block_hash,
+                                  "stacks_height" => %block_receipt.header.block_height,
+                                  "error" => %e);
+                        }
+                    }
+
                     if let Some(dispatcher) = self.dispatcher {
                         let metadata = &block_receipt.header;
                         let winner_txid = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -755,6 +786,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             .chain_state_db
                             .get_parent(&stacks_block)
                             .expect("BUG: failed to get parent for processed block");
+
                         dispatcher.announce_block(
                             block,
                             block_receipt.header,
