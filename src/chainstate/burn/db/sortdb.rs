@@ -2154,13 +2154,12 @@ impl SortitionDB {
             Ok(_md) => false,
         };
 
-        let (db_path, index_path) = db_mkdirs(path)?;
+        let index_path = db_mkdirs(path)?;
         debug!(
-            "Connect/Open {} sortdb '{}' as '{}', with index as '{}'",
+            "Connect/Open {} sortdb '{}' as '{}'",
             if create_flag { "(create)" } else { "" },
-            db_path,
-            if readwrite { "readwrite" } else { "readonly" },
-            index_path
+            index_path,
+            if readwrite { "readwrite" } else { "readonly" }
         );
 
         let marf = SortitionDB::open_index(&index_path)?;
@@ -2314,7 +2313,8 @@ impl SortitionDB {
     ) -> Result<(), db_error> {
         debug!("Instantiate SortDB");
 
-        sql_pragma(self.conn(), "PRAGMA journal_mode = WAL;")?;
+        sql_pragma(self.conn(), "journal_mode", &"WAL")?;
+        sql_pragma(self.conn(), "foreign_keys", &true)?;
 
         let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
 

@@ -14,7 +14,6 @@ use util::db::sqlite_open;
 use util::db::u64_to_sql;
 use vm::costs::ExecutionCost;
 
-use crate::util::db::set_wal_mode;
 use crate::util::db::sql_pragma;
 use crate::util::db::table_exists;
 use crate::util::db::tx_begin_immediate_sqlite;
