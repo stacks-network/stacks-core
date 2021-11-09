@@ -56,6 +56,11 @@ const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainne
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
 const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
+const BOOT_CODE_EXIT_AT_RC_TESTNET_CONSTS: &'static str =
+    std::include_str!("exit-at-rc-testnet.clar");
+const BOOT_CODE_EXIT_AT_RC_MAINNET_CONSTS: &'static str =
+    std::include_str!("exit-at-rc-mainnet.clar");
+const BOOT_CODE_EXIT_AT_RC: &'static str = std::include_str!("exit-at-rc.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
 
@@ -64,8 +69,15 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     pub static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
+    static ref BOOT_CODE_EXIT_AT_RC_MAINNET: String =
+        format!("{}\n{}", BOOT_CODE_EXIT_AT_RC_MAINNET_CONSTS, BOOT_CODE_EXIT_AT_RC);
+    pub static ref BOOT_CODE_EXIT_AT_RC_TESTNET: String =
+        format!("{}\n{}", BOOT_CODE_EXIT_AT_RC_TESTNET_CONSTS, BOOT_CODE_EXIT_AT_RC);
+
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
-    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
+    // TODO - remove exit-at-rc once deployed
+    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 7] = [
+        ("exit-at-rc", &BOOT_CODE_EXIT_AT_RC_MAINNET),
         ("pox", &BOOT_CODE_POX_MAINNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
@@ -73,8 +85,9 @@ lazy_static! {
         ("bns", &BOOT_CODE_BNS),
         ("genesis", &BOOT_CODE_GENESIS),
     ];
-    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 6] = [
+    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 7] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
+        ("exit-at-rc", &BOOT_CODE_EXIT_AT_RC_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),

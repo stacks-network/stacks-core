@@ -2275,6 +2275,7 @@ dependencies = [
  "libc",
  "pico-args",
  "rand 0.7.2",
+ "regex",
  "reqwest",
  "ring",
  "rusqlite",

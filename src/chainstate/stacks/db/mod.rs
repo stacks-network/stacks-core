@@ -675,7 +675,7 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_hash: BurnchainHeaderHash,
     pub first_burnchain_block_height: u32,
     pub first_burnchain_block_timestamp: u32,
-    pub initial_balances: Vec<(PrincipalData, u64)>,
+    pub initial_balances: Vec<(PrincipalData, u128)>,
     pub pox_constants: PoxConstants,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
     pub get_bulk_initial_lockups:
@@ -691,7 +691,7 @@ pub struct ChainStateBootData {
 impl ChainStateBootData {
     pub fn new(
         burnchain: &Burnchain,
-        initial_balances: Vec<(PrincipalData, u64)>,
+        initial_balances: Vec<(PrincipalData, u128)>,
         post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
     ) -> ChainStateBootData {
         ChainStateBootData {

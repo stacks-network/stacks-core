@@ -45,7 +45,9 @@ use chainstate::burn::operations::{
 };
 use chainstate::burn::Opcodes;
 use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
+use chainstate::coordinator::{
+    BlockExitRewardCycleInfo, Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
+};
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::index::marf::MARF;
@@ -79,6 +81,7 @@ use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, MARFValue, PoxId, SortitionId, VRFSeed,
 };
 use crate::types::proof::{ClarityMarfTrieId, TrieHash};
+use types::chainstate::StacksBlockId;
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
 
@@ -417,6 +420,24 @@ impl FromRow<AcceptedStacksBlockHeader> for AcceptedStacksBlockHeader {
     }
 }
 
+impl FromRow<BlockExitRewardCycleInfo> for BlockExitRewardCycleInfo {
+    fn from_row<'a>(row: &'a Row) -> Result<BlockExitRewardCycleInfo, db_error> {
+        let block_id = StacksBlockId::from_column(row, "block_id")?;
+        let block_reward_cycle = u64::from_column(row, "block_reward_cycle")?;
+        let curr_exit_proposal = Option::<u64>::from_column(row, "curr_exit_proposal")?;
+        let curr_exit_at_reward_cycle =
+            Option::<u64>::from_column(row, "curr_exit_at_reward_cycle")?;
+
+        let exit_cycle_info = BlockExitRewardCycleInfo {
+            block_id,
+            block_reward_cycle,
+            curr_exit_proposal,
+            curr_exit_at_reward_cycle,
+        };
+        Ok(exit_cycle_info)
+    }
+}
+
 pub const SORTITION_DB_VERSION: &'static str = "1";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
@@ -579,6 +600,15 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
     "CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
     "CREATE TABLE db_config(version TEXT NOT NULL);",
+    r#"
+    CREATE TABLE exit_at_reward_cycle_info (
+        block_id TEXT NOT NULL,
+        block_reward_cycle INTEGER NOT NULL,
+        curr_exit_proposal INTEGER,
+        curr_exit_at_reward_cycle INTEGER,
+
+        PRIMARY KEY(block_id)
+    );"#,
 ];
 
 pub struct SortitionDB {
@@ -2099,7 +2129,7 @@ impl SortitionDB {
         first_burn_header_hash: &BurnchainHeaderHash,
         first_burn_header_timestamp: u64,
     ) -> Result<(), db_error> {
-        debug!("Instantiate SortDB");
+        println!("Instantiate SortDB");
 
         sql_pragma(self.conn(), "PRAGMA journal_mode = WAL;")?;
 
@@ -2143,6 +2173,7 @@ impl SortitionDB {
         )?;
 
         db_tx.commit()?;
+        println!("Done instantiate SortDB");
         Ok(())
     }
 
@@ -3193,6 +3224,18 @@ impl SortitionDB {
 
         Ok(None)
     }
+
+    /// Get reward cycle info for a particular block
+    pub fn get_exit_at_reward_cycle_info(
+        conn: &Connection,
+        stacks_block_id: &StacksBlockId,
+    ) -> Result<Option<BlockExitRewardCycleInfo>, db_error> {
+        let qry = "SELECT * FROM exit_at_reward_cycle_info WHERE block_id = ?1";
+        let result = query_row_panic(conn, qry, &[&stacks_block_id], || {
+            "FATAL: multiple rows for reward cycle info for one block".into()
+        })?;
+        Ok(result)
+    }
 }
 
 impl<'a> SortitionHandleTx<'a> {
@@ -3308,6 +3351,37 @@ impl<'a> SortitionHandleTx<'a> {
         ];
         self.execute(sql, args)?;
         self.store_burn_distribution(new_sortition, transition);
+        Ok(())
+    }
+
+    pub fn store_exit_at_reward_cycle_info(
+        &self,
+        exit_at_reward_cycle_info: BlockExitRewardCycleInfo,
+    ) -> Result<(), db_error> {
+        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_id, block_reward_cycle) VALUES (?, ?)";
+        let args: &[&dyn ToSql] = &[
+            &exit_at_reward_cycle_info.block_id,
+            &u64_to_sql(exit_at_reward_cycle_info.block_reward_cycle)?,
+        ];
+        self.execute(sql, args)?;
+
+        if let Some(exit_proposal) = exit_at_reward_cycle_info.curr_exit_proposal {
+            let sql =
+                "UPDATE exit_at_reward_cycle_info SET curr_exit_proposal = ? WHERE block_id = ?";
+            let args: &[&dyn ToSql] = &[
+                &u64_to_sql(exit_proposal)?,
+                &exit_at_reward_cycle_info.block_id,
+            ];
+            self.execute(sql, args)?;
+        }
+        if let Some(exit_at_reward_cycle) = exit_at_reward_cycle_info.curr_exit_at_reward_cycle {
+            let sql = "UPDATE exit_at_reward_cycle_info SET curr_exit_at_reward_cycle = ? WHERE block_id = ?";
+            let args: &[&dyn ToSql] = &[
+                &u64_to_sql(exit_at_reward_cycle)?,
+                &exit_at_reward_cycle_info.block_id,
+            ];
+            self.execute(sql, args)?;
+        }
         Ok(())
     }
 

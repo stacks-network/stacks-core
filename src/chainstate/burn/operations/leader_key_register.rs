@@ -483,6 +483,7 @@ pub mod tests {
 
         let burnchain = Burnchain {
             pox_constants: PoxConstants::test_default(),
+            exit_contract_constants: ExitContractConstants::mainnet_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),

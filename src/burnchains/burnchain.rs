@@ -41,10 +41,10 @@ use burnchains::db::BurnchainDB;
 use burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
-use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::PublicKey;
 use burnchains::Txid;
+use burnchains::{Address, ExitContractConstants};
 use burnchains::{
     BurnchainBlock, BurnchainBlockHeader, BurnchainParameters, BurnchainRecipient, BurnchainSigner,
     BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction,
@@ -435,6 +435,7 @@ impl Burnchain {
                 return Err(burnchain_error::UnsupportedBurnchain);
             }
         };
+        let exit_contract_constants = ExitContractConstants::mainnet_default();
 
         Ok(Burnchain {
             peer_version,
@@ -449,6 +450,7 @@ impl Burnchain {
             first_block_hash: params.first_block_hash,
             first_block_timestamp: params.first_block_timestamp,
             pox_constants,
+            exit_contract_constants,
         })
     }
 
@@ -1497,6 +1499,7 @@ pub mod tests {
 
         let burnchain = Burnchain {
             pox_constants: PoxConstants::test_default(),
+            exit_contract_constants: ExitContractConstants::mainnet_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -2335,6 +2338,7 @@ pub mod tests {
 
         let burnchain = Burnchain {
             pox_constants: PoxConstants::test_default(),
+            exit_contract_constants: ExitContractConstants::mainnet_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),

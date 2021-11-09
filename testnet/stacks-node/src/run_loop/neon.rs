@@ -358,7 +358,7 @@ impl RunLoop {
         target_burnchain_block_height = burnchain_height + pox_constants.reward_cycle_length as u64;
 
         debug!(
-            "Begin main runloop starting a burnchain block {}",
+            "Begin main runloop starting at burnchain block {}",
             block_height
         );
 

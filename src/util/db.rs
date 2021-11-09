@@ -179,6 +179,21 @@ impl FromColumn<u64> for u64 {
     }
 }
 
+impl FromColumn<Option<u64>> for Option<u64> {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Option<u64>, Error> {
+        let x: Option<i64> = row.get_unwrap(column_name);
+        match x {
+            Some(x) => {
+                if x < 0 {
+                    return Err(Error::ParseError);
+                }
+                Ok(Some(x as u64))
+            }
+            None => Ok(None),
+        }
+    }
+}
+
 impl FromRow<i64> for i64 {
     fn from_row<'a>(row: &'a Row) -> Result<i64, Error> {
         let x: i64 = row.get_unwrap(0);

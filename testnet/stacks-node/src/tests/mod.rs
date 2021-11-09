@@ -23,6 +23,7 @@ use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
 use stacks::{address::AddressHashMode, util::hash::to_hex};
 
+extern crate regex;
 use crate::helium::RunLoop;
 
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
