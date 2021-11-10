@@ -1604,7 +1604,10 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(winning_user_burns)
     }
 
-    /// Get the block snapshot of the parent stacks block of the given stacks block
+    /// Get the block snapshot of the parent stacks block of the given stacks block.
+    /// The returned block-commit is for the given (consensus_hash, block_hash).
+    /// The returned BlockSnapshot is for the parent of the block identified by (consensus_hash,
+    /// block_hash).
     pub fn get_block_snapshot_of_parent_stacks_block(
         &self,
         consensus_hash: &ConsensusHash,
