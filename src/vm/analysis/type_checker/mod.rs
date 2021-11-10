@@ -978,10 +978,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             .collect::<String>();
         let clar_name = ClarityName::try_from(char_name.clone()).unwrap();
 
-        match rng.gen_bool(0.5) {
-            true => self.contract_context.add_variable_type(clar_name, type_sig),
-            false => self.contract_context.add_nft(clar_name, type_sig),
-        }
+        self.contract_context.add_variable_type(clar_name, type_sig)
     }
 
     pub fn bench_analysis_use_trait_entry_in_context(
