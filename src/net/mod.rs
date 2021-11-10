@@ -46,6 +46,7 @@ use url;
 use crate::util::boot::boot_code_tx_auth;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
+use chainstate::coordinator::Error as coordinator_error;
 use chainstate::stacks::db::blocks::MemPoolRejection;
 use chainstate::stacks::index::Error as marf_error;
 use chainstate::stacks::Error as chainstate_error;
@@ -2990,6 +2991,39 @@ pub mod test {
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
+        }
+
+        pub fn process_stacks_epoch_at_tip_checked(
+            &mut self,
+            block: &StacksBlock,
+            microblocks: &Vec<StacksMicroblock>,
+        ) -> Result<(), coordinator_error> {
+            let sortdb = self.sortdb.take().unwrap();
+            let mut node = self.stacks_node.take().unwrap();
+            {
+                let ic = sortdb.index_conn();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(&ic)?;
+                node.chainstate
+                    .preprocess_stacks_epoch(&ic, &tip, block, microblocks)?;
+            }
+            self.coord.handle_new_stacks_block()?;
+
+            let pox_id = {
+                let ic = sortdb.index_conn();
+                let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
+                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id)?;
+                sortdb_reader.get_pox_id()?;
+            };
+            test_debug!(
+                "\n\n{:?}: after stacks block {:?}, tip PoX ID is {:?}\n\n",
+                &self.to_neighbor().addr,
+                &block.block_hash(),
+                &pox_id
+            );
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(node);
+            Ok(())
         }
 
         pub fn process_stacks_epoch(
