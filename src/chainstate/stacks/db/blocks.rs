@@ -3104,7 +3104,32 @@ impl StacksChainState {
         return Some((end, None));
     }
 
-    /// Validate an anchored block against the burn chain state.
+    /// Determine whether or not a block is in a different epoch than its parent, given their
+    /// burnchain heights.
+    pub fn block_crosses_epoch_boundary(
+        sortdb_conn: &DBConn,
+        parent_burn_height: u64,
+        child_burn_height: u64,
+    ) -> Result<bool, db_error> {
+        let child_epoch =
+            SortitionDB::get_stacks_epoch(sortdb_conn, child_burn_height)?.expect(&format!(
+                "FATAL: no epoch defined at burn height {}",
+                child_burn_height
+            ));
+
+        let parent_epoch =
+            SortitionDB::get_stacks_epoch(sortdb_conn, parent_burn_height)?.expect(&format!(
+                "FATAL: no epoch defined at burn height {}",
+                parent_burn_height
+            ));
+
+        Ok(child_epoch.epoch_id != parent_epoch.epoch_id)
+    }
+
+    /// Validate an anchored block against the burn chain state.  Determines if this given Stacks
+    /// block can attach to the chainstate.  Called before inserting the block into the staging
+    /// DB.
+    ///
     /// Returns Some(commit burn, total burn) if valid
     /// Returns None if not valid
     /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
@@ -3190,6 +3215,22 @@ impl StacksChainState {
             return Ok(None);
         }
 
+        // NEW in 2.05
+        // if the parent and child epoch differ, then this block cannot descend from a microblock
+        // stream.  Don't store it if this is the case.
+        if StacksChainState::block_crosses_epoch_boundary(
+            db_handle,
+            burn_chain_tip.block_height,
+            block_commit.block_height,
+        )? {
+            if block.has_microblock_parent() {
+                warn!(
+                    "Invalid block, mined in different epoch than parent but confirms microblocks"
+                );
+                return Ok(None);
+            }
+        }
+
         let sortition_burns =
             SortitionDB::get_block_burn_amount(db_handle, &penultimate_sortition_snapshot)
                 .expect("FATAL: have block commit but no total burns in its sortition");
@@ -3204,7 +3245,10 @@ impl StacksChainState {
     /// to the blockchain.  The consensus_hash is the hash of the burnchain block whose sortition
     /// elected the given Stacks block.
     ///
-    /// If we find the same Stacks block in two or more burnchain forks, insert it there too
+    /// If we find the same Stacks block in two or more burnchain forks, insert it there too.
+    ///
+    /// (New in 2.05+) If the anchored block descends from a parent anchored block in a different
+    /// system epoch, then it *must not* have a parent microblock stream.
     ///
     /// sort_ic: an indexed connection to a sortition DB
     /// consensus_hash: this is the consensus hash of the sortition that chose this block
@@ -4263,6 +4307,28 @@ impl StacksChainState {
 
         let mainnet = chainstate_tx.get_config().mainnet;
         let next_block_height = block.header.total_work.work;
+
+        // NEW in 2.05
+        // if the parent and child epoch differ, then this block cannot descend from a microblock
+        // stream.
+        if StacksChainState::block_crosses_epoch_boundary(
+            burn_dbconn,
+            parent_chain_tip.burn_header_height.into(),
+            chain_tip_burn_header_height.into(),
+        )? {
+            debug!(
+                "Block {}/{} (mblock parent {}) crosses epoch boundary from parent",
+                chain_tip_consensus_hash,
+                &block.block_hash(),
+                &block.header.parent_microblock
+            );
+            if block.has_microblock_parent() {
+                let msg =
+                    "Invalid block, mined in different epoch than parent but confirms microblocks";
+                warn!("{}", &msg);
+                return Err(Error::InvalidStacksBlock(msg.to_string()));
+            }
+        }
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let latest_matured_miners = StacksChainState::get_scheduled_block_rewards(
