@@ -26,8 +26,7 @@ use vm::errors::{
 };
 use vm::representations::SymbolicExpression;
 use vm::types::{
-    byte_len_of_serialization, AssetIdentifier, BlockInfoProperty, BuffData, OptionalData,
-    PrincipalData, TypeSignature, Value,
+    AssetIdentifier, BlockInfoProperty, BuffData, OptionalData, PrincipalData, TypeSignature, Value,
 };
 use vm::{eval, Environment, LocalContext};
 
@@ -374,7 +373,7 @@ pub fn special_mint_asset_v205(
         .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
-    let asset_size = byte_len_of_serialization(&asset.serialize());
+    let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftMint, env, asset_size)?;
 
     if !expected_asset_type.admits(&asset) {
@@ -525,7 +524,7 @@ pub fn special_transfer_asset_v205(
         .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
-    let asset_size = byte_len_of_serialization(&asset.serialize());
+    let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
 
     if !expected_asset_type.admits(&asset) {
@@ -785,7 +784,7 @@ pub fn special_get_owner_v205(
         .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
-    let asset_size = byte_len_of_serialization(&asset.serialize());
+    let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftOwner, env, asset_size)?;
 
     if !expected_asset_type.admits(&asset) {
@@ -993,7 +992,7 @@ pub fn special_burn_asset_v205(
         .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
-    let asset_size = byte_len_of_serialization(&asset.serialize());
+    let asset_size = asset.serialized_size() as u64;
     runtime_cost(ClarityCostFunction::NftBurn, env, asset_size)?;
 
     if !expected_asset_type.admits(&asset) {
