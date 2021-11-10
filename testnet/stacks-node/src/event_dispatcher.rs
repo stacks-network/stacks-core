@@ -67,7 +67,7 @@ pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MinedBlockEvent {
-    pub target_burn_block: u64,
+    pub target_burn_height: u64,
     pub block_hash: String,
     pub stacks_height: u64,
     pub block_size: u64,
@@ -802,7 +802,7 @@ impl EventDispatcher {
         }
 
         let payload = serde_json::to_value(MinedBlockEvent {
-            target_burn_block: target_burn_height,
+            target_burn_height,
             block_hash: block.block_hash().to_string(),
             stacks_height: block.header.total_work.work,
             block_size: block_size_bytes,

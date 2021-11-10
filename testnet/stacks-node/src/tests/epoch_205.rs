@@ -189,7 +189,7 @@ fn test_exact_block_costs() {
     let mined_blocks = test_observer::get_mined_blocks();
     let mut mined_blocks_map = HashMap::new();
     for mined_block in mined_blocks.into_iter() {
-        mined_blocks_map.insert(mined_block.target_burn_block, mined_block);
+        mined_blocks_map.insert(mined_block.target_burn_height, mined_block);
     }
 
     let mut total_txs = 0;
