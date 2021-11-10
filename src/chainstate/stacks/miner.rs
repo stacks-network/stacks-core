@@ -1136,6 +1136,8 @@ impl StacksBlockBuilder {
     }
 
     /// Begin mining an epoch's transactions.
+    /// Returns an open ClarityTx for mining the block, as well as the ExecutionCost of any confirmed
+    ///  microblocks.
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
     /// yet known).
@@ -1143,7 +1145,7 @@ impl StacksBlockBuilder {
         &mut self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionDBConn,
-    ) -> Result<ClarityTx<'a>, Error> {
+    ) -> Result<(ClarityTx<'a>, ExecutionCost), Error> {
         let mainnet = chainstate.config().mainnet;
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
@@ -1217,6 +1219,12 @@ impl StacksBlockBuilder {
         let stacking_burn_ops = SortitionDB::get_stack_stx_ops(burn_dbconn.conn(), &burn_tip)?;
         let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(burn_dbconn.conn(), &burn_tip)?;
 
+        let parent_block_cost_opt = if parent_microblocks.is_empty() {
+            None
+        } else {
+            StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
+        };
+
         let mut tx = chainstate.block_begin(
             burn_dbconn,
             &parent_consensus_hash,
@@ -1243,9 +1251,19 @@ impl StacksBlockBuilder {
 
         let t1 = get_epoch_time_ms();
 
-        if parent_microblocks.len() == 0 {
+        let mblock_confirmed_cost = if parent_microblocks.len() == 0 {
             self.set_parent_microblock(&EMPTY_MICROBLOCK_PARENT_HASH, 0);
+            ExecutionCost::zero()
         } else {
+            let parent_block_cost = parent_block_cost_opt.ok_or_else(|| {
+                Error::InvalidStacksBlock(format!(
+                    "Failed to load parent block cost. parent_stacks_block_id = {}",
+                    &parent_index_hash
+                ))
+            })?;
+
+            tx.reset_cost(parent_block_cost.clone());
+
             match StacksChainState::process_microblocks_transactions(&mut tx, &parent_microblocks) {
                 Ok((fees, ..)) => {
                     self.total_confirmed_streamed_fees += fees as u64;
@@ -1263,7 +1281,18 @@ impl StacksBlockBuilder {
             let num_mblocks = parent_microblocks.len();
             let last_mblock_hdr = parent_microblocks[num_mblocks - 1].header.clone();
             self.set_parent_microblock(&last_mblock_hdr.block_hash(), last_mblock_hdr.sequence);
-        }
+
+            let mut microblock_cost = tx.cost_so_far();
+            microblock_cost
+                .sub(&parent_block_cost)
+                .expect("BUG: block_cost + microblock_cost < block_cost");
+
+            // if we get here, then we need to reset the block-cost back to 0 because this begins the
+            // block defined by this miner.
+            tx.reset_cost(ExecutionCost::zero());
+
+            microblock_cost
+        };
 
         let t2 = get_epoch_time_ms();
 
@@ -1278,7 +1307,7 @@ impl StacksBlockBuilder {
         StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops);
         StacksChainState::process_transfer_ops(&mut tx, transfer_burn_ops);
 
-        Ok(tx)
+        Ok((tx, mblock_confirmed_cost))
     }
 
     /// Finish up mining an epoch's transactions
@@ -1317,7 +1346,7 @@ impl StacksBlockBuilder {
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
-        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
+        let (mut epoch_tx, _) = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
                 Ok(_) => {
@@ -1490,7 +1519,8 @@ impl StacksBlockBuilder {
 
         let ts_start = get_epoch_time_ms();
 
-        let mut epoch_tx = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
+        let (mut epoch_tx, confirmed_mblock_cost) =
+            builder.epoch_begin(&mut chainstate, burn_dbconn)?;
 
         let block_limit = epoch_tx
             .block_limit()
@@ -1669,6 +1699,7 @@ impl StacksBlockBuilder {
                 &block,
                 size,
                 &consumed,
+                &confirmed_mblock_cost,
             );
         }
 
@@ -2762,7 +2793,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = block_builder(
                         &mut epoch,
                         &mut builder,
@@ -2942,7 +2974,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -3081,7 +3114,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -3125,7 +3159,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -3411,7 +3446,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -3455,7 +3491,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -3664,7 +3701,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -3710,7 +3748,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -3994,7 +4033,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -4035,7 +4075,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -4229,7 +4270,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -4273,7 +4315,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -4527,7 +4570,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -4568,7 +4612,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -4762,7 +4807,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_1_block_builder(
                         &mut epoch,
                         &mut builder,
@@ -4806,7 +4852,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
                     let (stacks_block, microblocks) = miner_2_block_builder(
                         &mut epoch,
                         &mut builder,

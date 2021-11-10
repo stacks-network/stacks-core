@@ -192,40 +192,50 @@ fn test_exact_block_costs() {
         mined_blocks_map.insert(mined_block.target_burn_block, mined_block);
     }
 
-    //    let mut tested_heights = vec![];
-
+    let mut total_txs = 0;
     for block in blocks {
         let burn_height = block.get("burn_block_height").unwrap().as_i64().unwrap();
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         let anchor_cost = block
-            .get("anchored_block_consumed_cost")
+            .get("anchored_cost")
             .unwrap()
             .get("runtime")
             .unwrap()
             .as_i64()
             .unwrap();
         let mblock_confirm_cost = block
-            .get("microblocks_confirmed_consumed_cost")
+            .get("confirmed_microblocks_cost")
             .unwrap()
             .get("runtime")
             .unwrap()
             .as_i64()
             .unwrap();
+        let mined_event = mined_blocks_map.get(&(burn_height as u64)).unwrap();
 
-        let mined_confirmed_cost = mined_blocks_map
-            .get(&(burn_height as u64))
-            .unwrap()
-            .anchor_consumed
-            .runtime;
+        let mined_anchor_cost = mined_event.anchored_cost.runtime;
 
-        eprintln!(
-            "Burn height = {}, confirmed_tx_count = {}, anchor_cost = {}, mblock_confirm_cost = {}, mined_confirmed_cost = {}",
-            burn_height, transactions.len(), anchor_cost, mblock_confirm_cost, mined_confirmed_cost,
+        let mined_mblock_confirmed_cost = mined_event.confirmed_microblocks_cost.runtime;
+
+        info!(
+            "Processed block";
+            "burn_height" => burn_height,
+            "confirmed_tx_count" => transactions.len(),
+            "anchor_cost" => anchor_cost,
+            "mined_anchor_cost" => mined_anchor_cost,
+            "mblock_cost" => mblock_confirm_cost,
+            "mined_mblock_cost" => mined_mblock_confirmed_cost,
         );
+
+        total_txs += transactions.len();
+
+        assert_eq!(mined_anchor_cost, anchor_cost as u64);
+        assert_eq!(mined_mblock_confirmed_cost, mblock_confirm_cost as u64);
     }
 
-    // make sure that the test covered the blocks before, at, and after the epoch transition.
-    assert!(false);
+    // check that we processed at least 32 transactions...
+    // the reason not to do an exact check here is that there *is* some variability in microblock production,
+    // so sometimes the miner doesn't produce a microblock
+    assert!(total_txs >= 32);
 
     test_observer::clear();
     channel.stop_chains_coordinator();

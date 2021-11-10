@@ -71,7 +71,8 @@ pub struct MinedBlockEvent {
     pub block_hash: String,
     pub stacks_height: u64,
     pub block_size: u64,
-    pub anchor_consumed: ExecutionCost,
+    pub anchored_cost: ExecutionCost,
+    pub confirmed_microblocks_cost: ExecutionCost,
 }
 
 impl EventObserver {
@@ -364,8 +365,8 @@ impl EventObserver {
             "parent_burn_block_hash":  format!("0x{}", parent_burn_block_hash),
             "parent_burn_block_height": parent_burn_block_height,
             "parent_burn_block_timestamp": parent_burn_block_timestamp,
-            "anchored_block_consumed_cost": anchored_consumed,
-            "microblocks_confirmed_consumed_cost": mblock_confirmed_consumed,
+            "anchored_cost": anchored_consumed,
+            "confirmed_microblocks_cost": mblock_confirmed_consumed,
         });
 
         // Send payload
@@ -400,8 +401,15 @@ impl MemPoolEventDispatcher for EventDispatcher {
         block: &StacksBlock,
         block_size_bytes: u64,
         consumed: &ExecutionCost,
+        confirmed_microblock_cost: &ExecutionCost,
     ) {
-        self.process_mined_block_event(target_burn_height, block, block_size_bytes, consumed)
+        self.process_mined_block_event(
+            target_burn_height,
+            block,
+            block_size_bytes,
+            consumed,
+            confirmed_microblock_cost,
+        )
     }
 }
 
@@ -781,6 +789,7 @@ impl EventDispatcher {
         block: &StacksBlock,
         block_size_bytes: u64,
         consumed: &ExecutionCost,
+        confirmed_microblock_cost: &ExecutionCost,
     ) {
         let interested_observers: Vec<_> = self
             .registered_observers
@@ -797,7 +806,8 @@ impl EventDispatcher {
             block_hash: block.block_hash().to_string(),
             stacks_height: block.header.total_work.work,
             block_size: block_size_bytes,
-            anchor_consumed: consumed.clone(),
+            anchored_cost: consumed.clone(),
+            confirmed_microblocks_cost: confirmed_microblock_cost.clone(),
         })
         .unwrap();
 

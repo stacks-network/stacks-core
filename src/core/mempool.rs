@@ -151,6 +151,7 @@ pub trait MemPoolEventDispatcher {
         block: &StacksBlock,
         block_size_bytes: u64,
         consumed: &ExecutionCost,
+        confirmed_microblock_cost: &ExecutionCost,
     );
 }
 
