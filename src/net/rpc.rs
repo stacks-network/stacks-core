@@ -1634,6 +1634,7 @@ impl ConversationHttp {
                     net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
                 })?;
 
+            warn!("stacks_epoch {:#?}", &stacks_epoch.block_limit);
             let scalar_cost =
                 metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
             let fee_rates = match fee_estimator.get_rate_estimates() {

@@ -2269,6 +2269,7 @@ impl SortitionDB {
 
         let epochs = SortitionDB::validate_epochs(epochs_ref);
         for epoch in epochs.into_iter() {
+            warn!("stacks_epoch {:#?}", &epoch.block_limit);
             let args: &[&dyn ToSql] = &[
                 &(epoch.epoch_id as u32),
                 &u64_to_sql(epoch.start_height)?,

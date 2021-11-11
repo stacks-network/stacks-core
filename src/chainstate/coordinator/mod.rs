@@ -774,6 +774,7 @@ impl<
                             .index_conn()
                             .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
                             .expect("Could not find a stacks epoch.");
+                        warn!("stacks_epoch {:#?}", &stacks_epoch.block_limit);
                         estimator
                             .notify_block(&block_receipt.tx_receipts, &stacks_epoch.block_limit);
                     }
@@ -784,6 +785,7 @@ impl<
                             .index_conn()
                             .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
                             .expect("Could not find a stacks epoch.");
+                        warn!("stacks_epoch {:#?}", &stacks_epoch.block_limit);
                         if let Err(e) =
                             estimator.notify_block(&block_receipt, &stacks_epoch.block_limit)
                         {

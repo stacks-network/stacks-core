@@ -4409,6 +4409,7 @@ impl PeerNetwork {
             }
         };
 
+        warn!("stacks_epoch {:#?}", &stacks_epoch.block_limit);
         if let Err(e) = mempool.submit(
             chainstate,
             consensus_hash,

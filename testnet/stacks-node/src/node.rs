@@ -884,10 +884,12 @@ impl Node {
             .get_stacks_epoch_by_epoch_id(&processed_block.evaluated_epoch)
             .expect("Could not find a stacks epoch.");
         if let Some(estimator) = cost_estimator.as_mut() {
+            warn!("stacks_epoch {:#?}", &stacks_epoch.block_limit);
             estimator.notify_block(&processed_block.tx_receipts, &stacks_epoch.block_limit);
         }
 
         if let Some(estimator) = fee_estimator.as_mut() {
+            warn!("stacks_epoch {:#?}", &stacks_epoch.block_limit);
             if let Err(e) = estimator.notify_block(&processed_block, &stacks_epoch.block_limit) {
                 warn!("FeeEstimator failed to process block receipt";
                       "stacks_block" => %processed_block.header.anchored_header.block_hash(),

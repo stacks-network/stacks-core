@@ -3907,6 +3907,7 @@ impl StacksChainState {
                 db.get_stacks_epoch(chain_tip_burn_header_height),
             )
         });
+        warn!("sortition_epoch {:#?}", &sortition_epoch);
 
         let mut receipts = vec![];
 

@@ -1841,6 +1841,7 @@ impl InitializedNeonNode {
 
                 // submit the poison payload, privately, so we'll mine it when building the
                 // anchored block.
+                warn!("stacks_epoch {:#?}", &stacks_epoch.block_limit);
                 if let Err(e) = mem_pool.submit(
                     chain_state,
                     &parent_consensus_hash,
