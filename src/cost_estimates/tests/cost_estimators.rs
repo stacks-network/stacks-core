@@ -689,7 +689,7 @@ fn test_cost_estimator_forget_previous() {
         }
     );
 
-    // Test 2: We should get *zero* estimates back when we test in Epoch20.
+    // Test 2: We should get *zero* estimates back when we test in Epoch2_05.
     assert_eq!(
         error,
         estimator
