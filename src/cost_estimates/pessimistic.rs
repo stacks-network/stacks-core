@@ -256,7 +256,7 @@ evaluated_epoch: &StacksEpochId
     ) -> Result<(), EstimatorError> {
         if self.log_error {
             // only log the estimate error if an estimate could be constructed
-            if let Ok(estimated_cost) = self.estimate_cost(tx) {
+            if let Ok(estimated_cost) = self.estimate_cost(tx, evaluated_epoch) {
                 let estimated_scalar =
                     estimated_cost.proportion_dot_product(&block_limit, PROPORTION_RESOLUTION);
                 let actual_scalar =

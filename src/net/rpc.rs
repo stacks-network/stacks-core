@@ -1726,6 +1726,7 @@ impl ConversationHttp {
                 &tx,
                 event_observer,
                 &stacks_epoch.block_limit,
+                &stacks_epoch.epoch_id,
             ) {
                 Ok(_) => {
                     debug!("Mempool accepted POSTed transaction {}", &txid);

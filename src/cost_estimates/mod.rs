@@ -107,8 +107,9 @@ pub fn estimate_fee_rate<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
     estimator: &CE,
     metric: &CM,
     block_limit: &ExecutionCost,
+    stacks_epoch_id: &StacksEpochId,
 ) -> Result<f64, EstimatorError> {
-    let cost_estimate = estimator.estimate_cost(&tx.payload)?;
+    let cost_estimate = estimator.estimate_cost(&tx.payload, stacks_epoch_id)?;
     let metric_estimate = metric.from_cost_and_len(&cost_estimate, block_limit, tx.tx_len());
     Ok(tx.get_tx_fee() as f64 / metric_estimate as f64)
 }
@@ -144,7 +145,7 @@ evaluated_epoch: &StacksEpochId
     ///
     /// A default implementation is provided to implementing structs that processes the transaction
     /// receipts by feeding them into `CostEstimator::notify_event()`
-    fn notify_block(&mut self, receipts: &[StacksTransactionReceipt], block_limit: &ExecutionCost) {
+    fn notify_block(&mut self, receipts: &[StacksTransactionReceipt], block_limit: &ExecutionCost, stacks_epoch_id:&StacksEpochId) {
         // iterate over receipts, and for all the tx receipts, notify the event
         for current_receipt in receipts.iter() {
             let current_txid = match current_receipt.transaction {
@@ -157,7 +158,7 @@ evaluated_epoch: &StacksEpochId
             };
 
             if let Err(e) =
-                self.notify_event(tx_payload, &current_receipt.execution_cost, block_limit)
+                self.notify_event(tx_payload, &current_receipt.execution_cost, block_limit, stacks_epoch_id)
             {
                 info!("CostEstimator failed to process event";
                       "txid" => %current_txid,
