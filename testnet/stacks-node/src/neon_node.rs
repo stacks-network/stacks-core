@@ -1857,7 +1857,7 @@ impl InitializedNeonNode {
             }
         }
 
-        let (anchored_block, consumed_cost, _) = match StacksBlockBuilder::build_anchored_block(
+        let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
             chain_state,
             &burn_db.index_conn(),
             mem_pool,
@@ -1933,12 +1933,6 @@ impl InitializedNeonNode {
             anchored_block.block_hash(),
             anchored_block.txs.len(),
             attempt
-        );
-
-        eprintln!(
-            "Assembled block at burn height = {}, consumed.runtime = {}",
-            burn_block.block_height + 1,
-            consumed_cost.runtime
         );
 
         // let's figure out the recipient set!

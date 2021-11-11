@@ -3224,8 +3224,8 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
 
     let mut max_big_txs_per_block = 0;
     let mut max_big_txs_per_microblock = 0;
-    let mut total_big_txs_per_block = 0;
-    let mut total_big_txs_per_microblock = 0;
+    let mut total_big_txs_in_blocks = 0;
+    let mut total_big_txs_in_microblocks = 0;
 
     for block in blocks {
         eprintln!("block {:?}", &block);
@@ -3245,10 +3245,10 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
             if let TransactionPayload::SmartContract(tsc) = parsed.payload {
                 if tsc.name.to_string().find("large-").is_some() {
                     num_big_anchored_txs += 1;
-                    total_big_txs_per_block += 1;
+                    total_big_txs_in_blocks += 1;
                 } else if tsc.name.to_string().find("small").is_some() {
                     num_big_microblock_txs += 1;
-                    total_big_txs_per_microblock += 1;
+                    total_big_txs_in_microblocks += 1;
                 }
             }
         }
@@ -3261,22 +3261,25 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
-    debug!(
+    info!(
         "max_big_txs_per_microblock: {}, max_big_txs_per_block: {}",
         max_big_txs_per_microblock, max_big_txs_per_block
     );
-    debug!(
-        "total_big_txs_per_microblock: {}, total_big_txs_per_block: {}",
-        total_big_txs_per_microblock, total_big_txs_per_block
+    info!(
+        "total_big_txs_in_microblocks: {}, total_big_txs_in_blocks: {}",
+        total_big_txs_in_microblocks, total_big_txs_in_blocks
     );
 
     // at most one big tx per block and at most one big tx per stream, always.
-    assert!(max_big_txs_per_microblock == 1);
-    assert!(max_big_txs_per_block == 1);
+    assert_eq!(max_big_txs_per_microblock, 1);
+    assert_eq!(max_big_txs_per_block, 1);
 
     // if the mblock stream has a big tx, the anchored block won't (and vice versa)
-    assert!(total_big_txs_per_block == 1); // last block didn't get counted by the observer
-    assert!(total_big_txs_per_microblock == 2);
+    // the changes for miner cost tracking (reset tracker between microblock and block, #2913)
+    // altered this test so that one more big tx ends up in an anchored block and one fewer
+    // ends up in a microblock
+    assert_eq!(total_big_txs_in_blocks, 2);
+    assert_eq!(total_big_txs_in_microblocks, 1);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
