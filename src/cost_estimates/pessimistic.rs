@@ -217,7 +217,11 @@ impl PessimisticEstimator {
         Ok(())
     }
 
-    fn get_estimate_key(tx: &TransactionPayload, field: &CostField, evaluated_epoch: &StacksEpochId) -> String {
+    fn get_estimate_key(
+        tx: &TransactionPayload,
+        field: &CostField,
+        evaluated_epoch: &StacksEpochId,
+    ) -> String {
         let tx_descriptor = match tx {
             TransactionPayload::TokenTransfer(..) => "stx-transfer".to_string(),
             TransactionPayload::ContractCall(cc) => {
@@ -252,7 +256,7 @@ impl CostEstimator for PessimisticEstimator {
         tx: &TransactionPayload,
         actual_cost: &ExecutionCost,
         block_limit: &ExecutionCost,
-evaluated_epoch: &StacksEpochId
+        evaluated_epoch: &StacksEpochId,
     ) -> Result<(), EstimatorError> {
         if self.log_error {
             // only log the estimate error if an estimate could be constructed
@@ -287,9 +291,11 @@ evaluated_epoch: &StacksEpochId
         Ok(())
     }
 
-    fn estimate_cost(&self, tx: &TransactionPayload,
-evaluated_epoch: &StacksEpochId
-                     ) -> Result<ExecutionCost, EstimatorError> {
+    fn estimate_cost(
+        &self,
+        tx: &TransactionPayload,
+        evaluated_epoch: &StacksEpochId,
+    ) -> Result<ExecutionCost, EstimatorError> {
         let runtime = Samples::get_estimate_sqlite(
             &self.db,
             &PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost, evaluated_epoch),

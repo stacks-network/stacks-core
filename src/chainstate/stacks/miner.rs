@@ -6872,7 +6872,7 @@ pub mod test {
                                     &stx_transfer,
                                     None,
                                     &ExecutionCost::max_value(),
-                                &StacksEpochId::Epoch20,
+                                    &StacksEpochId::Epoch20,
                                 )
                                 .unwrap();
                         }
@@ -6897,7 +6897,7 @@ pub mod test {
                                     &stx_transfer,
                                     None,
                                     &ExecutionCost::max_value(),
-                                &StacksEpochId::Epoch20,
+                                    &StacksEpochId::Epoch20,
                                 )
                                 .unwrap();
                         }
@@ -7045,7 +7045,7 @@ pub mod test {
                             &tx,
                             None,
                             &ExecutionCost::max_value(),
-                                &StacksEpochId::Epoch20,
+                            &StacksEpochId::Epoch20,
                         )
                         .unwrap();
                 }
@@ -8470,6 +8470,7 @@ pub mod test {
                                         &parent_header_hash,
                                         tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                                     )
                                     .unwrap();
                             }
@@ -8801,6 +8802,7 @@ pub mod test {
                                         &parent_header_hash,
                                         tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                                     )
                                     .unwrap();
                             }
@@ -8875,6 +8877,7 @@ pub mod test {
                                 &parent_header_hash,
                                 tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
                     }
@@ -8906,6 +8909,7 @@ pub mod test {
                                 &parent_header_hash,
                                 tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
                     }
@@ -9281,6 +9285,7 @@ pub mod test {
                     &tx,
                     None,
                     &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch20,
                 )
                 .unwrap()
         }
@@ -9305,6 +9310,7 @@ pub mod test {
                     &tx,
                     None,
                     &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch20,
                 )
                 .unwrap()
         }

@@ -774,8 +774,11 @@ impl<
                             .index_conn()
                             .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
                             .expect("Could not find a stacks epoch.");
-                        estimator
-                            .notify_block(&block_receipt.tx_receipts, &stacks_epoch.block_limit, &stacks_epoch.epoch_id);
+                        estimator.notify_block(
+                            &block_receipt.tx_receipts,
+                            &stacks_epoch.block_limit,
+                            &stacks_epoch.epoch_id,
+                        );
                     }
 
                     if let Some(ref mut estimator) = self.fee_estimator {

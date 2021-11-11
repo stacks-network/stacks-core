@@ -1609,8 +1609,8 @@ impl ConversationHttp {
         estimated_len: u64,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-            let stacks_epoch = sortdb
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        let stacks_epoch = sortdb
                 .index_conn()
                 .get_stacks_epoch(tip.block_height as u32)
                 .ok_or_else(|| {

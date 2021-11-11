@@ -40,9 +40,9 @@ use chainstate::stacks::{
     Error as ChainstateError, StacksTransaction,
 };
 use core::ExecutionCost;
+use core::StacksEpochId;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
-use core::StacksEpochId;
 use monitoring::increment_stx_mempool_gc;
 use std::time::Instant;
 use util::db::query_row_columns;
@@ -1282,7 +1282,7 @@ impl MemPoolDB {
         block_hash: &BlockHeaderHash,
         tx_bytes: Vec<u8>,
         block_limit: &ExecutionCost,
-        stacks_epoch_id:&StacksEpochId,
+        stacks_epoch_id: &StacksEpochId,
     ) -> Result<(), MemPoolRejection> {
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(MemPoolRejection::DeserializationFailure)?;
