@@ -18,6 +18,8 @@ use crate::util::db::sql_pragma;
 use crate::util::db::table_exists;
 use crate::util::db::tx_begin_immediate_sqlite;
 
+use crate::core::StacksEpochId;
+
 use super::{CostEstimator, EstimatorError};
 
 /// This struct pessimistically estimates the `ExecutionCost` of transaction payloads.
@@ -215,11 +217,19 @@ impl PessimisticEstimator {
         Ok(())
     }
 
-    fn get_estimate_key(tx: &TransactionPayload, field: &CostField) -> String {
+    fn get_estimate_key(tx: &TransactionPayload, field: &CostField, evaluated_epoch: &StacksEpochId) -> String {
         let tx_descriptor = match tx {
             TransactionPayload::TokenTransfer(..) => "stx-transfer".to_string(),
             TransactionPayload::ContractCall(cc) => {
-                format!("cc:{}.{}", cc.contract_name, cc.function_name)
+                let epoch_marker = match evaluated_epoch {
+                    StacksEpochId::Epoch10 => "",
+                    StacksEpochId::Epoch20 => "",
+                    StacksEpochId::Epoch2_05 => ":2.05",
+                };
+                format!(
+                    "cc{}:{}.{}",
+                    epoch_marker, cc.contract_name, cc.function_name
+                )
             }
             TransactionPayload::SmartContract(_sc) => "contract-publish".to_string(),
             TransactionPayload::PoisonMicroblock(_, _) => "poison-ublock".to_string(),
@@ -242,6 +252,7 @@ impl CostEstimator for PessimisticEstimator {
         tx: &TransactionPayload,
         actual_cost: &ExecutionCost,
         block_limit: &ExecutionCost,
+evaluated_epoch: &StacksEpochId
     ) -> Result<(), EstimatorError> {
         if self.log_error {
             // only log the estimate error if an estimate could be constructed
@@ -251,14 +262,14 @@ impl CostEstimator for PessimisticEstimator {
                 let actual_scalar =
                     actual_cost.proportion_dot_product(&block_limit, PROPORTION_RESOLUTION);
                 info!("PessimisticEstimator received event";
-                      "key" => %PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost),
+                      "key" => %PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost, evaluated_epoch),
                       "estimate" => estimated_scalar,
                       "actual" => actual_scalar,
                       "estimate_err" => (estimated_scalar as i64 - actual_scalar as i64),
                       "estimate_err_pct" => (estimated_scalar as i64 - actual_scalar as i64)/(cmp::max(1, actual_scalar as i64)),);
                 for field in CostField::ALL.iter() {
                     info!("New data event received";
-                          "key" => %PessimisticEstimator::get_estimate_key(tx, field),
+                          "key" => %PessimisticEstimator::get_estimate_key(tx, field, evaluated_epoch),
                           "value" => field.select_key(actual_cost));
                 }
             }
@@ -266,7 +277,7 @@ impl CostEstimator for PessimisticEstimator {
 
         let sql_tx = tx_begin_immediate_sqlite(&mut self.db)?;
         for field in CostField::ALL.iter() {
-            let key = PessimisticEstimator::get_estimate_key(tx, field);
+            let key = PessimisticEstimator::get_estimate_key(tx, field, evaluated_epoch);
             let field_cost = field.select_key(actual_cost);
             let mut current_sample = Samples::get_sqlite(&sql_tx, &key);
             current_sample.update_with(field_cost);
@@ -276,30 +287,32 @@ impl CostEstimator for PessimisticEstimator {
         Ok(())
     }
 
-    fn estimate_cost(&self, tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError> {
+    fn estimate_cost(&self, tx: &TransactionPayload,
+evaluated_epoch: &StacksEpochId
+                     ) -> Result<ExecutionCost, EstimatorError> {
         let runtime = Samples::get_estimate_sqlite(
             &self.db,
-            &PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost),
+            &PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost, evaluated_epoch),
         )
         .ok_or_else(|| EstimatorError::NoEstimateAvailable)?;
         let read_count = Samples::get_estimate_sqlite(
             &self.db,
-            &PessimisticEstimator::get_estimate_key(tx, &CostField::ReadCount),
+            &PessimisticEstimator::get_estimate_key(tx, &CostField::ReadCount, evaluated_epoch),
         )
         .ok_or_else(|| EstimatorError::NoEstimateAvailable)?;
         let read_length = Samples::get_estimate_sqlite(
             &self.db,
-            &PessimisticEstimator::get_estimate_key(tx, &CostField::ReadLength),
+            &PessimisticEstimator::get_estimate_key(tx, &CostField::ReadLength, evaluated_epoch),
         )
         .ok_or_else(|| EstimatorError::NoEstimateAvailable)?;
         let write_count = Samples::get_estimate_sqlite(
             &self.db,
-            &PessimisticEstimator::get_estimate_key(tx, &CostField::WriteCount),
+            &PessimisticEstimator::get_estimate_key(tx, &CostField::WriteCount, evaluated_epoch),
         )
         .ok_or_else(|| EstimatorError::NoEstimateAvailable)?;
         let write_length = Samples::get_estimate_sqlite(
             &self.db,
-            &PessimisticEstimator::get_estimate_key(tx, &CostField::WriteLength),
+            &PessimisticEstimator::get_estimate_key(tx, &CostField::WriteLength, evaluated_epoch),
         )
         .ok_or_else(|| EstimatorError::NoEstimateAvailable)?;
 

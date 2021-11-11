@@ -21,6 +21,7 @@ pub mod pessimistic;
 pub mod tests;
 
 use crate::chainstate::stacks::StacksTransaction;
+use core::StacksEpochId;
 
 use self::metrics::CostMetric;
 pub use self::pessimistic::PessimisticEstimator;
@@ -128,12 +129,15 @@ pub trait CostEstimator: Send {
         tx: &TransactionPayload,
         actual_cost: &ExecutionCost,
         block_limit: &ExecutionCost,
+evaluated_epoch: &StacksEpochId
     ) -> Result<(), EstimatorError>;
 
     /// This method is used by a stacks-node to obtain an estimate for a given transaction payload.
     /// If the estimator cannot provide an accurate estimate for a given payload, it should return
     /// `EstimatorError::NoEstimateAvailable`
-    fn estimate_cost(&self, tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError>;
+    fn estimate_cost(&self, tx: &TransactionPayload,
+evaluated_epoch: &StacksEpochId
+                     ) -> Result<ExecutionCost, EstimatorError>;
 
     /// This method is invoked by the `stacks-node` to notify the estimator of all the transaction
     /// receipts in a given block.
@@ -225,11 +229,12 @@ impl CostEstimator for () {
         _tx: &TransactionPayload,
         _actual_cost: &ExecutionCost,
         _block_limit: &ExecutionCost,
+        _evaluated_epoch: &StacksEpochId
     ) -> Result<(), EstimatorError> {
         Ok(())
     }
 
-    fn estimate_cost(&self, _tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError> {
+    fn estimate_cost(&self, _tx: &TransactionPayload, _evaluated_epoch: &StacksEpochId) -> Result<ExecutionCost, EstimatorError> {
         Err(EstimatorError::NoEstimateAvailable)
     }
 }
@@ -261,11 +266,14 @@ impl CostEstimator for UnitEstimator {
         _tx: &TransactionPayload,
         _actual_cost: &ExecutionCost,
         _block_limit: &ExecutionCost,
+_evaluated_epoch: &StacksEpochId
     ) -> Result<(), EstimatorError> {
         Ok(())
     }
 
-    fn estimate_cost(&self, _tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError> {
+    fn estimate_cost(&self, _tx: &TransactionPayload,
+_evaluated_epoch: &StacksEpochId
+                     ) -> Result<ExecutionCost, EstimatorError> {
         Ok(ExecutionCost {
             write_length: 1,
             write_count: 1,

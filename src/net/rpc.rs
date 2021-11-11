@@ -1609,19 +1609,6 @@ impl ConversationHttp {
         estimated_len: u64,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
-        if let Some((cost_estimator, fee_estimator, metric)) = handler_args.get_estimators_ref() {
-            let estimated_cost = match cost_estimator.estimate_cost(tx) {
-                Ok(x) => x,
-                Err(e) => {
-                    debug!(
-                        "Estimator RPC endpoint failed to estimate tx: {}",
-                        tx.name()
-                    );
-                    return HttpResponseType::BadRequestJSON(response_metadata, e.into_json())
-                        .send(http, fd);
-                }
-            };
-
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
             let stacks_epoch = sortdb
                 .index_conn()
@@ -1633,6 +1620,18 @@ impl ConversationHttp {
                     );
                     net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
                 })?;
+        if let Some((cost_estimator, fee_estimator, metric)) = handler_args.get_estimators_ref() {
+            let estimated_cost = match cost_estimator.estimate_cost(tx, &stacks_epoch.epoch_id) {
+                Ok(x) => x,
+                Err(e) => {
+                    debug!(
+                        "Estimator RPC endpoint failed to estimate tx: {}",
+                        tx.name()
+                    );
+                    return HttpResponseType::BadRequestJSON(response_metadata, e.into_json())
+                        .send(http, fd);
+                }
+            };
 
             let scalar_cost =
                 metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
