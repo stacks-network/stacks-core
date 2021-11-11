@@ -87,7 +87,7 @@ struct MicroblockMinerRuntime {
     disable_cost_check: bool,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum BlockLimitFunction {
     NO_LIMIT_HIT,
     CONTRACT_LIMIT_HIT,
@@ -788,6 +788,7 @@ impl StacksBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
     ) -> Result<StacksTransactionReceipt, Error> {
+        warn!("trying transaction: {:#?}, limit_behavior: {:?}", tx, limit_behavior);
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             return Err(Error::BlockTooBigError);
         }

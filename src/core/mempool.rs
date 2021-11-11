@@ -115,6 +115,7 @@ pub enum MemPoolDropReason {
     TOO_EXPENSIVE,
 }
 
+#[derive(Debug, Clone)]
 pub struct ConsiderTransaction {
     /// Transaction to consider in block assembly
     pub tx: MemPoolTxInfo,
@@ -123,6 +124,7 @@ pub struct ConsiderTransaction {
     pub update_estimate: bool,
 }
 
+#[derive(Debug, Clone)]
 enum ConsiderTransactionResult {
     NoTransactions,
     UpdateNonces(Vec<StacksAddress>),
@@ -742,7 +744,9 @@ impl MemPoolDB {
                 tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob
             });
 
-            match self.get_next_tx_to_consider(start_with_no_estimate)? {
+            let next_candidate_off_queue = self.get_next_tx_to_consider(start_with_no_estimate)?;
+            warn!("next_candidate_off_queue {:?}", &next_candidate_off_queue);
+            match next_candidate_off_queue {
                 ConsiderTransactionResult::NoTransactions => {
                     debug!("No more transactions to consider in mempool");
                     break;
