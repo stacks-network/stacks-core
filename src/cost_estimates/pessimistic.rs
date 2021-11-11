@@ -225,6 +225,7 @@ impl PessimisticEstimator {
         let tx_descriptor = match tx {
             TransactionPayload::TokenTransfer(..) => "stx-transfer".to_string(),
             TransactionPayload::ContractCall(cc) => {
+                // Epoch key is "" before Epoch2_05 for backwards compatibility.
                 let epoch_marker = match evaluated_epoch {
                     StacksEpochId::Epoch10 => "",
                     StacksEpochId::Epoch20 => "",

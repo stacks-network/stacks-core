@@ -648,3 +648,56 @@ fn test_pessimistic_cost_estimator() {
         }
     );
 }
+
+/// Test that we forget the "learnings" from previous Stacks epoch on next epoch.
+#[test]
+fn test_cost_estimator_forget_previous() {
+    // Setup: Do "notify" in Epoch20.
+    let mut estimator = instantiate_test_db();
+    let block = vec![
+        make_dummy_coinbase_tx(),
+        make_dummy_transfer_tx(),
+        make_dummy_transfer_tx(),
+        make_dummy_cc_tx(
+            "contract-1",
+            "func1",
+            ExecutionCost {
+                write_length: 10,
+                write_count: 10,
+                read_length: 10,
+                read_count: 10,
+                runtime: 10,
+            },
+        ),
+    ];
+    estimator.notify_block(&block, &BLOCK_LIMIT_MAINNET_20, &StacksEpochId::Epoch20);
+
+    // Test 1: We should get *non-zero* estimates back when we test in Epoch20.
+    assert_eq!(
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20
+            )
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 10,
+            write_count: 10,
+            read_length: 10,
+            read_count: 10,
+            runtime: 10,
+        }
+    );
+
+    // Test 2: We should get *zero* estimates back when we test in Epoch20.
+    assert_eq!(
+        error,
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch2_05
+            )
+            .unwrap_err(),
+        EstimatorError::NoEstimateAvailable
+    );
+}
