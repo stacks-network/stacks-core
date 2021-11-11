@@ -715,7 +715,7 @@ impl MemPoolDB {
     pub fn iterate_candidates<F, E, C>(
         &mut self,
         clarity_tx: &mut C,
-        _tip_height: u64,
+        tip_height: u64,
         settings: MemPoolWalkSettings,
         mut todo: F,
     ) -> Result<u64, E>
@@ -745,7 +745,7 @@ impl MemPoolDB {
             });
 
             let next_candidate_off_queue = self.get_next_tx_to_consider(start_with_no_estimate)?;
-            warn!("next_candidate_off_queue {:?}", &next_candidate_off_queue);
+            warn!("next_candidate_off_queue @{}: {:?}", tip_height, &next_candidate_off_queue);
             match next_candidate_off_queue {
                 ConsiderTransactionResult::NoTransactions => {
                     debug!("No more transactions to consider in mempool");
