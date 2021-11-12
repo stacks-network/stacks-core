@@ -1813,7 +1813,7 @@ mod test {
     use super::make_all_api_reference;
     use super::make_json_api_reference;
 
-    use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+    use core::{StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, STACKS_EPOCH_MAX};
     use vm::costs::ExecutionCost;
 
     struct DocHeadersDB {}
@@ -1881,6 +1881,7 @@ mod test {
                 start_height: 0,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
             })
         }
         fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
