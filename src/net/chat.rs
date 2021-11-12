@@ -658,10 +658,11 @@ impl ConversationP2P {
 
         if my_epoch <= remote_epoch {
             // remote node supports same epochs we do
+            test_debug!("Remote peer has epoch {}, which is newer than our epoch {}", remote_epoch, my_epoch);
             return true;
         }
 
-        test_debug!("Remote peer has old network version {}", remote_peer_version);
+        test_debug!("Remote peer has old network version {} (epoch {})", remote_peer_version, remote_epoch);
 
         // what epoch are we in?
         // note that it might not be my_epoch -- for example, my_epoch can be 0x05 for a 2.05 node,
@@ -675,6 +676,7 @@ impl ConversationP2P {
 
         if cur_epoch <= remote_epoch {
             // epoch shift hasn't happened yet, and this peer supports the current epoch
+            test_debug!("Remote peer has epoch {} and current epoch is {}, so still valid", remote_epoch, cur_epoch);
             return true;
         }
 
