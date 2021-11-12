@@ -899,7 +899,7 @@ impl std::default::Default for Config {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
@@ -985,7 +985,7 @@ impl BurnchainConfig {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,

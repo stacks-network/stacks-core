@@ -183,7 +183,7 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
 }
 
 #[repr(u32)]
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Deserialize)]
 pub enum StacksEpochId {
     Epoch10 = 0x01000,
     Epoch20 = 0x02000,
@@ -213,7 +213,7 @@ impl TryFrom<u32> for StacksEpochId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
 pub struct StacksEpoch {
     pub epoch_id: StacksEpochId,
     pub start_height: u64,
