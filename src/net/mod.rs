@@ -2993,13 +2993,13 @@ pub mod test {
             self.stacks_node = Some(node);
         }
 
-        pub fn process_stacks_epoch_at_tip_checked(
+        fn inner_process_stacks_epoch_at_tip(
             &mut self,
+            sortdb: &SortitionDB,
+            node: &mut TestStacksNode,
             block: &StacksBlock,
             microblocks: &Vec<StacksMicroblock>,
         ) -> Result<(), coordinator_error> {
-            let sortdb = self.sortdb.take().unwrap();
-            let mut node = self.stacks_node.take().unwrap();
             {
                 let ic = sortdb.index_conn();
                 let tip = SortitionDB::get_canonical_burn_chain_tip(&ic)?;
@@ -3020,10 +3020,21 @@ pub mod test {
                 &block.block_hash(),
                 &pox_id
             );
+            Ok(())
+        }
 
+        pub fn process_stacks_epoch_at_tip_checked(
+            &mut self,
+            block: &StacksBlock,
+            microblocks: &Vec<StacksMicroblock>,
+        ) -> Result<(), coordinator_error> {
+            let sortdb = self.sortdb.take().unwrap();
+            let mut node = self.stacks_node.take().unwrap();
+            let res =
+                self.inner_process_stacks_epoch_at_tip(&sortdb, &mut node, block, microblocks);
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
-            Ok(())
+            res
         }
 
         pub fn process_stacks_epoch(
