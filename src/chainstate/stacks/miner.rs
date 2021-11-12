@@ -1209,8 +1209,8 @@ impl StacksBlockBuilder {
                 Err(e) => {
                     warn!("Miner failed to load parent microblock, mining without parent microblock tail";
                               "parent_block_hash" => %parent_header_hash,
-                              "parent_index_hash" => %parent_header_hash,
-                              "parent_consensus_hash" => %parent_header_hash,
+                              "parent_index_hash" => %parent_index_hash,
+                              "parent_consensus_hash" => %parent_consensus_hash,
                               "parent_microblock_hash" => match self.parent_microblock_hash.as_ref() {
                                   Some(x) => format!("Some({})", x.to_string()),
                                   None => "None".to_string(),
