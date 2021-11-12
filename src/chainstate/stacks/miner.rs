@@ -1185,17 +1185,14 @@ impl StacksBlockBuilder {
         let parent_index_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
 
-        let parent_sn =
-            SortitionDB::get_block_snapshot_consensus(burn_dbconn.conn(), &parent_consensus_hash)?
-                .ok_or(Error::NoSuchBlockError)?;
         let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
         let burn_tip_height =
             SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height as u32;
 
         let parent_microblocks = if StacksChainState::block_crosses_epoch_boundary(
-            burn_dbconn,
-            parent_sn.block_height,
-            (burn_tip_height + 1).into(),
+            chainstate.db(),
+            &parent_consensus_hash,
+            &parent_header_hash,
         )? {
             info!("Descendant of {}/{} will NOT confirm any microblocks, since it will cross an epoch boundary", &parent_consensus_hash, &parent_header_hash);
             vec![]
@@ -1720,11 +1717,15 @@ pub mod test {
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
     use chainstate::burn::*;
+    use chainstate::coordinator::Error as CoordinatorError;
+    use chainstate::stacks::db::blocks::test::store_staging_block;
     use chainstate::stacks::db::test::*;
     use chainstate::stacks::db::*;
+    use chainstate::stacks::Error as ChainstateError;
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
     use net::test::*;
+    use util::db::Error as db_error;
     use util::sleep_ms;
     use util::vrf::VRFProof;
     use vm::types::*;
@@ -7020,7 +7021,6 @@ pub mod test {
 
         let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
         let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
-        let mut sender_nonce = 0;
 
         let mut last_block = None;
         for tenure_id in 0..num_blocks {
@@ -7159,7 +7159,7 @@ pub mod test {
                     .unwrap();
 
                     if parent_mblock_stream.len() > 0 {
-                        if tenure_id != 4 {
+                        if tenure_id != 5 {
                             assert_eq!(
                                 anchored_block.0.header.parent_microblock,
                                 parent_mblock_stream.last().unwrap().block_hash()
@@ -7176,8 +7176,12 @@ pub mod test {
 
             last_block = Some(stacks_block.clone());
 
+            test_debug!("Process tenure {}", tenure_id);
+
+            // should always succeed
             peer.next_burnchain_block(burn_ops.clone());
-            peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
+            peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+                .unwrap();
         }
 
         let last_block = last_block.unwrap();
@@ -7255,7 +7259,6 @@ pub mod test {
 
         let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
         let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
-        let mut sender_nonce = 0;
 
         let mut last_block: Option<StacksBlock> = None;
         let mut last_block_ch: Option<ConsensusHash> = None;
@@ -7280,7 +7283,7 @@ pub mod test {
                         Some(block) => {
                             let ic = sortdb.index_conn();
 
-                            if tenure_id < 5 {
+                            if tenure_id < 6 {
                                 let snapshot =
                                     SortitionDB::get_block_snapshot_for_winning_stacks_block(
                                         &ic,
@@ -7416,6 +7419,10 @@ pub mod test {
                     if parent_mblock_stream.len() > 0 {
                         // force the block to confirm a microblock stream, even if it would result in
                         // an invalid block.
+                        test_debug!(
+                            "Force {} to have a microblock parent",
+                            &anchored_block.0.block_hash()
+                        );
                         anchored_block.0.header.parent_microblock =
                             parent_mblock_stream.last().unwrap().block_hash();
                         anchored_block.0.header.parent_microblock_sequence =
@@ -7424,6 +7431,7 @@ pub mod test {
                             anchored_block.0.header.parent_microblock,
                             parent_mblock_stream.last().unwrap().block_hash()
                         );
+                        test_debug!("New block hash is {}", &anchored_block.0.block_hash());
                     } else {
                         assert_eq!(tenure_id, 0);
                     }
@@ -7434,9 +7442,53 @@ pub mod test {
 
             last_block = Some(stacks_block.clone());
 
-            peer.next_burnchain_block(burn_ops.clone());
-            peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
-                .unwrap();
+            test_debug!("Process tenure {}", tenure_id);
+            let (_, _, block_ch) = peer.next_burnchain_block(burn_ops.clone());
+
+            if tenure_id != 5 {
+                // should always succeed
+                peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+                    .unwrap();
+            } else {
+                // should fail at first, since the block won't be available
+                // (since validate_anchored_block_burnchain() will fail)
+                if let Err(e) = peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![]) {
+                    match e {
+                        CoordinatorError::ChainstateError(ChainstateError::DBError(
+                            db_error::NotFoundError,
+                        )) => {}
+                        x => {
+                            panic!("Unexpected error {:?}", &x);
+                        }
+                    }
+                } else {
+                    panic!("processed epoch successfully");
+                }
+
+                // the parent of this block crosses the epoch boundary
+                let last_block_ch = last_block_ch.clone().unwrap();
+                assert!(StacksChainState::block_crosses_epoch_boundary(
+                    peer.chainstate().db(),
+                    &last_block_ch,
+                    &stacks_block.header.parent_block
+                )
+                .unwrap());
+
+                // forcibly store the block
+                store_staging_block(
+                    peer.chainstate(),
+                    &block_ch,
+                    &stacks_block,
+                    &last_block_ch,
+                    stacks_block.header.total_work.burn,
+                    stacks_block.header.total_work.burn,
+                );
+
+                // should run to completion, but the block should *not* be processed
+                // (this tests append_block())
+                peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+                    .unwrap();
+            }
 
             last_block_ch = Some(
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
