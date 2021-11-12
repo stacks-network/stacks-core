@@ -46,6 +46,7 @@ use monitoring::increment_stx_mempool_gc;
 use std::time::Instant;
 use util::db::query_row_columns;
 use util::db::query_rows;
+use util::db::sqlite_open;
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
 use util::db::u64_to_sql;
@@ -60,6 +61,7 @@ use vm::types::PrincipalData;
 use clarity_vm::clarity::ClarityConnection;
 
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::StacksBlock;
 use crate::codec::StacksMessageCodec;
 use crate::cost_estimates;
 use crate::cost_estimates::metrics::CostMetric;
@@ -143,6 +145,14 @@ impl std::fmt::Display for MemPoolDropReason {
 
 pub trait MemPoolEventDispatcher {
     fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason);
+    fn mined_block_event(
+        &self,
+        target_burn_height: u64,
+        block: &StacksBlock,
+        block_size_bytes: u64,
+        consumed: &ExecutionCost,
+        confirmed_microblock_cost: &ExecutionCost,
+    );
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -396,8 +406,6 @@ impl MemPoolTxInfo {
 
 impl MemPoolDB {
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
-        sql_pragma(conn, "PRAGMA journal_mode = WAL;")?;
-
         let tx = tx_begin_immediate(conn)?;
 
         for cmd in MEMPOOL_INITIAL_SCHEMA {
@@ -465,13 +473,7 @@ impl MemPoolDB {
             OpenFlags::SQLITE_OPEN_READ_WRITE
         };
 
-        let mut conn =
-            DBConn::open_with_flags(&db_path, open_flags).map_err(db_error::SqliteError)?;
-        conn.busy_handler(Some(tx_busy_handler))
-            .map_err(db_error::SqliteError)?;
-
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-
+        let mut conn = sqlite_open(&db_path, open_flags, true)?;
         if create_flag {
             // instantiate!
             MemPoolDB::instantiate_mempool_db(&mut conn)?;

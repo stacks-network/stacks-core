@@ -42,8 +42,8 @@ use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
 use util::db::{
-    query_row, query_rows, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, DBTx,
-    Error as db_error, FromColumn, FromRow,
+    query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn,
+    DBTx, Error as db_error, FromColumn, FromRow,
 };
 use util::get_epoch_time_secs;
 use util::hash::{hex_bytes, to_hex};
@@ -212,11 +212,8 @@ impl SpvClient {
             }
         };
 
-        let mut conn =
-            Connection::open_with_flags(headers_path, open_flags).map_err(db_error::SqliteError)?;
-
-        conn.busy_handler(Some(tx_busy_handler))
-            .map_err(db_error::SqliteError)?;
+        let mut conn = sqlite_open(headers_path, open_flags, false)
+            .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;
 
         if create_flag {
             SpvClient::db_instantiate(&mut conn)?;

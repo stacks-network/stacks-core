@@ -21,7 +21,6 @@ base64 = "0.12.0"
 backtrace = "0.3.50"
 libc = "0.2"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-ctrlc = { version = "3.1.7", features = [ "termination" ] }
 
 [dev-dependencies]
 ring = "0.16.19"

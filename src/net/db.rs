@@ -25,6 +25,7 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::fs;
 
+use util::db::sqlite_open;
 use util::db::tx_begin_immediate;
 use util::db::DBConn;
 use util::db::Error as db_error;
@@ -526,10 +527,8 @@ impl PeerDB {
             }
         };
 
-        let conn =
-            Connection::open_with_flags(path, open_flags).map_err(|e| db_error::SqliteError(e))?;
+        let conn = sqlite_open(path, open_flags, false)?;
 
-        conn.busy_handler(Some(tx_busy_handler))?;
         let mut db = PeerDB {
             conn: conn,
             readwrite: readwrite,
