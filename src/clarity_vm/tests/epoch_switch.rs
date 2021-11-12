@@ -35,6 +35,7 @@ use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
 
 use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+use core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
 
 use rand::thread_rng;
 use rand::RngCore;
@@ -83,18 +84,21 @@ fn test_vm_epoch_switch() {
                 start_height: 0,
                 end_height: 8,
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: 8,
                 end_height: 12,
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
                 start_height: 12,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
             },
         ],
         true,
