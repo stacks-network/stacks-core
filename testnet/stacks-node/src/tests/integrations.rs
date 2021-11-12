@@ -13,6 +13,7 @@ use stacks::chainstate::stacks::{TokenTransferMemo, TransactionContractCall, Tra
 use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
+use stacks::core::PEER_VERSION_EPOCH_2_0;
 use stacks::net::GetIsTraitImplementedResponse;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
@@ -1821,6 +1822,7 @@ fn block_limit_runtime_test() {
             //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
             runtime: 1_000_000_000,
         },
+        network_epoch: PEER_VERSION_EPOCH_2_0
     }]);
     conf.burnchain.commit_anchor_block_within = 5000;
 
