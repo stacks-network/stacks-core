@@ -11,7 +11,7 @@ use stacks::chainstate::burn::operations::{
     LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
-use stacks::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX, PEER_VERSION_EPOCH_2_0};
+use stacks::core::{StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, STACKS_EPOCH_MAX};
 use stacks::types::chainstate::{BurnchainHeaderHash, PoxId};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
@@ -98,7 +98,7 @@ impl BurnchainController for MocknetController {
                 start_height: 0,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0
+                network_epoch: PEER_VERSION_EPOCH_2_0,
             }],
         };
         let db = match SortitionDB::connect(

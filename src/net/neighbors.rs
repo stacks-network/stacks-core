@@ -3076,6 +3076,10 @@ impl PeerNetwork {
 #[cfg(test)]
 mod test {
     use super::*;
+    use core::{
+        StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+        STACKS_EPOCH_MAX,
+    };
     use net::asn::*;
     use net::chat::*;
     use net::db::*;
@@ -3083,7 +3087,6 @@ mod test {
     use util::hash::*;
     use util::sleep_ms;
     use util::test::*;
-    use core::{StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, STACKS_EPOCH_MAX};
 
     const TEST_IN_OUT_DEGREES: u64 = 0x1;
 
@@ -3390,7 +3393,7 @@ mod test {
             assert!(peer_2.network.local_peer.public_ip_address.is_none());
         })
     }
-    
+
     #[test]
     #[ignore]
     fn test_step_walk_1_neighbor_bad_epoch() {
@@ -3405,28 +3408,24 @@ mod test {
 
             // peer 1 thinks its always epoch 2.0
             peer_1_config.peer_version = 0x18000000;
-            peer_1_config.epochs = Some(vec![
-                StacksEpoch {
-                    epoch_id: StacksEpochId::Epoch20,
-                    start_height: 0,
-                    end_height: STACKS_EPOCH_MAX,
-                    block_limit: ExecutionCost::max_value(),
-                    network_epoch: PEER_VERSION_EPOCH_2_0,
-                }
-            ]);
+            peer_1_config.epochs = Some(vec![StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            }]);
 
             // peer 2 thinks its always epoch 2.05
             peer_2_config.peer_version = 0x18000005;
-            peer_2_config.epochs = Some(vec![
-                StacksEpoch {
-                    epoch_id: StacksEpochId::Epoch2_05,
-                    start_height: 0,
-                    end_height: STACKS_EPOCH_MAX,
-                    block_limit: ExecutionCost::max_value(),
-                    network_epoch: PEER_VERSION_EPOCH_2_05,
-                }
-            ]);
-            
+            peer_2_config.epochs = Some(vec![StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 0,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            }]);
+
             // peers know about each other, but peer 2 never talks to peer 1 since it believes that
             // it's in a wholly different epoch
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
