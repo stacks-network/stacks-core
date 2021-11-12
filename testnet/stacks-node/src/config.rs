@@ -1471,6 +1471,7 @@ pub enum EventKeyType {
     Microblocks,
     AnyEvent,
     BurnchainBlocks,
+    MinedBlocks,
 }
 
 impl EventKeyType {

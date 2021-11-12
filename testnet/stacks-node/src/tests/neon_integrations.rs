@@ -116,10 +116,13 @@ pub mod test_observer {
     use warp;
     use warp::Filter;
 
+    use crate::event_dispatcher::MinedBlockEvent;
+
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
     lazy_static! {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+        pub static ref MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
         pub static ref NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -146,6 +149,12 @@ pub mod test_observer {
     ) -> Result<impl warp::Reply, Infallible> {
         let mut microblock_events = NEW_MICROBLOCKS.lock().unwrap();
         microblock_events.push(microblocks);
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    async fn handle_mined_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
+        let mut mined_blocks = MINED_BLOCKS.lock().unwrap();
+        mined_blocks.push(serde_json::from_value(block).unwrap());
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -216,6 +225,10 @@ pub mod test_observer {
         ATTACHMENTS.lock().unwrap().clone()
     }
 
+    pub fn get_mined_blocks() -> Vec<MinedBlockEvent> {
+        MINED_BLOCKS.lock().unwrap().clone()
+    }
+
     /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
     async fn serve() {
         let new_blocks = warp::path!("new_block")
@@ -242,6 +255,10 @@ pub mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_microblocks);
+        let mined_blocks = warp::path!("mined_block")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_mined_block);
 
         info!("Spawning warp server");
         warp::serve(
@@ -250,7 +267,8 @@ pub mod test_observer {
                 .or(mempool_drop_txs)
                 .or(new_burn_blocks)
                 .or(new_attachments)
-                .or(new_microblocks),
+                .or(new_microblocks)
+                .or(mined_blocks),
         )
         .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
         .await
@@ -270,6 +288,7 @@ pub mod test_observer {
         NEW_BLOCKS.lock().unwrap().clear();
         MEMTXS.lock().unwrap().clear();
         MEMTXS_DROPPED.lock().unwrap().clear();
+        MINED_BLOCKS.lock().unwrap().clear();
     }
 }
 
@@ -3205,8 +3224,8 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
 
     let mut max_big_txs_per_block = 0;
     let mut max_big_txs_per_microblock = 0;
-    let mut total_big_txs_per_block = 0;
-    let mut total_big_txs_per_microblock = 0;
+    let mut total_big_txs_in_blocks = 0;
+    let mut total_big_txs_in_microblocks = 0;
 
     for block in blocks {
         eprintln!("block {:?}", &block);
@@ -3226,10 +3245,10 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
             if let TransactionPayload::SmartContract(tsc) = parsed.payload {
                 if tsc.name.to_string().find("large-").is_some() {
                     num_big_anchored_txs += 1;
-                    total_big_txs_per_block += 1;
+                    total_big_txs_in_blocks += 1;
                 } else if tsc.name.to_string().find("small").is_some() {
                     num_big_microblock_txs += 1;
-                    total_big_txs_per_microblock += 1;
+                    total_big_txs_in_microblocks += 1;
                 }
             }
         }
@@ -3242,22 +3261,25 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
-    debug!(
+    info!(
         "max_big_txs_per_microblock: {}, max_big_txs_per_block: {}",
         max_big_txs_per_microblock, max_big_txs_per_block
     );
-    debug!(
-        "total_big_txs_per_microblock: {}, total_big_txs_per_block: {}",
-        total_big_txs_per_microblock, total_big_txs_per_block
+    info!(
+        "total_big_txs_in_microblocks: {}, total_big_txs_in_blocks: {}",
+        total_big_txs_in_microblocks, total_big_txs_in_blocks
     );
 
     // at most one big tx per block and at most one big tx per stream, always.
-    assert!(max_big_txs_per_microblock == 1);
-    assert!(max_big_txs_per_block == 1);
+    assert_eq!(max_big_txs_per_microblock, 1);
+    assert_eq!(max_big_txs_per_block, 1);
 
     // if the mblock stream has a big tx, the anchored block won't (and vice versa)
-    assert!(total_big_txs_per_block == 1); // last block didn't get counted by the observer
-    assert!(total_big_txs_per_microblock == 2);
+    // the changes for miner cost tracking (reset tracker between microblock and block, #2913)
+    // altered this test so that one more big tx ends up in an anchored block and one fewer
+    // ends up in a microblock
+    assert_eq!(total_big_txs_in_blocks, 2);
+    assert_eq!(total_big_txs_in_microblocks, 1);
 
     test_observer::clear();
     channel.stop_chains_coordinator();

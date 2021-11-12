@@ -10,6 +10,7 @@ use rusqlite::{
 use serde_json::Value as JsonValue;
 
 use chainstate::stacks::TransactionPayload;
+use util::db::sqlite_open;
 use util::db::tx_begin_immediate_sqlite;
 use util::db::u64_to_sql;
 
@@ -18,7 +19,6 @@ use vm::costs::ExecutionCost;
 use chainstate::stacks::db::StacksEpochReceipt;
 use chainstate::stacks::events::TransactionOrigin;
 
-use crate::util::db::set_wal_mode;
 use crate::util::db::sql_pragma;
 use crate::util::db::table_exists;
 
@@ -52,16 +52,16 @@ pub struct ScalarFeeRateEstimator<M: CostMetric> {
 impl<M: CostMetric> ScalarFeeRateEstimator<M> {
     /// Open a fee rate estimator at the given db path. Creates if not existent.
     pub fn open(p: &Path, metric: M) -> Result<Self, SqliteError> {
-        let db = match Connection::open_with_flags(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE) {
-            Ok(db) => {
-                set_wal_mode(&db)?;
-                Ok(db)
-            }
-            Err(e) => {
+        let db =
+            sqlite_open(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE, false).or_else(|e| {
                 if let SqliteError::SqliteFailure(ref internal, _) = e {
                     if let rusqlite::ErrorCode::CannotOpen = internal.code {
-                        let mut db = Connection::open(p)?;
-                        set_wal_mode(&db)?;
+                        let mut db = sqlite_open(
+                            p,
+                            rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+                                | rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+                            false,
+                        )?;
                         let tx = tx_begin_immediate_sqlite(&mut db)?;
                         Self::instantiate_db(&tx)?;
                         tx.commit()?;
@@ -72,8 +72,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
                 } else {
                     Err(e)
                 }
-            }
-        }?;
+            })?;
 
         Ok(Self {
             db,

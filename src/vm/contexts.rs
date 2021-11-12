@@ -941,6 +941,11 @@ impl<'a, 'b> Environment<'a, 'b> {
         result
     }
 
+    /// This is the epoch of the the block that this transaction is executing within.
+    /// Note: in the current plans for 2.10, there is also a contract-specific **Clarity version**
+    ///  which governs which native functions are available / defined. That is separate from this
+    ///  epoch identifier, and most Clarity VM changes should consult that value instead. This
+    ///  epoch identifier is used for determining how cost functions should be applied.
     pub fn epoch(&self) -> &StacksEpochId {
         &self.global_context.epoch_id
     }
