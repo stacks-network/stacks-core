@@ -481,7 +481,7 @@ pub struct BlockStreamData {
     num_mblocks_ptr: usize,
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "1";
+pub const CHAINSTATE_VERSION: &'static str = "2";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -633,6 +633,18 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
 ];
 
+const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
+    // new in epoch 2.05 (schema version 2)
+    // table of blocks that applied an epoch transition
+    r#"
+    CREATE TABLE epoch_transitions(
+        block_id TEXT PRIMARY KEY
+    );"#,
+    r#"
+    UPDATE db_config SET version = "2";
+    "#,
+];
+
 #[cfg(test)]
 pub const MINER_REWARD_MATURITY: u64 = 2; // small for testing purposes
 
@@ -741,20 +753,79 @@ impl StacksChainState {
             for cmd in CHAINSTATE_INITIAL_SCHEMA {
                 tx.execute_batch(cmd)?;
             }
-
             tx.execute(
                 "INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
                 &[
-                    &CHAINSTATE_VERSION,
+                    &"1".to_string(),
                     &(if mainnet { 1 } else { 0 }) as &dyn ToSql,
                     &chain_id as &dyn ToSql,
                 ],
             )?;
+
+            StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
         }
 
         dbtx.instantiate_index()?;
         dbtx.commit()?;
         Ok(marf)
+    }
+
+    fn load_db_config(conn: &DBConn) -> Result<DBConfig, Error> {
+        let config = query_row::<DBConfig, _>(
+            conn,
+            &"SELECT * FROM db_config LIMIT 1".to_string(),
+            NO_PARAMS,
+        )?;
+        Ok(config.expect("BUG: no db_config installed"))
+    }
+
+    fn apply_schema_migrations<'a>(
+        tx: &DBTx<'a>,
+        mainnet: bool,
+        chain_id: u32,
+    ) -> Result<(), Error> {
+        let mut db_config =
+            StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
+
+        if db_config.mainnet != mainnet {
+            error!(
+                "Invalid chain state database: expected mainnet = {}, got {}",
+                mainnet, db_config.mainnet
+            );
+            return Err(Error::InvalidChainstateDB);
+        }
+
+        if db_config.chain_id != chain_id {
+            error!(
+                "Invalid chain ID: expected {}, got {}",
+                chain_id, db_config.chain_id
+            );
+            return Err(Error::InvalidChainstateDB);
+        }
+
+        if db_config.version != CHAINSTATE_VERSION {
+            while db_config.version != CHAINSTATE_VERSION {
+                match db_config.version.as_str() {
+                    "1" => {
+                        // migrate to 2
+                        info!("Migrating chainstate schema from version 1 to 2");
+                        for cmd in CHAINSTATE_SCHEMA_2.iter() {
+                            tx.execute_batch(cmd)?;
+                        }
+                    }
+                    _ => {
+                        error!(
+                            "Invalid chain state database: expected version = {}, got {}",
+                            CHAINSTATE_VERSION, db_config.version
+                        );
+                        return Err(Error::InvalidChainstateDB);
+                    }
+                }
+                db_config =
+                    StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
+            }
+        }
+        Ok(())
     }
 
     fn open_db(
@@ -768,39 +839,10 @@ impl StacksChainState {
             // instantiate!
             StacksChainState::instantiate_db(mainnet, chain_id, index_path)
         } else {
-            let marf = StacksChainState::open_index(index_path)?;
-            // sanity check
-            let db_config = query_row::<DBConfig, _>(
-                marf.sqlite_conn(),
-                &"SELECT * FROM db_config LIMIT 1".to_string(),
-                NO_PARAMS,
-            )?
-            .expect("CORRUPTION: no db_config found");
-
-            if db_config.mainnet != mainnet {
-                error!(
-                    "Invalid chain state database: expected mainnet = {}, got {}",
-                    mainnet, db_config.mainnet
-                );
-                return Err(Error::InvalidChainstateDB);
-            }
-
-            if db_config.version != CHAINSTATE_VERSION {
-                error!(
-                    "Invalid chain state database: expected version = {}, got {}",
-                    CHAINSTATE_VERSION, db_config.version
-                );
-                return Err(Error::InvalidChainstateDB);
-            }
-
-            if db_config.chain_id != chain_id {
-                error!(
-                    "Invalid chain ID: expected {}, got {}",
-                    chain_id, db_config.chain_id
-                );
-                return Err(Error::InvalidChainstateDB);
-            }
-
+            let mut marf = StacksChainState::open_index(index_path)?;
+            let tx = marf.storage_tx()?;
+            StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
+            tx.commit()?;
             Ok(marf)
         }
     }
@@ -1894,6 +1936,7 @@ impl StacksChainState {
         user_burns: &Vec<StagingUserBurnSupport>,
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
+        applied_epoch_transition: bool,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -1920,10 +1963,11 @@ impl StacksChainState {
         headers_tx
             .put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_consensus_hash))?;
         let root_hash = headers_tx.put_indexed_all(&vec![], &vec![])?;
+        let index_block_hash = new_tip.index_block_hash(&new_consensus_hash);
         test_debug!(
             "Headers index_indexed_all finished {}-{}",
             &parent_hash,
-            &new_tip.index_block_hash(new_consensus_hash)
+            &index_block_hash,
         );
 
         let new_tip_info = StacksHeaderInfo {
@@ -1945,6 +1989,13 @@ impl StacksChainState {
             anchor_block_cost,
         )?;
         StacksChainState::insert_miner_payment_schedule(headers_tx, block_reward, user_burns)?;
+
+        if applied_epoch_transition {
+            debug!("Block {} applied an epoch transition", &index_block_hash);
+            let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
+            let args: &[&dyn ToSql] = &[&index_block_hash];
+            headers_tx.execute(sql, args)?;
+        }
 
         debug!(
             "Advanced to new tip! {}/{}",
