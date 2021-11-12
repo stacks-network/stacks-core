@@ -654,22 +654,17 @@ fn test_pessimistic_cost_estimator() {
 fn test_cost_estimator_forget_previous() {
     // Setup: Do "notify" in Epoch20.
     let mut estimator = instantiate_test_db();
-    let block = vec![
-        make_dummy_coinbase_tx(),
-        make_dummy_transfer_tx(),
-        make_dummy_transfer_tx(),
-        make_dummy_cc_tx(
-            "contract-1",
-            "func1",
-            ExecutionCost {
-                write_length: 10,
-                write_count: 10,
-                read_length: 10,
-                read_count: 10,
-                runtime: 10,
-            },
-        ),
-    ];
+    let block = vec![make_dummy_cc_tx(
+        "contract-1",
+        "func1",
+        ExecutionCost {
+            write_length: 10,
+            write_count: 10,
+            read_length: 10,
+            read_count: 10,
+            runtime: 10,
+        },
+    )];
     estimator.notify_block(&block, &BLOCK_LIMIT_MAINNET_20, &StacksEpochId::Epoch20);
 
     // Test 1: We should get *non-zero* estimates back when we test in Epoch20.
@@ -691,7 +686,6 @@ fn test_cost_estimator_forget_previous() {
 
     // Test 2: We should get *zero* estimates back when we test in Epoch2_05.
     assert_eq!(
-        error,
         estimator
             .estimate_cost(
                 &make_dummy_cc_payload("contract-1", "func1"),
@@ -699,5 +693,119 @@ fn test_cost_estimator_forget_previous() {
             )
             .unwrap_err(),
         EstimatorError::NoEstimateAvailable
+    );
+}
+
+/// Test that data from a later epoch doesn't affect an earlier one.
+#[test]
+fn test_cost_estimator_dont_affect_previous() {
+    // Setup: Do "notify" in Epoch2_05.
+    let mut estimator = instantiate_test_db();
+    let block = vec![make_dummy_cc_tx(
+        "contract-1",
+        "func1",
+        ExecutionCost {
+            write_length: 10,
+            write_count: 10,
+            read_length: 10,
+            read_count: 10,
+            runtime: 10,
+        },
+    )];
+    estimator.notify_block(&block, &BLOCK_LIMIT_MAINNET_20, &StacksEpochId::Epoch2_05);
+
+    // Test 1: We should get *non-zero* estimates back when we test in Epoch2_05.
+    assert_eq!(
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch2_05
+            )
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 10,
+            write_count: 10,
+            read_length: 10,
+            read_count: 10,
+            runtime: 10,
+        }
+    );
+
+    // Test 2: We should get *zero* estimates back when we test in Epoch20.
+    assert_eq!(
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20
+            )
+            .unwrap_err(),
+        EstimatorError::NoEstimateAvailable
+    );
+}
+
+/// Test that updates to Stacks 2.0 and Stacks 2.05 can be recorded and recovered independently.
+#[test]
+fn test_cost_estimator_epochs_independent() {
+    let contract_name = "contract-1";
+    let func_name = "func1";
+    let cost_200 = ExecutionCost {
+        write_length: 200,
+        write_count: 200,
+        read_length: 200,
+        read_count: 200,
+        runtime: 200,
+    };
+    let cost_205 = ExecutionCost {
+        write_length: 205,
+        write_count: 205,
+        read_length: 205,
+        read_count: 205,
+        runtime: 205,
+    };
+    let mut estimator = instantiate_test_db();
+
+    // Setup: "notify" cost_200 in Epoch20.
+    estimator.notify_block(
+        &vec![make_dummy_cc_tx(
+            &contract_name,
+            &func_name,
+            cost_200.clone(),
+        )],
+        &BLOCK_LIMIT_MAINNET_20,
+        &StacksEpochId::Epoch20,
+    );
+
+    // Setup: "notify" cost_205 in Epoch2_05.
+    estimator.notify_block(
+        &vec![
+            make_dummy_coinbase_tx(),
+            make_dummy_transfer_tx(),
+            make_dummy_transfer_tx(),
+            make_dummy_cc_tx(&contract_name, &func_name, cost_205.clone()),
+        ],
+        &BLOCK_LIMIT_MAINNET_20,
+        &StacksEpochId::Epoch2_05,
+    );
+
+    // Check: We get back cost_200 for Epoch20.
+    assert_eq!(
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20
+            )
+            .expect("Should be able to provide cost estimate now"),
+        cost_200.clone(),
+    );
+
+    // Check: We get back cost_205 for Epoch2_05.
+    assert_eq!(
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch2_05
+            )
+            .expect("Should be able to provide cost estimate now"),
+        cost_205.clone(),
     );
 }
