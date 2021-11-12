@@ -3104,26 +3104,24 @@ impl StacksChainState {
         return Some((end, None));
     }
 
-    /// Determine whether or not a block is in a different epoch than its parent, given their
-    /// burnchain heights.
+    /// Determine whether or not a block executed an epoch transition.  That is, did this block
+    /// call `initialize_epoch_2_05()` or similar when it was processed.
     pub fn block_crosses_epoch_boundary(
-        sortdb_conn: &DBConn,
-        parent_burn_height: u64,
-        child_burn_height: u64,
+        block_conn: &DBConn,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block_hash: &BlockHeaderHash,
     ) -> Result<bool, db_error> {
-        let child_epoch =
-            SortitionDB::get_stacks_epoch(sortdb_conn, child_burn_height)?.expect(&format!(
-                "FATAL: no epoch defined at burn height {}",
-                child_burn_height
-            ));
+        let sql = "SELECT 1 FROM epoch_transitions WHERE block_id = ?1";
+        let args: &[&dyn ToSql] = &[&StacksBlockHeader::make_index_block_hash(
+            parent_consensus_hash,
+            parent_block_hash,
+        )];
+        let res = block_conn
+            .query_row(sql, args, |_r| Ok(()))
+            .optional()
+            .map(|x| x.is_some())?;
 
-        let parent_epoch =
-            SortitionDB::get_stacks_epoch(sortdb_conn, parent_burn_height)?.expect(&format!(
-                "FATAL: no epoch defined at burn height {}",
-                parent_burn_height
-            ));
-
-        Ok(child_epoch.epoch_id != parent_epoch.epoch_id)
+        Ok(res)
     }
 
     /// Validate an anchored block against the burn chain state.  Determines if this given Stacks
@@ -3135,6 +3133,7 @@ impl StacksChainState {
     /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
     /// (ostensibly) selected this block for inclusion.
     fn validate_anchored_block_burnchain(
+        blocks_conn: &DBConn,
         db_handle: &SortitionHandleConn,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
@@ -3216,16 +3215,21 @@ impl StacksChainState {
         }
 
         // NEW in 2.05
-        // if the parent and child epoch differ, then this block cannot descend from a microblock
-        // stream.  Don't store it if this is the case.
+        // if the parent block marks an epoch transition, then its children necessarily run in a
+        // different Clarity epoch.  Its children therefore are not permitted to confirm any of
+        // their parents' microblocks.
         if StacksChainState::block_crosses_epoch_boundary(
-            db_handle,
-            burn_chain_tip.block_height,
-            block_commit.block_height,
+            blocks_conn,
+            &stacks_chain_tip.consensus_hash,
+            &stacks_chain_tip.winning_stacks_block_hash,
         )? {
             if block.has_microblock_parent() {
                 warn!(
-                    "Invalid block, mined in different epoch than parent but confirms microblocks"
+                    "Invalid block {}/{}: its parent {}/{} crossed the epoch boundary but this block confirmed its microblocks",
+                    &consensus_hash,
+                    &block.block_hash(),
+                    &stacks_chain_tip.consensus_hash,
+                    &stacks_chain_tip.winning_stacks_block_hash
                 );
                 return Ok(None);
             }
@@ -3318,6 +3322,7 @@ impl StacksChainState {
 
         // does this block match the burnchain state? skip if not
         let validation_res = StacksChainState::validate_anchored_block_burnchain(
+            &block_tx,
             &sort_handle,
             consensus_hash,
             block,
@@ -3940,10 +3945,11 @@ impl StacksChainState {
 
     /// If an epoch transition occurs at this Stacks block,
     ///   apply the transition and return any receipts from the transition.
+    /// Return (applied?, receipts)
     pub fn process_epoch_transition(
         clarity_tx: &mut ClarityTx,
         chain_tip_burn_header_height: u32,
-    ) -> Result<Vec<StacksTransactionReceipt>, Error> {
+    ) -> Result<(bool, Vec<StacksTransactionReceipt>), Error> {
         // is this stacks block the first of a new epoch?
         let (stacks_parent_epoch, sortition_epoch) = clarity_tx.with_clarity_db_readonly(|db| {
             (
@@ -3953,6 +3959,7 @@ impl StacksChainState {
         });
 
         let mut receipts = vec![];
+        let mut applied = false;
 
         if let Some(sortition_epoch) = sortition_epoch {
             // the parent stacks block has a different epoch than what the Sortition DB
@@ -3973,6 +3980,7 @@ impl StacksChainState {
                             "Should only transition from Epoch20 to Epoch2_05"
                         );
                         receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                        applied = true;
                     }
                     StacksEpochId::Epoch2_05 => {
                         panic!("No defined transition from Epoch2_05 forward")
@@ -3980,7 +3988,7 @@ impl StacksChainState {
                 }
             }
         }
-        Ok(receipts)
+        Ok((applied, receipts))
     }
 
     /// Process any Stacking-related bitcoin operations
@@ -4307,20 +4315,23 @@ impl StacksChainState {
 
         let mainnet = chainstate_tx.get_config().mainnet;
         let next_block_height = block.header.total_work.work;
+        let applied_epoch_transition;
 
         // NEW in 2.05
-        // if the parent and child epoch differ, then this block cannot descend from a microblock
-        // stream.
+        // if the parent marked an epoch transition -- i.e. its children necessarily run in
+        // different Clarity epochs -- then this block cannot confirm any of its microblocks.
         if StacksChainState::block_crosses_epoch_boundary(
-            burn_dbconn,
-            parent_chain_tip.burn_header_height.into(),
-            chain_tip_burn_header_height.into(),
+            chainstate_tx.deref(),
+            &parent_chain_tip.consensus_hash,
+            &parent_chain_tip.anchored_header.block_hash(),
         )? {
             debug!(
-                "Block {}/{} (mblock parent {}) crosses epoch boundary from parent",
+                "Block {}/{} (mblock parent {}) crosses epoch boundary from parent {}/{}",
                 chain_tip_consensus_hash,
                 &block.block_hash(),
-                &block.header.parent_microblock
+                &block.header.parent_microblock,
+                &parent_chain_tip.consensus_hash,
+                &parent_chain_tip.anchored_header.block_hash()
             );
             if block.has_microblock_parent() {
                 let msg =
@@ -4560,10 +4571,12 @@ impl StacksChainState {
                    "evaluated_epoch" => %evaluated_epoch);
 
             // is this stacks block the first of a new epoch?
-            let mut receipts = StacksChainState::process_epoch_transition(
+            let (epoch_transition, mut receipts) = StacksChainState::process_epoch_transition(
                 &mut clarity_tx,
                 chain_tip_burn_header_height,
             )?;
+
+            applied_epoch_transition = epoch_transition;
 
             // process stacking operations from bitcoin ops
             receipts.extend(StacksChainState::process_stacking_ops(
@@ -4764,6 +4777,7 @@ impl StacksChainState {
             user_burns,
             &block_execution_cost,
             block_size,
+            applied_epoch_transition,
         )
         .expect("FATAL: failed to advance chain tip");
 
