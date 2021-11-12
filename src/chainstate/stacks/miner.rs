@@ -7148,6 +7148,7 @@ pub mod test {
                 read_count: 100,
                 runtime: 3350,
             },
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         }]);
 
         let mut peer = TestPeer::new(peer_config);
@@ -9151,6 +9152,7 @@ pub mod test {
                     read_count: 7_750,
                     runtime: 5_000_000_000,
                 },
+                network_epoch: PEER_VERSION_EPOCH_2_0,
             }],
             true,
         )
