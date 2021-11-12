@@ -923,8 +923,8 @@ pub struct BurnchainConfig {
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
     pub rbf_fee_increment: u64,
-    // Custom override for the definitions of the epochs. This will only be applies for testnet and
-    // regtest nodes.
+    /// Custom override for the definitions of the epochs. This will only be applied for testnet and
+    /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
 }
 
