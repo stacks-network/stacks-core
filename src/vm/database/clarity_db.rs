@@ -52,6 +52,8 @@ use crate::types::chainstate::{
 use crate::types::proof::TrieMerkleProof;
 use crate::vm::types::byte_len_of_serialization;
 
+use core::PEER_VERSION_EPOCH_2_0;
+
 use super::key_value_wrapper::ValueResult;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
@@ -242,6 +244,7 @@ impl BurnStateDB for NullBurnStateDB {
             start_height: 0,
             end_height: u64::MAX,
             block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         })
     }
 
