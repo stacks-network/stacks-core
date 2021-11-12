@@ -31,6 +31,7 @@ use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
 use address::c32::c32_address;
 use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
+use util::db::sqlite_open;
 use util::db::FromColumn;
 use util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 
@@ -259,7 +260,7 @@ fn create_or_open_db(path: &String) -> Connection {
     };
 
     let conn = friendly_expect(
-        Connection::open_with_flags(path, open_flags),
+        sqlite_open(path, open_flags, false),
         &format!("FATAL: failed to open '{}'", path),
     );
     conn
