@@ -933,6 +933,8 @@ impl Node {
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
+            &processed_block.anchored_block_cost,
+            &processed_block.parent_microblocks_cost,
         );
 
         self.chain_tip = Some(chain_tip.clone());

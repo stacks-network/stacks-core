@@ -126,6 +126,8 @@ pub trait BlockEventDispatcher {
         parent_burn_block_hash: BurnchainHeaderHash,
         parent_burn_block_height: u32,
         parent_burn_block_timestamp: u64,
+        anchored_consumed: &ExecutionCost,
+        mblock_confirmed_consumed: &ExecutionCost,
     );
 
     /// called whenever a burn block is about to be
@@ -833,6 +835,8 @@ impl<
                             block_receipt.parent_burn_block_hash,
                             block_receipt.parent_burn_block_height,
                             block_receipt.parent_burn_block_timestamp,
+                            &block_receipt.anchored_block_cost,
+                            &block_receipt.parent_microblocks_cost,
                         );
                     }
 

@@ -2169,6 +2169,8 @@ pub mod test {
             parent_burn_block_hash: BurnchainHeaderHash,
             parent_burn_block_height: u32,
             parent_burn_block_timestamp: u64,
+            _anchor_block_cost: &ExecutionCost,
+            _confirmed_mblock_cost: &ExecutionCost,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block,
@@ -3357,7 +3359,8 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap();
+                        .unwrap()
+                        .0;
 
                     let (stacks_block, microblocks) =
                         mine_smart_contract_block_contract_call_microblock(
