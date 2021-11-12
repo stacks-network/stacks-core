@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use chainstate::stacks::index::storage::TrieFileStorage;
-use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, PEER_VERSION_EPOCH_2_0};
 use util::hash::hex_bytes;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
@@ -142,6 +142,7 @@ impl BurnStateDB for UnitTestBurnStateDB {
             start_height: 0,
             end_height: u64::MAX,
             block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         })
     }
 
