@@ -103,7 +103,7 @@ impl HeadersDB for UnitTestHeaderDB {
         {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64)
         } else {
-            None
+            Some(1 + 10 * (id_bhh.as_bytes()[0] as u64))
         }
     }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
