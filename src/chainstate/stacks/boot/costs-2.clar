@@ -260,13 +260,13 @@
     (runtime (linear n u3 u1413)))
 
 (define-read-only (cost_some_cons (n uint))
-    (runtime u219))
+    (runtime u230))
 
 (define-read-only (cost_ok_cons (n uint))
-    (runtime u219))
+    (runtime u230))
 
 (define-read-only (cost_err_cons (n uint))
-    (runtime u219))
+    (runtime u230))
 
 (define-read-only (cost_default_to (n uint))
     (runtime u249))
@@ -281,13 +281,13 @@
     (runtime u287))
 
 (define-read-only (cost_is_none (n uint))
-    (runtime u212))
+    (runtime u287))
 
 (define-read-only (cost_is_err (n uint))
-    (runtime u282))
+    (runtime u287))
 
 (define-read-only (cost_is_some (n uint))
-    (runtime u223))
+    (runtime u287))
 
 (define-read-only (cost_unwrap (n uint))
     (runtime u284))
