@@ -499,7 +499,7 @@
 
 (define-read-only (cost_nft_mint (n uint))
     {
-        runtime: (linear n u9 u636),
+        runtime: (linear n u9 u795),
         write_length: u1,
         write_count: u1,
         read_count: u1,
@@ -509,7 +509,7 @@
 
 (define-read-only (cost_nft_transfer (n uint))
     {
-        runtime: (linear n u9 u647),
+        runtime: (linear n u9 u795),
         write_length: u1,
         write_count: u1,
         read_count: u1,
@@ -549,7 +549,7 @@
 
 (define-read-only (cost_nft_burn (n uint))
     {
-        runtime: (linear n u9 u647),
+        runtime: (linear n u9 u795),
         write_length: u1,
         write_count: u1,
         read_count: u1,
