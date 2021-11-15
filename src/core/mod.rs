@@ -344,7 +344,7 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
         },
         StacksEpoch {
-            epoch_id: StacksEpochId::Epoch20,
+            epoch_id: StacksEpochId::Epoch2_05,
             start_height: BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
