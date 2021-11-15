@@ -97,6 +97,8 @@ pub const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1622691840;
 pub const BITCOIN_TESTNET_FIRST_BLOCK_HASH: &str =
     "000000000000010dd0863ec3d7a0bae17c1957ae1de9cbcdae8e77aad33e3b8c";
 
+pub const BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT: u64 = 2104076;
+
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HASH: &str =
@@ -292,29 +294,6 @@ impl StacksEpoch {
             StacksEpochId::Epoch2_05 => StacksEpoch::unit_test_2_05(first_burnchain_height),
         }
     }
-
-    pub fn all(first_burnchain_height: u64, epoch_2_05_block_height: u64) -> Vec<StacksEpoch> {
-        vec![
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: first_burnchain_height,
-                block_limit: ExecutionCost::max_value(),
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: first_burnchain_height,
-                end_height: epoch_2_05_block_height,
-                block_limit: ExecutionCost::max_value(),
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: epoch_2_05_block_height,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost::max_value(),
-            },
-        ]
-    }
 }
 
 // StacksEpochs are ordered by start block height
@@ -354,7 +333,7 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 2] = [
+    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 3] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -364,8 +343,14 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-            end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+            end_height: BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
         },
     ];
 }
