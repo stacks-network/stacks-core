@@ -74,9 +74,6 @@ pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10;
 #[cfg(not(test))]
 pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
 
-// TODO: update block height to exit when known
-pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 715_000;
-
 pub const STACKS_EPOCH_MAX: u64 = i64::MAX as u64;
 
 pub const MAINNET_2_0_GENESIS_ROOT_HASH: &str =
@@ -91,13 +88,13 @@ pub const BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP: u32 = 1610643248;
 pub const BITCOIN_MAINNET_FIRST_BLOCK_HASH: &str =
     "0000000000000000000ab248c8e35c574514d052a83dbc12669e19bc43df486e";
 pub const BITCOIN_MAINNET_INITIAL_REWARD_START_BLOCK: u64 = 651389;
+pub const BITCOIN_MAINNET_STACKS_2_05_BURN_HEIGHT: u64 = 713_000;
 
 pub const BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT: u64 = 2000000;
 pub const BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP: u32 = 1622691840;
 pub const BITCOIN_TESTNET_FIRST_BLOCK_HASH: &str =
     "000000000000010dd0863ec3d7a0bae17c1957ae1de9cbcdae8e77aad33e3b8c";
-
-pub const BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT: u64 = 2104076;
+pub const BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT: u64 = 2_104_076;
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
@@ -320,12 +317,12 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-            end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+            end_height: BITCOIN_MAINNET_STACKS_2_05_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
-            start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+            start_height: BITCOIN_MAINNET_STACKS_2_05_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
         },

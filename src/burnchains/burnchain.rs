@@ -76,7 +76,6 @@ use util::hash::to_hex;
 use util::log;
 use util::vrf::VRFPublicKey;
 
-use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
 use burnchains::bitcoin::indexer::BitcoinIndexer;
 
@@ -1362,19 +1361,6 @@ impl Burnchain {
                         let block_height = burnchain_block.block_height();
                         if block_height == 0 {
                             continue;
-                        }
-
-                        if is_mainnet {
-                            if last_processed.block_height == STACKS_2_0_LAST_BLOCK_TO_PROCESS {
-                                info!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
-                                      "block_height" => last_processed.block_height);
-                                continue;
-                            } else if last_processed.block_height > STACKS_2_0_LAST_BLOCK_TO_PROCESS {
-                                debug!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
-                                       "last_block" => STACKS_2_0_LAST_BLOCK_TO_PROCESS,
-                                       "block_height" => last_processed.block_height);
-                                continue;
-                            }
                         }
 
                         let insert_start = get_epoch_time_ms();
