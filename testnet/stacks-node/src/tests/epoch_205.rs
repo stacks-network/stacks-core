@@ -266,7 +266,6 @@ fn test_exact_block_costs() {
     assert!(processed_txs_before_205);
     assert!(processed_txs_after_205);
 
-
     test_observer::clear();
     channel.stop_chains_coordinator();
 }
