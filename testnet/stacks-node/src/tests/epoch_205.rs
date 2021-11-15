@@ -8,6 +8,7 @@ use std::thread;
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::chainstate::stacks::TransactionPayload;
@@ -17,6 +18,7 @@ use stacks::core::StacksEpochId;
 use stacks::types::chainstate::BlockHeaderHash;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::chainstate::StacksAddress;
+use stacks::types::chainstate::StacksBlockHeader;
 use stacks::util::hash::hex_bytes;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::ContractName;
@@ -263,6 +265,7 @@ fn test_exact_block_costs() {
     // check that we processed at least 2 user transactions in a block pre-2.05 and post-2.05
     assert!(processed_txs_before_205);
     assert!(processed_txs_after_205);
+
 
     test_observer::clear();
     channel.stop_chains_coordinator();
@@ -547,6 +550,38 @@ fn transition_empty_blocks() {
         // also, make *huge* block-commits with invalid marker bytes once we reach the new
         // epoch, and verify that it fails.
         let tip_info = get_chain_info(&conf);
+
+        // this block is the epoch transition?
+        let (chainstate, _) = StacksChainState::open(
+            false,
+            conf.burnchain.chain_id,
+            &conf.get_chainstate_path_str(),
+        )
+        .unwrap();
+        let res = StacksChainState::block_crosses_epoch_boundary(
+            &chainstate.db(),
+            &tip_info.stacks_tip_consensus_hash,
+            &tip_info.stacks_tip,
+        )
+        .unwrap();
+        debug!(
+            "Epoch transition at {} ({}/{}) height {}: {}",
+            &StacksBlockHeader::make_index_block_hash(
+                &tip_info.stacks_tip_consensus_hash,
+                &tip_info.stacks_tip
+            ),
+            &tip_info.stacks_tip_consensus_hash,
+            &tip_info.stacks_tip,
+            tip_info.burn_block_height,
+            res
+        );
+
+        if tip_info.burn_block_height == epoch_2_05 {
+            assert!(res);
+        } else {
+            assert!(!res);
+        }
+
         if tip_info.burn_block_height + 1 >= epoch_2_05 {
             let burn_fee_cap = 100000000; // 1 BTC
             let sunset_burn =
