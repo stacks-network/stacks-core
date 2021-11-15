@@ -1349,7 +1349,6 @@ impl Burnchain {
             })
             .unwrap();
 
-        let is_mainnet = self.is_mainnet();
         let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
             thread::Builder::new()
                 .name("burnchain-db".to_string())
