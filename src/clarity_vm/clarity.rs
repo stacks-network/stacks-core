@@ -48,6 +48,7 @@ use vm::types::{
 };
 use vm::ContractName;
 
+use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::TransactionAuth;
 use crate::chainstate::stacks::TransactionPayload;
@@ -747,7 +748,11 @@ impl<'a> ClarityBlockConnection<'a> {
             let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
 
             // instantiate costs 2 contract...
-            let cost_2_code = &*BOOT_CODE_COSTS_2;
+            let cost_2_code = if mainnet {
+                &*BOOT_CODE_COSTS_2
+            } else {
+                &*BOOT_CODE_COSTS_2_TESTNET
+            };
 
             let payload = TransactionPayload::SmartContract(TransactionSmartContract {
                 name: ContractName::try_from(COSTS_2_NAME)
