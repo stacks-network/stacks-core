@@ -695,6 +695,8 @@ fn test_tracked_costs(prog: &str, epoch: StacksEpochId) -> ExecutionCost {
 }
 
 #[test]
+// test each individual cost function can be correctly invoked as
+//  Clarity code executes in Epoch 2.00
 fn test_all() {
     let baseline = test_tracked_costs("1", StacksEpochId::Epoch20);
 
@@ -706,6 +708,8 @@ fn test_all() {
 }
 
 #[test]
+// test each individual cost function can be correctly invoked as
+//  Clarity code executes in Epoch 2.05
 fn epoch_205_test_all() {
     let baseline = test_tracked_costs("1", StacksEpochId::Epoch2_05);
 
