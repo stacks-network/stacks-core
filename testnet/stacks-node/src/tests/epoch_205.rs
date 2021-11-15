@@ -8,6 +8,7 @@ use std::thread;
 use stacks::burnchains::Burnchain;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::chainstate::stacks::TransactionPayload;
@@ -17,6 +18,7 @@ use stacks::core::StacksEpochId;
 use stacks::types::chainstate::BlockHeaderHash;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::chainstate::StacksAddress;
+use stacks::types::chainstate::StacksBlockHeader;
 use stacks::util::hash::hex_bytes;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::ContractName;
@@ -192,7 +194,9 @@ fn test_exact_block_costs() {
         mined_blocks_map.insert(mined_block.target_burn_height, mined_block);
     }
 
-    let mut total_txs = 0;
+    let mut processed_txs_before_205 = false;
+    let mut processed_txs_after_205 = false;
+
     for block in blocks {
         let burn_height = block.get("burn_block_height").unwrap().as_i64().unwrap();
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -226,16 +230,41 @@ fn test_exact_block_costs() {
             "mined_mblock_cost" => mined_mblock_confirmed_cost,
         );
 
-        total_txs += transactions.len();
+        let dbget_txs: Vec<_> = transactions
+            .iter()
+            .filter_map(|tx| {
+                let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+                let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+                let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                if let TransactionPayload::ContractCall(ref cc) = &parsed.payload {
+                    if cc.function_name.as_str() == "db-get2" {
+                        Some(parsed)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if burn_height as u64 <= epoch_205_transition_height {
+            if dbget_txs.len() >= 2 {
+                processed_txs_before_205 = true;
+            }
+        } else {
+            if dbget_txs.len() >= 2 {
+                processed_txs_after_205 = true;
+            }
+        }
 
         assert_eq!(mined_anchor_cost, anchor_cost as u64);
         assert_eq!(mined_mblock_confirmed_cost, mblock_confirm_cost as u64);
     }
 
-    // check that we processed at least 32 transactions...
-    // the reason not to do an exact check here is that there *is* some variability in microblock production,
-    // so sometimes the miner doesn't produce a microblock
-    assert!(total_txs >= 32);
+    // check that we processed at least 2 user transactions in a block pre-2.05 and post-2.05
+    assert!(processed_txs_before_205);
+    assert!(processed_txs_after_205);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
@@ -520,6 +549,38 @@ fn transition_empty_blocks() {
         // also, make *huge* block-commits with invalid marker bytes once we reach the new
         // epoch, and verify that it fails.
         let tip_info = get_chain_info(&conf);
+
+        // this block is the epoch transition?
+        let (chainstate, _) = StacksChainState::open(
+            false,
+            conf.burnchain.chain_id,
+            &conf.get_chainstate_path_str(),
+        )
+        .unwrap();
+        let res = StacksChainState::block_crosses_epoch_boundary(
+            &chainstate.db(),
+            &tip_info.stacks_tip_consensus_hash,
+            &tip_info.stacks_tip,
+        )
+        .unwrap();
+        debug!(
+            "Epoch transition at {} ({}/{}) height {}: {}",
+            &StacksBlockHeader::make_index_block_hash(
+                &tip_info.stacks_tip_consensus_hash,
+                &tip_info.stacks_tip
+            ),
+            &tip_info.stacks_tip_consensus_hash,
+            &tip_info.stacks_tip,
+            tip_info.burn_block_height,
+            res
+        );
+
+        if tip_info.burn_block_height == epoch_2_05 {
+            assert!(res);
+        } else {
+            assert!(!res);
+        }
+
         if tip_info.burn_block_height + 1 >= epoch_2_05 {
             let burn_fee_cap = 100000000; // 1 BTC
             let sunset_burn =
