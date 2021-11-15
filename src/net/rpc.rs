@@ -1610,9 +1610,7 @@ impl ConversationHttp {
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-        let stacks_epoch = sortdb
-                .index_conn()
-                .get_stacks_epoch(tip.block_height as u32)
+        let stacks_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), tip.block_height)?
                 .ok_or_else(|| {
                     warn!(
                         "Failed to get fee rate estimate because could not load Stacks epoch for canonical burn height = {}",
