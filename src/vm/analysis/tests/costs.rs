@@ -33,6 +33,7 @@ use vm::tests::{
 };
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
+use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::StacksEpochId;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
@@ -106,6 +107,12 @@ pub fn test_tracked_costs(prog: &str, epoch: StacksEpochId) -> ExecutionCost {
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
         );
+
+        assert_eq!(
+            conn.with_clarity_db_readonly(|db| db.get_clarity_epoch_version()),
+            epoch
+        );
+
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(&trait_contract_id, contract_trait)
