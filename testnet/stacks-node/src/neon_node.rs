@@ -1848,6 +1848,7 @@ impl InitializedNeonNode {
                     &poison_microblock_tx,
                     Some(event_observer),
                     &stacks_epoch.block_limit,
+                    &stacks_epoch.epoch_id,
                 ) {
                     warn!(
                         "Detected but failed to mine poison-microblock transaction: {:?}",
