@@ -337,12 +337,12 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
-            end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            end_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
-            start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            start_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
             end_height: BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
         },
