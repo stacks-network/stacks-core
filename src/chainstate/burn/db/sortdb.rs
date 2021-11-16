@@ -2299,6 +2299,8 @@ impl SortitionDB {
         Ok(())
     }
 
+    /// Validates given StacksEpochs (will runtime panic if there is any invalid StacksEpoch structuring) and
+    ///  inserts them into the SortitionDB's epochs table.
     fn validate_and_insert_epochs(
         db_tx: &Transaction,
         epochs: &[StacksEpoch],
