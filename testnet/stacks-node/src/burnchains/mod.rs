@@ -30,6 +30,12 @@ impl fmt::Display for Error {
     }
 }
 
+impl From<burnchains::Error> for Error {
+    fn from(e: burnchains::Error) -> Self {
+        Error::IndexerError(e)
+    }
+}
+
 pub trait BurnchainController {
     fn start(&mut self, target_block_height_opt: Option<u64>)
         -> Result<(BurnchainTip, u64), Error>;
@@ -43,7 +49,9 @@ pub trait BurnchainController {
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;
     fn get_chain_tip(&self) -> BurnchainTip;
-
+    /// Invoke connect() on underlying burnchain and sortition databases, to perform any migration
+    ///  or instantiation before other callers may use open()
+    fn connect_dbs(&mut self) -> Result<(), Error>;
     #[cfg(test)]
     fn bootstrap_chain(&mut self, blocks_count: u64);
 }

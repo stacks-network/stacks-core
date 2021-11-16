@@ -218,7 +218,7 @@ jobs:
           tag_name: ${{ github.event.inputs.tag || github.ref }}
           release_name: Release ${{ github.event.inputs.tag || github.ref }}
           draft: false
-          prerelease: false
+          prerelease: true
 
   # Upload distributables to a new release if we're building a tag or a tag was passed in
   upload-dist:

@@ -287,4 +287,8 @@ impl BurnchainController for MocknetController {
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, _num_blocks: u64) {}
+
+    fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
+        Ok(())
+    }
 }
