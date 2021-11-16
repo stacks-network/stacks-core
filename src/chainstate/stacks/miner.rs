@@ -7034,12 +7034,14 @@ pub mod test {
                 start_height: 0,
                 end_height: 0,
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: 0,
                 end_height: 30, // NOTE: the first 25 burnchain blocks have no sortition
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
@@ -7052,6 +7054,7 @@ pub mod test {
                     read_count: 205205,
                     runtime: 205205,
                 },
+                network_epoch: PEER_VERSION_EPOCH_2_05,
             },
         ];
         peer_config.epochs = Some(epochs);
@@ -7272,12 +7275,14 @@ pub mod test {
                 start_height: 0,
                 end_height: 0,
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: 0,
                 end_height: 30, // NOTE: the first 25 burnchain blocks have no sortition
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
@@ -7290,6 +7295,7 @@ pub mod test {
                     read_count: 205205,
                     runtime: 205205,
                 },
+                network_epoch: PEER_VERSION_EPOCH_2_05,
             },
         ];
         peer_config.epochs = Some(epochs);
