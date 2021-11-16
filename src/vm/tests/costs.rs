@@ -149,36 +149,49 @@ fn execute_transaction(
     env.execute_transaction(issuer, contract_identifier.clone(), tx, args)
 }
 
-fn exec_cost(contract: &str, epoch: StacksEpochId) -> ExecutionCost {
+fn with_owned_env<F, R>(epoch: StacksEpochId, to_do: F) -> R
+where
+    F: Fn(OwnedEnvironment) -> R,
+{
     let marf_kv = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, marf_kv);
+
+    let first_block = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
-            &StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            ),
+            &first_block,
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
         )
         .commit_block();
 
+    let tip = if epoch == StacksEpochId::Epoch2_05 {
+        let next_block = StacksBlockId([1 as u8; 32]);
+        let mut clarity_conn = clarity_instance.begin_block(
+            &first_block,
+            &next_block,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
+        );
+        clarity_conn.initialize_epoch_2_05().unwrap();
+        clarity_conn.commit_block();
+        next_block
+    } else {
+        first_block.clone()
+    };
+
     let mut marf_kv = clarity_instance.destroy();
 
-    let mut store = marf_kv.begin(
-        &StacksBlockHeader::make_index_block_hash(
-            &FIRST_BURNCHAIN_CONSENSUS_HASH,
-            &FIRST_STACKS_BLOCK_HASH,
-        ),
-        &StacksBlockId([1 as u8; 32]),
-    );
+    let mut store = marf_kv.begin(&tip, &StacksBlockId([2 as u8; 32]));
 
-    let mut owned_env = OwnedEnvironment::new_max_limit(
+    to_do(OwnedEnvironment::new_max_limit(
         store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
         epoch,
-    );
+    ))
+}
 
+fn exec_cost(contract: &str, epoch: StacksEpochId) -> ExecutionCost {
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p1_principal = match p1 {
         Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
@@ -186,26 +199,28 @@ fn exec_cost(contract: &str, epoch: StacksEpochId) -> ExecutionCost {
     };
     let contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "self".into());
 
-    owned_env
-        .initialize_contract(contract_id.clone(), contract)
+    with_owned_env(epoch, |mut owned_env| {
+        owned_env
+            .initialize_contract(contract_id.clone(), contract)
+            .unwrap();
+
+        let cost_before = owned_env.get_cost_total();
+
+        eprintln!("{}", &contract);
+        execute_transaction(
+            &mut owned_env,
+            p1_principal.clone().into(),
+            &contract_id,
+            "execute",
+            &[],
+        )
         .unwrap();
 
-    let cost_before = owned_env.get_cost_total();
-
-    eprintln!("{}", &contract);
-    execute_transaction(
-        &mut owned_env,
-        p1_principal.into(),
-        &contract_id,
-        "execute",
-        &[],
-    )
-    .unwrap();
-
-    let (_db, tracker) = owned_env.destruct().unwrap();
-    let mut cost_after = tracker.get_total();
-    cost_after.sub(&cost_before).unwrap();
-    cost_after
+        let (_db, tracker) = owned_env.destruct().unwrap();
+        let mut cost_after = tracker.get_total();
+        cost_after.sub(&cost_before).unwrap();
+        cost_after
+    })
 }
 
 /// Assert that the relative difference between `cost_small` and `cost_large`
@@ -612,7 +627,7 @@ fn epoch205_nfts() {
     );
 }
 
-fn test_tracked_costs(prog: &str) -> ExecutionCost {
+fn test_tracked_costs(prog: &str, epoch: StacksEpochId) -> ExecutionCost {
     let contract_trait = "(define-trait trait-1 (
                             (foo-exec (int) (response int int))
                           ))";
@@ -651,68 +666,56 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let trait_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
-    let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv);
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            ),
-            &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+    with_owned_env(epoch, |mut owned_env| {
+        owned_env
+            .initialize_contract(trait_contract_id.clone(), contract_trait)
+            .unwrap();
+        owned_env
+            .initialize_contract(other_contract_id.clone(), contract_other)
+            .unwrap();
+        owned_env
+            .initialize_contract(self_contract_id.clone(), &contract_self)
+            .unwrap();
+
+        let target_contract = Value::from(PrincipalData::Contract(other_contract_id.clone()));
+
+        eprintln!("{}", &contract_self);
+        execute_transaction(
+            &mut owned_env,
+            p2_principal.clone(),
+            &self_contract_id,
+            "execute",
+            &symbols_from_values(vec![target_contract]),
         )
-        .commit_block();
-
-    let mut marf_kv = clarity_instance.destroy();
-
-    let mut store = marf_kv.begin(
-        &StacksBlockHeader::make_index_block_hash(
-            &FIRST_BURNCHAIN_CONSENSUS_HASH,
-            &FIRST_STACKS_BLOCK_HASH,
-        ),
-        &StacksBlockId([1 as u8; 32]),
-    );
-
-    let mut owned_env = OwnedEnvironment::new_max_limit(
-        store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
-        StacksEpochId::Epoch2_05,
-    );
-
-    owned_env
-        .initialize_contract(trait_contract_id.clone(), contract_trait)
-        .unwrap();
-    owned_env
-        .initialize_contract(other_contract_id.clone(), contract_other)
-        .unwrap();
-    owned_env
-        .initialize_contract(self_contract_id.clone(), &contract_self)
         .unwrap();
 
-    let target_contract = Value::from(PrincipalData::Contract(other_contract_id));
-
-    eprintln!("{}", &contract_self);
-    execute_transaction(
-        &mut owned_env,
-        p2_principal,
-        &self_contract_id,
-        "execute",
-        &symbols_from_values(vec![target_contract]),
-    )
-    .unwrap();
-
-    let (_db, tracker) = owned_env.destruct().unwrap();
-    tracker.get_total()
+        let (_db, tracker) = owned_env.destruct().unwrap();
+        tracker.get_total()
+    })
 }
 
 #[test]
+// test each individual cost function can be correctly invoked as
+//  Clarity code executes in Epoch 2.00
 fn test_all() {
-    let baseline = test_tracked_costs("1");
+    let baseline = test_tracked_costs("1", StacksEpochId::Epoch20);
 
     for f in NativeFunctions::ALL.iter() {
         let test = get_simple_test(f);
-        let cost = test_tracked_costs(test);
+        let cost = test_tracked_costs(test, StacksEpochId::Epoch20);
+        assert!(cost.exceeds(&baseline));
+    }
+}
+
+#[test]
+// test each individual cost function can be correctly invoked as
+//  Clarity code executes in Epoch 2.05
+fn epoch_205_test_all() {
+    let baseline = test_tracked_costs("1", StacksEpochId::Epoch2_05);
+
+    for f in NativeFunctions::ALL.iter() {
+        let test = get_simple_test(f);
+        let cost = test_tracked_costs(test, StacksEpochId::Epoch2_05);
         assert!(cost.exceeds(&baseline));
     }
 }
