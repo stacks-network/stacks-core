@@ -40,6 +40,7 @@ use chainstate::stacks::{
     Error as ChainstateError, StacksTransaction,
 };
 use core::ExecutionCost;
+use core::StacksEpochId;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use monitoring::increment_stx_mempool_gc;
@@ -663,6 +664,7 @@ impl MemPoolDB {
         &mut self,
         max_updates: u32,
         block_limit: &ExecutionCost,
+        stacks_epoch_id: &StacksEpochId,
     ) -> Result<u32, db_error> {
         let sql_tx = tx_begin_immediate(&mut self.db)?;
         let txs: Vec<MemPoolTxInfo> = query_rows(
@@ -679,6 +681,7 @@ impl MemPoolDB {
                 self.cost_estimator.as_ref(),
                 self.metric.as_ref(),
                 block_limit,
+                stacks_epoch_id,
             );
             let fee_rate_f64 = match estimator_result {
                 Ok(x) => Some(x),
@@ -1234,12 +1237,14 @@ impl MemPoolDB {
         tx: &StacksTransaction,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         block_limit: &ExecutionCost,
+        stacks_epoch_id: &StacksEpochId,
     ) -> Result<(), MemPoolRejection> {
         let estimator_result = cost_estimates::estimate_fee_rate(
             tx,
             self.cost_estimator.as_ref(),
             self.metric.as_ref(),
             block_limit,
+            stacks_epoch_id,
         );
 
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
@@ -1279,6 +1284,7 @@ impl MemPoolDB {
         block_hash: &BlockHeaderHash,
         tx_bytes: Vec<u8>,
         block_limit: &ExecutionCost,
+        stacks_epoch_id: &StacksEpochId,
     ) -> Result<(), MemPoolRejection> {
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(MemPoolRejection::DeserializationFailure)?;
@@ -1288,6 +1294,7 @@ impl MemPoolDB {
             self.cost_estimator.as_ref(),
             self.metric.as_ref(),
             block_limit,
+            stacks_epoch_id,
         );
 
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;

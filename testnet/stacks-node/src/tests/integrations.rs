@@ -219,6 +219,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
                 let publish_tx =
@@ -231,6 +232,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
                 let publish_tx =
@@ -243,6 +245,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -263,6 +266,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round >= 3 {
@@ -285,6 +289,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }
@@ -305,6 +310,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         tx_xfer,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }
@@ -1066,6 +1072,7 @@ fn contract_stx_transfer() {
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1080,6 +1087,7 @@ fn contract_stx_transfer() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 3 {
@@ -1099,6 +1107,7 @@ fn contract_stx_transfer() {
                         block_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -1119,6 +1128,7 @@ fn contract_stx_transfer() {
                         &header_hash,
                         tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 4 {
@@ -1143,6 +1153,7 @@ fn contract_stx_transfer() {
                             &xfer_to_contract,
                             None,
                             &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch20,
                         )
                         .unwrap();
                 }
@@ -1160,6 +1171,7 @@ fn contract_stx_transfer() {
                         &xfer_to_contract,
                         None,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap_err()
                 {
@@ -1376,6 +1388,7 @@ fn mine_transactions_out_of_order() {
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1389,6 +1402,7 @@ fn mine_transactions_out_of_order() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 3 {
@@ -1402,6 +1416,7 @@ fn mine_transactions_out_of_order() {
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 4 {
@@ -1415,6 +1430,7 @@ fn mine_transactions_out_of_order() {
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }
@@ -1517,6 +1533,7 @@ fn mine_contract_twice() {
                         block_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -1612,6 +1629,7 @@ fn bad_contract_tx_rollback() {
                         block_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1629,6 +1647,7 @@ fn bad_contract_tx_rollback() {
                         block_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -1642,6 +1661,7 @@ fn bad_contract_tx_rollback() {
                         block_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -1655,6 +1675,7 @@ fn bad_contract_tx_rollback() {
                         block_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -1668,6 +1689,7 @@ fn bad_contract_tx_rollback() {
                         block_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }
@@ -1871,6 +1893,7 @@ fn block_limit_runtime_test() {
                         block_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round > 1 {
@@ -1899,6 +1922,7 @@ fn block_limit_runtime_test() {
                             block_hash,
                             tx,
                             &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch20,
                         )
                         .unwrap();
                 }
@@ -1984,6 +2008,7 @@ fn mempool_errors() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }

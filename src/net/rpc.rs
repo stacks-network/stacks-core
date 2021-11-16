@@ -1609,8 +1609,17 @@ impl ConversationHttp {
         estimated_len: u64,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        let stacks_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), tip.block_height)?
+                .ok_or_else(|| {
+                    warn!(
+                        "Failed to get fee rate estimate because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
+                })?;
         if let Some((cost_estimator, fee_estimator, metric)) = handler_args.get_estimators_ref() {
-            let estimated_cost = match cost_estimator.estimate_cost(tx) {
+            let estimated_cost = match cost_estimator.estimate_cost(tx, &stacks_epoch.epoch_id) {
                 Ok(x) => x,
                 Err(e) => {
                     debug!(
@@ -1621,18 +1630,6 @@ impl ConversationHttp {
                         .send(http, fd);
                 }
             };
-
-            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-            let stacks_epoch = sortdb
-                .index_conn()
-                .get_stacks_epoch(tip.block_height as u32)
-                .ok_or_else(|| {
-                    warn!(
-                        "Failed to get fee rate estimate because could not load Stacks epoch for canonical burn height = {}",
-                        tip.block_height
-                    );
-                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
-                })?;
 
             let scalar_cost =
                 metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
@@ -1727,6 +1724,7 @@ impl ConversationHttp {
                 &tx,
                 event_observer,
                 &stacks_epoch.block_limit,
+                &stacks_epoch.epoch_id,
             ) {
                 Ok(_) => {
                     debug!("Mempool accepted POSTed transaction {}", &txid);

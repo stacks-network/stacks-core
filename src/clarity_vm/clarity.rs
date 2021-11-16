@@ -20,8 +20,8 @@ use std::fmt;
 use std::thread;
 
 use chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
-    COSTS_2_NAME,
+    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
+    BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
 };
 use chainstate::stacks::db::StacksAccount;
 use chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -48,6 +48,7 @@ use vm::types::{
 };
 use vm::ContractName;
 
+use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::TransactionAuth;
 use crate::chainstate::stacks::TransactionPayload;
@@ -747,11 +748,10 @@ impl<'a> ClarityBlockConnection<'a> {
             let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
 
             // instantiate costs 2 contract...
-            // TODO - replace once costs-2 contract is updated with new costs
             let cost_2_code = if mainnet {
-                &*BOOT_CODE_COSTS
+                &*BOOT_CODE_COSTS_2
             } else {
-                &*BOOT_CODE_COSTS
+                &*BOOT_CODE_COSTS_2_TESTNET
             };
 
             let payload = TransactionPayload::SmartContract(TransactionSmartContract {

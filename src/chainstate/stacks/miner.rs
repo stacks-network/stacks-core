@@ -472,10 +472,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
 
         mem_pool.reset_last_known_nonces()?;
+        let stacks_epoch_id = clarity_tx.get_epoch();
         let block_limit = clarity_tx
             .block_limit()
             .expect("No block limit found for clarity_tx.");
-        mem_pool.estimate_tx_rates(100, &block_limit)?;
+        mem_pool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
         debug!(
             "Microblock transaction selection begins (child of {}), bytes so far: {}",
@@ -516,6 +517,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                         &mempool_tx.tx.payload,
                                         &receipt.execution_cost,
                                         &block_limit,
+                                        &stacks_epoch_id,
                                     ) {
                                         warn!("Error updating estimator";
                                               "txid" => %mempool_tx.metadata.txid,
@@ -1534,6 +1536,8 @@ impl StacksBlockBuilder {
         let (mut epoch_tx, confirmed_mblock_cost) =
             builder.epoch_begin(&mut chainstate, burn_dbconn)?;
 
+        let stacks_epoch_id = epoch_tx.get_epoch();
+
         let block_limit = epoch_tx
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
@@ -1542,7 +1546,7 @@ impl StacksBlockBuilder {
 
         mempool.reset_last_known_nonces()?;
 
-        mempool.estimate_tx_rates(100, &block_limit)?;
+        mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
         let mut considered = HashSet::new(); // txids of all transactions we looked at
         let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
@@ -1614,6 +1618,7 @@ impl StacksBlockBuilder {
                                         &txinfo.tx.payload,
                                         &tx_receipt.execution_cost,
                                         &block_limit,
+                                        &stacks_epoch_id,
                                     ) {
                                         warn!("Error updating estimator";
                                               "txid" => %txinfo.metadata.txid,
@@ -6660,6 +6665,7 @@ pub mod test {
                                 &stx_transfer,
                                 None,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
                     }
@@ -6800,6 +6806,7 @@ pub mod test {
                                 &stx_transfer,
                                 None,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
                     }
@@ -6937,6 +6944,7 @@ pub mod test {
                                     &stx_transfer,
                                     None,
                                     &ExecutionCost::max_value(),
+                                    &StacksEpochId::Epoch20,
                                 )
                                 .unwrap();
                         }
@@ -6961,6 +6969,7 @@ pub mod test {
                                     &stx_transfer,
                                     None,
                                     &ExecutionCost::max_value(),
+                                    &StacksEpochId::Epoch20,
                                 )
                                 .unwrap();
                         }
@@ -7664,6 +7673,7 @@ pub mod test {
                             &tx,
                             None,
                             &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch20,
                         )
                         .unwrap();
                 }
@@ -7867,6 +7877,7 @@ pub mod test {
                                 &stx_transfer,
                                 None,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
 
@@ -7887,6 +7898,7 @@ pub mod test {
                                 &contract_tx,
                                 None,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
 
@@ -7906,6 +7918,7 @@ pub mod test {
                                 &stx_transfer,
                                 None,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
 
@@ -8060,6 +8073,7 @@ pub mod test {
                                 &contract_tx,
                                 None,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
                     }
@@ -8217,6 +8231,7 @@ pub mod test {
                                 &contract_tx,
                                 None,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
                     }
@@ -8352,6 +8367,7 @@ pub mod test {
                                 &parent_header_hash,
                                 contract_tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
 
@@ -8378,6 +8394,7 @@ pub mod test {
                                 &parent_header_hash,
                                 contract_tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
 
@@ -8723,6 +8740,7 @@ pub mod test {
                                 &parent_header_hash,
                                 contract_tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
 
@@ -8750,6 +8768,7 @@ pub mod test {
                                 &parent_header_hash,
                                 contract_tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
 
@@ -8785,6 +8804,7 @@ pub mod test {
                                 &parent_header_hash,
                                 contract_tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
 
@@ -8812,6 +8832,7 @@ pub mod test {
                                 &parent_header_hash,
                                 contract_tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
 
@@ -9078,6 +9099,7 @@ pub mod test {
                                         &parent_header_hash,
                                         tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                                     )
                                     .unwrap();
                             }
@@ -9409,6 +9431,7 @@ pub mod test {
                                         &parent_header_hash,
                                         tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                                     )
                                     .unwrap();
                             }
@@ -9483,6 +9506,7 @@ pub mod test {
                                 &parent_header_hash,
                                 tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
                     }
@@ -9514,6 +9538,7 @@ pub mod test {
                                 &parent_header_hash,
                                 tx_bytes,
                                 &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,
                             )
                             .unwrap();
                     }
@@ -9890,6 +9915,7 @@ pub mod test {
                     &tx,
                     None,
                     &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch20,
                 )
                 .unwrap()
         }
@@ -9914,6 +9940,7 @@ pub mod test {
                     &tx,
                     None,
                     &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch20,
                 )
                 .unwrap()
         }

@@ -888,7 +888,11 @@ impl Node {
             .get_stacks_epoch_by_epoch_id(&processed_block.evaluated_epoch)
             .expect("Could not find a stacks epoch.");
         if let Some(estimator) = cost_estimator.as_mut() {
-            estimator.notify_block(&processed_block.tx_receipts, &stacks_epoch.block_limit);
+            estimator.notify_block(
+                &processed_block.tx_receipts,
+                &stacks_epoch.block_limit,
+                &stacks_epoch.epoch_id,
+            );
         }
 
         if let Some(estimator) = fee_estimator.as_mut() {

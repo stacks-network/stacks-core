@@ -149,7 +149,7 @@
     (runtime u200))
 
 (define-read-only (cost_asserts (n uint))
-    (runtime u170))
+    (runtime u158))
 
 (define-read-only (cost_map (n uint))
     (runtime (linear n u1210 u3314)))
@@ -185,10 +185,10 @@
     (runtime (nlogn n u11 u1101)))
 
 (define-read-only (cost_add (n uint))
-    (runtime (linear n u14 u157)))
+    (runtime (linear n u12 u156)))
 
 (define-read-only (cost_sub (n uint))
-    (runtime (linear n u14 u157)))
+    (runtime (linear n u12 u156)))
 
 (define-read-only (cost_mul (n uint))
     (runtime (linear n u14 u157)))
@@ -197,37 +197,37 @@
     (runtime (linear n u14 u157)))
 
 (define-read-only (cost_geq (n uint))
-    (runtime u170))
+    (runtime u166))
 
 (define-read-only (cost_leq (n uint))
-    (runtime u170))
+    (runtime u166))
 
 (define-read-only (cost_le (n uint))
-    (runtime u170))
+    (runtime u166))
 
 (define-read-only (cost_ge (n uint))
-    (runtime u170))
+    (runtime u166))
 
 (define-read-only (cost_int_cast (n uint))
-    (runtime u170))
+    (runtime u164))
 
 (define-read-only (cost_mod (n uint))
-    (runtime u170))
+    (runtime u168))
 
 (define-read-only (cost_pow (n uint))
     (runtime u170))
 
 (define-read-only (cost_sqrti (n uint))
-    (runtime u170))
+    (runtime u167))
 
 (define-read-only (cost_log2 (n uint))
-    (runtime u170))
+    (runtime u161))
 
 (define-read-only (cost_xor (n uint))
-    (runtime u170))
+    (runtime u167))
 
 (define-read-only (cost_not (n uint))
-    (runtime u170))
+    (runtime u162))
 
 (define-read-only (cost_eq (n uint))
     (runtime (linear n u7 u172)))
@@ -269,10 +269,10 @@
     (runtime u230))
 
 (define-read-only (cost_default_to (n uint))
-    (runtime u287))
+    (runtime u249))
 
 (define-read-only (cost_unwrap_ret (n uint))
-    (runtime u339))
+    (runtime u299))
 
 (define-read-only (cost_unwrap_err_or_ret (n uint))
     (runtime u339))
@@ -290,16 +290,16 @@
     (runtime u287))
 
 (define-read-only (cost_unwrap (n uint))
-    (runtime u287))
+    (runtime u284))
 
 (define-read-only (cost_unwrap_err (n uint))
-    (runtime u287))
+    (runtime u264))
 
 (define-read-only (cost_try_ret (n uint))
-    (runtime u287))
+    (runtime u256))
 
 (define-read-only (cost_match (n uint))
-    (runtime u287))
+    (runtime u286))
 
 (define-read-only (cost_or (n uint))
     (runtime (linear n u3 u149)))
@@ -323,7 +323,7 @@
     (runtime u13400))
 
 (define-read-only (cost_principal_of (n uint))
-    (runtime u235))
+    (runtime u39))
 
 
 (define-read-only (cost_at_block (n uint))

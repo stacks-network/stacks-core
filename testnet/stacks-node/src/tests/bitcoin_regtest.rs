@@ -9,6 +9,7 @@ use stacks::chainstate::burn::operations::BlockstackOperationType::{
     LeaderBlockCommit, LeaderKeyRegister,
 };
 use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::core::StacksEpochId;
 use stacks::util::hash::hex_bytes;
 
 use super::PUBLISH_CONTRACT;
@@ -328,7 +329,8 @@ fn bitcoind_integration_test() {
                 // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
-                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, PUBLISH_CONTRACT.to_owned(), &ExecutionCost::max_value()).unwrap();
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, PUBLISH_CONTRACT.to_owned(), &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,).unwrap();
             },
             2 => {
                 // On round 2, publish a "get:foo" transaction
@@ -336,7 +338,8 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000001000000000000000a0100b7ff8b6c20c427b4f4f09c1ad7e50027e2b076b2ddc0ab55e64ef5ea3771dd4763a79bc5a2b1a79b72ce03dd146ccf24b84942d675a815819a8b85aa8065dfaa030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
-                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec(), &ExecutionCost::max_value()).unwrap();
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec(), &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,).unwrap();
             },
             3 => {
                 // On round 3, publish a "set:foo=bar" transaction
@@ -344,7 +347,8 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000002000000000000000a010142a01caf6a32b367664869182f0ebc174122a5a980937ba259d44cc3ebd280e769a53dd3913c8006ead680a6e1c98099fcd509ce94b0a4e90d9f4603b101922d030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020d00000003666f6f0d00000003626172";
-                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec(), &ExecutionCost::max_value()).unwrap();
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec(), &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,).unwrap();
             },
             4 => {
                 // On round 4, publish a "get:foo" transaction
@@ -352,7 +356,8 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000003000000000000000a010046c2c1c345231443fef9a1f64fccfef3e1deacc342b2ab5f97612bb3742aa799038b20aea456789aca6b883e52f84a31adfee0bc2079b740464877af8f2f87d2030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
-                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec(), &ExecutionCost::max_value()).unwrap();
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec(), &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,).unwrap();
             },
             5 => {
                 // On round 5, publish a stacks transaction
@@ -360,7 +365,8 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let transfer_1000_stx = "80800000000400b71a091b4b8b7661a661c620966ab6573bc2dcd30000000000000000000000000000000a0000393810832bacd44cfc4024980876135de6b95429bdb610d5ce96a92c9ee9bfd81ec77ea0f1748c8515fc9a1589e51d8b92bf028e3e84ade1249682c05271d5b803020000000000051a525b8a36ef8a73548cd0940c248d3b71ecf4a45100000000000003e800000000000000000000000000000000000000000000000000000000000000000000";
-                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(transfer_1000_stx).unwrap().to_vec(), &ExecutionCost::max_value()).unwrap();
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(transfer_1000_stx).unwrap().to_vec(), &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch20,).unwrap();
             },
             _ => {}
         };
