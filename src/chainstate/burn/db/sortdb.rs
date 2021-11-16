@@ -2044,7 +2044,7 @@ impl SortitionDB {
             first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
         };
 
-        db.check_schema_version_and_update()?;
+        db.check_schema_version_or_error()?;
         Ok(db)
     }
 
@@ -2112,7 +2112,7 @@ impl SortitionDB {
             }
         }
 
-        db.check_schema_version_and_update()?;
+        db.check_schema_version_and_update(epochs)?;
         Ok(db)
     }
 
@@ -2274,20 +2274,7 @@ impl SortitionDB {
             db_tx.execute_batch(row_text)?;
         }
 
-        let epochs = SortitionDB::validate_epochs(epochs_ref);
-        for epoch in epochs.into_iter() {
-            let args: &[&dyn ToSql] = &[
-                &(epoch.epoch_id as u32),
-                &u64_to_sql(epoch.start_height)?,
-                &u64_to_sql(epoch.end_height)?,
-                &epoch.block_limit,
-                &epoch.network_epoch,
-            ];
-            db_tx.execute(
-                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height,block_limit,network_epoch) VALUES (?1,?2,?3,?4,?5)",
-                args
-            )?;
-        }
+        SortitionDB::validate_and_insert_epochs(&db_tx, epochs_ref)?;
 
         db_tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
@@ -2309,6 +2296,29 @@ impl SortitionDB {
         )?;
 
         db_tx.commit()?;
+        Ok(())
+    }
+
+    /// Validates given StacksEpochs (will runtime panic if there is any invalid StacksEpoch structuring) and
+    ///  inserts them into the SortitionDB's epochs table.
+    fn validate_and_insert_epochs(
+        db_tx: &Transaction,
+        epochs: &[StacksEpoch],
+    ) -> Result<(), db_error> {
+        let epochs = SortitionDB::validate_epochs(epochs);
+        for epoch in epochs.into_iter() {
+            let args: &[&dyn ToSql] = &[
+                &(epoch.epoch_id as u32),
+                &u64_to_sql(epoch.start_height)?,
+                &u64_to_sql(epoch.end_height)?,
+                &epoch.block_limit,
+                &epoch.network_epoch,
+            ];
+            db_tx.execute(
+                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height,block_limit,network_epoch) VALUES (?1,?2,?3,?4,?5)",
+                args
+            )?;
+        }
         Ok(())
     }
 
@@ -2384,9 +2394,8 @@ impl SortitionDB {
         query_rows(self.conn(), qry, NO_PARAMS)
     }
 
-    pub fn get_schema_version(&self) -> Result<Option<String>, db_error> {
-        let version = self
-            .conn()
+    fn get_schema_version(conn: &Connection) -> Result<Option<String>, db_error> {
+        let version = conn
             .query_row(
                 "SELECT MAX(version) from db_config",
                 rusqlite::NO_PARAMS,
@@ -2396,10 +2405,12 @@ impl SortitionDB {
         Ok(version)
     }
 
-    fn apply_schema_2(tx: &SortitionDBTx) -> Result<(), db_error> {
+    fn apply_schema_2(tx: &SortitionDBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_2 {
             tx.execute_batch(sql_exec)?;
         }
+
+        SortitionDB::validate_and_insert_epochs(&tx, epochs)?;
 
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
@@ -2409,16 +2420,34 @@ impl SortitionDB {
         Ok(())
     }
 
-    fn check_schema_version_and_update(&mut self) -> Result<(), db_error> {
-        match self.get_schema_version() {
+    fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
+        match SortitionDB::get_schema_version(self.conn()) {
+            Ok(Some(version)) => {
+                let expected_version = SORTITION_DB_VERSION.to_string();
+                if version == expected_version {
+                    Ok(())
+                } else {
+                    Err(db_error::Other(format!(
+                        "The version of the sortition DB {} does not match the expected {} and cannot be updated from SortitionDB::open()",
+                        version, expected_version
+                    )))
+                }
+            }
+            Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
+            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+        }
+    }
+
+    fn check_schema_version_and_update(&mut self, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        match SortitionDB::get_schema_version(&tx) {
             Ok(Some(version)) => {
                 let expected_version = SORTITION_DB_VERSION.to_string();
                 if version == expected_version {
                     return Ok(());
                 }
                 if version == "1" {
-                    let tx = self.tx_begin()?;
-                    SortitionDB::apply_schema_2(&tx)?;
+                    SortitionDB::apply_schema_2(&tx, epochs)?;
                     tx.commit()?;
                     Ok(())
                 } else {
@@ -4276,6 +4305,8 @@ pub mod tests {
         assert!(res.is_err());
         assert!(format!("{:?}", res).contains("no such table: epochs"));
 
+        assert!(SortitionDB::open(&db_path_dir, true).is_err());
+
         // create a v2 sortition DB at the same path as the v1 DB.
         // the schema migration should be successfully applied, and the epochs table should exist.
         let db = SortitionDB::connect(
@@ -4287,7 +4318,12 @@ pub mod tests {
             true,
         )
         .unwrap();
-        assert!(SortitionDB::get_stacks_epoch(db.conn(), first_block_height).is_ok());
+        // assert that an epoch is returned
+        SortitionDB::get_stacks_epoch(db.conn(), first_block_height)
+            .expect("Database should not error querying epochs")
+            .expect("Database should have an epoch entry");
+
+        assert!(SortitionDB::open(&db_path_dir, true).is_ok());
     }
 
     #[test]
