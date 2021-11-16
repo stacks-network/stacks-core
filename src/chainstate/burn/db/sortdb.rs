@@ -2044,7 +2044,7 @@ impl SortitionDB {
             first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
         };
 
-        db.check_schema_version_and_error()?;
+        db.check_schema_version_or_error()?;
         Ok(db)
     }
 
@@ -2403,10 +2403,12 @@ impl SortitionDB {
         Ok(version)
     }
 
-    fn apply_schema_2(tx: &SortitionDBTx) -> Result<(), db_error> {
+    fn apply_schema_2(tx: &SortitionDBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_2 {
             tx.execute_batch(sql_exec)?;
         }
+
+        SortitionDB::validate_and_insert_epochs(&tx, epochs)?;
 
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
@@ -2416,7 +2418,7 @@ impl SortitionDB {
         Ok(())
     }
 
-    fn check_schema_version_and_error(&mut self) -> Result<(), db_error> {
+    fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
                 let expected_version = SORTITION_DB_VERSION.to_string();
@@ -2443,8 +2445,7 @@ impl SortitionDB {
                     return Ok(());
                 }
                 if version == "1" {
-                    SortitionDB::apply_schema_2(&tx)?;
-                    SortitionDB::validate_and_insert_epochs(&tx, epochs)?;
+                    SortitionDB::apply_schema_2(&tx, epochs)?;
                     tx.commit()?;
                     Ok(())
                 } else {
