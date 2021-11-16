@@ -1173,6 +1173,9 @@ impl InitializedNeonNode {
         let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), false)
             .expect("Error while instantiating sortition db");
 
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
+            .expect("Error while loading stacks epochs");
+
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
                 .expect("Failed to get sortition tip");
@@ -1309,6 +1312,7 @@ impl InitializedNeonNode {
             burnchain.clone(),
             view,
             config.connection_options.clone(),
+            epochs,
         );
 
         // setup the relayer channel

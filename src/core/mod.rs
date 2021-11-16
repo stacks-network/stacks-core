@@ -41,9 +41,16 @@ pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 pub const CHAIN_ID_MAINNET: u32 = 0x00000001;
 pub const CHAIN_ID_TESTNET: u32 = 0x80000000;
 
-// peer version
-pub const PEER_VERSION_MAINNET: u32 = 0x18000000; // 24.0.0.0
-pub const PEER_VERSION_TESTNET: u32 = 0xfacade01;
+// peer version (big-endian)
+// first byte == major network protocol version (currently 0x18)
+// second and third bytes are unused
+// fourth byte == highest epoch supported by this node (0x05 for 2.05)
+pub const PEER_VERSION_MAINNET: u32 = 0x18000005;
+pub const PEER_VERSION_TESTNET: u32 = 0xfacade05;
+
+pub const PEER_VERSION_EPOCH_1_0: u8 = 0x00;
+pub const PEER_VERSION_EPOCH_2_0: u8 = 0x00;
+pub const PEER_VERSION_EPOCH_2_05: u8 = 0x05;
 
 // network identifiers
 pub const NETWORK_ID_MAINNET: u32 = 0x17000000;
@@ -218,9 +225,19 @@ pub struct StacksEpoch {
     pub start_height: u64,
     pub end_height: u64,
     pub block_limit: ExecutionCost,
+    pub network_epoch: u8,
 }
 
 impl StacksEpoch {
+    pub fn find_epoch(epochs: &[StacksEpoch], height: u64) -> Option<usize> {
+        for (i, epoch) in epochs.iter().enumerate() {
+            if epoch.start_height <= height && height < epoch.end_height {
+                return Some(i);
+            }
+        }
+        None
+    }
+
     #[cfg(test)]
     pub fn unit_test_pre_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
@@ -234,12 +251,14 @@ impl StacksEpoch {
                 start_height: 0,
                 end_height: first_burnchain_height,
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
             },
         ]
     }
@@ -257,12 +276,14 @@ impl StacksEpoch {
                 start_height: 0,
                 end_height: first_burnchain_height,
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
                 end_height: first_burnchain_height + 4,
                 block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
@@ -275,6 +296,7 @@ impl StacksEpoch {
                     read_count: 205205,
                     runtime: 205205,
                 },
+                network_epoch: PEER_VERSION_EPOCH_2_05,
             },
         ]
     }
@@ -313,18 +335,21 @@ lazy_static! {
             start_height: 0,
             end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
+            network_epoch: PEER_VERSION_EPOCH_1_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
             end_height: BITCOIN_MAINNET_STACKS_2_05_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: BITCOIN_MAINNET_STACKS_2_05_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_05
         },
     ];
 }
@@ -336,18 +361,21 @@ lazy_static! {
             start_height: 0,
             end_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
+            network_epoch: PEER_VERSION_EPOCH_1_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
             end_height: BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_05
         },
     ];
 }
@@ -359,18 +387,21 @@ lazy_static! {
             start_height: 0,
             end_height: 0,
             block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
+            network_epoch: PEER_VERSION_EPOCH_1_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1000,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone()
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1000,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone()
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_05
         },
     ];
 }

@@ -15,6 +15,7 @@ use stacks::chainstate::stacks::TransactionPayload;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
 use stacks::core::StacksEpochId;
+use stacks::core::{PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
 use stacks::types::chainstate::BlockHeaderHash;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::chainstate::StacksAddress;
@@ -761,6 +762,7 @@ fn test_cost_limit_switch_version205() {
                 read_count: 150,
                 runtime: 5000000000,
             },
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
@@ -773,6 +775,7 @@ fn test_cost_limit_switch_version205() {
                 read_count: 50,
                 runtime: 5000000000,
             },
+            network_epoch: PEER_VERSION_EPOCH_2_05,
         },
     ]);
 

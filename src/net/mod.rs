@@ -2602,6 +2602,7 @@ pub mod test {
                 config.burnchain.clone(),
                 burnchain_view,
                 config.connection_opts.clone(),
+                epochs.clone(),
             );
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();

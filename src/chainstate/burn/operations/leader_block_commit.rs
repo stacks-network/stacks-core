@@ -872,7 +872,10 @@ mod tests {
     use chainstate::burn::ConsensusHash;
     use chainstate::burn::*;
     use chainstate::stacks::StacksPublicKey;
-    use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+    use core::{
+        StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
+        PEER_VERSION_EPOCH_2_05, STACKS_EPOCH_MAX,
+    };
     use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::network::serialize::{deserialize, serialize_hex};
     use util::get_epoch_time_secs;
@@ -2273,18 +2276,21 @@ mod tests {
                     start_height: 0,
                     end_height: first_block_height,
                     block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_1_0,
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: first_block_height,
                     end_height: epoch_2_05_start,
                     block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch2_05,
                     start_height: epoch_2_05_start,
                     end_height: STACKS_EPOCH_MAX,
                     block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
                 },
             ],
             true,

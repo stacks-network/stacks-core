@@ -1212,6 +1212,7 @@ mod tests {
     use vm::database::{ClarityBackingStore, STXBalance};
     use vm::types::{StandardPrincipalData, Value};
 
+    use core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
     use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
     use crate::clarity_vm::database::marf::MarfedKV;
@@ -1919,6 +1920,7 @@ mod tests {
                         read_length: u64::MAX,
                         runtime: 100,
                     },
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
                 })
             }
 

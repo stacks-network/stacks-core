@@ -193,12 +193,19 @@ pub type PeerMap = HashMap<usize, ConversationP2P>;
 
 #[derive(Debug)]
 pub struct PeerNetwork {
-    pub local_peer: LocalPeer,
+    // constants
     pub peer_version: u32,
+    pub epochs: Vec<StacksEpoch>,
+
+    // refreshed when peer key expires
+    pub local_peer: LocalPeer,
+
+    // refreshed whenever the burnchain advances
     pub chain_view: BurnchainView,
     pub burnchain_tip: BlockSnapshot,
     pub chain_view_stable_consensus_hash: ConsensusHash,
 
+    // handles to p2p databases
     pub peerdb: PeerDB,
     pub atlasdb: AtlasDB,
 
@@ -313,6 +320,7 @@ impl PeerNetwork {
         burnchain: Burnchain,
         chain_view: BurnchainView,
         connection_opts: ConnectionOptions,
+        epochs: Vec<StacksEpoch>,
     ) -> PeerNetwork {
         let http = HttpPeer::new(connection_opts.clone(), 0);
         let pub_ip = connection_opts.public_ip_address.clone();
@@ -331,8 +339,10 @@ impl PeerNetwork {
         let first_burn_header_ts = burnchain.first_block_timestamp;
 
         let mut network = PeerNetwork {
-            local_peer: local_peer,
             peer_version: peer_version,
+            epochs: epochs,
+
+            local_peer: local_peer,
             chain_view: chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
             burnchain_tip: BlockSnapshot::initial(
@@ -1381,6 +1391,7 @@ impl PeerNetwork {
             &self.connection_opts,
             outbound,
             event_id,
+            self.epochs.clone(),
         );
         new_convo.set_public_key(pubkey_opt);
 
@@ -4683,6 +4694,7 @@ mod test {
             burnchain,
             burnchain_view,
             conn_opts,
+            StacksEpoch::unit_test_pre_2_05(0),
         );
         p2p
     }

@@ -440,6 +440,9 @@ impl Node {
         let sortdb = SortitionDB::open(&self.config.get_burn_db_file_path(), true)
             .expect("Error while instantiating burnchain db");
 
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
+            .expect("Error while loading stacks epochs");
+
         let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
 
         let view = {
@@ -532,6 +535,7 @@ impl Node {
             burnchain,
             view,
             self.config.connection_options.clone(),
+            epochs,
         );
         let _join_handle = spawn_peer(
             self.config.is_mainnet(),
