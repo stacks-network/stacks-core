@@ -4427,6 +4427,7 @@ impl PeerNetwork {
             &tx,
             event_observer,
             &stacks_epoch.block_limit,
+            &stacks_epoch.epoch_id,
         ) {
             warn!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
