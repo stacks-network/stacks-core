@@ -486,7 +486,10 @@ impl Config {
                     rbf_fee_increment: burnchain
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
-                    epochs: default_burnchain_config.epochs,
+                    epochs: match burnchain.epochs {
+                        Some(epochs) => Some(epochs),
+                        None => default_burnchain_config.epochs,
+                    },
                 }
             }
             None => default_burnchain_config,
@@ -895,7 +898,7 @@ impl std::default::Default for Config {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
@@ -919,6 +922,8 @@ pub struct BurnchainConfig {
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
     pub rbf_fee_increment: u64,
+    /// Custom override for the definitions of the epochs. This will only be applied for testnet and
+    /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
 }
 
@@ -1001,6 +1006,7 @@ pub struct BurnchainConfigFile {
     pub block_commit_tx_estimated_size: Option<u64>,
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
+    pub epochs: Option<Vec<StacksEpoch>>,
 }
 
 #[derive(Clone, Debug, Default)]

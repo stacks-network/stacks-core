@@ -339,6 +339,12 @@ impl StacksBlockHeader {
         // * state_index_root   (validated on process_block())
         Ok(())
     }
+
+    /// Does this header have a microblock parent?
+    pub fn has_microblock_parent(&self) -> bool {
+        self.parent_microblock != EMPTY_MICROBLOCK_PARENT_HASH
+            || self.parent_microblock_sequence != 0
+    }
 }
 
 impl StacksMessageCodec for StacksBlock {
@@ -627,6 +633,11 @@ impl StacksBlock {
             return false;
         }
         return true;
+    }
+
+    /// Does this block have a microblock parent?
+    pub fn has_microblock_parent(&self) -> bool {
+        self.header.has_microblock_parent()
     }
 }
 

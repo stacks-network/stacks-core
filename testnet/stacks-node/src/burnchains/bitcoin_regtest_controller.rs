@@ -219,6 +219,11 @@ impl BitcoinRegtestController {
         let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
             .expect("Bitcoin network unsupported");
 
+        if network_id == BitcoinNetworkType::Mainnet && config.burnchain.epochs.is_some() {
+            panic!("It is an error to set custom epochs while running on Mainnet: network_id {:?} config.burnchain {:#?}",
+                   &network_id, &config.burnchain);
+        }
+
         let indexer_config = {
             let burnchain_config = config.burnchain.clone();
             BitcoinIndexerConfig {
