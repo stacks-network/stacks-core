@@ -13,7 +13,10 @@ jobs:
       - name: Build bitcoin integration testing image
         env:
           DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-node:integrations .
+        # Remove .dockerignore file so codecov has access to git info
+        run: |
+          rm .dockerignore
+          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-node:integrations .
       - name: Export docker image as tarball
         run: docker save -o integration-image.tar stacks-node:integrations
       - name: Upload built docker image
