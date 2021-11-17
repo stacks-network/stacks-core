@@ -16,6 +16,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
+use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 use std::time::Duration;
@@ -40,6 +41,7 @@ use chainstate::stacks::{
     events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin},
     Error as ChainstateError, StacksBlock, TransactionPayload,
 };
+use core::StacksEpoch;
 use monitoring::{
     increment_contract_calls_processed, increment_stx_blocks_processed_counter,
     update_stacks_tip_height,
@@ -911,4 +913,57 @@ impl<
         // Start processing from the beginning of the new PoX reward set
         self.handle_new_burnchain_block()
     }
+}
+
+/// Determine whether or not the current chainstate databases are up-to-date with the current
+/// epoch.
+pub fn check_chainstate_db_versions(
+    epochs: &[StacksEpoch],
+    sortdb_path: &str,
+    chainstate_path: &str,
+) -> Result<bool, DBError> {
+    let mut cur_epoch_opt = None;
+    if fs::metadata(&sortdb_path).is_ok() {
+        // check sortition DB and load up the current epoch
+        let max_height = SortitionDB::get_highest_block_height_from_path(&sortdb_path)
+            .expect("FATAL: could not query sortition DB for maximum block height");
+        let cur_epoch_idx = StacksEpoch::find_epoch(epochs, max_height).expect(&format!(
+            "FATAL: no epoch defined for burn height {}",
+            max_height
+        ));
+        let cur_epoch = epochs[cur_epoch_idx].epoch_id;
+
+        // save for later
+        cur_epoch_opt = Some(cur_epoch.clone());
+        let db_version = SortitionDB::get_db_version_from_path(&sortdb_path)?
+            .expect("FATAL: could not load sortition DB version");
+
+        if !SortitionDB::is_db_version_supported_in_epoch(cur_epoch, &db_version) {
+            error!(
+                "Sortition DB at {} does not support epoch {}",
+                &sortdb_path, cur_epoch
+            );
+            return Ok(false);
+        }
+    } else {
+        warn!("Sortition DB {} does not exist; assuming it will be instantiated with the correct version", sortdb_path);
+    }
+
+    if fs::metadata(&chainstate_path).is_ok() {
+        let cur_epoch = cur_epoch_opt.expect(
+            "FATAL: chainstate corruption: sortition DB does not exist, but chainstate does.",
+        );
+        let db_config = StacksChainState::get_db_config_from_path(&chainstate_path)?;
+        if !db_config.supports_epoch(cur_epoch) {
+            error!(
+                "Chainstate DB at {} does not support epoch {}",
+                &chainstate_path, cur_epoch
+            );
+            return Ok(false);
+        }
+    } else {
+        warn!("Chainstate DB {} does not exist; assuming it will be instantiated with the correct version", chainstate_path);
+    }
+
+    Ok(true)
 }
