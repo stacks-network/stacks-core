@@ -13,7 +13,7 @@ RUN rustup override set nightly && \
     rustup component add llvm-tools-preview && \
     cargo install grcov
 
-RUN cargo test --norun --workspace && \
+RUN cargo test --no-run --workspace && \
     cargo build --workspace
 
 ENV RUSTFLAGS="-Zinstrument-coverage" \
