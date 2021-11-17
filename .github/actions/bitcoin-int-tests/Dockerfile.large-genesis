@@ -13,7 +13,9 @@ RUN rustup override set nightly && \
     rustup component add llvm-tools-preview && \
     cargo install grcov
 
-RUN cargo build --workspace
+RUN cargo test --norun --workspace && \
+    cargo build --workspace
+
 ENV RUSTFLAGS="-Zinstrument-coverage" \
     LLVM_PROFILE_FILE="stacks-blockchain-%p-%m.profraw"
 

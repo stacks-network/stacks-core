@@ -13,7 +13,8 @@ RUN rustup override set nightly && \
 ENV RUSTFLAGS="-Zinstrument-coverage" \
     LLVM_PROFILE_FILE="stacks-blockchain-%p-%m.profraw"
 
-RUN cargo build
+RUN cargo test --norun && \
+    cargo build
 
 RUN cd / && wget https://bitcoin.org/bin/bitcoin-core-0.20.0/bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
 RUN cd / && tar -xvzf bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
