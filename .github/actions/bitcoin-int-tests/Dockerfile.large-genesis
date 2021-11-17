@@ -4,8 +4,6 @@ WORKDIR /src
 
 COPY . .
 
-RUN cargo build --workspace
-
 RUN cd / && wget https://bitcoin.org/bin/bitcoin-core-0.20.0/bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
 RUN cd / && tar -xvzf bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
 
@@ -15,13 +13,14 @@ RUN rustup override set nightly && \
     rustup component add llvm-tools-preview && \
     cargo install grcov
 
+RUN cargo build --workspace
 ENV RUSTFLAGS="-Zinstrument-coverage" \
     LLVM_PROFILE_FILE="stacks-blockchain-%p-%m.profraw"
 
 ENV BITCOIND_TEST 1
 RUN cd testnet/stacks-node && cargo test --release --features prod-genesis-chainstate -- --test-threads 1 --ignored neon_integrations::bitcoind_integration_test
 
-RUN grcov . --binary-path ../../target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info && \
+RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info && \
     curl -Os https://uploader.codecov.io/latest/linux/codecov && \
     chmod +x codecov && \
     ./codecov
