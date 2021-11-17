@@ -166,11 +166,6 @@ impl RunLoop {
             Some(should_keep_running.clone()),
         );
 
-        // Invoke connect() to perform any db instantiation early
-        if let Err(e) = burnchain.connect_dbs() {
-            error!("Failed to connect to burnchain databases: {}", e);
-            return;
-        };
         let pox_constants = burnchain.get_pox_constants();
 
         let is_miner = if self.config.node.miner {
@@ -221,6 +216,12 @@ impl RunLoop {
                 error!("Burnchain controller stopped: {}", e);
                 return;
             }
+        };
+
+        // Invoke connect() to perform any db instantiation early
+        if let Err(e) = burnchain.connect_dbs() {
+            error!("Failed to connect to burnchain databases: {}", e);
+            return;
         };
 
         let mainnet = self.config.is_mainnet();
