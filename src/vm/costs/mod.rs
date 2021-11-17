@@ -997,6 +997,32 @@ impl ExecutionCost {
         .clone()
     }
 
+    /// Returns the dot product of this execution cost with `resolution`/block_limit
+    /// This provides a scalar value representing the cumulative consumption
+    /// of `self` in the provided block_limit.
+    pub fn proportion_dot_product(&self, block_limit: &ExecutionCost, resolution: u64) -> u64 {
+        [
+            // each field here is calculating `r * self / limit`, using f64
+            //  use MAX(1, block_limit) to guard against divide by zero
+            //  use MIN(1, self/block_limit) to guard against self > block_limit
+            resolution as f64
+                * 1_f64.min(self.runtime as f64 / 1_f64.max(block_limit.runtime as f64)),
+            resolution as f64
+                * 1_f64.min(self.read_count as f64 / 1_f64.max(block_limit.read_count as f64)),
+            resolution as f64
+                * 1_f64.min(self.write_count as f64 / 1_f64.max(block_limit.write_count as f64)),
+            resolution as f64
+                * 1_f64.min(self.read_length as f64 / 1_f64.max(block_limit.read_length as f64)),
+            resolution as f64
+                * 1_f64.min(self.write_length as f64 / 1_f64.max(block_limit.write_length as f64)),
+        ]
+        .iter()
+        .fold(0, |acc, dim| {
+            acc.checked_add(cmp::max(*dim as u64, 1))
+                .unwrap_or(u64::MAX)
+        })
+    }
+
     pub fn max_value() -> ExecutionCost {
         Self {
             runtime: u64::MAX,

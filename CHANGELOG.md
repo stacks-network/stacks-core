@@ -5,7 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Not Yet Released]
+## [2.0.11.4.0]
+
+This software update is a point-release to change the transaction
+selection logic in the default miner to prioritize by an estimated fee
+rate instead of raw fee. This release's chainstate directory is
+compatible with chainstate directories from 2.0.11.3.0.
+
+## Added
+
+- FeeEstimator and CostEstimator interfaces. These can be controlled
+  via node configuration options. See the `README.md` for more
+  information on the configuration.
+- New fee rate estimation endpoint `/v2/fees/transaction` (#2872). See
+  `docs/rpc/openapi.yaml` for more information.
+
+## Changed
+
+- Prioritize transaction inclusion in blocks by estimated fee rates (#2859).
+- MARF sqlite connections will now use `mmap`'ed connections with up to 256MB
+  space (#2869).
+
+## [2.0.11.3.0]
 
 This software update is a point-release to change the transaction selection
 logic in the default miner to prioritize by fee instead of nonce sequence.  This
