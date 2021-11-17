@@ -2394,6 +2394,42 @@ impl SortitionDB {
         query_rows(self.conn(), qry, NO_PARAMS)
     }
 
+    /// Get the schema version of a sortition DB, given the path to it.
+    /// Returns the version string, if it exists
+    pub fn get_db_version_from_path(path: &str) -> Result<Option<String>, db_error> {
+        if fs::metadata(path).is_err() {
+            return Err(db_error::NoDBError);
+        }
+        let index_path = db_mkdirs(path)?;
+        let marf = SortitionDB::open_index(&index_path)?;
+        SortitionDB::get_schema_version(marf.sqlite_conn())
+    }
+
+    /// Get the height of the highest burnchain block, given the DB path.
+    /// Importantly, this will *not* apply any schema migrations.
+    /// This is used to check if the DB is compatible with the current epoch.
+    pub fn get_highest_block_height_from_path(path: &str) -> Result<u64, db_error> {
+        if fs::metadata(path).is_err() {
+            return Err(db_error::NoDBError);
+        }
+        let index_path = db_mkdirs(path)?;
+        let marf = SortitionDB::open_index(&index_path)?;
+        let sql = "SELECT MAX(block_height) FROM snapshots";
+        Ok(query_rows(&marf.sqlite_conn(), sql, NO_PARAMS)?
+            .pop()
+            .expect("BUG: no snapshots in block_snapshots"))
+    }
+
+    /// Is a particular database version supported by a given epoch?
+    pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: &str) -> bool {
+        match epoch {
+            StacksEpochId::Epoch10 => false,
+            StacksEpochId::Epoch20 => (version == "1" || version == "2"),
+            StacksEpochId::Epoch2_05 => version == "2",
+        }
+    }
+
+    /// Get the database schema version, given a DB connection
     fn get_schema_version(conn: &Connection) -> Result<Option<String>, db_error> {
         let version = conn
             .query_row(
@@ -3504,7 +3540,7 @@ impl SortitionDB {
         query_row(conn, sql, args)
     }
 
-    /// Get all StacksEpochs
+    /// Get all StacksEpochs, in order by ascending start height
     pub fn get_stacks_epochs(conn: &DBConn) -> Result<Vec<StacksEpoch>, db_error> {
         let sql = "SELECT * FROM epochs ORDER BY start_block_height ASC";
         query_rows(conn, sql, NO_PARAMS)
