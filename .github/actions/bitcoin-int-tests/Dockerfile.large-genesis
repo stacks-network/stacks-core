@@ -13,11 +13,11 @@ RUN rustup override set nightly && \
     rustup component add llvm-tools-preview && \
     cargo install grcov
 
-RUN cargo test --no-run --workspace && \
-    cargo build --workspace
-
 ENV RUSTFLAGS="-Zinstrument-coverage" \
     LLVM_PROFILE_FILE="stacks-blockchain-%p-%m.profraw"
+
+RUN cargo test --no-run --workspace && \
+    cargo build --workspace
 
 ENV BITCOIND_TEST 1
 RUN cd testnet/stacks-node && cargo test --release --features prod-genesis-chainstate -- --test-threads 1 --ignored neon_integrations::bitcoind_integration_test
