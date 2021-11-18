@@ -25,4 +25,4 @@ RUN cd testnet/stacks-node && cargo test --release --features prod-genesis-chain
 RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info && \
     curl -Os https://uploader.codecov.io/latest/linux/codecov && \
     chmod +x codecov && \
-    ./codecov
+    ./codecov --name "large_genesis"
