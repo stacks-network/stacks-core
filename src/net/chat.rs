@@ -647,6 +647,16 @@ impl ConversationP2P {
         false
     }
 
+    /// Get the current epoch
+    fn get_current_epoch(&self, cur_burn_height: u64) -> StacksEpoch {
+        let epoch_index = StacksEpoch::find_epoch(&self.epochs, cur_burn_height).expect(&format!(
+            "BUG: block {} is not in a known epoch",
+            cur_burn_height
+        ));
+        let epoch = self.epochs[epoch_index].clone();
+        epoch
+    }
+
     /// Determine whether or not a remote node has the proper epoch marker in its peer version
     /// * If the local and remote nodes are in the same system epoch, then yes
     /// * If they're in different epochs, but the epoch shift hasn't happened yet, then yes
@@ -675,11 +685,7 @@ impl ConversationP2P {
         // what epoch are we in?
         // note that it might not be my_epoch -- for example, my_epoch can be 0x05 for a 2.05 node,
         // which can run in epoch 2.0 as well (in which case cur_epoch would be 0x00).
-        let epoch_index = StacksEpoch::find_epoch(&self.epochs, cur_burn_height).expect(&format!(
-            "BUG: block {} is not in a known epoch",
-            &cur_burn_height
-        ));
-        let epoch = &self.epochs[epoch_index];
+        let epoch = self.get_current_epoch(cur_burn_height);
         let cur_epoch = epoch.network_epoch;
 
         if cur_epoch <= remote_epoch {
@@ -1219,7 +1225,6 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
         message: &mut StacksMessage,
     ) -> Result<Option<StacksMessage>, net_error> {
-        // monitoring::increment_p2p_msg_ping_received_counter();
         monitoring::increment_msg_counter("p2p_ping".to_string());
 
         let ping_data = match message.payload {
@@ -1243,13 +1248,16 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
         preamble: &Preamble,
     ) -> Result<ReplyHandleP2P, net_error> {
-        // monitoring::increment_p2p_msg_get_neighbors_received_counter();
         monitoring::increment_msg_counter("p2p_get_neighbors".to_string());
 
-        // get neighbors at random as long as they're fresh
+        let epoch = self.get_current_epoch(chain_view.burn_block_height);
+
+        // get neighbors at random as long as they're fresh, and as long as they're compatible with
+        // the current system epoch
         let mut neighbors = PeerDB::get_random_neighbors(
             peer_dbconn,
             self.network_id,
+            epoch.network_epoch,
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
