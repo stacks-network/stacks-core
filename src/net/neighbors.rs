@@ -1709,15 +1709,18 @@ impl NeighborWalk {
 }
 
 impl PeerNetwork {
-    /// Get some initial fresh random neighbor(s) to crawl
+    /// Get some initial fresh random neighbor(s) to crawl,
+    /// given the number of neighbors and current burn block height
     pub fn walk_get_random_neighbors(
         &self,
         num_neighbors: u64,
         block_height: u64,
     ) -> Result<Vec<Neighbor>, net_error> {
+        let cur_epoch = self.get_current_epoch();
         let neighbors = PeerDB::get_random_walk_neighbors(
             &self.peerdb.conn(),
             self.local_peer.network_id,
+            cur_epoch.network_epoch,
             num_neighbors as u32,
             block_height,
         )
