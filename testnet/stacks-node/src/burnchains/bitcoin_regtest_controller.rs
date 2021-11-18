@@ -1482,13 +1482,8 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
-        match self.config.burnchain.epochs.as_ref() {
-            Some(epochs) => epochs.clone(),
-            None => {
-                let (_, indexer) = self.setup_indexer_runtime();
-                indexer.get_stacks_epochs()
-            }
-        }
+        let (_, indexer) = self.setup_indexer_runtime();
+        indexer.get_stacks_epochs()
     }
 
     fn start(
