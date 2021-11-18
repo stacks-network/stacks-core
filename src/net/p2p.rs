@@ -429,6 +429,17 @@ impl PeerNetwork {
         network
     }
 
+    /// Get the current epoch
+    pub fn get_current_epoch(&self) -> StacksEpoch {
+        let epoch_index = StacksEpoch::find_epoch(&self.epochs, self.chain_view.burn_block_height)
+            .expect(&format!(
+                "BUG: block {} is not in a known epoch",
+                &self.chain_view.burn_block_height
+            ));
+        let epoch = self.epochs[epoch_index].clone();
+        epoch
+    }
+
     /// Do something with the HTTP peer.
     /// NOTE: the HTTP peer is *always* instantiated; it's just an Option<..> so its methods can
     /// receive a ref to the PeerNetwork that contains it.
