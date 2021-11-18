@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.05.0.0.0]
+
+This software update is a consensus changing release and the
+implementation of the proposed cost changes in SIP-012. This release's
+chainstate directory is compatible with chainstate directories from
+2.0.11.4.0, however, it is only compatible with chainstate directories
+before the 2.05 consensus changes activate (Bitcoin height 713,000). If
+you run a 2.00 stacks-node beyond this point, and wish to run a 2.05 node
+afterwards, you must start from a new chainstate directory.
+
+## Added
+
+- At height 713,000 a new `costs-2` contract will be launched by the
+  null Stacks address.
+
+## Changed
+
+- Stacks blocks whose parents are mined >= 713,000 will use default costs
+  from the new `costs-2` contract.
+- Stacks blocks whose parents are mined >= 713,000 will use the real
+  serialized length of Clarity values as the cost inputs to several methods
+  that previously used the maximum possible size for the associated types.
+- Stacks blocks whose parents are mined >= 713,000 will use the new block
+  limit defined in SIP-012.
+
+## Fixed
+
+- Miners are now more aggressive in calculating their block limits
+  when confirming microblocks (#2916)
+
 ## [2.0.11.4.0]
 
 This software update is a point-release to change the transaction
