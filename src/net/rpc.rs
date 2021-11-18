@@ -422,6 +422,7 @@ impl RPCNeighborsInfo {
     /// Load neighbor address information from the peer network
     pub fn from_p2p(
         network_id: u32,
+        network_epoch: u8,
         peers: &PeerMap,
         chain_view: &BurnchainView,
         peerdb: &PeerDB,
@@ -429,6 +430,7 @@ impl RPCNeighborsInfo {
         let neighbor_sample = PeerDB::get_random_neighbors(
             peerdb.conn(),
             network_id,
+            network_epoch,
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
@@ -757,9 +759,12 @@ impl ConversationHttp {
         req: &HttpRequestType,
         network: &PeerNetwork,
     ) -> Result<(), net_error> {
+        let epoch = network.get_current_epoch();
+
         let response_metadata = HttpResponseMetadata::from(req);
         let neighbor_data = RPCNeighborsInfo::from_p2p(
             network.local_peer.network_id,
+            epoch.network_epoch,
             &network.peers,
             &network.chain_view,
             &network.peerdb,
