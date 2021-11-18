@@ -39,7 +39,10 @@ jobs:
       - name: Single full genesis integration test
         env:
           DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
+        # Remove .dockerignore file so codecov has access to git info
+        run: |
+          rm .dockerignore
+          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
 
   # Run unit tests with code coverage
   unit-tests:
@@ -49,7 +52,10 @@ jobs:
       - name: Run units tests (with coverage)
         env:
           DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
+        # Remove .dockerignore file so codecov has access to git info
+        run: |
+          rm .dockerignore
+          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
 
   open-api-validation:
     runs-on: ubuntu-latest
