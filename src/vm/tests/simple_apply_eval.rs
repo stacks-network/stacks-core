@@ -74,7 +74,7 @@ fn test_simple_let() {
     if let Ok(parsed_program) = parse(&contract_id, &program) {
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
-        let mut env = OwnedEnvironment::new(marf.as_clarity_db());
+        let mut env = OwnedEnvironment::new(marf.as_clarity_db(), false);
 
         assert_eq!(
             Ok(Value::Int(7)),

@@ -269,8 +269,10 @@ where
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([0 as u8; 32]), &StacksBlockId([1 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            false,
+        );
         f(&mut owned_env);
         store.test_commit();
     }
@@ -279,24 +281,30 @@ where
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            false,
+        );
         a(&mut owned_env);
         store.test_commit();
     }
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([3 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            false,
+        );
         b(&mut owned_env);
         store.test_commit();
     }
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([4 as u8; 32]));
-        let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+        let mut owned_env = OwnedEnvironment::new(
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            false,
+        );
         z(&mut owned_env);
         store.test_commit();
     }

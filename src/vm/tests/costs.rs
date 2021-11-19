@@ -997,7 +997,7 @@ fn test_cost_contract_short_circuits(#[case] use_mainnet: bool) {
 }
 
 #[apply(template_test_network_versions)]
-fn test_cost_voting_integration(#[case] use_mainnet:bool) {
+fn test_cost_voting_integration(#[case] use_mainnet: bool) {
     let marf_kv = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
     clarity_instance

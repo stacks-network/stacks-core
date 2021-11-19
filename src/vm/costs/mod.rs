@@ -625,9 +625,10 @@ impl LimitedCostTracker {
     pub fn new_max_limit(
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
+        use_mainnet: bool,
     ) -> Result<LimitedCostTracker> {
         assert!(clarity_db.is_stack_empty());
-        LimitedCostTracker::new(false, ExecutionCost::max_value(), clarity_db, epoch)
+        LimitedCostTracker::new(use_mainnet, ExecutionCost::max_value(), clarity_db, epoch)
     }
 
     pub fn new_free() -> LimitedCostTracker {

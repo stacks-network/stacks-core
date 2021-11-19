@@ -2010,7 +2010,7 @@ mod test {
             let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
             let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
             let docs_principal_id = PrincipalData::Contract(docs_test_id);
-            let mut env = OwnedEnvironment::new(conn);
+            let mut env = OwnedEnvironment::new(conn, false);
             let balance = STXBalance::initial(1000);
             env.execute_in_env::<_, _, ()>(
                 QualifiedContractIdentifier::local("tokens").unwrap().into(),
