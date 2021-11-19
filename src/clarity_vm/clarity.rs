@@ -389,7 +389,7 @@ impl ClarityInstance {
             epoch,
         };
 
-        let use_mainnet = self.mainnet;
+        let use_mainnet = self.mainnet.clone();
         conn.as_transaction(|clarity_db| {
             let (ast, _) = clarity_db
                 .analyze_smart_contract(&boot_code_id("costs", use_mainnet), BOOT_CODE_COSTS)
