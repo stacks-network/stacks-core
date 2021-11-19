@@ -60,8 +60,8 @@ use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
 use util::db::Error as db_error;
 use util::db::{
-    db_mkdirs, query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx,
-    FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, FromColumn, FromRow,
+    IndexDBConn, IndexDBTx,
 };
 use util::hash::to_hex;
 use vm::analysis::analysis_db::AnalysisDatabase;
@@ -176,6 +176,16 @@ pub struct DBConfig {
     pub version: String,
     pub mainnet: bool,
     pub chain_id: u32,
+}
+
+impl DBConfig {
+    pub fn supports_epoch(&self, epoch_id: StacksEpochId) -> bool {
+        match epoch_id {
+            StacksEpochId::Epoch10 => false,
+            StacksEpochId::Epoch20 => (self.version == "1" || self.version == "2"),
+            StacksEpochId::Epoch2_05 => self.version == "2",
+        }
+    }
 }
 
 impl StacksHeaderInfo {
@@ -743,6 +753,7 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         marf_path: &str,
+        migrate: bool,
     ) -> Result<MARF<StacksBlockId>, Error> {
         let mut marf = StacksChainState::open_index(marf_path)?;
         let mut dbtx = StacksDBTx::new(&mut marf, ());
@@ -762,7 +773,9 @@ impl StacksChainState {
                 ],
             )?;
 
-            StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
+            if migrate {
+                StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
+            }
         }
 
         dbtx.instantiate_index()?;
@@ -770,7 +783,20 @@ impl StacksChainState {
         Ok(marf)
     }
 
-    fn load_db_config(conn: &DBConn) -> Result<DBConfig, Error> {
+    /// Load the chainstate DBConfig, given the path to the chainstate root
+    pub fn get_db_config_from_path(chainstate_root_path: &str) -> Result<DBConfig, db_error> {
+        let index_pathbuf =
+            StacksChainState::header_index_root_path(PathBuf::from(chainstate_root_path));
+        let index_path = index_pathbuf
+            .to_str()
+            .ok_or_else(|| db_error::ParseError)?
+            .to_string();
+
+        let marf = StacksChainState::open_index(&index_path)?;
+        StacksChainState::load_db_config(marf.sqlite_conn())
+    }
+
+    fn load_db_config(conn: &DBConn) -> Result<DBConfig, db_error> {
         let config = query_row::<DBConfig, _>(
             conn,
             &"SELECT * FROM db_config LIMIT 1".to_string(),
@@ -837,7 +863,7 @@ impl StacksChainState {
 
         if create_flag {
             // instantiate!
-            StacksChainState::instantiate_db(mainnet, chain_id, index_path)
+            StacksChainState::instantiate_db(mainnet, chain_id, index_path, true)
         } else {
             let mut marf = StacksChainState::open_index(index_path)?;
             let tx = marf.storage_tx()?;
@@ -847,10 +873,28 @@ impl StacksChainState {
         }
     }
 
-    pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, Error> {
+    #[cfg(test)]
+    pub fn open_db_without_migrations(
+        mainnet: bool,
+        chain_id: u32,
+        index_path: &str,
+    ) -> Result<MARF<StacksBlockId>, Error> {
+        let create_flag = fs::metadata(index_path).is_err();
+
+        if create_flag {
+            // instantiate!
+            StacksChainState::instantiate_db(mainnet, chain_id, index_path, false)
+        } else {
+            let mut marf = StacksChainState::open_index(index_path)?;
+            let tx = marf.storage_tx()?;
+            tx.commit()?;
+            Ok(marf)
+        }
+    }
+
+    pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
-        let marf =
-            MARF::from_path(marf_path).map_err(|e| Error::DBError(db_error::IndexError(e)))?;
+        let marf = MARF::from_path(marf_path).map_err(|e| db_error::IndexError(e))?;
         Ok(marf)
     }
 
@@ -1380,48 +1424,76 @@ impl StacksChainState {
         StacksChainState::open_and_exec(false, chain_id, path_str, boot_data)
     }
 
+    pub fn blocks_path(mut path: PathBuf) -> PathBuf {
+        path.push("blocks");
+        path
+    }
+
+    pub fn vm_state_path(mut path: PathBuf) -> PathBuf {
+        path.push("vm");
+        path
+    }
+
+    pub fn vm_state_index_root_path(path: PathBuf) -> PathBuf {
+        let mut ret = StacksChainState::vm_state_path(path);
+        ret.push("clarity");
+        ret
+    }
+
+    pub fn vm_state_index_marf_path(path: PathBuf) -> PathBuf {
+        let mut ret = StacksChainState::vm_state_index_root_path(path);
+        ret.push("marf.sqlite");
+        ret
+    }
+
+    pub fn header_index_root_path(path: PathBuf) -> PathBuf {
+        let mut ret = StacksChainState::vm_state_path(path);
+        ret.push("index.sqlite");
+        ret
+    }
+
+    pub fn make_chainstate_dirs(path_str: &str) -> Result<(), Error> {
+        let path = PathBuf::from(path_str);
+        StacksChainState::mkdirs(&path)?;
+
+        let blocks_path = StacksChainState::blocks_path(path.clone());
+        StacksChainState::mkdirs(&blocks_path)?;
+
+        let vm_state_path = StacksChainState::vm_state_path(path.clone());
+        StacksChainState::mkdirs(&vm_state_path)?;
+        Ok(())
+    }
+
     pub fn open_and_exec(
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
+        StacksChainState::make_chainstate_dirs(path_str)?;
         let path = PathBuf::from(path_str);
-
-        StacksChainState::mkdirs(&path)?;
-
-        let mut blocks_path = path.clone();
-
-        blocks_path.push("blocks");
-        StacksChainState::mkdirs(&blocks_path)?;
-
+        let blocks_path = StacksChainState::blocks_path(path.clone());
         let blocks_path_root = blocks_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let mut state_path = path;
-
-        state_path.push("vm");
-        StacksChainState::mkdirs(&state_path)?;
-
-        state_path.push("clarity");
-        let clarity_state_index_root = state_path
+        let clarity_state_index_root_path =
+            StacksChainState::vm_state_index_root_path(path.clone());
+        let clarity_state_index_root = clarity_state_index_root_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        state_path.push("marf.sqlite");
-        let clarity_state_index_marf = state_path
+        let clarity_state_index_marf_path =
+            StacksChainState::vm_state_index_marf_path(path.clone());
+        let clarity_state_index_marf = clarity_state_index_marf_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        state_path.pop();
-        state_path.pop();
-
-        state_path.push("index.sqlite");
-        let header_index_root = state_path
+        let header_index_root_path = StacksChainState::header_index_root_path(path.clone());
+        let header_index_root = header_index_root_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();

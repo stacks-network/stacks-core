@@ -86,12 +86,8 @@ impl BurnchainController for MocknetController {
         }
     }
 
-    fn start(
-        &mut self,
-        _ignored_target_height_opt: Option<u64>,
-    ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
-        // If `config` sets a value, use that. Otherwise, use a default.
-        let epoch_vector = match &self.config.burnchain.epochs {
+    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+        match &self.config.burnchain.epochs {
             Some(epochs) => epochs.clone(),
             None => vec![StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
@@ -100,7 +96,15 @@ impl BurnchainController for MocknetController {
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_2_0,
             }],
-        };
+        }
+    }
+
+    fn start(
+        &mut self,
+        _ignored_target_height_opt: Option<u64>,
+    ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
+        // If `config` sets a value, use that. Otherwise, use a default.
+        let epoch_vector = self.get_stacks_epochs();
         let db = match SortitionDB::connect(
             &self.config.get_burn_db_file_path(),
             0,

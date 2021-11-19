@@ -42,6 +42,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::codec::StacksMessageCodec;
+use stacks::core::StacksEpoch;
 use stacks::deps::bitcoin::blockdata::opcodes;
 use stacks::deps::bitcoin::blockdata::script::{Builder, Script};
 use stacks::deps::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
@@ -320,7 +321,7 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
+    fn setup_indexer_runtime(&self) -> (Burnchain, BitcoinIndexer) {
         let (_, network_type) = self.config.burnchain.get_bitcoin_network();
         let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
         let burnchain_indexer = BitcoinIndexer {
@@ -1478,6 +1479,11 @@ impl BurnchainController for BitcoinRegtestController {
             burnchain_indexer.get_first_block_header_timestamp()?,
         )?;
         Ok(())
+    }
+
+    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+        let (_, indexer) = self.setup_indexer_runtime();
+        indexer.get_stacks_epochs()
     }
 
     fn start(

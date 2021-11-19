@@ -229,6 +229,9 @@ pub struct StacksEpoch {
 }
 
 impl StacksEpoch {
+    /// Determine which epoch, if any, in a list of epochs, a given burnchain height falls into.
+    /// Returns Some(index) if there is such an epoch in the list.
+    /// Returns None if not.
     pub fn find_epoch(epochs: &[StacksEpoch], height: u64) -> Option<usize> {
         for (i, epoch) in epochs.iter().enumerate() {
             if epoch.start_height <= height && height < epoch.end_height {
