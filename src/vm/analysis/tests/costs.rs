@@ -210,5 +210,5 @@ fn epoch_205_test_all_mainnet() {
 
 #[test]
 fn epoch_205_test_all_testnet() {
-    epoch_205_test_all(true)
+    epoch_205_test_all(false)
 }
