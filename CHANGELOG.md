@@ -10,10 +10,11 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 This software update is a consensus changing release and the
 implementation of the proposed cost changes in SIP-012. This release's
 chainstate directory is compatible with chainstate directories from
-2.0.11.4.0, however, it is only compatible with chainstate directories
-before the 2.05 consensus changes activate (Bitcoin height 713,000). If
-you run a 2.00 stacks-node beyond this point, and wish to run a 2.05 node
-afterwards, you must start from a new chainstate directory.
+2.0.11.4.0. However, this release is only compatible with chainstate
+directories before the 2.05 consensus changes activate (Bitcoin height
+713,000). If you run a 2.00 stacks-node beyond this point, and wish to
+run a 2.05 node afterwards, you must start from a new chainstate
+directory.
 
 ## Added
 
