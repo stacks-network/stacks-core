@@ -323,7 +323,7 @@
     (runtime u13400))
 
 (define-read-only (cost_principal_of (n uint))
-    (runtime u235))
+    (runtime u999))
 
 
 (define-read-only (cost_at_block (n uint))
