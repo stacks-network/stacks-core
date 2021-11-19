@@ -49,6 +49,8 @@ use crate::clarity_vm::database::MemoryBackingStore;
 use rstest::rstest;
 
 lazy_static! {
+    static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =
+        boot_code_id("cost-voting", false);
     static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
 }
@@ -914,12 +916,18 @@ fn test_cost_contract_short_circuits(#[case] use_mainnet: bool) {
         tracker.get_total()
     };
 
+    let voting_contract_to_use: &QualifiedContractIdentifier = if use_mainnet {
+        &COST_VOTING_MAINNET_CONTRACT
+    } else {
+        &COST_VOTING_TESTNET_CONTRACT
+    };
+
     {
         let mut store = marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
         let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
         db.begin();
         db.set_variable_unknown_descriptor(
-            &COST_VOTING_TESTNET_CONTRACT,
+            voting_contract_to_use,
             "confirmed-proposal-count",
             Value::UInt(1),
         )
@@ -933,7 +941,7 @@ fn test_cost_contract_short_circuits(#[case] use_mainnet: bool) {
             intercepted, "\"intercepted-function\"", cost_definer, "\"cost-definition\""
         );
         db.set_entry_unknown_descriptor(
-            &COST_VOTING_TESTNET_CONTRACT,
+            voting_contract_to_use,
             "confirmed-proposals",
             execute("{ confirmed-id: u0 }"),
             execute(&value),
