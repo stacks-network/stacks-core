@@ -30,7 +30,7 @@ fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransaction
     let sender = execute(address).expect_principal();
 
     let mut marf_kv = MemoryBackingStore::new();
-    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(), false);
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
 
     {
         let mut env = owned_env.get_exec_environment(None);

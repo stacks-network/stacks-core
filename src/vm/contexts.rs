@@ -531,7 +531,7 @@ impl EventBatch {
 
 impl<'a> OwnedEnvironment<'a> {
     #[cfg(test)]
-    pub fn new(database: ClarityDatabase<'a>, use_mainnet: bool) -> OwnedEnvironment<'a> {
+    pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         let epoch = StacksEpochId::Epoch2_05;
         OwnedEnvironment {
             context: GlobalContext::new(false, database, LimitedCostTracker::new_free(), epoch),

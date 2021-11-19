@@ -123,10 +123,8 @@ impl ClarityTestSim {
                 .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
                 .initialize();
 
-            let mut owned_env = OwnedEnvironment::new(
-                store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
-                false,
-            );
+            let mut owned_env =
+                OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
 
             for user_key in USER_KEYS.iter() {
                 owned_env.stx_faucet(
@@ -158,7 +156,7 @@ impl ClarityTestSim {
                 height: self.height + 1,
             };
             let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB), false);
+                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
             f(&mut owned_env)
         };
 
@@ -182,7 +180,7 @@ impl ClarityTestSim {
                 height: parent_height + 1,
             };
             let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB), false);
+                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
             f(&mut owned_env)
         };
 

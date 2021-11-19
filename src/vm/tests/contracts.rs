@@ -138,7 +138,7 @@ fn test_get_block_info_eval() {
 
     for i in 0..contracts.len() {
         let mut marf = MemoryBackingStore::new();
-        let mut owned_env = OwnedEnvironment::new(marf.as_clarity_db(), false);
+        let mut owned_env = OwnedEnvironment::new(marf.as_clarity_db());
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
         owned_env
             .initialize_contract(contract_identifier.clone(), contracts[i])
