@@ -45,8 +45,6 @@ use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, Res
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
 
-use rstest::rstest;
-
 lazy_static! {
     static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =
         boot_code_id("cost-voting", true);
@@ -293,14 +291,7 @@ fn test_hash_fn_input_sizes_200_205(hash_function: &str, mainnet: bool) {
     test_input_size_epoch_200_205(&large_input, large_base, &small_input, small_base, mainnet);
 }
 
-#[template]
-#[rstest]
-#[case(true)]
-#[case(false)]
-fn template_test_network_versions(#[case] use_mainnet: bool) {}
-
-#[apply(template_test_network_versions)]
-fn epoch205_hash_fns_input_size(#[case] use_mainnet: bool) {
+fn epoch205_hash_fns_input_size( use_mainnet: bool) {
     test_hash_fn_input_sizes_200_205("hash160", use_mainnet);
     test_hash_fn_input_sizes_200_205("sha256", use_mainnet);
     test_hash_fn_input_sizes_200_205("sha512", use_mainnet);
@@ -308,8 +299,17 @@ fn epoch205_hash_fns_input_size(#[case] use_mainnet: bool) {
     test_hash_fn_input_sizes_200_205("keccak256", use_mainnet);
 }
 
-#[apply(template_test_network_versions)]
-fn epoch205_tuple_merge_input_size(#[case] use_mainnet: bool) {
+#[test]
+fn epoch205_hash_fns_input_size_mainnet() {
+    epoch205_hash_fns_input_size(true)
+}
+
+#[test]
+fn epoch205_hash_fns_input_size_testnet() {
+    epoch205_hash_fns_input_size(false)
+}
+
+fn epoch205_tuple_merge_input_size( use_mainnet: bool) {
     let tuple_merge_uint = "(define-public (execute)
                                    (begin (merge { a: 1 } { a: 1 }) (ok 1)))";
     let tuple_uint = "(define-public (execute)
@@ -328,8 +328,17 @@ fn epoch205_tuple_merge_input_size(#[case] use_mainnet: bool) {
     );
 }
 
-#[apply(template_test_network_versions)]
-fn epoch205_index_of_input_size(#[case] use_mainnet: bool) {
+#[test]
+fn epoch205_tuple_merge_input_size_mainnet() {
+    epoch205_tuple_merge_input_size(true)
+}
+
+#[test]
+fn epoch205_tuple_merge_input_size_testnet() {
+    epoch205_tuple_merge_input_size(false)
+}
+
+fn epoch205_index_of_input_size( use_mainnet: bool) {
     let index_of_list_6 = "(define-public (execute)
                               (begin (index-of (list u1 u1 u1 u1 u1 u1) u2) (ok 1)))";
     let list_6 = "(define-public (execute)
@@ -349,8 +358,17 @@ fn epoch205_index_of_input_size(#[case] use_mainnet: bool) {
     );
 }
 
-#[apply(template_test_network_versions)]
-fn epoch205_eq_input_size(#[case] use_mainnet: bool) {
+#[test]
+fn epoch205_index_of_input_size_mainnet() {
+    epoch205_index_of_input_size(true)
+}
+
+#[test]
+fn epoch205_index_of_input_size_testnet() {
+    epoch205_index_of_input_size(false)
+}
+
+fn epoch205_eq_input_size( use_mainnet: bool) {
     let eq_with_uints = "(define-public (execute)
                           (begin (is-eq u1 u1 u1 u1 u1 u1) (ok 1)))";
     let uints_no_eq = "(define-public (execute)
@@ -369,12 +387,21 @@ fn epoch205_eq_input_size(#[case] use_mainnet: bool) {
     );
 }
 
-#[apply(template_test_network_versions)]
+#[test]
+fn epoch205_eq_input_size_mainnet() {
+    epoch205_eq_input_size(true)
+}
+
+#[test]
+fn epoch205_eq_input_size_testnet() {
+    epoch205_eq_input_size(false)
+}
+
 // Test the `concat` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
 // cost larger when larger objects are fed into `concat` from the datastore.
 // Capture the cost of just the concat operation by measuring the cost of contracts that do everything but concat, and
 //  ones that do the same and concat.
-fn epoch205_concat(#[case] use_mainnet: bool) {
+fn epoch205_concat( use_mainnet: bool) {
     let small_exec_without_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
         (define-public (execute)
                (begin (var-get db) (var-get db) (ok 1)))";
@@ -437,10 +464,19 @@ fn epoch205_concat(#[case] use_mainnet: bool) {
     );
 }
 
-#[apply(template_test_network_versions)]
+#[test]
+fn epoch205_concat_mainnet() {
+    epoch205_concat(true)
+}
+
+#[test]
+fn epoch205_concat_testnet() {
+    epoch205_concat(false)
+}
+
 // Test the `var-get` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
 // cost larger when larger objects are fetched from the datastore.
-fn epoch205_var_get(#[case] use_mainnet: bool) {
+fn epoch205_var_get( use_mainnet: bool) {
     let smaller_exec = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
       (define-public (execute)
         (begin (var-get db)
@@ -462,10 +498,19 @@ fn epoch205_var_get(#[case] use_mainnet: bool) {
     );
 }
 
-#[apply(template_test_network_versions)]
+#[test]
+fn epoch205_var_get_mainnet() {
+    epoch205_var_get(true)
+}
+
+#[test]
+fn epoch205_var_get_testnet() {
+    epoch205_var_get(false)
+}
+
 // Test the `var-set` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
 // cost larger when larger objects are stored to the datastore.
-fn epoch205_var_set(#[case] use_mainnet: bool) {
+fn epoch205_var_set( use_mainnet: bool) {
     let smaller_exec = "(define-data-var db (list 500 int) (list 1))
       (define-public (execute)
         (begin (var-set db (list 1 2 3 4 5))
@@ -487,10 +532,19 @@ fn epoch205_var_set(#[case] use_mainnet: bool) {
     );
 }
 
-#[apply(template_test_network_versions)]
+#[test]
+fn epoch205_var_set_mainnet() {
+    epoch205_var_set(true)
+}
+
+#[test]
+fn epoch205_var_set_testnet() {
+    epoch205_var_set(false)
+}
+
 // Test the `map-get` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
 // cost larger when larger objects are fetched from the datastore.
-fn epoch205_map_get(#[case] use_mainnet: bool) {
+fn epoch205_map_get( use_mainnet: bool) {
     let smaller_exec = "(define-map db int (list 500 int))
       (map-set db 0 (list 1 2 3 4 5))
       (define-public (execute)
@@ -514,10 +568,19 @@ fn epoch205_map_get(#[case] use_mainnet: bool) {
     );
 }
 
-#[apply(template_test_network_versions)]
+#[test]
+fn epoch205_map_get_mainnet() {
+    epoch205_map_get(true)
+}
+
+#[test]
+fn epoch205_map_get_testnet() {
+    epoch205_map_get(false)
+}
+
 // Test the `map-set` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
 // cost larger when larger objects are stored to the datastore.
-fn epoch205_map_set(#[case] use_mainnet: bool) {
+fn epoch205_map_set( use_mainnet: bool) {
     let smaller_exec = "(define-map db int (list 500 int))
       (define-public (execute)
         (begin (map-set db 0 (list 1 2 3 4 5))
@@ -539,10 +602,19 @@ fn epoch205_map_set(#[case] use_mainnet: bool) {
     );
 }
 
-#[apply(template_test_network_versions)]
+#[test]
+fn epoch205_map_set_mainnet() {
+    epoch205_map_set(true)
+}
+
+#[test]
+fn epoch205_map_set_testnet() {
+    epoch205_map_set(false)
+}
+
 // Test the `map-insert` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
 // cost larger when larger objects are stored to the datastore.
-fn epoch205_map_insert(#[case] use_mainnet: bool) {
+fn epoch205_map_insert( use_mainnet: bool) {
     let smaller_exec = "(define-map db int (list 500 int))
       (define-public (execute)
         (begin (map-insert db 0 (list 1 2 3 4 5))
@@ -564,10 +636,19 @@ fn epoch205_map_insert(#[case] use_mainnet: bool) {
     );
 }
 
-#[apply(template_test_network_versions)]
+#[test]
+fn epoch205_map_insert_mainnet() {
+    epoch205_map_insert(true)
+}
+
+#[test]
+fn epoch205_map_insert_testnet() {
+    epoch205_map_insert(false)
+}
+
 // Test the `map-delete` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
 // cost larger when larger objects are used as keys to the datastore.
-fn epoch205_map_delete(#[case] use_mainnet: bool) {
+fn epoch205_map_delete( use_mainnet: bool) {
     let smaller_exec = "(define-map db (list 500 int) int)
       (map-set db (list 1 2 3 4 5) 0)
       (define-public (execute)
@@ -592,10 +673,19 @@ fn epoch205_map_delete(#[case] use_mainnet: bool) {
     );
 }
 
-#[apply(template_test_network_versions)]
+#[test]
+fn epoch205_map_delete_mainnet() {
+    epoch205_map_delete(true)
+}
+
+#[test]
+fn epoch205_map_delete_testnet() {
+    epoch205_map_delete(false)
+}
+
 // Test the nft changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
 // cost larger when larger objects are stored to the datastore.
-fn epoch205_nfts(#[case] use_mainnet: bool) {
+fn epoch205_nfts( use_mainnet: bool) {
     // test nft-mint
     let smaller_exec = "(define-non-fungible-token db (list 500 int))
       (define-public (execute)
@@ -688,6 +778,16 @@ fn epoch205_nfts(#[case] use_mainnet: bool) {
     );
 }
 
+#[test]
+fn epoch205_nfts_mainnet() {
+    epoch205_nfts(true)
+}
+
+#[test]
+fn epoch205_nfts_testnet() {
+    epoch205_nfts(false)
+}
+
 fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
     let contract_trait = "(define-trait trait-1 (
                             (foo-exec (int) (response int int))
@@ -755,10 +855,9 @@ fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> Ex
     })
 }
 
-#[apply(template_test_network_versions)]
 // test each individual cost function can be correctly invoked as
 //  Clarity code executes in Epoch 2.00
-fn test_all(#[case] use_mainnet: bool) {
+fn test_all( use_mainnet: bool) {
     let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch20);
 
     for f in NativeFunctions::ALL.iter() {
@@ -768,10 +867,19 @@ fn test_all(#[case] use_mainnet: bool) {
     }
 }
 
-#[apply(template_test_network_versions)]
+#[test]
+fn test_all_mainnet() {
+    test_all(true)
+}
+
+#[test]
+fn test_all_testnet() {
+    test_all(false)
+}
+
 // test each individual cost function can be correctly invoked as
 //  Clarity code executes in Epoch 2.05
-fn epoch_205_test_all(#[case] use_mainnet: bool) {
+fn epoch_205_test_all( use_mainnet: bool) {
     let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch2_05);
 
     for f in NativeFunctions::ALL.iter() {
@@ -781,8 +889,17 @@ fn epoch_205_test_all(#[case] use_mainnet: bool) {
     }
 }
 
-#[apply(template_test_network_versions)]
-fn test_cost_contract_short_circuits(#[case] use_mainnet: bool) {
+#[test]
+fn epoch_205_test_all_mainnet() {
+    epoch_205_test_all(true)
+}
+
+#[test]
+fn epoch_205_test_all_testnet() {
+    epoch_205_test_all(false)
+}
+
+fn test_cost_contract_short_circuits( use_mainnet: bool) {
     let marf_kv = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
     clarity_instance
@@ -1003,8 +1120,17 @@ fn test_cost_contract_short_circuits(#[case] use_mainnet: bool) {
     assert!(without_interposing_5 != without_interposing_10);
 }
 
-#[apply(template_test_network_versions)]
-fn test_cost_voting_integration(#[case] use_mainnet: bool) {
+#[test]
+fn test_cost_contract_short_circuits_mainnet() {
+    test_cost_contract_short_circuits(true)
+}
+
+#[test]
+fn test_cost_contract_short_circuits_testnet() {
+    test_cost_contract_short_circuits(false)
+}
+
+fn test_cost_voting_integration( use_mainnet: bool) {
     let marf_kv = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
     clarity_instance
@@ -1396,4 +1522,15 @@ fn test_cost_voting_integration(#[case] use_mainnet: bool) {
         }
         store.test_commit();
     };
+}
+
+// TODO: Reinstate this.
+//#[test]
+//fn test_cost_voting_integration_mainnet() {
+//    test_cost_voting_integration(true)
+//}
+
+#[test]
+fn test_cost_voting_integration_testnet() {
+    test_cost_voting_integration(false)
 }
