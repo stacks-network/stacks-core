@@ -388,6 +388,7 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
     epoch_205_result
 }
 
+/// Execute `program` on the `Testnet`.
 #[cfg(test)]
 pub fn execute(program: &str) -> Result<Option<Value>> {
     execute_on_network(program, false)
