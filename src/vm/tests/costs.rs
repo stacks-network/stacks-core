@@ -34,11 +34,10 @@ use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
 use vm::database::ClarityDatabase;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::execute as vm_execute;
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
 use vm::tests::{
-    execute, is_committed, is_err_code, symbols_from_values, with_marfed_environment,
+    execute, execute_on_network, is_committed, is_err_code, symbols_from_values, with_marfed_environment,
     with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
@@ -798,8 +797,8 @@ fn test_cost_contract_short_circuits(#[case] use_mainnet: bool) {
 
     let marf_kv = clarity_instance.destroy();
 
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+    let p1 = execute_on_network("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR", use_mainnet);
+    let p2 = execute_on_network("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G", use_mainnet);
 
     let p1_principal = match p1 {
         Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),

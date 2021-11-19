@@ -378,7 +378,7 @@ impl ClarityInstance {
 
         let epoch = GENESIS_EPOCH;
 
-        let cost_track = Some(LimitedCostTracker::new_free());
+        let cost_track = Some(LimitedCostTracker::new_free_on_network(self.mainnet));
 
         let mut conn = ClarityBlockConnection {
             datastore: writable,
