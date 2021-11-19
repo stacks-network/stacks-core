@@ -377,9 +377,9 @@ pub fn eval_all(
 /// This method executes the program in Epoch 2.0 *and* Epoch 2.05 and asserts
 /// that the result is the same before returning the result
 #[cfg(test)]
-pub fn execute(program: &str) -> Result<Option<Value>> {
-    let epoch_200_result = execute_in_epoch(program, StacksEpochId::Epoch20);
-    let epoch_205_result = execute_in_epoch(program, StacksEpochId::Epoch2_05);
+pub fn execute_on_network(program: &str, use_mainnet:bool) -> Result<Option<Value>> {
+    let epoch_200_result = execute_in_epoch(program, StacksEpochId::Epoch20, use_mainnet);
+    let epoch_205_result = execute_in_epoch(program, StacksEpochId::Epoch2_05, use_mainnet);
     assert_eq!(
         epoch_200_result, epoch_205_result,
         "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
@@ -389,12 +389,17 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 }
 
 #[cfg(test)]
-pub fn execute_in_epoch(program: &str, epoch: StacksEpochId) -> Result<Option<Value>> {
+pub fn execute(program: &str) -> Result<Option<Value>> {
+    execute_on_network(program, false)
+}
+
+#[cfg(test)]
+pub fn execute_in_epoch(program: &str, epoch: StacksEpochId, use_mainnet:bool) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free(), epoch);
+    let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free_on_network(use_mainnet), epoch);
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
         eval_all(&parsed, &mut contract_context, g)

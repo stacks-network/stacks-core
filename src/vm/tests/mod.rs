@@ -22,6 +22,7 @@ use vm::contracts::Contract;
 use vm::database::ClarityDatabase;
 use vm::errors::Error;
 use vm::execute as vm_execute;
+use vm::execute_on_network as vm_execute_on_network;
 use vm::representations::SymbolicExpression;
 use vm::types::{PrincipalData, ResponseData, Value};
 
@@ -214,6 +215,10 @@ where
 
 pub fn execute(s: &str) -> Value {
     vm_execute(s).unwrap().unwrap()
+}
+
+pub fn execute_on_network(s: &str, use_mainnet:bool) -> Value {
+    vm_execute_on_network(s, use_mainnet).unwrap().unwrap()
 }
 
 pub fn symbols_from_values(vec: Vec<Value>) -> Vec<SymbolicExpression> {
