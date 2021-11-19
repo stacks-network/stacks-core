@@ -80,6 +80,8 @@ assert-json-diff = "1.0.0"
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
 # criterion = "0.3"
 stx_genesis = { package = "stx-genesis", path = "../stx-genesis/."}
+rstest = "0.11.0"
+rstest_reuse = "0.1.3"
 
 [features]
 default = ["developer-mode"]

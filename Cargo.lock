@@ -380,6 +380,8 @@ dependencies = [
  "rand_chacha 0.2.2",
  "regex",
  "ripemd160",
+ "rstest",
+ "rstest_reuse",
  "rusqlite",
  "secp256k1",
  "serde",
