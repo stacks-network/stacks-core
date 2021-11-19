@@ -1003,8 +1003,9 @@ fn test_cost_contract_short_circuits(#[case] use_mainnet: bool) {
     assert!(without_interposing_5 != without_interposing_10);
 }
 
-#[apply(template_test_network_versions)]
-fn test_cost_voting_integration(#[case] use_mainnet: bool) {
+#[test]
+fn test_cost_voting_integration() {
+    let use_mainnet = false;
     let marf_kv = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
     clarity_instance
