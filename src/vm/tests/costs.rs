@@ -1524,7 +1524,7 @@ fn test_cost_voting_integration(use_mainnet: bool) {
     };
 }
 
-// TODO: Reinstate this.
+// TODO: Reinstate this test. We couldn't get it working in time for pr/2940.
 //#[test]
 //fn test_cost_voting_integration_mainnet() {
 //    test_cost_voting_integration(true)

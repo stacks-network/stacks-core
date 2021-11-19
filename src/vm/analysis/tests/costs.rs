@@ -173,46 +173,42 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
     }
 }
 
-#[test]
-fn test_all_testnet() {
-    let baseline = test_tracked_costs("1", false, StacksEpochId::Epoch20);
+fn test_all(use_mainnet: bool) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch20);
 
     for f in NativeFunctions::ALL.iter() {
         let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, false, StacksEpochId::Epoch20);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch20);
         assert!(cost.exceeds(&baseline));
     }
 }
 
 #[test]
 fn test_all_mainnet() {
-    let baseline = test_tracked_costs("1", true, StacksEpochId::Epoch20);
-
-    for f in NativeFunctions::ALL.iter() {
-        let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, true, StacksEpochId::Epoch20);
-        assert!(cost.exceeds(&baseline));
-    }
+    test_all(true)
 }
 
 #[test]
-fn epoch_205_test_all_testnet() {
-    let baseline = test_tracked_costs("1", false, StacksEpochId::Epoch2_05);
+fn test_all_testnet() {
+    test_all(false)
+}
+
+fn epoch_205_test_all(use_mainnet: bool) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch2_05);
 
     for f in NativeFunctions::ALL.iter() {
         let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, false, StacksEpochId::Epoch2_05);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
         assert!(cost.exceeds(&baseline));
     }
 }
 
 #[test]
 fn epoch_205_test_all_mainnet() {
-    let baseline = test_tracked_costs("1", true, StacksEpochId::Epoch2_05);
+    epoch_205_test_all(true)
+}
 
-    for f in NativeFunctions::ALL.iter() {
-        let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, true, StacksEpochId::Epoch2_05);
-        assert!(cost.exceeds(&baseline));
-    }
+#[test]
+fn epoch_205_test_all_testnet() {
+    epoch_205_test_all(true)
 }
