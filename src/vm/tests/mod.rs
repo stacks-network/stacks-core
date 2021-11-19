@@ -217,7 +217,7 @@ pub fn execute(s: &str) -> Value {
     vm_execute(s).unwrap().unwrap()
 }
 
-pub fn execute_on_network(s: &str, use_mainnet:bool) -> Value {
+pub fn execute_on_network(s: &str, use_mainnet: bool) -> Value {
     vm_execute_on_network(s, use_mainnet).unwrap().unwrap()
 }
 

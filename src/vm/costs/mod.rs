@@ -631,10 +631,7 @@ impl LimitedCostTracker {
         LimitedCostTracker::new(use_mainnet, ExecutionCost::max_value(), clarity_db, epoch)
     }
 
-    pub fn new_free_on_network(use_mainnet:bool) -> LimitedCostTracker {
-        if !use_mainnet{
-            panic!("oh no");
-        }
+    pub fn new_free_on_network(use_mainnet: bool) -> LimitedCostTracker {
         LimitedCostTracker {
             cost_function_references: HashMap::new(),
             cost_contracts: HashMap::new(),
@@ -801,8 +798,12 @@ fn compute_cost(
     let mainnet = cost_tracker.mainnet;
     let mut null_store = NullBackingStore::new();
     let conn = null_store.as_clarity_db();
-    let mut global_context =
-        GlobalContext::new(mainnet, conn, LimitedCostTracker::new_free_on_network(mainnet), eval_in_epoch);
+    let mut global_context = GlobalContext::new(
+        mainnet,
+        conn,
+        LimitedCostTracker::new_free_on_network(mainnet),
+        eval_in_epoch,
+    );
 
     let cost_contract = cost_tracker
         .cost_contracts

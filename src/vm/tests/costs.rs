@@ -37,8 +37,8 @@ use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
 use vm::tests::{
-    execute, execute_on_network, is_committed, is_err_code, symbols_from_values, with_marfed_environment,
-    with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+    execute, execute_on_network, is_committed, is_err_code, symbols_from_values,
+    with_marfed_environment, with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
@@ -49,7 +49,7 @@ use rstest::rstest;
 
 lazy_static! {
     static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =
-        boot_code_id("cost-voting", false);
+        boot_code_id("cost-voting", true);
     static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
 }
@@ -942,8 +942,8 @@ fn test_cost_contract_short_circuits(#[case] use_mainnet: bool) {
         db.set_entry_unknown_descriptor(
             voting_contract_to_use,
             "confirmed-proposals",
-            execute("{ confirmed-id: u0 }"),
-            execute(&value),
+            execute_on_network("{ confirmed-id: u0 }", use_mainnet),
+            execute_on_network(&value, use_mainnet),
         )
         .unwrap();
         db.commit();
