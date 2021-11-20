@@ -19,7 +19,7 @@ directory.
 ## Added
 
 - At height 713,000 a new `costs-2` contract will be launched by the
-  null Stacks address.
+  Stacks boot address.
 
 ## Changed
 
