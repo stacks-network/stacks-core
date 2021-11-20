@@ -404,12 +404,7 @@ pub fn execute_in_epoch(
     let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(
-        false,
-        conn,
-        LimitedCostTracker::new_free_on_network(use_mainnet),
-        epoch,
-    );
+    let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free(), epoch);
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
         eval_all(&parsed, &mut contract_context, g)
