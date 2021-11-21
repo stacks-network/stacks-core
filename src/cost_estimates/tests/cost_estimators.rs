@@ -49,6 +49,10 @@ impl CostMetric for TestCostMetric {
     fn from_len(&self, _tx_len: u64) -> u64 {
         1
     }
+
+    fn change_per_byte(&self) -> f64 {
+        0f64
+    }
 }
 
 #[test]

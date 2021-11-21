@@ -12,6 +12,7 @@ use stacks::burnchains::stacks::{AppChainClient, AppChainConfig};
 use stacks::burnchains::BurnchainParameters;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
+use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::{
     BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT,
@@ -19,6 +20,9 @@ use stacks::core::{
 };
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use stacks::cost_estimates::metrics::CostMetric;
+use stacks::cost_estimates::metrics::ProportionalDotProduct;
+use stacks::cost_estimates::CostEstimator;
+use stacks::cost_estimates::FeeEstimator;
 use stacks::cost_estimates::PessimisticEstimator;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
@@ -527,6 +531,9 @@ impl Config {
                 subsequent_attempt_time_ms: miner
                     .subsequent_attempt_time_ms
                     .unwrap_or(miner_default_config.subsequent_attempt_time_ms),
+                probability_pick_no_estimate_tx: miner
+                    .probability_pick_no_estimate_tx
+                    .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),
             },
             None => miner_default_config,
         };
@@ -946,6 +953,7 @@ impl Config {
                     // second or later attempt to mine a block -- give it some time
                     self.miner.subsequent_attempt_time_ms
                 },
+                consider_no_estimate_tx_prob: self.miner.probability_pick_no_estimate_tx,
             },
         }
     }
@@ -1309,7 +1317,7 @@ impl Default for FeeEstimationConfig {
             cost_estimator: Some(CostEstimatorName::default()),
             fee_estimator: Some(FeeEstimatorName::default()),
             cost_metric: Some(CostMetricName::default()),
-            log_error: true,
+            log_error: false,
         }
     }
 }
@@ -1336,13 +1344,50 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
             .cost_metric
             .map(CostMetricName::panic_parse)
             .unwrap_or_default();
-        let log_error = f.log_error.unwrap_or(true);
+        let log_error = f.log_error.unwrap_or(false);
         Self {
             cost_estimator: Some(cost_estimator),
             fee_estimator: Some(fee_estimator),
             cost_metric: Some(cost_metric),
             log_error,
         }
+    }
+}
+
+impl Config {
+    pub fn make_cost_estimator(&self) -> Option<Box<dyn CostEstimator>> {
+        let cost_estimator: Box<dyn CostEstimator> =
+            match self.estimation.cost_estimator.as_ref()? {
+                CostEstimatorName::NaivePessimistic => Box::new(
+                    self.estimation
+                        .make_pessimistic_cost_estimator(self.get_chainstate_path()),
+                ),
+            };
+
+        Some(cost_estimator)
+    }
+
+    pub fn make_cost_metric(&self) -> Option<Box<dyn CostMetric>> {
+        let metric: Box<dyn CostMetric> = match self.estimation.cost_metric.as_ref()? {
+            CostMetricName::ProportionDotProduct => Box::new(ProportionalDotProduct::new(
+                MAX_BLOCK_LEN as u64,
+                self.block_limit.clone(),
+            )),
+        };
+
+        Some(metric)
+    }
+
+    pub fn make_fee_estimator(&self) -> Option<Box<dyn FeeEstimator>> {
+        let metric = self.make_cost_metric()?;
+        let fee_estimator: Box<dyn FeeEstimator> = match self.estimation.fee_estimator.as_ref()? {
+            FeeEstimatorName::ScalarFeeRate => Box::new(
+                self.estimation
+                    .make_scalar_fee_estimator(self.get_chainstate_path(), metric),
+            ),
+        };
+
+        Some(fee_estimator)
     }
 }
 
@@ -1498,6 +1543,7 @@ pub struct MinerConfig {
     pub min_tx_fee: u64,
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
+    pub probability_pick_no_estimate_tx: u8,
 }
 
 impl MinerConfig {
@@ -1506,6 +1552,7 @@ impl MinerConfig {
             min_tx_fee: 1,
             first_attempt_time_ms: 1_000,
             subsequent_attempt_time_ms: 60_000,
+            probability_pick_no_estimate_tx: 5,
         }
     }
 }
@@ -1604,6 +1651,7 @@ pub struct MinerConfigFile {
     pub min_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
+    pub probability_pick_no_estimate_tx: Option<u8>,
 }
 
 #[derive(Clone, Deserialize, Default)]

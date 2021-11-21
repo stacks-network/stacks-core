@@ -21,6 +21,9 @@ use core::BLOCK_LIMIT_MAINNET;
 use chainstate::stacks::db::StacksEpochReceipt;
 use chainstate::stacks::events::TransactionOrigin;
 
+use crate::util::db::sql_pragma;
+use crate::util::db::table_exists;
+
 use super::metrics::CostMetric;
 use super::FeeRateEstimate;
 use super::{EstimatorError, FeeEstimator};
@@ -29,15 +32,15 @@ const SINGLETON_ROW_ID: i64 = 1;
 const CREATE_TABLE: &'static str = "
 CREATE TABLE scalar_fee_estimator (
     estimate_key NUMBER PRIMARY KEY,
-    fast NUMBER NOT NULL,
-    medium NUMBER NOT NULL,
-    slow NUMBER NOT NULL
+    high NUMBER NOT NULL,
+    middle NUMBER NOT NULL,
+    low NUMBER NOT NULL
 )";
 
 /// This struct estimates fee rates by translating a transaction's `ExecutionCost`
 /// into a scalar using `ExecutionCost::proportion_dot_product` and computing
 /// the subsequent fee rate using the actual paid fee. The 5th, 50th and 95th
-/// percentile fee rates for each block are used as the slow, medium, and fast
+/// percentile fee rates for each block are used as the low, middle, and high
 /// estimates. Estimates are updated via exponential decay windowing.
 pub struct ScalarFeeRateEstimator<M: CostMetric> {
     db: Connection,
@@ -72,6 +75,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
                     Err(e)
                 }
             })?;
+
         Ok(Self {
             db,
             metric,
@@ -79,8 +83,17 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         })
     }
 
-    fn instantiate_db(c: &SqlTransaction) -> Result<(), SqliteError> {
-        c.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+    /// Check if the SQL database was already created. Necessary to avoid races if
+    ///  different threads open an estimator at the same time.
+    fn db_already_instantiated(tx: &SqlTransaction) -> Result<bool, SqliteError> {
+        table_exists(tx, "scalar_fee_estimator")
+    }
+
+    fn instantiate_db(tx: &SqlTransaction) -> Result<(), SqliteError> {
+        if !Self::db_already_instantiated(tx)? {
+            tx.execute(CREATE_TABLE, rusqlite::NO_PARAMS)?;
+        }
+
         Ok(())
     }
 
@@ -96,18 +109,18 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
                 // because of integer math, we can end up with some edge effects
                 // when the estimate is < decay_rate_fraction.1, so just saturate
                 // on the low end at a rate of "1"
-                next_computed.fast = if next_computed.fast >= 1f64 {
-                    next_computed.fast
+                next_computed.high = if next_computed.high >= 1f64 {
+                    next_computed.high
                 } else {
                     1f64
                 };
-                next_computed.medium = if next_computed.medium >= 1f64 {
-                    next_computed.medium
+                next_computed.middle = if next_computed.middle >= 1f64 {
+                    next_computed.middle
                 } else {
                     1f64
                 };
-                next_computed.slow = if next_computed.slow >= 1f64 {
-                    next_computed.slow
+                next_computed.low = if next_computed.low >= 1f64 {
+                    next_computed.low
                 } else {
                     1f64
                 };
@@ -122,15 +135,15 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         };
 
         debug!("Updating fee rate estimate for new block";
-               "new_measure_fast" => new_measure.fast,
-               "new_measure_medium" => new_measure.medium,
-               "new_measure_slow" => new_measure.slow,
-               "new_estimate_fast" => next_estimate.fast,
-               "new_estimate_medium" => next_estimate.medium,
-               "new_estimate_slow" => next_estimate.slow);
+               "new_measure_high" => new_measure.high,
+               "new_measure_middle" => new_measure.middle,
+               "new_measure_low" => new_measure.low,
+               "new_estimate_high" => next_estimate.high,
+               "new_estimate_middle" => next_estimate.middle,
+               "new_estimate_low" => next_estimate.low);
 
         let sql = "INSERT OR REPLACE INTO scalar_fee_estimator
-                     (estimate_key, fast, medium, slow) VALUES (?, ?, ?, ?)";
+                     (estimate_key, high, middle, low) VALUES (?, ?, ?, ?)";
 
         let tx = tx_begin_immediate_sqlite(&mut self.db).expect("SQLite failure");
 
@@ -138,9 +151,9 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
             sql,
             rusqlite::params![
                 SINGLETON_ROW_ID,
-                next_estimate.fast,
-                next_estimate.medium,
-                next_estimate.slow,
+                next_estimate.high,
+                next_estimate.middle,
+                next_estimate.low,
             ],
         )
         .expect("SQLite failure");
@@ -200,13 +213,13 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
         let measures_len = all_fee_rates.len();
         if measures_len > 0 {
             // use 5th, 50th, and 95th percentiles from block
-            let fastest_index = measures_len - cmp::max(1, measures_len / 20);
+            let highest_index = measures_len - cmp::max(1, measures_len / 20);
             let median_index = measures_len / 2;
-            let slowest_index = measures_len / 20;
+            let lowest_index = measures_len / 20;
             let block_estimate = FeeRateEstimate {
-                fast: all_fee_rates[fastest_index],
-                medium: all_fee_rates[median_index],
-                slow: all_fee_rates[slowest_index],
+                high: all_fee_rates[highest_index],
+                middle: all_fee_rates[median_index],
+                low: all_fee_rates[lowest_index],
             };
 
             self.update_estimate(block_estimate);
@@ -216,17 +229,17 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
     }
 
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
-        let sql = "SELECT fast, medium, slow FROM scalar_fee_estimator WHERE estimate_key = ?";
+        let sql = "SELECT high, middle, low FROM scalar_fee_estimator WHERE estimate_key = ?";
         self.db
             .query_row(sql, &[SINGLETON_ROW_ID], |row| {
-                let fast: f64 = row.get(0)?;
-                let medium: f64 = row.get(1)?;
-                let slow: f64 = row.get(2)?;
-                Ok((fast, medium, slow))
+                let high: f64 = row.get(0)?;
+                let middle: f64 = row.get(1)?;
+                let low: f64 = row.get(2)?;
+                Ok((high, middle, low))
             })
             .optional()
             .expect("SQLite failure")
-            .map(|(fast, medium, slow)| FeeRateEstimate { fast, medium, slow })
+            .map(|(high, middle, low)| FeeRateEstimate { high, middle, low })
             .ok_or_else(|| EstimatorError::NoEstimateAvailable)
     }
 }

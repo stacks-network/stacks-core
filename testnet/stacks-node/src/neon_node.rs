@@ -38,6 +38,8 @@ use stacks::chainstate::stacks::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use stacks::cost_estimates::metrics::UnitMetric;
+use stacks::cost_estimates::UnitEstimator;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
 use stacks::net::{
     atlas::{AtlasConfig, AtlasDB, AttachmentInstance},
@@ -330,7 +332,7 @@ fn mine_one_microblock(
     microblock_state: &mut MicroblockMinerState,
     sortdb: &SortitionDB,
     chainstate: &mut StacksChainState,
-    mempool: &MemPoolDB,
+    mempool: &mut MemPoolDB,
 ) -> Result<StacksMicroblock, ChainstateError> {
     debug!(
         "Try to mine one microblock off of {}/{} (total: {})",
@@ -365,6 +367,7 @@ fn mine_one_microblock(
         };
 
         let t1 = get_epoch_time_ms();
+
         let mblock = microblock_miner.mine_next_microblock(mempool, &microblock_state.miner_key)?;
         let new_cost_so_far = microblock_miner.get_cost_so_far().expect("BUG: cannot read cost so far from miner -- indicates that the underlying Clarity Tx is somehow in use still.");
         let t2 = get_epoch_time_ms();
@@ -406,7 +409,7 @@ fn try_mine_microblock(
     microblock_miner_state: &mut Option<MicroblockMinerState>,
     chainstate: &mut StacksChainState,
     sortdb: &SortitionDB,
-    mem_pool: &MemPoolDB,
+    mem_pool: &mut MemPoolDB,
     winning_tip: (ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey),
 ) -> Result<Option<StacksMicroblock>, NetError> {
     let ch = winning_tip.0;
@@ -468,8 +471,7 @@ fn try_mine_microblock(
                     get_epoch_time_secs() - 600,
                 )?;
                 if num_attachable == 0 {
-                    match mine_one_microblock(&mut microblock_miner, sortdb, chainstate, &mem_pool)
-                    {
+                    match mine_one_microblock(&mut microblock_miner, sortdb, chainstate, mem_pool) {
                         Ok(microblock) => {
                             // will need to relay this
                             next_microblock = Some(microblock);
@@ -500,7 +502,7 @@ fn run_microblock_tenure(
     microblock_miner_state: &mut Option<MicroblockMinerState>,
     chainstate: &mut StacksChainState,
     sortdb: &mut SortitionDB,
-    mem_pool: &MemPoolDB,
+    mem_pool: &mut MemPoolDB,
     relayer: &mut Relayer,
     miner_tip: (ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey),
     microblocks_processed: BlocksProcessedCounter,
@@ -641,24 +643,45 @@ fn spawn_peer(
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
-    let mut mem_pool = MemPoolDB::open(
-        is_mainnet,
-        config.burnchain.chain_id,
-        &stacks_chainstate_path,
-    )
-    .map_err(NetError::DBError)?;
-
     // buffer up blocks to store without stalling the p2p thread
     let mut results_with_data = VecDeque::new();
 
     let server_thread = thread::Builder::new()
         .name(format!("p2p{}", if is_appchain { "-appchain" } else { "" }))
         .spawn(move || {
+            let cost_estimator = config
+                .make_cost_estimator()
+                .unwrap_or_else(|| Box::new(UnitEstimator));
+            let metric = config
+                .make_cost_metric()
+                .unwrap_or_else(|| Box::new(UnitMetric));
+
+            let mut mem_pool = MemPoolDB::open(
+                is_mainnet,
+                config.burnchain.chain_id,
+                &stacks_chainstate_path,
+                cost_estimator,
+                metric,
+            )
+            .expect("Database failure opening mempool");
+
+            // create estimators, metric instances for RPC handler
+            let cost_estimator = config
+                .make_cost_estimator()
+                .unwrap_or_else(|| Box::new(UnitEstimator));
+            let metric = config
+                .make_cost_metric()
+                .unwrap_or_else(|| Box::new(UnitMetric));
+            let fee_estimator = config.make_fee_estimator();
+
             let handler_args = RPCHandlerArgs {
                 exit_at_block_height: exit_at_block_height.as_ref(),
                 genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
                     .unwrap(),
                 event_observer: Some(&event_observer),
+                cost_estimator: Some(cost_estimator.as_ref()),
+                cost_metric: Some(metric.as_ref()),
+                fee_estimator: fee_estimator.as_ref().map(|x| x.as_ref()),
                 ..RPCHandlerArgs::default()
             };
 
@@ -829,9 +852,6 @@ fn spawn_miner_relayer(
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
-    let mut mem_pool = MemPoolDB::open(is_mainnet, chain_id, &stacks_chainstate_path)
-        .map_err(NetError::DBError)?;
-
     let mut last_mined_blocks: HashMap<
         BurnchainHeaderHash,
         Vec<(AssembledAnchorBlock, Secp256k1PrivateKey)>,
@@ -859,6 +879,15 @@ fn spawn_miner_relayer(
             else {
                 Box::new(BitcoinRegtestController::new_dummy(config.clone()))
             };
+
+    let relayer_handle = thread::Builder::new().name("relayer".to_string()).spawn(move || {
+        let cost_estimator = config.make_cost_estimator()
+            .unwrap_or_else(|| Box::new(UnitEstimator));
+        let metric = config.make_cost_metric()
+            .unwrap_or_else(|| Box::new(UnitMetric));
+
+        let mut mem_pool = MemPoolDB::open(is_mainnet, chain_id, &stacks_chainstate_path, cost_estimator, metric)
+            .expect("Database failure opening mempool");
 
         while let Ok(mut directive) = relay_channel.recv() {
             match directive {
@@ -1121,11 +1150,11 @@ fn spawn_miner_relayer(
                             &mut microblock_miner_state,
                             &mut chainstate,
                             &mut sortdb,
-                            &mem_pool,
+                            &mut mem_pool,
                             &mut relayer,
                             (ch, bh, mblock_pkey),
                             microblocks_processed.clone(),
-                            &event_dispatcher
+                            &event_dispatcher,
                         );
 
                         // synchronize unconfirmed tx index to p2p thread
@@ -1287,10 +1316,19 @@ impl InitializedNeonNode {
         };
 
         // force early mempool instantiation
+        let cost_estimator = config
+            .make_cost_estimator()
+            .unwrap_or_else(|| Box::new(UnitEstimator));
+        let metric = config
+            .make_cost_metric()
+            .unwrap_or_else(|| Box::new(UnitMetric));
+
         let _ = MemPoolDB::open(
             config.is_mainnet(),
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
+            cost_estimator,
+            metric,
         )
         .expect("BUG: failed to instantiate mempool");
 

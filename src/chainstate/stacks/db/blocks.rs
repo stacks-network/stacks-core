@@ -49,6 +49,7 @@ use chainstate::stacks::{
 use clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use core::*;
+use cost_estimates::EstimatorError;
 use net::BlocksInvData;
 use net::Error as net_error;
 use net::ExtendedStacksHeader;
@@ -149,6 +150,7 @@ pub enum MemPoolRejection {
     TransferRecipientIsSender(PrincipalData),
     TransferAmountMustBePositive,
     DBError(db_error),
+    EstimatorError(EstimatorError),
     Other(String),
 }
 
@@ -214,6 +216,7 @@ impl MemPoolRejection {
                     "actual": format!("0x{}", to_hex(&actual.to_be_bytes()))
                 })),
             ),
+            EstimatorError(e) => ("EstimatorError", Some(json!({"message": e.to_string()}))),
             NoSuchContract => ("NoSuchContract", None),
             NoSuchPublicFunction => ("NoSuchPublicFunction", None),
             BadFunctionArgument(e) => (
@@ -5777,6 +5780,8 @@ pub mod test {
     use util::hash::*;
     use util::retry::*;
 
+    use crate::cost_estimates::metrics::UnitMetric;
+    use crate::cost_estimates::UnitEstimator;
     use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore};
 
     use super::*;
@@ -9697,7 +9702,8 @@ pub mod test {
                         }
                     };
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(

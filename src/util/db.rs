@@ -39,6 +39,7 @@ use rusqlite::types::{
 use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
 use rusqlite::OpenFlags;
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
@@ -61,6 +62,9 @@ use serde_json::Error as serde_error;
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;
+
+// 256MB
+pub const SQLITE_MMAP_SIZE: i64 = 256 * 1024 * 1024;
 
 #[derive(Debug)]
 pub enum Error {
@@ -178,6 +182,21 @@ impl FromColumn<u64> for u64 {
             return Err(Error::ParseError);
         }
         Ok(x as u64)
+    }
+}
+
+impl FromColumn<Option<u64>> for u64 {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Option<u64>, Error> {
+        let x: Option<i64> = row.get_unwrap(column_name);
+        match x {
+            Some(x) => {
+                if x < 0 {
+                    return Err(Error::ParseError);
+                }
+                Ok(Some(x as u64))
+            }
+            None => Ok(None),
+        }
     }
 }
 
@@ -402,9 +421,18 @@ fn inner_sql_pragma(
     conn.pragma_update(None, pragma_name, pragma_value)
 }
 
+/// Returns true if the database table `table_name` exists in the active
+///  database of the provided SQLite connection.
+pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_error> {
+    let sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=?";
+    conn.query_row(sql, &[table_name], |row| row.get::<_, String>(0))
+        .optional()
+        .map(|r| r.is_some())
+}
+
 /// Set up an on-disk database with a MARF index if they don't exist yet.
-/// Either way, returns (db path, MARF path)
-pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
+/// Either way, returns the MARF path
+pub fn db_mkdirs(path_str: &str) -> Result<String, Error> {
     let mut path = PathBuf::from(path_str);
     match fs::metadata(path_str) {
         Ok(md) => {
@@ -424,11 +452,7 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
     path.push("marf.sqlite");
     let marf_path = path.to_str().ok_or_else(|| Error::ParseError)?.to_string();
 
-    path.pop();
-    path.push("data.sqlite");
-    let data_path = path.to_str().ok_or_else(|| Error::ParseError)?.to_string();
-
-    Ok((data_path, marf_path))
+    Ok(marf_path)
 }
 
 /// Read-only connection to a MARF-indexed DB
@@ -781,5 +805,43 @@ impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
             debug!("Dropping MARF linkage ({},{})", parent, child);
             index_tx.drop_current();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_pragma() {
+        let path = "/tmp/blockstack_db_test_pragma.db";
+        if fs::metadata(path).is_ok() {
+            fs::remove_file(path).unwrap();
+        }
+
+        // calls pragma_update with both journal_mode and foreign_keys
+        let db = sqlite_open(
+            path,
+            OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
+            true,
+        )
+        .unwrap();
+
+        // journal mode must be WAL
+        db.pragma_query(None, "journal_mode", |row| {
+            let value: String = row.get(0)?;
+            assert_eq!(value, "wal");
+            Ok(())
+        })
+        .unwrap();
+
+        // foreign keys must be on
+        db.pragma_query(None, "foreign_keys", |row| {
+            let value: i64 = row.get(0)?;
+            assert_eq!(value, 1);
+            Ok(())
+        })
+        .unwrap();
     }
 }
