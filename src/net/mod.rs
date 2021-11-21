@@ -1047,7 +1047,6 @@ pub struct RPCPoxInfoData {
     pub next_reward_cycle_in: u64,
 }
 
-<<<<<<< HEAD
 /// Headers response payload
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtendedStacksHeader {
