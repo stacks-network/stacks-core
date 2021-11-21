@@ -880,7 +880,6 @@ fn spawn_miner_relayer(
                 Box::new(BitcoinRegtestController::new_dummy(config.clone()))
             };
 
-    let relayer_handle = thread::Builder::new().name("relayer".to_string()).spawn(move || {
         let cost_estimator = config.make_cost_estimator()
             .unwrap_or_else(|| Box::new(UnitEstimator));
         let metric = config.make_cost_metric()
