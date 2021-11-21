@@ -2849,7 +2849,7 @@ pub mod test {
         assert!(res.is_ok());
 
         // should show up in parent chain mempool
-        let parent_mempool = MemPoolDB::open(false, 0x80000000, &parent_chainstate_dir).unwrap();
+        let parent_mempool = MemPoolDB::open_test(false, 0x80000000, &parent_chainstate_dir).unwrap();
         let txinfo = MemPoolDB::get_tx(parent_mempool.conn(), &tx.txid()).unwrap();
         assert!(txinfo.is_some());
 
