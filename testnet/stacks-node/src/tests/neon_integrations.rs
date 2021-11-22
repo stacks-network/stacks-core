@@ -331,7 +331,7 @@ pub fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     }
 }
 
-fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) -> bool {
+pub fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) -> bool {
     let mut current = microblocks_processed.load(Ordering::SeqCst);
     let start = Instant::now();
     info!("Waiting for next microblock");
