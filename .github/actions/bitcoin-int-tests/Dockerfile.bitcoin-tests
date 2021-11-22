@@ -3,7 +3,8 @@ FROM stacks-node:integrations
 ARG test_name
 ENV BITCOIND_TEST 1
 
-RUN cargo test -- --test-threads 1 --ignored "$test_name"
+RUN cargo build && \
+    cargo test -- --test-threads 1 --ignored "$test_name"
 
 RUN grcov . --binary-path ../../target/debug/ -s ../.. -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info && \
     curl -Os https://uploader.codecov.io/latest/linux/codecov && \
