@@ -385,17 +385,18 @@ impl ClarityInstance {
             header_db,
             burn_state_db,
             cost_track,
-            mainnet: false,
+            mainnet: self.mainnet,
             epoch,
         };
 
+        let use_mainnet = self.mainnet;
         conn.as_transaction(|clarity_db| {
             let (ast, _) = clarity_db
-                .analyze_smart_contract(&boot_code_id("costs", false), BOOT_CODE_COSTS)
+                .analyze_smart_contract(&boot_code_id("costs", use_mainnet), BOOT_CODE_COSTS)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
-                    &boot_code_id("costs", false),
+                    &boot_code_id("costs", use_mainnet),
                     &ast,
                     BOOT_CODE_COSTS,
                     |_, _| false,
@@ -406,13 +407,13 @@ impl ClarityInstance {
         conn.as_transaction(|clarity_db| {
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
-                    &boot_code_id("cost-voting", false),
+                    &boot_code_id("cost-voting", use_mainnet),
                     &*BOOT_CODE_COST_VOTING,
                 )
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
-                    &boot_code_id("cost-voting", false),
+                    &boot_code_id("cost-voting", use_mainnet),
                     &ast,
                     &*BOOT_CODE_COST_VOTING,
                     |_, _| false,
@@ -420,17 +421,17 @@ impl ClarityInstance {
                 .unwrap();
 
             clarity_db
-                .save_analysis(&boot_code_id("cost-voting", false), &analysis)
+                .save_analysis(&boot_code_id("cost-voting", use_mainnet), &analysis)
                 .unwrap();
         });
 
         conn.as_transaction(|clarity_db| {
             let (ast, _) = clarity_db
-                .analyze_smart_contract(&boot_code_id("pox", false), &*BOOT_CODE_POX_TESTNET)
+                .analyze_smart_contract(&boot_code_id("pox", use_mainnet), &*BOOT_CODE_POX_TESTNET)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
-                    &boot_code_id("pox", false),
+                    &boot_code_id("pox", use_mainnet),
                     &ast,
                     &*BOOT_CODE_POX_TESTNET,
                     |_, _| false,
