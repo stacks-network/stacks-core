@@ -7136,17 +7136,6 @@ pub mod tests {
                 },
             ],
             PoxConstants::test_default(),
-                    block_limit: ExecutionCost::max_value(),
-                    network_epoch: PEER_VERSION_EPOCH_2_0,
-                },
-                StacksEpoch {
-                    epoch_id: StacksEpochId::Epoch2_05,
-                    start_height: 12,
-                    end_height: STACKS_EPOCH_MAX,
-                    block_limit: ExecutionCost::max_value(),
-                    network_epoch: PEER_VERSION_EPOCH_2_05,
-                },
-            ],
             true,
         )
         .unwrap();
@@ -7207,17 +7196,6 @@ pub mod tests {
                 },
             ],
             PoxConstants::test_default(),
-                    block_limit: ExecutionCost::max_value(),
-                    network_epoch: PEER_VERSION_EPOCH_2_0,
-                }, // discontinuity
-                StacksEpoch {
-                    epoch_id: StacksEpochId::Epoch2_05,
-                    start_height: 12,
-                    end_height: STACKS_EPOCH_MAX,
-                    block_limit: ExecutionCost::max_value(),
-                    network_epoch: PEER_VERSION_EPOCH_2_05,
-                },
-            ],
             true,
         )
         .unwrap();
