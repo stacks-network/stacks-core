@@ -78,8 +78,8 @@ use util::hash::to_hex;
 use util::log;
 use util::vrf::VRFPublicKey;
 
-use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
+use burnchains::bitcoin::indexer::BitcoinIndexer;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -632,14 +632,17 @@ impl Burnchain {
         db_path
     }
 
-    pub fn connect_db(
+    pub fn connect_db<I: BurnchainIndexer>(
         &self,
+        indexer: &I,
         readwrite: bool,
         first_block_header_hash: BurnchainHeaderHash,
         first_block_header_timestamp: u64,
         epochs: Vec<StacksEpoch>,
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir)?;
+
+        let epochs = indexer.get_stacks_epochs();
 
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
@@ -954,6 +957,7 @@ impl Burnchain {
     ) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
         self.setup_chainstate(indexer)?;
         let (mut sortdb, mut burnchain_db) = self.connect_db(
+            indexer,
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
@@ -1176,6 +1180,7 @@ impl Burnchain {
     {
         self.setup_chainstate(indexer)?;
         let (_, mut burnchain_db) = self.connect_db(
+            indexer,
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
@@ -1362,7 +1367,6 @@ impl Burnchain {
             })
             .unwrap();
 
-        let is_mainnet = self.is_mainnet();
         let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
             thread::Builder::new()
                 .name("burnchain-db".to_string())
@@ -1374,19 +1378,6 @@ impl Burnchain {
                         let block_height = burnchain_block.block_height();
                         if block_height == 0 {
                             continue;
-                        }
-
-                        if is_mainnet {
-                            if last_processed.block_height == STACKS_2_0_LAST_BLOCK_TO_PROCESS {
-                                info!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
-                                      "block_height" => last_processed.block_height);
-                                continue;
-                            } else if last_processed.block_height > STACKS_2_0_LAST_BLOCK_TO_PROCESS {
-                                debug!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
-                                       "last_block" => STACKS_2_0_LAST_BLOCK_TO_PROCESS,
-                                       "block_height" => last_processed.block_height);
-                                continue;
-                            }
                         }
 
                         let insert_start = get_epoch_time_ms();

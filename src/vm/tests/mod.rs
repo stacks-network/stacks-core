@@ -15,20 +15,31 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use chainstate::stacks::index::storage::TrieFileStorage;
-use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, PEER_VERSION_EPOCH_2_0};
 use util::hash::hex_bytes;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
-use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use vm::database::ClarityDatabase;
 use vm::errors::Error;
 use vm::execute as vm_execute;
+use vm::execute_on_network as vm_execute_on_network;
 use vm::representations::SymbolicExpression;
 use vm::types::{PrincipalData, ResponseData, Value};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId};
+use crate::core::{
+    StacksEpoch, StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
+    BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
+};
+use crate::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
+    StacksBlockId, VRFSeed,
+};
 use crate::types::proof::ClarityMarfTrieId;
+
+use super::costs::ExecutionCost;
+use super::database::{BurnStateDB, HeadersDB};
 
 mod assets;
 mod contracts;
@@ -43,6 +54,108 @@ mod principals;
 mod sequences;
 mod simple_apply_eval;
 mod traits;
+
+pub struct UnitTestBurnStateDB {}
+pub struct UnitTestHeaderDB {}
+
+pub const TEST_HEADER_DB: UnitTestHeaderDB = UnitTestHeaderDB {};
+pub const TEST_BURN_STATE_DB: UnitTestBurnStateDB = UnitTestBurnStateDB {};
+
+impl HeadersDB for UnitTestHeaderDB {
+    fn get_burn_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BurnchainHeaderHash> {
+        if *id_bhh
+            == StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            )
+        {
+            let first_block_hash =
+                BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+            Some(first_block_hash)
+        } else {
+            None
+        }
+    }
+    fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
+        None
+    }
+    fn get_stacks_block_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BlockHeaderHash> {
+        if *id_bhh
+            == StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            )
+        {
+            Some(FIRST_STACKS_BLOCK_HASH)
+        } else {
+            None
+        }
+    }
+    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        if *id_bhh
+            == StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            )
+        {
+            Some(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64)
+        } else {
+            // for non-genesis blocks, just pick a u64 value that will increment in most
+            // unit tests as blocks are built (most unit tests construct blocks using
+            // incrementing high order bytes)
+            Some(1 + 10 * (id_bhh.as_bytes()[0] as u64))
+        }
+    }
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        if *id_bhh
+            == StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            )
+        {
+            Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32)
+        } else {
+            Some(1 + id_bhh.as_bytes()[0] as u32)
+        }
+    }
+    fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+        None
+    }
+}
+
+impl BurnStateDB for UnitTestBurnStateDB {
+    fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
+        None
+    }
+
+    fn get_burn_header_hash(
+        &self,
+        _height: u32,
+        _sortition_id: &SortitionId,
+    ) -> Option<BurnchainHeaderHash> {
+        None
+    }
+
+    fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
+        Some(StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: u64::MAX,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        })
+    }
+
+    fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        self.get_stacks_epoch(0)
+    }
+}
 
 pub fn with_memory_environment<F>(f: F, top_level: bool)
 where
@@ -75,7 +188,7 @@ where
         );
 
         store
-            .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+            .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
             .initialize();
         store.test_commit();
     }
@@ -90,7 +203,7 @@ where
         );
 
         let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
         // start an initial transaction.
         if !top_level {
             owned_env.begin();
@@ -102,6 +215,10 @@ where
 
 pub fn execute(s: &str) -> Value {
     vm_execute(s).unwrap().unwrap()
+}
+
+pub fn execute_on_network(s: &str, use_mainnet: bool) -> Value {
+    vm_execute_on_network(s, use_mainnet).unwrap().unwrap()
 }
 
 pub fn symbols_from_values(vec: Vec<Value>) -> Vec<SymbolicExpression> {

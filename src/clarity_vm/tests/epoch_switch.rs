@@ -35,18 +35,31 @@ use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
 use crate::{burnchains::PoxConstants, types::chainstate::StacksBlockId};
 
 use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+use vm::errors::{InterpreterResult, RuntimeErrorType};
+use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+use crate::types::chainstate::{StacksAddress, VRFSeed};
+use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
+
+use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+use core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
 
 use rand::thread_rng;
 use rand::RngCore;
 
 use util::hash::to_hex;
+use vm::costs::ExecutionCost;
 
 fn test_burnstatedb_epoch(
     burnstatedb: &dyn BurnStateDB,
     height_start: u32,
     height_end: u32,
     epoch_20_height: u32,
+    // DO NOT SUBMIT: was
     epoch_21_height: u32,
+    epoch_2_05_height: u32,
 ) {
     for height in height_start..height_end {
         debug!("Get epoch for block height {}", height);
@@ -58,6 +71,10 @@ fn test_burnstatedb_epoch(
             assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch20);
         } else {
             assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch21);
+        } else if height < epoch_2_05_height {
+            assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch20);
+        } else {
+            assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch2_05);
         }
     }
 }
@@ -82,6 +99,8 @@ fn test_vm_epoch_switch() {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
                 end_height: 8,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
@@ -95,6 +114,17 @@ fn test_vm_epoch_switch() {
             },
         ],
         PoxConstants::test_default(),
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 12,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+        ],
         true,
     )
     .unwrap();

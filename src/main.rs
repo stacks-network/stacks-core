@@ -33,16 +33,21 @@ use std::process;
 use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
 
+use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
+use blockstack_lib::cost_estimates::UnitEstimator;
+use cost_estimates::metrics::UnitMetric;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 
+use blockstack_lib::burnchains::bitcoin::indexer::{BitcoinIndexerConfig, BitcoinIndexerRuntime};
 use blockstack_lib::burnchains::bitcoin::spv;
 use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
 use blockstack_lib::chainstate::burn::ConsensusHash;
 use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
+use blockstack_lib::chainstate::stacks::miner::*;
 use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId};
@@ -60,6 +65,7 @@ use blockstack_lib::{
         stacks::db::{StacksChainState, StacksHeaderInfo},
     },
     core::MemPoolDB,
+    util::db::sqlite_open,
     util::{hash::Hash160, vrf::VRFProof},
     vm::costs::ExecutionCost,
 };
@@ -419,7 +425,7 @@ check if the associated microblocks can be downloaded
     if argv[1] == "try-mine" {
         if argv.len() < 3 {
             eprintln!(
-                "Usage: {} try-mine <working-dir>
+                "Usage: {} try-mine <working-dir> [min-fee [max-time]]
 
 Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block
 assembly, but does not attempt to broadcast a block commit. This is useful for determining
@@ -431,8 +437,19 @@ simulating a miner.
             process::exit(1);
         }
 
+        let start = get_epoch_time_ms();
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
+
+        let mut min_fee = u64::max_value();
+        let mut max_time = u64::max_value();
+
+        if argv.len() >= 4 {
+            min_fee = argv[3].parse().expect("Could not parse min_fee");
+        }
+        if argv.len() >= 5 {
+            max_time = argv[4].parse().expect("Could not parse max_time");
+        }
 
         let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
             .expect(&format!("Failed to open {}", &sort_db_path));
@@ -442,8 +459,11 @@ simulating a miner.
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
 
-        let mut mempool_db =
-            MemPoolDB::open(true, chain_id, &chain_state_path).expect("Failed to open mempool db");
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
+
+        let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
+            .expect("Failed to open mempool db");
 
         let stacks_block = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
         let parent_header = StacksChainState::get_anchored_block_header_info(
@@ -470,6 +490,10 @@ simulating a miner.
         tx_signer.sign_origin(&sk).unwrap();
         let coinbase_tx = tx_signer.get_tx().unwrap();
 
+        let mut settings = BlockBuilderSettings::limited();
+        settings.max_miner_time_ms = max_time;
+        settings.mempool_settings.min_tx_fee = min_fee;
+
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
             &sort_db.index_conn(),
@@ -479,19 +503,45 @@ simulating a miner.
             VRFProof::empty(),
             Hash160([0; 20]),
             &coinbase_tx,
-            core::BLOCK_LIMIT_MAINNET.clone(),
+            settings,
             None,
         );
 
+        let stop = get_epoch_time_ms();
+
         println!(
-            "{} mined block @ height = {}",
+            "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
             if result.is_ok() {
                 "Successfully"
             } else {
                 "Failed to"
             },
-            parent_header.block_height + 1
+            parent_header.block_height + 1,
+            StacksBlockHeader::make_index_block_hash(
+                &parent_header.consensus_hash,
+                &parent_header.anchored_header.block_hash()
+            ),
+            &parent_header.consensus_hash,
+            &parent_header.anchored_header.block_hash(),
+            stop.saturating_sub(start),
+            min_fee,
+            max_time
         );
+
+        if let Ok((block, execution_cost, size)) = result {
+            let mut total_fees = 0;
+            for tx in block.txs.iter() {
+                total_fees += tx.get_tx_fee();
+            }
+            println!(
+                "Block {}: {} uSTX, {} bytes, cost {:?}",
+                block.block_hash(),
+                total_fees,
+                size,
+                &execution_cost
+            );
+        }
+
         process::exit(0);
     }
 
@@ -561,7 +611,7 @@ simulating a miner.
         let value_opt = marf.get(&marf_bhh, marf_key).expect("Failed to read MARF");
 
         if let Some(value) = value_opt {
-            let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)
                 .expect("Failed to open DB");
             let args: &[&dyn ToSql] = &[&value.to_hex()];
             let res: Result<String, rusqlite::Error> = conn.query_row_and_then(
@@ -592,7 +642,7 @@ simulating a miner.
         }
         let program: String =
             fs::read_to_string(&argv[2]).expect(&format!("Error reading file: {}", argv[2]));
-        match vm::execute(&program) {
+        match clarity::vm_execute(&program) {
             Ok(Some(result)) => println!("{}", result),
             Ok(None) => println!(""),
             Err(error) => {
@@ -746,20 +796,32 @@ simulating a miner.
             ),
         ];
 
-        // block limit that argon uses
-        let argon_block_limit: ExecutionCost = ExecutionCost {
-            write_length: 15_0_000_000,
-            write_count: 5_0_000,
-            read_length: 1_000_000_000,
-            read_count: 5_0_000,
-            runtime: 1_00_000_000,
-        };
         let burnchain = Burnchain::regtest(&burnchain_db_path);
+        let spv_headers_path = "/tmp/replay-chainstate".to_string();
+        let indexer_config = BitcoinIndexerConfig {
+            peer_host: "127.0.0.1".to_string(),
+            peer_port: 18444,
+            rpc_port: 18443,
+            rpc_ssl: false,
+            username: Some("blockstack".to_string()),
+            password: Some("blockstacksystem".to_string()),
+            timeout: 30,
+            spv_headers_path,
+            first_block: 0,
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            epochs: None,
+        };
+
+        let indexer = BitcoinIndexer::new(
+            indexer_config,
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+        );
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
         let epochs = StacksEpoch::all(first_burnchain_block_height, u64::max_value());
         let (mut new_sortition_db, _) = burnchain
             .connect_db(
+                &indexer,
                 true,
                 first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
@@ -794,7 +856,6 @@ simulating a miner.
             0x80000000,
             new_chainstate_path,
             Some(&mut boot_data),
-            argon_block_limit,
         )
         .unwrap();
 
@@ -852,19 +913,15 @@ simulating a miner.
 
         let (p2p_new_sortition_db, _) = burnchain
             .connect_db(
+                &indexer,
                 true,
                 first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
                 epochs,
             )
             .unwrap();
-        let (mut p2p_chainstate, _) = StacksChainState::open_with_block_limit(
-            false,
-            0x80000000,
-            new_chainstate_path,
-            ExecutionCost::max_value(),
-        )
-        .unwrap();
+        let (mut p2p_chainstate, _) =
+            StacksChainState::open(false, 0x80000000, new_chainstate_path).unwrap();
 
         let _ = thread::spawn(move || {
             loop {

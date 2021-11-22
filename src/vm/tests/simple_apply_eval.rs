@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use core::StacksEpochId;
 use std::collections::HashMap;
 
 use address::c32;
@@ -39,6 +40,8 @@ use vm::{
 };
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
+use crate::clarity_vm::database::MemoryBackingStore;
+use crate::core;
 use crate::types::chainstate::StacksAddress;
 use crate::{clarity_vm::database::MemoryBackingStore, vm::ClarityVersion};
 use chainstate::stacks::{
@@ -466,8 +469,12 @@ fn test_simple_if_functions(#[case] version: ClarityVersion) {
             ClarityVersion::Clarity1,
         );
         let mut marf = MemoryBackingStore::new();
-        let mut global_context =
-            GlobalContext::new(false, marf.as_clarity_db(), LimitedCostTracker::new_free());
+        let mut global_context = GlobalContext::new(
+            false,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch2_05,
+        );
 
         contract_context
             .functions

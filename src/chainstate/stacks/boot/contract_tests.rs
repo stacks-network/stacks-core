@@ -30,7 +30,9 @@ use vm::errors::{
 };
 use vm::eval;
 use vm::representations::SymbolicExpression;
-use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
+use vm::tests::{
+    execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+};
 use vm::types::Value::Response;
 use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -150,11 +152,11 @@ impl ClarityTestSim {
             );
 
             store
-                .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+                .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
                 .initialize();
 
             let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+                OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
 
             for user_key in USER_KEYS.iter() {
                 owned_env.stx_faucet(
@@ -272,12 +274,12 @@ impl ClarityTestSim {
             Self::check_and_bump_epoch(&mut store, &headers_db, &NULL_BURN_STATE_DB);
 
             let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &NULL_BURN_STATE_DB));
-
+                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
             f(&mut owned_env)
         };
 
         store.test_commit();
+        // was: self.height += 1;
         self.height = parent_height + 1;
         self.fork += 1;
 
@@ -1265,6 +1267,14 @@ fn pox_2_delegate_extend_units() {
             .0.to_string(), "(err 23)".to_string(),
             "Delegate cannot stack-extend for User0 at POX_ADDR[1] because User0 specified to use POX_ADDR[2]",
         );
+        let r = {
+            let headers_db = TestSimHeadersDB {
+                height: parent_height + 1,
+            };
+            let mut owned_env =
+                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
+            f(&mut owned_env)
+        };
 
         assert_eq!(
             env.execute_transaction(

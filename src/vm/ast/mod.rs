@@ -86,6 +86,7 @@ mod tests {
     use vm::database::*;
     use vm::representations::depth_traverse;
     use vm::version::ClarityVersion::Clarity1;
+    use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
     #[template]
     #[rstest]
@@ -104,14 +105,14 @@ mod tests {
         }
 
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
 
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -119,8 +120,8 @@ mod tests {
             .begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             )
             .commit_block();
 

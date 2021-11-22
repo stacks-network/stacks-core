@@ -28,11 +28,14 @@ use vm::ast::errors::ParseErrors;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::costs::ExecutionCost;
-use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use vm::database::ClarityDatabase;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
 use vm::representations::SymbolicExpression;
-use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memory_environment};
+use vm::tests::{
+    execute, symbols_from_values, with_marfed_environment, with_memory_environment,
+    TEST_BURN_STATE_DB, TEST_HEADER_DB,
+};
 use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
@@ -210,8 +213,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion) {
         let mut block = clarity.begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &test_block_headers(0),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         );
 
         let tokens_contract = SIMPLE_TOKENS;
@@ -369,8 +372,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion) {
             let block = clarity.begin_block(
                 &test_block_headers(i),
                 &test_block_headers(i + 1),
-                &NULL_HEADER_DB,
-                &NULL_BURN_STATE_DB,
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
             );
             block.commit_block();
         }
@@ -380,8 +383,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion) {
         let mut block = clarity.begin_block(
             &test_block_headers(25),
             &test_block_headers(26),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         );
         assert!(is_committed(
             &block
