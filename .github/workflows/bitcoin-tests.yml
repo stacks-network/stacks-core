@@ -57,6 +57,7 @@ jobs:
           - tests::epoch_205::transition_empty_blocks
           - tests::epoch_205::test_cost_limit_switch_version205
           - tests::epoch_205::test_exact_block_costs
+          - tests::epoch_205::bigger_microblock_streams_in_2_05
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image
