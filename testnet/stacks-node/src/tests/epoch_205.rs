@@ -926,7 +926,7 @@ fn bigger_microblock_streams_in_2_05() {
         return;
     }
 
-    let spender_sks: Vec<_> = (0..20)
+    let spender_sks: Vec<_> = (0..10)
         .into_iter()
         .map(|_| StacksPrivateKey::new())
         .collect();
@@ -1001,8 +1001,8 @@ fn bigger_microblock_streams_in_2_05() {
     }
 
     conf.node.mine_microblocks = true;
-    conf.node.wait_time_for_microblocks = 1000;
-    conf.node.microblock_frequency = 1000;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.node.microblock_frequency = 0;
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
 
@@ -1014,7 +1014,7 @@ fn bigger_microblock_streams_in_2_05() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
-            end_height: 208,
+            end_height: 206,
             block_limit: ExecutionCost {
                 write_length: 15000000,
                 write_count: 7750,
@@ -1026,14 +1026,14 @@ fn bigger_microblock_streams_in_2_05() {
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 208,
+            start_height: 206,
             end_height: 9223372036854775807,
             block_limit: ExecutionCost {
-                write_length: 15000000 * 2,
+                write_length: 15000000,
                 write_count: 7750 * 2,
-                read_length: 100000000 * 2,
+                read_length: 100000000,
                 read_count: 7750 * 2,
-                runtime: 5000000000 * 2,
+                runtime: 5000000000,
             },
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
@@ -1069,7 +1069,7 @@ fn bigger_microblock_streams_in_2_05() {
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
-    // first block wakes up the run loop
+    // zeroth block wakes up the run loop
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
@@ -1092,56 +1092,52 @@ fn bigger_microblock_streams_in_2_05() {
     let mut ctr = 0;
     while ctr < txs.len() {
         submit_tx(&http_origin, &txs[ctr]);
-        if !wait_for_microblocks(&microblocks_processed, 180) {
+        if !wait_for_microblocks(&microblocks_processed, 30) {
             // we time out if we *can't* mine any more microblocks
             break;
         }
         ctr += 1;
     }
+    microblocks_processed.store(0, Ordering::SeqCst);
 
     // only one fit
     assert_eq!(ctr, 1);
     sleep_ms(5_000);
 
+    // confirm it
+    eprintln!("confirm epoch 2.0 microblock stream");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    eprintln!("First confirmed microblock stream!");
-
-    microblocks_processed.store(0, Ordering::SeqCst);
 
     // send the rest of the transactions
     while ctr < txs.len() {
         submit_tx(&http_origin, &txs[ctr]);
         ctr += 1;
     }
-    wait_for_microblocks(&microblocks_processed, 180);
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    eprintln!("Second confirmed microblock stream!");
-
-    wait_for_microblocks(&microblocks_processed, 180);
-
-    // confirm it
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    wait_for_microblocks(&microblocks_processed, 180);
 
     eprintln!("expect epoch transition");
 
+    microblocks_processed.store(0, Ordering::SeqCst);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // don't bother waiting for a microblock stream
+
+    eprintln!("expect epoch 2.05 microblock stream");
+
+    microblocks_processed.store(0, Ordering::SeqCst);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     wait_for_microblocks(&microblocks_processed, 180);
 
-    eprintln!("expect microblock stream");
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    wait_for_microblocks(&microblocks_processed, 180);
+    microblocks_processed.store(0, Ordering::SeqCst);
 
     // this test can sometimes miss a mine block event.
+    sleep_ms(80_000);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let blocks = test_observer::get_blocks();
     assert!(blocks.len() >= 5, "Should have produced at least 5 blocks");
 
+    // max == largest number of transactions per stream in a given epoch (2.0 or 2.05)
+    // total == number of transactions across all streams in a given epoch (2.0 or 2.05)
     let mut max_big_txs_per_microblock_20 = 0;
     let mut total_big_txs_per_microblock_20 = 0;
 
@@ -1167,13 +1163,11 @@ fn bigger_microblock_streams_in_2_05() {
             if let TransactionPayload::SmartContract(tsc) = parsed.payload {
                 if tsc.name.to_string().find("costs-2").is_some() {
                     in_205 = true;
-                }
-                if tsc.name.to_string().find("large").is_some() {
+                } else if tsc.name.to_string().find("large").is_some() {
+                    num_big_microblock_txs += 1;
                     if in_205 {
-                        num_big_microblock_txs += 1;
                         total_big_txs_per_microblock_205 += 1;
                     } else {
-                        num_big_microblock_txs += 1;
                         total_big_txs_per_microblock_20 += 1;
                     }
                 }
@@ -1196,11 +1190,12 @@ fn bigger_microblock_streams_in_2_05() {
         max_big_txs_per_microblock_205, total_big_txs_per_microblock_205
     );
 
-    assert!(max_big_txs_per_microblock_20 < 2);
-    assert!(total_big_txs_per_microblock_20 < 2);
+    assert!(max_big_txs_per_microblock_20 <= 1);
+    assert!(total_big_txs_per_microblock_20 <= 1);
 
-    assert!(max_big_txs_per_microblock_205 >= 18);
-    assert!(total_big_txs_per_microblock_205 >= 18);
+    // can be 9; allow a fudge factor
+    assert!(max_big_txs_per_microblock_205 >= 8);
+    assert!(total_big_txs_per_microblock_205 >= 8);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
