@@ -3973,15 +3973,16 @@ impl StacksChainState {
                     StacksEpochId::Epoch10 => {
                         panic!("Clarity VM believes it was running in 1.0: pre-Clarity.")
                     }
-// merge: fix these
                     StacksEpochId::Epoch20 => {
                         assert_eq!(
                             sortition_epoch.epoch_id,
-(??)
+                            StacksEpochId::Epoch21,
+                            "Should only transition from Epoch20 to Epoch21"
                         );
-(??)
+                        receipts.push(clarity_tx.block.initialize_epoch_2_1()?);
                     }
-(??)
+                    StacksEpochId::Epoch21 => {
+                        panic!("No defined transition from Epoch21 forward")
                     }
                 }
             }
