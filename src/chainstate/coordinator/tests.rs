@@ -492,7 +492,7 @@ fn make_genesis_block_with_recipients(
 
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
-    let block = builder.mine_anchored_block(&mut epoch_tx).unwrap();
+    let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {
@@ -726,7 +726,7 @@ fn make_stacks_block_with_input(
 
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
-    let block = builder.mine_anchored_block(&mut epoch_tx).unwrap();
+    let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
 
     let commit_outs = if let Some(recipients) = recipients {

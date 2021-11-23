@@ -4282,19 +4282,24 @@ impl StacksChainState {
         Ok(parent_miner)
     }
 
+    /// Called in both follower and miner block assembly paths.
+    /// Returns clarity_tx, list of receipts, microblock execution cost,
+    /// microblock fees, microblock burns, list of microblock tx receipts,
+    /// miner rewards tuples, the stacks epoch id, and a boolean that
+    /// represents whether the epoch transition has been applied.
     pub fn setup_block<'a>(
-        chainstate_tx: &'a mut ChainstateTx, // possibly compute inline
+        chainstate_tx: &'a mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'a dyn BurnStateDB,
         conn: &Connection,
-        chain_tip: &StacksHeaderInfo, // compute inline
+        chain_tip: &StacksHeaderInfo,
         burn_tip: BurnchainHeaderHash,
         burn_tip_height: u32,
         parent_consensus_hash: ConsensusHash,
         parent_header_hash: BlockHeaderHash,
         parent_microblocks: &Vec<StacksMicroblock>,
-        mainnet: bool,               // compute inline
-        miner_id_opt: Option<usize>, //compute inline
+        mainnet: bool,
+        miner_id_opt: Option<usize>,
     ) -> Result<
         (
             ClarityTx<'a>,
@@ -4330,6 +4335,9 @@ impl StacksChainState {
         let stacking_burn_ops = SortitionDB::get_stack_stx_ops(conn, &burn_tip)?;
         let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(conn, &burn_tip)?;
 
+        // load the execution cost of the parent block if the executor is the follower.
+        // otherwise, if the executor is the miner, only load the parent cost if the parent
+        // microblock stream is non-empty.
         let parent_block_cost = if miner_id_opt.is_none() || !parent_microblocks.is_empty() {
             let cost = StacksChainState::get_stacks_block_anchored_cost(
                 &chainstate_tx.deref().deref(),
@@ -4341,7 +4349,7 @@ impl StacksChainState {
                     &parent_index_hash
                 ))
             })?;
-            // TODO - no longer panicking if follower can't load parent block cost
+
             debug!(
                 "Parent block {}/{} cost {:?}",
                 &parent_consensus_hash, &parent_header_hash, &cost
@@ -4402,7 +4410,6 @@ impl StacksChainState {
                 &parent_microblocks,
             ) {
                 Ok((fees, burns, events)) => (fees, burns, events),
-                // self.total_confirmed_streamed_fees += fees as u64;
                 Err((e, mblock_header_hash)) => {
                     let msg = format!(
                         "Invalid Stacks microblocks {},{} (offender {}): {:?}",
@@ -4410,6 +4417,9 @@ impl StacksChainState {
                     );
                     warn!("{}", &msg);
 
+                    if miner_id_opt.is_none() {
+                        clarity_tx.rollback_block();
+                    }
                     return Err(Error::InvalidStacksMicroblock(msg, mblock_header_hash));
                 }
             };
@@ -4472,7 +4482,6 @@ impl StacksChainState {
         miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>,
         block_height: u32,
         mblock_pubkey_hash: Hash160,
-        is_miner: bool,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         // add miner payments
         if let Some((ref miner_reward, ref user_rewards, ref parent_reward)) =
@@ -4484,15 +4493,13 @@ impl StacksChainState {
                 miner_reward,
                 user_rewards,
                 parent_reward,
-            )
-            .expect("FATAL: failed to process miner rewards");
+            )?;
 
             clarity_tx.increment_ustx_liquid_supply(matured_ustx);
         }
 
         // process unlocks
-        let (new_unlocked_ustx, lockup_events) =
-            StacksChainState::process_stx_unlocks(clarity_tx).expect("FATAL: failed to unlock STX");
+        let (new_unlocked_ustx, lockup_events) = StacksChainState::process_stx_unlocks(clarity_tx)?;
 
         clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
 
@@ -4509,18 +4516,13 @@ impl StacksChainState {
                 );
             }
             Err(e) => {
-                if is_miner {
-                    panic!("FATAL: failed to insert microblock pubkey hash: {:?}", e);
-                } else {
-                    let msg = format!(
-                        "Failed to insert microblock pubkey hash {} at height {}: {:?}",
-                        &mblock_pubkey_hash, block_height, &e
-                    );
-                    warn!("{}", &msg);
+                let msg = format!(
+                    "Failed to insert microblock pubkey hash {} at height {}: {:?}",
+                    &mblock_pubkey_hash, block_height, &e
+                );
+                warn!("{}", &msg);
 
-                    // clarity_tx.rollback_block();
-                    return Err(Error::InvalidStacksBlock(msg));
-                }
+                return Err(Error::InvalidStacksBlock(msg));
             }
         }
 
@@ -4783,7 +4785,6 @@ impl StacksChainState {
                 miner_payouts_opt,
                 block.header.total_work.work as u32,
                 block.header.microblock_pubkey_hash,
-                false,
             ) {
                 Err(Error::InvalidStacksBlock(e)) => {
                     clarity_tx.rollback_block();
@@ -4800,8 +4801,6 @@ impl StacksChainState {
                 if let Some(receipt) = tx_receipts.get_mut(0) {
                     if receipt.is_coinbase_tx() {
                         receipt.events.append(&mut lockup_events);
-                    } else {
-                        warn!("Unable to attach lockups events, block's first transaction is not a coinbase transaction")
                     }
                 } else {
                     warn!("Unable to attach lockups events, block's first transaction is not a coinbase transaction")

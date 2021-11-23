@@ -1025,20 +1025,17 @@ impl StacksBlockBuilder {
     /// Finish building the anchored block.
     /// TODO: expand to deny mining a block whose anchored static checks fail (and allow the caller
     /// to disable this, in order to test mining invalid blocks)
-    /// returns: lockup_events, stacks block
-    pub fn mine_anchored_block(
-        &mut self,
-        clarity_tx: &mut ClarityTx,
-    ) -> Result<StacksBlock, Error> {
+    /// returns: stacks block
+    pub fn mine_anchored_block(&mut self, clarity_tx: &mut ClarityTx) -> StacksBlock {
         assert!(!self.anchored_done);
         StacksChainState::finish_block(
             clarity_tx,
             self.miner_payouts.clone(),
             self.header.total_work.work as u32,
             self.header.microblock_pubkey_hash,
-            true,
-        )?;
-        Ok(self.set_root_hash_and_get_block(clarity_tx))
+        )
+        .expect("FATAL: call to `finish_block` failed");
+        self.set_root_hash_and_get_block(clarity_tx)
     }
 
     /// Cut the next microblock.
@@ -1129,6 +1126,10 @@ impl StacksBlockBuilder {
     /// This function should be called before `epoch_begin`.
     /// It loads the parent microblock stream, sets the parent microblock, and returns
     /// data necessary for `epoch_begin`.
+    /// Returns chainstate transaction, clarity instance, burnchain header hash
+    /// of the burn tip, burn tip height + 1, the parent microblock stream,
+    /// the parent consensus hash, the parent header hash, and a bool
+    /// representing whether the network is mainnet or not.
     pub fn pre_epoch_begin<'a>(
         &mut self,
         chainstate: &'a mut StacksChainState,
@@ -1370,7 +1371,7 @@ impl StacksBlockBuilder {
                 }
             }
         }
-        let block = builder.mine_anchored_block(&mut epoch_tx)?;
+        let block = builder.mine_anchored_block(&mut epoch_tx);
         let size = builder.bytes_so_far;
         let cost = builder.epoch_finish(epoch_tx);
         Ok((block, size, cost))
@@ -1705,7 +1706,7 @@ impl StacksBlockBuilder {
         // a transaction that caused a budget exception is rolled back in process_transaction
 
         // save the block so we can build microblocks off of it
-        let block = builder.mine_anchored_block(&mut epoch_tx)?;
+        let block = builder.mine_anchored_block(&mut epoch_tx);
         let size = builder.bytes_so_far;
         let consumed = builder.epoch_finish(epoch_tx);
 
@@ -5706,7 +5707,7 @@ pub mod test {
             .try_mine_tx(clarity_tx, &tx_coinbase_signed)
             .unwrap();
 
-        let stacks_block = builder.mine_anchored_block(clarity_tx).unwrap();
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
 
         test_debug!(
             "Produce anchored stacks block at burnchain height {} stacks height {}",
@@ -5741,7 +5742,7 @@ pub mod test {
             .try_mine_tx(clarity_tx, &tx_coinbase_signed)
             .unwrap();
 
-        let stacks_block = builder.mine_anchored_block(clarity_tx).unwrap();
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
 
         test_debug!(
             "Produce anchored stacks block at burnchain height {} stacks height {} pubkeyhash {}",
@@ -5776,7 +5777,7 @@ pub mod test {
             .try_mine_tx(clarity_tx, &tx_coinbase_signed)
             .unwrap();
 
-        let stacks_block = builder.mine_anchored_block(clarity_tx).unwrap();
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
 
         test_debug!(
             "Produce anchored stacks block at burnchain height {} stacks height {} pubkeyhash {}",
@@ -5967,7 +5968,7 @@ pub mod test {
         );
         builder.force_mine_tx(clarity_tx, &tx4).unwrap();
 
-        let stacks_block = builder.mine_anchored_block(clarity_tx).unwrap();
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
 
         test_debug!("Produce anchored stacks block {} with invalid token transfers at burnchain height {} stacks height {}", stacks_block.block_hash(), burnchain_height, stacks_block.header.total_work.work);
 
@@ -6017,7 +6018,7 @@ pub mod test {
             .try_mine_tx(clarity_tx, &tx_contract_call_signed)
             .unwrap();
 
-        let stacks_block = builder.mine_anchored_block(clarity_tx).unwrap();
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
 
         // TODO: test value of 'bar' in last contract(s)
 
@@ -6082,7 +6083,7 @@ pub mod test {
             .try_mine_tx(clarity_tx, &tx_contract_signed)
             .unwrap();
 
-        let stacks_block = builder.mine_anchored_block(clarity_tx).unwrap();
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
 
         let mut microblocks = vec![];
         for i in 0..3 {
@@ -6169,7 +6170,7 @@ pub mod test {
             .try_mine_tx(clarity_tx, &tx_contract_signed)
             .unwrap();
 
-        let stacks_block = builder.mine_anchored_block(clarity_tx).unwrap();
+        let stacks_block = builder.mine_anchored_block(clarity_tx);
 
         let mut microblocks = vec![];
         for i in 0..3 {
