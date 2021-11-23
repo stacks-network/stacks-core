@@ -1025,7 +1025,7 @@ impl StacksBlockBuilder {
     /// Finish building the anchored block.
     /// TODO: expand to deny mining a block whose anchored static checks fail (and allow the caller
     /// to disable this, in order to test mining invalid blocks)
-    /// returns: stacks block
+    /// Returns: stacks block
     pub fn mine_anchored_block(&mut self, clarity_tx: &mut ClarityTx) -> StacksBlock {
         assert!(!self.anchored_done);
         StacksChainState::finish_block(
@@ -1214,7 +1214,7 @@ impl StacksBlockBuilder {
             self.set_parent_microblock(&EMPTY_MICROBLOCK_PARENT_HASH, 0);
         } else {
             let num_mblocks = parent_microblocks.len();
-            let last_mblock_hdr = parent_microblocks[num_mblocks - 1].clone().header;
+            let last_mblock_hdr = parent_microblocks[num_mblocks - 1].header.clone();
             self.set_parent_microblock(&last_mblock_hdr.block_hash(), last_mblock_hdr.sequence);
         };
 

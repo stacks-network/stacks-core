@@ -4314,7 +4314,6 @@ impl StacksChainState {
         ),
         Error,
     > {
-        let applied_epoch_transition;
         let parent_index_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
 
@@ -4445,10 +4444,8 @@ impl StacksChainState {
         clarity_tx.reset_cost(ExecutionCost::zero());
 
         // is this stacks block the first of a new epoch?
-        let (epoch_transition, mut receipts) =
+        let (applied_epoch_transition, mut receipts) =
             StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
-
-        applied_epoch_transition = epoch_transition;
 
         // process stacking & transfer operations from bitcoin ops
         receipts.extend(StacksChainState::process_stacking_ops(
@@ -4475,8 +4472,9 @@ impl StacksChainState {
 
     /// This function is called in both `append_block` in blocks.rs (follower) and
     /// `mine_anchored_block` in miner.rs.
-    /// Processes matured miner rewards, alters liquid supply of ustx, processes and returns
-    /// stx lock events, and marks the microblock public key as used.
+    /// Processes matured miner rewards, alters liquid supply of ustx, processes
+    /// stx lock events, and marks the microblock public key as used
+    /// Returns stx lockup events.
     pub fn finish_block(
         clarity_tx: &mut ClarityTx,
         miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>,
