@@ -24,6 +24,7 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::fs;
 
+use util::db::sqlite_open;
 use util::db::tx_begin_immediate;
 use util::db::DBConn;
 use util::db::Error as db_error;
@@ -197,9 +198,8 @@ impl AtlasDB {
                 OpenFlags::SQLITE_OPEN_READ_ONLY
             }
         };
-        let conn =
-            Connection::open_with_flags(path, open_flags).map_err(|e| db_error::SqliteError(e))?;
 
+        let conn = sqlite_open(path, open_flags, false)?;
         let mut db = AtlasDB {
             atlas_config,
             conn,

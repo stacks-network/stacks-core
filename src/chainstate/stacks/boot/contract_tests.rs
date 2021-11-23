@@ -30,7 +30,9 @@ use vm::errors::{
 };
 use vm::eval;
 use vm::representations::SymbolicExpression;
-use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
+use vm::tests::{
+    execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+};
 use vm::types::Value::Response;
 use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -150,11 +152,11 @@ impl ClarityTestSim {
             );
 
             store
-                .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+                .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
                 .initialize();
 
             let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
+                OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
 
             for user_key in USER_KEYS.iter() {
                 owned_env.stx_faucet(
@@ -218,6 +220,7 @@ impl ClarityTestSim {
             let headers_db = TestSimHeadersDB {
                 height: self.height + 1,
             };
+/*
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
                 pox_constants: PoxConstants::test_default(),
@@ -226,6 +229,9 @@ impl ClarityTestSim {
             Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
 
             let mut owned_env = OwnedEnvironment::new(store.as_clarity_db(&headers_db, &burn_db));
+*/
+            let mut owned_env =
+                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
             f(&mut owned_env)
         };
 
@@ -272,7 +278,7 @@ impl ClarityTestSim {
             Self::check_and_bump_epoch(&mut store, &headers_db, &NULL_BURN_STATE_DB);
 
             let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &NULL_BURN_STATE_DB));
+                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
 
             f(&mut owned_env)
         };

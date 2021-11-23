@@ -10,3 +10,5 @@ snapshots of important libraries this codebase depends on.
 * The `bitcoin` package was produced by Andrew Poelstra (https://github.com/rust-bitcoin/rust-bitcoin).  License is CC0.
 * The `httparse` package was produced by Sean McArthur
   (https://github.com/seanmonstar/httparse).  License is MIT.
+* The `ctrlc` package was produced by Antti Keräne
+  (https://github.com/Detegr/rust-ctrlc).  License is MIT.

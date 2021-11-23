@@ -51,6 +51,12 @@ extern crate slog_term;
 #[cfg(unix)]
 extern crate libc;
 
+#[cfg(unix)]
+extern crate nix;
+
+#[cfg(windows)]
+extern crate winapi;
+
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -101,6 +107,7 @@ pub mod deps;
 
 pub mod clarity;
 
+pub mod cost_estimates;
 pub mod monitoring;
 pub mod types;
 
@@ -131,3 +138,4 @@ pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
         std::env::consts::ARCH
     )
 }
+
