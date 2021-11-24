@@ -13,7 +13,7 @@ Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and ena
 | Stacks 2.0                 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
 | Stacks 1.0                 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
 | Use the package            | [our core docs](https://docs.blockstack.org/core/naming/introduction.html)        |
-| Develop a Blockstack App   | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html)   |
+| Develop a Blockstack App   | [our developer docs](https://docs.stacks.co/build-apps/overview)                  |
 | Use a Blockstack App       | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
 | Blockstack PBC the company | [our website](https://blockstack.org)                                             |
 
