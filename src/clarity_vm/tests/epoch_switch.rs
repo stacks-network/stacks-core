@@ -30,7 +30,6 @@ use vm::database::{
 use vm::errors::{InterpreterResult, RuntimeErrorType};
 use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
-use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};

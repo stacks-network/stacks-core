@@ -36,7 +36,6 @@ use vm::types::{
 };
 
 use crate::clarity_vm::clarity::ClarityConnection;
-use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::StacksEpochId;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::proof::ClarityMarfTrieId;

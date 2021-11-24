@@ -49,7 +49,6 @@ use chainstate::stacks::Error as ChainstateError;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::{core::StacksEpochId, types::chainstate::StacksBlockId};
 
-use core::StacksEpochId;
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::version::ClarityVersion;

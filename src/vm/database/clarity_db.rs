@@ -46,7 +46,6 @@ use vm::types::{
 };
 
 use crate::{
-    core::StacksEpochId,
     types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
         StacksBlockId, VRFSeed,

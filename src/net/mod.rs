@@ -1934,13 +1934,11 @@ pub mod test {
     use crate::util::boot::boot_code_test_addr;
     use crate::{
         chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt},
-        codec::StacksMessageCodec,
     };
 
     use super::*;
     use chainstate::stacks::db::accounts::MinerReward;
     use chainstate::stacks::events::StacksTransactionReceipt;
-    use std::sync::Mutex;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

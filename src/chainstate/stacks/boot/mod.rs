@@ -62,6 +62,12 @@ const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
+pub const POX_1_NAME: &'static str = "pox";
+pub const POX_2_NAME: &'static str = "pox-2";
+
+const POX_2_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
+const POX_2_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
+const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 
 lazy_static! {
     pub static ref BOOT_CODE_POX_MAINNET: String =

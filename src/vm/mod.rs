@@ -420,16 +420,7 @@ pub fn execute_in_epoch(
  *  database. Only used by CLI and unit tests.
  */
 pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
-    execute_against_version_and_network(program, version, false)
-}
-
-/* Run provided program in a brand new environment, with a transient, empty
- *  database. Only used by CLI and unit tests.
- *
- * This version of the function assumes that the ClarityVersion is Clarity1.
- */
-pub fn execute(program: &str) -> Result<Option<Value>> {
-    execute_against_version(program, ClarityVersion::Clarity1)
+    execute_in_epoch(program, version, false)
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
