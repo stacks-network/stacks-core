@@ -30,8 +30,8 @@ to the main branch which are backported to the develop branch after merging. The
 according to the following rubric:
 
 - **High Priority**. Any fix for an issue that could deny service to the network as a whole, e.g., an issue where a particular kind of invalid transaction would cause nodes to stop processing requests or shut down unintentionally. Any fix for an issue that could cause honest miners to produce invalid blocks.
-- **Medium Priority**. Any fix for an issue that could cause miners to waste funds
-- **Low Priority**. Any fix for an issue that could deny service to individual nodes
+- **Medium Priority**. Any fix for an issue that could cause miners to waste funds.
+- **Low Priority**. Any fix for an issue that could deny service to individual nodes.
 
 ## Versioning
 
@@ -260,7 +260,7 @@ For help cross-compiling on memory-constrained devices, please see the community
 ## Community
 
 Beyond this Github project,
-Blockstack maintains a public [forum](https://forum.blockstack.org) and an
+Blockstack maintains a public [forum](https://forum.stacks.org) and an
 opened [Discord](https://discord.com/invite/XYdRyhf) channel. In addition, the project
 maintains a [mailing list](https://blockstack.org/signup) which sends out
 community announcements.
@@ -280,10 +280,10 @@ You can learn more by visiting [the Blockstack Website](https://blockstack.org) 
 
 You can also read the technical papers:
 
-- ["PoX: Proof of Transfer Mining with Bitcoin"](https://blockstack.org/pox.pdf), May 2020
-- ["The Blockstack Decentralized Computing Network"](https://blockstack.org/whitepaper.pdf), May 2019
+- ["PoX: Proof of Transfer Mining with Bitcoin"](https://assets.website-files.com/5fcf9ac604d37418aa70a5ab/60072dbb32d416d6b3806935_5f1596b12bcc0800f3dcadcd_pox.pdf), May 2020
+- ["Stacks 2.0: Apps and Smart Contracts for Bitcoin"](https://stacks.org/stacks), Dec 2020
 
-If you have high-level questions about Blockstack, try [searching our forum](https://forum.blockstack.org) and start a new question if your question is not answered there.
+If you have high-level questions about Blockstack, try [searching our forum](https://forum.stacks.org) and start a new question if your question is not answered there.
 
 ## Contributing
 
