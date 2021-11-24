@@ -15,9 +15,9 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+use stacks::clarity::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
-use stacks::core::BLOCK_LIMIT_MAINNET;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
@@ -33,7 +33,6 @@ use stacks::util::hash::{bytes_to_hex, hex_bytes};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::vm::database::ClarityDeserializable;
-use stacks::vm::execute;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
 use stacks::{
@@ -73,7 +72,7 @@ use super::{
     SK_2,
 };
 
-fn neon_integration_test_conf() -> (Config, StacksAddress) {
+pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
 
     let keychain = Keychain::default(conf.node.seed.clone());
@@ -108,7 +107,7 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     (conf, miner_account)
 }
 
-mod test_observer {
+pub mod test_observer {
     use std::convert::Infallible;
     use std::sync::Mutex;
     use std::thread;
@@ -117,10 +116,13 @@ mod test_observer {
     use warp;
     use warp::Filter;
 
+    use crate::event_dispatcher::MinedBlockEvent;
+
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
     lazy_static! {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+        pub static ref MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
         pub static ref NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -147,6 +149,12 @@ mod test_observer {
     ) -> Result<impl warp::Reply, Infallible> {
         let mut microblock_events = NEW_MICROBLOCKS.lock().unwrap();
         microblock_events.push(microblocks);
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    async fn handle_mined_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
+        let mut mined_blocks = MINED_BLOCKS.lock().unwrap();
+        mined_blocks.push(serde_json::from_value(block).unwrap());
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -217,6 +225,10 @@ mod test_observer {
         ATTACHMENTS.lock().unwrap().clone()
     }
 
+    pub fn get_mined_blocks() -> Vec<MinedBlockEvent> {
+        MINED_BLOCKS.lock().unwrap().clone()
+    }
+
     /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
     async fn serve() {
         let new_blocks = warp::path!("new_block")
@@ -243,6 +255,10 @@ mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_microblocks);
+        let mined_blocks = warp::path!("mined_block")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_mined_block);
 
         info!("Spawning warp server");
         warp::serve(
@@ -251,7 +267,8 @@ mod test_observer {
                 .or(mempool_drop_txs)
                 .or(new_burn_blocks)
                 .or(new_attachments)
-                .or(new_microblocks),
+                .or(new_microblocks)
+                .or(mined_blocks),
         )
         .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
         .await
@@ -271,11 +288,13 @@ mod test_observer {
         NEW_BLOCKS.lock().unwrap().clear();
         MEMTXS.lock().unwrap().clear();
         MEMTXS_DROPPED.lock().unwrap().clear();
+        MINED_BLOCKS.lock().unwrap().clear();
     }
 }
 
 const PANIC_TIMEOUT_SECS: u64 = 600;
-fn next_block_and_wait(
+/// Returns `false` on a timeout, true otherwise.
+pub fn next_block_and_wait(
     btc_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
 ) -> bool {
@@ -302,7 +321,7 @@ fn next_block_and_wait(
     true
 }
 
-fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
+pub fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) == 0 {
         if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
@@ -342,7 +361,7 @@ fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) ->
 }
 
 /// returns Txid string
-fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
+pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/transactions", http_origin);
     let res = client
@@ -351,7 +370,6 @@ fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
         .body(tx.clone())
         .send()
         .unwrap();
-    eprintln!("{:#?}", res);
     if res.status().is_success() {
         let res: String = res.json().unwrap();
         assert_eq!(
@@ -368,7 +386,7 @@ fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
     }
 }
 
-fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
+pub fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
@@ -380,6 +398,14 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
         .unwrap()
         .json::<RPCPeerInfoData>()
         .unwrap();
+
+    tip_info
+}
+
+fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
+    let tip_info = get_chain_info(conf);
+
+    // get the canonical chain tip
     let stacks_tip = tip_info.stacks_tip;
     let stacks_tip_consensus_hash = tip_info.stacks_tip_consensus_hash;
 
@@ -387,6 +413,8 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
         StacksBlockHeader::make_index_block_hash(&stacks_tip_consensus_hash, &stacks_tip);
 
     // get the associated anchored block
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/blocks/{}", &http_origin, &stacks_id_tip);
     let block_bytes = client.get(&path).send().unwrap().bytes().unwrap();
     let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();
@@ -605,12 +633,12 @@ fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128 {
 }
 
 #[derive(Debug)]
-struct Account {
-    balance: u128,
-    nonce: u64,
+pub struct Account {
+    pub balance: u128,
+    pub nonce: u64,
 }
 
-fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
+pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/accounts/{}?proof=0", http_origin, account);
     let res = client
@@ -1558,13 +1586,7 @@ fn microblock_integration_test() {
 
     // put each into a microblock
     let (first_microblock, second_microblock) = {
-        let path = format!("{}/v2/info", &http_origin);
-        let tip_info = client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<RPCPeerInfoData>()
-            .unwrap();
+        let tip_info = get_chain_info(&conf);
         let stacks_tip = tip_info.stacks_tip;
 
         let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
@@ -1639,15 +1661,9 @@ fn microblock_integration_test() {
 
     sleep_ms(5_000);
 
-    let path = format!("{}/v2/info", &http_origin);
     let mut iter_count = 0;
     let tip_info = loop {
-        let tip_info = client
-            .get(&path)
-            .send()
-            .unwrap()
-            .json::<RPCPeerInfoData>()
-            .unwrap();
+        let tip_info = get_chain_info(&conf);
         eprintln!("{:#?}", tip_info);
         if tip_info.unanchored_tip == StacksBlockId([0; 32]) {
             iter_count += 1;
@@ -2847,7 +2863,10 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     conf.node.microblock_frequency = 1_000;
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
-    conf.block_limit = BLOCK_LIMIT_MAINNET.clone();
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
+    conf.burnchain.epochs = Some(epochs);
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
@@ -3110,11 +3129,14 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 0;
     conf.node.microblock_frequency = 15000;
-    conf.block_limit = BLOCK_LIMIT_MAINNET.clone();
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].block_limit = core::BLOCK_LIMIT_MAINNET_20;
+    conf.burnchain.epochs = Some(epochs);
 
     test_observer::spawn();
     conf.events_observers.push(EventObserverConfig {
@@ -3202,8 +3224,8 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
 
     let mut max_big_txs_per_block = 0;
     let mut max_big_txs_per_microblock = 0;
-    let mut total_big_txs_per_block = 0;
-    let mut total_big_txs_per_microblock = 0;
+    let mut total_big_txs_in_blocks = 0;
+    let mut total_big_txs_in_microblocks = 0;
 
     for block in blocks {
         eprintln!("block {:?}", &block);
@@ -3223,10 +3245,10 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
             if let TransactionPayload::SmartContract(tsc) = parsed.payload {
                 if tsc.name.to_string().find("large-").is_some() {
                     num_big_anchored_txs += 1;
-                    total_big_txs_per_block += 1;
+                    total_big_txs_in_blocks += 1;
                 } else if tsc.name.to_string().find("small").is_some() {
                     num_big_microblock_txs += 1;
-                    total_big_txs_per_microblock += 1;
+                    total_big_txs_in_microblocks += 1;
                 }
             }
         }
@@ -3239,22 +3261,25 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
         }
     }
 
-    debug!(
+    info!(
         "max_big_txs_per_microblock: {}, max_big_txs_per_block: {}",
         max_big_txs_per_microblock, max_big_txs_per_block
     );
-    debug!(
-        "total_big_txs_per_microblock: {}, total_big_txs_per_block: {}",
-        total_big_txs_per_microblock, total_big_txs_per_block
+    info!(
+        "total_big_txs_in_microblocks: {}, total_big_txs_in_blocks: {}",
+        total_big_txs_in_microblocks, total_big_txs_in_blocks
     );
 
     // at most one big tx per block and at most one big tx per stream, always.
-    assert!(max_big_txs_per_microblock == 1);
-    assert!(max_big_txs_per_block == 1);
+    assert_eq!(max_big_txs_per_microblock, 1);
+    assert_eq!(max_big_txs_per_block, 1);
 
     // if the mblock stream has a big tx, the anchored block won't (and vice versa)
-    assert!(total_big_txs_per_block == 1); // last block didn't get counted by the observer
-    assert!(total_big_txs_per_microblock == 2);
+    // the changes for miner cost tracking (reset tracker between microblock and block, #2913)
+    // altered this test so that one more big tx ends up in an anchored block and one fewer
+    // ends up in a microblock
+    assert_eq!(total_big_txs_in_blocks, 2);
+    assert_eq!(total_big_txs_in_microblocks, 1);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
@@ -3723,9 +3748,6 @@ fn near_full_block_integration_test() {
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
-    // Set block limit
-    conf.block_limit = BLOCK_LIMIT_MAINNET;
-
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),
         amount: 10000000,
@@ -3899,7 +3921,6 @@ fn pox_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
@@ -4258,13 +4279,7 @@ fn pox_integration_test() {
     );
 
     // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .unwrap();
+    let tip_info = get_chain_info(&conf);
 
     eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
     assert_eq!(tip_info.stacks_tip_height, 36);
@@ -4277,13 +4292,7 @@ fn pox_integration_test() {
     }
 
     // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .unwrap();
+    let tip_info = get_chain_info(&conf);
 
     eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
     assert_eq!(tip_info.stacks_tip_height, 51);
@@ -4317,13 +4326,7 @@ fn pox_integration_test() {
 
     // should have progressed the chain, though!
     // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .unwrap();
+    let tip_info = get_chain_info(&conf);
 
     eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
     assert_eq!(tip_info.stacks_tip_height, 66);

@@ -5,7 +5,12 @@ use crate::vm::costs::ExecutionCost;
 /// This trait defines metrics used to convert `ExecutionCost` and tx_len usage into single-dimensional
 /// metrics that can be used to compute a fee rate.
 pub trait CostMetric: Send {
-    fn from_cost_and_len(&self, cost: &ExecutionCost, tx_len: u64) -> u64;
+    fn from_cost_and_len(
+        &self,
+        cost: &ExecutionCost,
+        block_limit: &ExecutionCost,
+        tx_len: u64,
+    ) -> u64;
     fn from_len(&self, tx_len: u64) -> u64;
     /// Should return the amount that a metric result will change per
     ///  additional byte in the transaction length
@@ -13,8 +18,13 @@ pub trait CostMetric: Send {
 }
 
 impl CostMetric for Box<dyn CostMetric> {
-    fn from_cost_and_len(&self, cost: &ExecutionCost, tx_len: u64) -> u64 {
-        self.as_ref().from_cost_and_len(cost, tx_len)
+    fn from_cost_and_len(
+        &self,
+        cost: &ExecutionCost,
+        block_limit: &ExecutionCost,
+        tx_len: u64,
+    ) -> u64 {
+        self.as_ref().from_cost_and_len(cost, block_limit, tx_len)
     }
 
     fn from_len(&self, tx_len: u64) -> u64 {
@@ -35,7 +45,6 @@ pub const PROPORTION_RESOLUTION: u64 = 10_000;
 /// The maximum scalar value for an execution cost that = the block limit is
 /// 6 * `PROPORTION_RESOLUTION`.
 pub struct ProportionalDotProduct {
-    block_execution_limit: ExecutionCost,
     block_size_limit: u64,
 }
 
@@ -45,14 +54,8 @@ pub struct ProportionalDotProduct {
 pub struct UnitMetric;
 
 impl ProportionalDotProduct {
-    pub fn new(
-        block_size_limit: u64,
-        block_execution_limit: ExecutionCost,
-    ) -> ProportionalDotProduct {
-        ProportionalDotProduct {
-            block_execution_limit,
-            block_size_limit,
-        }
+    pub fn new(block_size_limit: u64) -> ProportionalDotProduct {
+        ProportionalDotProduct { block_size_limit }
     }
 
     fn calculate_len_proportion(&self, tx_len: u64) -> u64 {
@@ -65,9 +68,13 @@ impl ProportionalDotProduct {
 }
 
 impl CostMetric for ProportionalDotProduct {
-    fn from_cost_and_len(&self, cost: &ExecutionCost, tx_len: u64) -> u64 {
-        let exec_proportion =
-            cost.proportion_dot_product(&self.block_execution_limit, PROPORTION_RESOLUTION);
+    fn from_cost_and_len(
+        &self,
+        cost: &ExecutionCost,
+        block_limit: &ExecutionCost,
+        tx_len: u64,
+    ) -> u64 {
+        let exec_proportion = cost.proportion_dot_product(block_limit, PROPORTION_RESOLUTION);
         let len_proportion = self.calculate_len_proportion(tx_len);
         exec_proportion + len_proportion
     }
@@ -82,7 +89,12 @@ impl CostMetric for ProportionalDotProduct {
 }
 
 impl CostMetric for UnitMetric {
-    fn from_cost_and_len(&self, _cost: &ExecutionCost, _tx_len: u64) -> u64 {
+    fn from_cost_and_len(
+        &self,
+        _cost: &ExecutionCost,
+        _block_limit: &ExecutionCost,
+        _tx_len: u64,
+    ) -> u64 {
         1
     }
 

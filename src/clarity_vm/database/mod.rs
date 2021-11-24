@@ -18,6 +18,9 @@ use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId
 use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
 
+use core::StacksEpoch;
+use core::StacksEpochId;
+
 pub mod marf;
 
 impl HeadersDB for DBConn {
@@ -97,6 +100,16 @@ impl BurnStateDB for SortitionHandleTx<'_> {
             _ => return None,
         }
     }
+
+    fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        SortitionDB::get_stacks_epoch(self.tx(), height as u64)
+            .expect("BUG: failed to get epoch for burn block height")
+    }
+
+    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        SortitionDB::get_stacks_epoch_by_epoch_id(self.tx(), epoch_id)
+            .expect("BUG: failed to get epoch for epoch id")
+    }
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
@@ -117,6 +130,16 @@ impl BurnStateDB for SortitionDBConn<'_> {
             Ok(Some(x)) => Some(x.burn_header_hash),
             _ => return None,
         }
+    }
+
+    fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+        SortitionDB::get_stacks_epoch(self.conn(), height as u64)
+            .expect("BUG: failed to get epoch for burn block height")
+    }
+
+    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        SortitionDB::get_stacks_epoch_by_epoch_id(self.conn(), epoch_id)
+            .expect("BUG: failed to get epoch for epoch id")
     }
 }
 

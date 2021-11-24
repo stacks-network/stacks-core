@@ -23,6 +23,8 @@ pub mod trait_checker;
 pub mod type_checker;
 pub mod types;
 
+use crate::core::StacksEpochId;
+
 pub use self::types::{AnalysisPass, ContractAnalysis};
 use vm::costs::LimitedCostTracker;
 use vm::database::STORE_CONTRACT_SRC_INTERFACE;
@@ -38,6 +40,7 @@ use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::TypeChecker;
 
+/// Used by CLI tools like the docs generator. Not used in production
 pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     use crate::clarity_vm::database::MemoryBackingStore;
     use vm::ast::parse;
@@ -45,26 +48,31 @@ pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, Cont
     let mut contract = parse(&contract_identifier, snippet).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
-    type_check(
+    let cost_tracker = LimitedCostTracker::new_free();
+    match run_analysis(
         &QualifiedContractIdentifier::transient(),
         &mut contract,
         &mut analysis_db,
         false,
-    )
-    .map(|x| {
-        // return the first type result of the type checker
-        let first_type = x
-            .type_map
-            .as_ref()
-            .unwrap()
-            .get_type(&x.expressions.last().unwrap())
-            .cloned();
-        (first_type, x)
-    })
+        cost_tracker,
+    ) {
+        Ok(x) => {
+            // return the first type result of the type checker
+            let first_type = x
+                .type_map
+                .as_ref()
+                .unwrap()
+                .get_type(&x.expressions.last().unwrap())
+                .cloned();
+            Ok((first_type, x))
+        }
+        Err((e, _)) => Err(e),
+    }
 }
 
 // Legacy function
 // The analysis is not just checking type.
+#[cfg(test)]
 pub fn type_check(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &mut [SymbolicExpression],
@@ -76,6 +84,8 @@ pub fn type_check(
         expressions,
         analysis_db,
         insert_contract,
+        // for the type check tests, the cost tracker's epoch doesn't
+        //  matter: the costs in those tests are all free anyways.
         LimitedCostTracker::new_free(),
     )
     .map_err(|(e, _cost_tracker)| e)
