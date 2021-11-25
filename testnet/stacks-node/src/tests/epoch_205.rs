@@ -1130,11 +1130,11 @@ fn bigger_microblock_streams_in_2_05() {
     microblocks_processed.store(0, Ordering::SeqCst);
 
     // this test can sometimes miss a mine block event.
-    sleep_ms(80_000);
+    sleep_ms(120_000);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let blocks = test_observer::get_blocks();
-    assert!(blocks.len() >= 5, "Should have produced at least 5 blocks");
+    let mut epoch_20_stream_cost = ExecutionCost::zero();
+    let mut epoch_205_stream_cost = ExecutionCost::zero();
 
     // max == largest number of transactions per stream in a given epoch (2.0 or 2.05)
     // total == number of transactions across all streams in a given epoch (2.0 or 2.05)
@@ -1144,40 +1144,89 @@ fn bigger_microblock_streams_in_2_05() {
     let mut max_big_txs_per_microblock_205 = 0;
     let mut total_big_txs_per_microblock_205 = 0;
 
-    let mut in_205 = false;
+    let mut in_205;
+    let mut have_confirmed_205_stream;
 
-    // NOTE: this only counts the number of txs per stream, not in each microblock
-    for block in blocks {
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        eprintln!("{}", transactions.len());
+    for i in 0..10 {
+        let blocks = test_observer::get_blocks();
 
-        let mut num_big_microblock_txs = 0;
+        max_big_txs_per_microblock_20 = 0;
+        total_big_txs_per_microblock_20 = 0;
 
-        for tx in transactions.iter() {
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            if raw_tx == "0x00" {
-                continue;
-            }
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::SmartContract(tsc) = parsed.payload {
-                if tsc.name.to_string().find("costs-2").is_some() {
-                    in_205 = true;
-                } else if tsc.name.to_string().find("large").is_some() {
-                    num_big_microblock_txs += 1;
-                    if in_205 {
-                        total_big_txs_per_microblock_205 += 1;
-                    } else {
-                        total_big_txs_per_microblock_20 += 1;
+        max_big_txs_per_microblock_205 = 0;
+        total_big_txs_per_microblock_205 = 0;
+
+        in_205 = false;
+        have_confirmed_205_stream = false;
+
+        // NOTE: this only counts the number of txs per stream, not in each microblock
+        for block in blocks {
+            let transactions = block.get("transactions").unwrap().as_array().unwrap();
+            eprintln!("{}", transactions.len());
+
+            let mut num_big_microblock_txs = 0;
+            let mut total_execution_cost = ExecutionCost::zero();
+
+            for tx in transactions.iter() {
+                let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+                if raw_tx == "0x00" {
+                    continue;
+                }
+                let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+                let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+                    if tsc.name.to_string().find("costs-2").is_some() {
+                        in_205 = true;
+                    } else if tsc.name.to_string().find("large").is_some() {
+                        num_big_microblock_txs += 1;
+                        if in_205 {
+                            total_big_txs_per_microblock_205 += 1;
+                        } else {
+                            total_big_txs_per_microblock_20 += 1;
+                        }
                     }
                 }
+                let execution_cost = tx.get("execution_cost").unwrap();
+                total_execution_cost.read_count +=
+                    execution_cost.get("read_count").unwrap().as_i64().unwrap() as u64;
+                total_execution_cost.read_length +=
+                    execution_cost.get("read_length").unwrap().as_i64().unwrap() as u64;
+                total_execution_cost.write_count +=
+                    execution_cost.get("write_count").unwrap().as_i64().unwrap() as u64;
+                total_execution_cost.write_length += execution_cost
+                    .get("write_length")
+                    .unwrap()
+                    .as_i64()
+                    .unwrap() as u64;
+                total_execution_cost.runtime +=
+                    execution_cost.get("runtime").unwrap().as_i64().unwrap() as u64;
+            }
+            if in_205 && num_big_microblock_txs > max_big_txs_per_microblock_205 {
+                max_big_txs_per_microblock_205 = num_big_microblock_txs;
+            }
+            if !in_205 && num_big_microblock_txs > max_big_txs_per_microblock_20 {
+                max_big_txs_per_microblock_20 = num_big_microblock_txs;
+            }
+
+            eprintln!("Epoch size: {:?}", &total_execution_cost);
+
+            if !in_205 && total_execution_cost.exceeds(&epoch_20_stream_cost) {
+                epoch_20_stream_cost = total_execution_cost;
+                break;
+            }
+            if in_205 && total_execution_cost.exceeds(&ExecutionCost::zero()) {
+                have_confirmed_205_stream = true;
+                epoch_205_stream_cost = total_execution_cost;
+                break;
             }
         }
-        if in_205 && num_big_microblock_txs > max_big_txs_per_microblock_205 {
-            max_big_txs_per_microblock_205 = num_big_microblock_txs;
-        }
-        if !in_205 && num_big_microblock_txs > max_big_txs_per_microblock_20 {
-            max_big_txs_per_microblock_20 = num_big_microblock_txs;
+
+        if have_confirmed_205_stream {
+            break;
+        } else {
+            eprintln!("Trying to confirm a stream again (attempt {})", i + 1);
+            sleep_ms((i + 2) * 60_000);
+            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         }
     }
 
@@ -1189,13 +1238,27 @@ fn bigger_microblock_streams_in_2_05() {
         "max_big_txs_per_microblock_205: {}, total_big_txs_per_microblock_205: {}",
         max_big_txs_per_microblock_205, total_big_txs_per_microblock_205
     );
+    eprintln!(
+        "confirmed stream execution in 2.0: {:?}",
+        &epoch_20_stream_cost
+    );
+    eprintln!(
+        "confirmed stream execution in 2.05: {:?}",
+        &epoch_205_stream_cost
+    );
 
-    assert!(max_big_txs_per_microblock_20 <= 1);
-    assert!(total_big_txs_per_microblock_20 <= 1);
+    // stuff happened
+    assert!(epoch_20_stream_cost.runtime > 0);
+    assert!(epoch_205_stream_cost.runtime > 0);
 
-    // can be 9; allow a fudge factor
-    assert!(max_big_txs_per_microblock_205 >= 8);
-    assert!(total_big_txs_per_microblock_205 >= 8);
+    // more stuff happened in epoch 2.05
+    assert!(epoch_205_stream_cost.read_count > epoch_20_stream_cost.read_count);
+    assert!(epoch_205_stream_cost.read_length > epoch_20_stream_cost.read_length);
+    assert!(epoch_205_stream_cost.write_count > epoch_20_stream_cost.write_count);
+    assert!(epoch_205_stream_cost.write_length > epoch_20_stream_cost.write_length);
+
+    // but epoch 2.05 was *cheaper* in terms of CPU
+    assert!(epoch_205_stream_cost.runtime < epoch_20_stream_cost.runtime);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
