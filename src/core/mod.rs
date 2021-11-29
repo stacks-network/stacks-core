@@ -381,7 +381,7 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 3] = [
+    pub static ref STACKS_EPOCHS_TESTNET: [StacksEpoch; 4] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -400,21 +400,21 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT,
             end_height: BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT,
-            block_limit: BLOCK_LIMIT_TESTNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
     StacksEpoch {
         epoch_id: StacksEpochId::Epoch21,
         start_height: BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT,
         end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_TESTNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05
     },
     ];
 }
 
 lazy_static! {
-    pub static ref STACKS_EPOCHS_REGTEST: [StacksEpoch; 3] = [
+    pub static ref STACKS_EPOCHS_REGTEST: [StacksEpoch; 4] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
