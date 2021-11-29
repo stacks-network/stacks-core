@@ -719,11 +719,6 @@ impl BurnchainIndexer for BitcoinIndexer {
         Ok(first_block_header_timestamp)
     }
 
-    /// Get the epochs
-    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
-        get_bitcoin_stacks_epochs(self.runtime.network_id)
-    }
-
     /// Get a vector of the stacks epochs. This notion of epochs is dependent on the burn block height.
     /// Valid epochs include stacks 1.0, stacks 2.0, stacks 2.05, and so on.
     ///

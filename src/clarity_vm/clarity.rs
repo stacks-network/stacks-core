@@ -47,8 +47,6 @@ use vm::types::{
     AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
     TypeSignature, Value,
 };
-use vm::ContractName;
-
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::TransactionAuth;
 use crate::chainstate::stacks::TransactionPayload;
@@ -57,20 +55,8 @@ use crate::chainstate::stacks::TransactionSmartContract;
 use crate::chainstate::stacks::TransactionSpendingCondition;
 use crate::chainstate::stacks::TransactionVersion;
 use crate::chainstate::stacks::boot::POX_2_NAME;
-use crate::chainstate::stacks::db::StacksAccount;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::SinglesigHashMode;
-use crate::chainstate::stacks::SinglesigSpendingCondition;
-use crate::chainstate::stacks::StacksTransaction;
-use crate::chainstate::stacks::TransactionAuth;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::chainstate::stacks::TransactionPublicKeyEncoding;
-use crate::chainstate::stacks::TransactionSmartContract;
-use crate::chainstate::stacks::TransactionSpendingCondition;
-use crate::chainstate::stacks::TransactionVersion;
 use crate::core::StacksEpoch;
-use crate::core::StacksEpochId;
 use crate::core::FIRST_STACKS_BLOCK_ID;
 use crate::core::GENESIS_EPOCH;
 use crate::types::chainstate::BlockHeaderHash;
@@ -81,8 +67,6 @@ use crate::types::proof::TrieHash;
 use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use types::chainstate::BurnchainHeaderHash;
 use crate::util::secp256k1::MessageSignature;
-use crate::util::strings::StacksString;
-use crate::vm::database::STXBalance;
 use crate::{
     burnchains::Burnchain,
     clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
@@ -90,6 +74,8 @@ use crate::{
 use crate::{
     clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId, vm::ClarityVersion,
 };
+use chainstate::stacks::boot::POX_2_MAINNET_CODE;
+use chainstate::stacks::boot::POX_2_TESTNET_CODE;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.

@@ -1937,8 +1937,6 @@ pub mod test {
     };
 
     use super::*;
-    use chainstate::stacks::db::accounts::MinerReward;
-    use chainstate::stacks::events::StacksTransactionReceipt;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

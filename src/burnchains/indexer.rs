@@ -21,8 +21,6 @@ use burnchains::*;
 use crate::types::chainstate::BurnchainHeaderHash;
 use core::StacksEpoch;
 
-use core::StacksEpoch;
-
 // IPC messages between threads
 pub trait BurnHeaderIPC {
     type H: Send + Sync + Clone;

@@ -503,13 +503,6 @@ impl TryFrom<u32> for StacksEpochId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StacksEpoch {
-    pub epoch_id: StacksEpochId,
-    pub start_height: u64,
-    pub end_height: u64,
-}
-
 impl StacksEpoch {
     #[cfg(test)]
     pub fn unit_test(first_burnchain_height: u64) -> Vec<StacksEpoch> {
