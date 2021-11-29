@@ -331,10 +331,12 @@ pub fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     }
 }
 
-fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) -> bool {
+/// Wait for at least one microblock to be mined, up to a given timeout (in seconds).
+/// Returns true if the microblock was mined; false if we timed out.
+pub fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) -> bool {
     let mut current = microblocks_processed.load(Ordering::SeqCst);
     let start = Instant::now();
-    info!("Waiting for next microblock");
+    info!("Waiting for next microblock (current = {})", &current);
     loop {
         let now = microblocks_processed.load(Ordering::SeqCst);
         if now == 0 && current != 0 {
@@ -351,12 +353,13 @@ fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64) ->
         }
 
         if start.elapsed() > Duration::from_secs(timeout) {
-            warn!("Timed out waiting for microblocks to process");
+            warn!("Timed out waiting for microblocks to process ({})", timeout);
             return false;
         }
 
         thread::sleep(Duration::from_millis(100));
     }
+    info!("Next microblock acknowledged");
     return true;
 }
 
