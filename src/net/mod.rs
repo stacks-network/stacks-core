@@ -3260,59 +3260,6 @@ pub mod test {
             StacksBlockId::new(&consensus_hash, &stacks_block.block_hash())
         }
 
-        /// Make a tenure with the given transactions. Creates a coinbase tx with the given nonce, and then increments
-        ///  the provided reference.
-        pub fn tenure_with_txs(
-            &mut self,
-            txs: &[StacksTransaction],
-            coinbase_nonce: &mut usize,
-        ) -> StacksBlockId {
-            let microblock_privkey = StacksPrivateKey::new();
-            let microblock_pubkeyhash =
-                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            let (burn_ops, stacks_block, microblocks) = self.make_tenure(
-                |ref mut miner,
-                 ref mut sortdb,
-                 ref mut chainstate,
-                 vrf_proof,
-                 ref parent_opt,
-                 ref parent_microblock_header_opt| {
-                    let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
-                    let coinbase_tx = make_coinbase(miner, *coinbase_nonce);
-
-                    let mut block_txs = vec![coinbase_tx];
-                    block_txs.extend_from_slice(txs);
-
-                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
-                        &parent_tip,
-                        vrf_proof,
-                        tip.total_burn,
-                        microblock_pubkeyhash,
-                    )
-                    .unwrap();
-                    let (anchored_block, _size, _cost) =
-                        StacksBlockBuilder::make_anchored_block_from_txs(
-                            block_builder,
-                            chainstate,
-                            &sortdb.index_conn(),
-                            block_txs,
-                        )
-                        .unwrap();
-                    (anchored_block, vec![])
-                },
-            );
-
-            let (_, _, consensus_hash) = self.next_burnchain_block(burn_ops);
-            self.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-            *coinbase_nonce += 1;
-
-            StacksBlockId::new(&consensus_hash, &stacks_block.block_hash())
-        }
-
         // Make a tenure
         pub fn make_tenure<F>(
             &mut self,
