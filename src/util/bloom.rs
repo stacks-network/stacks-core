@@ -877,10 +877,14 @@ pub mod test {
                 );
                 assert!(calculated_error_rate <= err_rate);
 
-                // everything is removed
+                // everything is removed, up to fp_rate
+                let mut check_fp_count = 0;
                 for random_data in remove_data.iter() {
-                    assert_eq!(bf.count_raw(&db, random_data).unwrap(), 0);
+                    if bf.count_raw(&db, random_data).unwrap() > 0 {
+                        check_fp_count += 1;
+                    }
                 }
+                assert!(check_fp_count <= fp_count);
             }
         }
     }
