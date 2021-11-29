@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::core::StacksEpochId;
 use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::proof::ClarityMarfTrieId;
@@ -24,20 +25,20 @@ use chainstate::stacks::index::storage::TrieFileStorage;
 use clarity_vm::clarity::ClarityInstance;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
+use std::collections::HashMap;
 use util::hash::hex_bytes;
 use vm::contexts::Environment;
 use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
-use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use vm::database::ClarityDatabase;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::execute as vm_execute;
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
 use vm::tests::{
-    execute, is_committed, is_err_code, symbols_from_values, with_marfed_environment,
-    with_memory_environment,
+    execute, execute_on_network, is_committed, is_err_code, symbols_from_values,
+    with_marfed_environment, with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
@@ -47,6 +48,8 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
 
 lazy_static! {
+    static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =
+        boot_code_id("cost-voting", true);
     static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
 }
@@ -161,7 +164,645 @@ fn execute_transaction(
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
-fn test_tracked_costs(prog: &str) -> ExecutionCost {
+fn with_owned_env<F, R>(epoch: StacksEpochId, use_mainnet: bool, to_do: F) -> R
+where
+    F: Fn(OwnedEnvironment) -> R,
+{
+    let marf_kv = MarfedKV::temporary();
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
+
+    let first_block = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+    clarity_instance
+        .begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &first_block,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
+        )
+        .commit_block();
+
+    let tip = if epoch == StacksEpochId::Epoch2_05 {
+        let next_block = StacksBlockId([1 as u8; 32]);
+        let mut clarity_conn = clarity_instance.begin_block(
+            &first_block,
+            &next_block,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
+        );
+        clarity_conn.initialize_epoch_2_05().unwrap();
+        clarity_conn.commit_block();
+        next_block
+    } else {
+        first_block.clone()
+    };
+
+    let mut marf_kv = clarity_instance.destroy();
+
+    let mut store = marf_kv.begin(&tip, &StacksBlockId([2 as u8; 32]));
+
+    to_do(OwnedEnvironment::new_max_limit(
+        store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+        epoch,
+        use_mainnet,
+    ))
+}
+
+fn exec_cost(contract: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p1_principal = match p1 {
+        Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
+        _ => panic!(),
+    };
+    let contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "self".into());
+
+    with_owned_env(epoch, use_mainnet, |mut owned_env| {
+        owned_env
+            .initialize_contract(contract_id.clone(), contract)
+            .unwrap();
+
+        let cost_before = owned_env.get_cost_total();
+
+        eprintln!("{}", &contract);
+        execute_transaction(
+            &mut owned_env,
+            p1_principal.clone().into(),
+            &contract_id,
+            "execute",
+            &[],
+        )
+        .unwrap();
+
+        let (_db, tracker) = owned_env.destruct().unwrap();
+        let mut cost_after = tracker.get_total();
+        cost_after.sub(&cost_before).unwrap();
+        cost_after
+    })
+}
+
+/// Assert that the relative difference between `cost_small` and `cost_large`
+///  grows in v205
+fn check_cost_growth_200_v_205(
+    cost_small_200: u64,
+    cost_large_200: u64,
+    cost_small_205: u64,
+    cost_large_205: u64,
+) {
+    let growth_200 = (cost_large_200 - cost_small_200) as f64 / cost_small_200 as f64;
+    let growth_205 = (cost_large_205 - cost_small_205) as f64 / cost_small_205 as f64;
+
+    assert!(
+        growth_205 > growth_200,
+        "The difference between larger and smaller exec runtimes should grow in epoch 2.05"
+    );
+}
+
+/*
+hash160
+sha256
+sha512
+sha512trunc256
+keccak256
+ */
+
+fn test_input_size_epoch_200_205(
+    large_input: &str,
+    large_baseline: &str,
+    small_input: &str,
+    small_baseline: &str,
+    use_mainnet: bool,
+) {
+    let large_epoch_200 = exec_cost(large_input, use_mainnet, StacksEpochId::Epoch20).runtime
+        - exec_cost(large_baseline, use_mainnet, StacksEpochId::Epoch20).runtime;
+    let large_epoch_205 = exec_cost(large_input, use_mainnet, StacksEpochId::Epoch2_05).runtime
+        - exec_cost(large_baseline, use_mainnet, StacksEpochId::Epoch2_05).runtime;
+    let small_epoch_200 = exec_cost(small_input, use_mainnet, StacksEpochId::Epoch20).runtime
+        - exec_cost(small_baseline, use_mainnet, StacksEpochId::Epoch20).runtime;
+    let small_epoch_205 = exec_cost(small_input, use_mainnet, StacksEpochId::Epoch2_05).runtime
+        - exec_cost(small_baseline, use_mainnet, StacksEpochId::Epoch2_05).runtime;
+
+    assert_eq!(
+        large_epoch_200, small_epoch_200,
+        "In epoch 2.00, both inputs should have the same runtime"
+    );
+    assert!(
+        large_epoch_205 > small_epoch_205,
+        "In epoch 2.05, runtime with a larger input should be greater"
+    );
+}
+
+fn test_hash_fn_input_sizes_200_205(hash_function: &str, mainnet: bool) {
+    let large_input = format!(
+        "(define-public (execute) (begin ({} 0x1234567890) (ok 1)))",
+        hash_function
+    );
+    let small_input = format!(
+        "(define-public (execute) (begin ({} 0x1234) (ok 1)))",
+        hash_function
+    );
+    let large_base = "(define-public (execute) (begin 0x1234567890 (ok 1)))";
+    let small_base = "(define-public (execute) (begin 0x1234 (ok 1)))";
+
+    test_input_size_epoch_200_205(&large_input, large_base, &small_input, small_base, mainnet);
+}
+
+fn epoch205_hash_fns_input_size(use_mainnet: bool) {
+    test_hash_fn_input_sizes_200_205("hash160", use_mainnet);
+    test_hash_fn_input_sizes_200_205("sha256", use_mainnet);
+    test_hash_fn_input_sizes_200_205("sha512", use_mainnet);
+    test_hash_fn_input_sizes_200_205("sha512/256", use_mainnet);
+    test_hash_fn_input_sizes_200_205("keccak256", use_mainnet);
+}
+
+#[test]
+fn epoch205_hash_fns_input_size_mainnet() {
+    epoch205_hash_fns_input_size(true)
+}
+
+#[test]
+fn epoch205_hash_fns_input_size_testnet() {
+    epoch205_hash_fns_input_size(false)
+}
+
+fn epoch205_tuple_merge_input_size(use_mainnet: bool) {
+    let tuple_merge_uint = "(define-public (execute)
+                                   (begin (merge { a: 1 } { a: 1 }) (ok 1)))";
+    let tuple_uint = "(define-public (execute)
+                                   (begin { a: 1 } { a: 1 } (ok 1)))";
+    let tuple_merge_bool = "(define-public (execute)
+                                   (begin (merge { a: true } { a: true }) (ok 1)))";
+    let tuple_bool = "(define-public (execute)
+                                   (begin { a: true } { a: true } (ok 1)))";
+
+    test_input_size_epoch_200_205(
+        tuple_merge_uint,
+        tuple_uint,
+        tuple_merge_bool,
+        tuple_bool,
+        use_mainnet,
+    );
+}
+
+#[test]
+fn epoch205_tuple_merge_input_size_mainnet() {
+    epoch205_tuple_merge_input_size(true)
+}
+
+#[test]
+fn epoch205_tuple_merge_input_size_testnet() {
+    epoch205_tuple_merge_input_size(false)
+}
+
+fn epoch205_index_of_input_size(use_mainnet: bool) {
+    let index_of_list_6 = "(define-public (execute)
+                              (begin (index-of (list u1 u1 u1 u1 u1 u1) u2) (ok 1)))";
+    let list_6 = "(define-public (execute)
+                              (begin (list u1 u1 u1 u1 u1 u1) (ok 1)))";
+
+    let index_of_list_2 = "(define-public (execute)
+                              (begin (index-of (list u1 u1) u2) (ok 1)))";
+    let list_2 = "(define-public (execute)
+                              (begin (list u1 u1) (ok 1)))";
+
+    test_input_size_epoch_200_205(
+        index_of_list_6,
+        list_6,
+        index_of_list_2,
+        list_2,
+        use_mainnet,
+    );
+}
+
+#[test]
+fn epoch205_index_of_input_size_mainnet() {
+    epoch205_index_of_input_size(true)
+}
+
+#[test]
+fn epoch205_index_of_input_size_testnet() {
+    epoch205_index_of_input_size(false)
+}
+
+fn epoch205_eq_input_size(use_mainnet: bool) {
+    let eq_with_uints = "(define-public (execute)
+                          (begin (is-eq u1 u1 u1 u1 u1 u1) (ok 1)))";
+    let uints_no_eq = "(define-public (execute)
+                          (begin u1 u1 u1 u1 u1 u1 (ok 1)))";
+    let eq_with_bools = "(define-public (execute)
+                          (begin (is-eq true true true true true true) (ok 1)))";
+    let bools_no_eq = "(define-public (execute)
+                          (begin true true true true true true (ok 1)))";
+
+    test_input_size_epoch_200_205(
+        eq_with_uints,
+        uints_no_eq,
+        eq_with_bools,
+        bools_no_eq,
+        use_mainnet,
+    );
+}
+
+#[test]
+fn epoch205_eq_input_size_mainnet() {
+    epoch205_eq_input_size(true)
+}
+
+#[test]
+fn epoch205_eq_input_size_testnet() {
+    epoch205_eq_input_size(false)
+}
+
+// Test the `concat` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are fed into `concat` from the datastore.
+// Capture the cost of just the concat operation by measuring the cost of contracts that do everything but concat, and
+//  ones that do the same and concat.
+fn epoch205_concat(use_mainnet: bool) {
+    let small_exec_without_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
+        (define-public (execute)
+               (begin (var-get db) (var-get db) (ok 1)))";
+    let small_exec_with_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
+        (define-public (execute)
+               (begin (concat (var-get db) (var-get db)) (ok 1)))";
+    let large_exec_without_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+        (define-public (execute)
+               (begin (var-get db) (var-get db) (ok 1)))";
+    let large_exec_with_concat = "(define-data-var db (list 500 int) (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+        (define-public (execute)
+               (begin (concat (var-get db) (var-get db)) (ok 1)))";
+
+    let small_cost_epoch_200 =
+        exec_cost(small_exec_with_concat, use_mainnet, StacksEpochId::Epoch20).runtime
+            - exec_cost(
+                small_exec_without_concat,
+                use_mainnet,
+                StacksEpochId::Epoch20,
+            )
+            .runtime;
+    let small_cost_epoch_205 = exec_cost(
+        small_exec_with_concat,
+        use_mainnet,
+        StacksEpochId::Epoch2_05,
+    )
+    .runtime
+        - exec_cost(
+            small_exec_without_concat,
+            use_mainnet,
+            StacksEpochId::Epoch2_05,
+        )
+        .runtime;
+    let large_cost_epoch_200 =
+        exec_cost(large_exec_with_concat, use_mainnet, StacksEpochId::Epoch20).runtime
+            - exec_cost(
+                large_exec_without_concat,
+                use_mainnet,
+                StacksEpochId::Epoch20,
+            )
+            .runtime;
+    let large_cost_epoch_205 = exec_cost(
+        large_exec_with_concat,
+        use_mainnet,
+        StacksEpochId::Epoch2_05,
+    )
+    .runtime
+        - exec_cost(
+            large_exec_without_concat,
+            use_mainnet,
+            StacksEpochId::Epoch2_05,
+        )
+        .runtime;
+
+    check_cost_growth_200_v_205(
+        small_cost_epoch_200,
+        large_cost_epoch_200,
+        small_cost_epoch_205,
+        large_cost_epoch_205,
+    );
+}
+
+#[test]
+fn epoch205_concat_mainnet() {
+    epoch205_concat(true)
+}
+
+#[test]
+fn epoch205_concat_testnet() {
+    epoch205_concat(false)
+}
+
+// Test the `var-get` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are fetched from the datastore.
+fn epoch205_var_get(use_mainnet: bool) {
+    let smaller_exec = "(define-data-var db (list 500 int) (list 1 2 3 4 5))
+      (define-public (execute)
+        (begin (var-get db)
+               (ok 1)))";
+    let larger_exec = "(define-data-var db (list 500 int) (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+      (define-public (execute)
+        (begin (var-get db)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+fn epoch205_var_get_mainnet() {
+    epoch205_var_get(true)
+}
+
+#[test]
+fn epoch205_var_get_testnet() {
+    epoch205_var_get(false)
+}
+
+// Test the `var-set` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are stored to the datastore.
+fn epoch205_var_set(use_mainnet: bool) {
+    let smaller_exec = "(define-data-var db (list 500 int) (list 1))
+      (define-public (execute)
+        (begin (var-set db (list 1 2 3 4 5))
+               (ok 1)))";
+    let larger_exec = "(define-data-var db (list 500 int) (list 1))
+      (define-public (execute)
+        (begin (var-set db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+fn epoch205_var_set_mainnet() {
+    epoch205_var_set(true)
+}
+
+#[test]
+fn epoch205_var_set_testnet() {
+    epoch205_var_set(false)
+}
+
+// Test the `map-get` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are fetched from the datastore.
+fn epoch205_map_get(use_mainnet: bool) {
+    let smaller_exec = "(define-map db int (list 500 int))
+      (map-set db 0 (list 1 2 3 4 5))
+      (define-public (execute)
+        (begin (map-get? db 0)
+               (ok 1)))";
+    let larger_exec = "(define-map db int (list 500 int))
+      (map-set db 0 (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+      (define-public (execute)
+        (begin (map-get? db 0)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+fn epoch205_map_get_mainnet() {
+    epoch205_map_get(true)
+}
+
+#[test]
+fn epoch205_map_get_testnet() {
+    epoch205_map_get(false)
+}
+
+// Test the `map-set` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are stored to the datastore.
+fn epoch205_map_set(use_mainnet: bool) {
+    let smaller_exec = "(define-map db int (list 500 int))
+      (define-public (execute)
+        (begin (map-set db 0 (list 1 2 3 4 5))
+               (ok 1)))";
+    let larger_exec = "(define-map db int (list 500 int))
+      (define-public (execute)
+        (begin (map-set db 0 (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+fn epoch205_map_set_mainnet() {
+    epoch205_map_set(true)
+}
+
+#[test]
+fn epoch205_map_set_testnet() {
+    epoch205_map_set(false)
+}
+
+// Test the `map-insert` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are stored to the datastore.
+fn epoch205_map_insert(use_mainnet: bool) {
+    let smaller_exec = "(define-map db int (list 500 int))
+      (define-public (execute)
+        (begin (map-insert db 0 (list 1 2 3 4 5))
+               (ok 1)))";
+    let larger_exec = "(define-map db int (list 500 int))
+      (define-public (execute)
+        (begin (map-insert db 0 (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+fn epoch205_map_insert_mainnet() {
+    epoch205_map_insert(true)
+}
+
+#[test]
+fn epoch205_map_insert_testnet() {
+    epoch205_map_insert(false)
+}
+
+// Test the `map-delete` changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are used as keys to the datastore.
+fn epoch205_map_delete(use_mainnet: bool) {
+    let smaller_exec = "(define-map db (list 500 int) int)
+      (map-set db (list 1 2 3 4 5) 0)
+      (define-public (execute)
+        (begin (map-delete db (list 1 2 3 4 5))
+               (ok 1)))";
+    let larger_exec = "(define-map db (list 500 int) int)
+      (map-set db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20) 0)
+      (define-public (execute)
+        (begin (map-delete db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+               (ok 1)))";
+
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+fn epoch205_map_delete_mainnet() {
+    epoch205_map_delete(true)
+}
+
+#[test]
+fn epoch205_map_delete_testnet() {
+    epoch205_map_delete(false)
+}
+
+// Test the nft changes in epoch 2.05. Using a dynamic input to the cost function will make the difference in runtime
+// cost larger when larger objects are stored to the datastore.
+fn epoch205_nfts(use_mainnet: bool) {
+    // test nft-mint
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-mint? db (list 1 2 3 4 5) tx-sender)
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-mint? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20) tx-sender)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+
+    // test nft-transfer
+    //  these transfers fail, but the cost tabulation is still the same
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-transfer? db (list 1 2 3 4 5)
+                             tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-transfer? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+                             tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+
+    // test nft-burn
+    //  these burns fail, but the cost tabulation is still the same
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-burn? db (list 1 2 3 4 5)
+                             'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-burn? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+                             'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+
+    // test nft-get-owner?
+    //  these calls fail, but the cost tabulation is still the same
+    let smaller_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-get-owner? db (list 1 2 3 4 5))
+               (ok 1)))";
+    let larger_exec = "(define-non-fungible-token db (list 500 int))
+      (define-public (execute)
+        (begin (nft-get-owner? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20))
+               (ok 1)))";
+    let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
+    let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
+    let larger_cost_epoch_200 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch20);
+    let larger_cost_epoch_205 = exec_cost(larger_exec, use_mainnet, StacksEpochId::Epoch2_05);
+
+    check_cost_growth_200_v_205(
+        smaller_cost_epoch_200.runtime,
+        larger_cost_epoch_200.runtime,
+        smaller_cost_epoch_205.runtime,
+        larger_cost_epoch_205.runtime,
+    );
+}
+
+#[test]
+fn epoch205_nfts_mainnet() {
+    epoch205_nfts(true)
+}
+
+#[test]
+fn epoch205_nfts_testnet() {
+    epoch205_nfts(false)
+}
+
+fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
     let contract_trait = "(define-trait trait-1 (
                             (foo-exec (int) (response int int))
                           ))";
@@ -201,84 +842,81 @@ fn test_tracked_costs(prog: &str) -> ExecutionCost {
     let trait_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
-    let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            ),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+    with_owned_env(epoch, use_mainnet, |mut owned_env| {
+        owned_env
+            .initialize_contract(trait_contract_id.clone(), contract_trait)
+            .unwrap();
+        owned_env
+            .initialize_contract(other_contract_id.clone(), contract_other)
+            .unwrap();
+        owned_env
+            .initialize_contract(self_contract_id.clone(), &contract_self)
+            .unwrap();
+
+        let target_contract = Value::from(PrincipalData::Contract(other_contract_id.clone()));
+
+        eprintln!("{}", &contract_self);
+        execute_transaction(
+            &mut owned_env,
+            p2_principal.clone(),
+            &self_contract_id,
+            "execute",
+            &symbols_from_values(vec![target_contract]),
         )
-        .commit_block();
-
-    let mut marf_kv = clarity_instance.destroy();
-
-    let mut store = marf_kv.begin(
-        &StacksBlockHeader::make_index_block_hash(
-            &FIRST_BURNCHAIN_CONSENSUS_HASH,
-            &FIRST_STACKS_BLOCK_HASH,
-        ),
-        &StacksBlockId([1 as u8; 32]),
-    );
-
-    let mut owned_env = OwnedEnvironment::new_max_limit(
-        store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB_2_1),
-    );
-
-    owned_env
-        .execute_in_env::<_, _, ::vm::errors::Error>(p1_principal.clone().into(), None, |env| {
-            env.global_context
-                .database
-                .set_clarity_epoch_version(crate::core::StacksEpochId::Epoch21);
-            Ok(())
-        })
         .unwrap();
 
-    owned_env
-        .initialize_contract(trait_contract_id.clone(), contract_trait, None)
-        .unwrap();
-    owned_env
-        .initialize_contract(other_contract_id.clone(), contract_other, None)
-        .unwrap();
-    owned_env
-        .initialize_contract(self_contract_id.clone(), &contract_self, None)
-        .unwrap();
-
-    let target_contract = Value::from(PrincipalData::Contract(other_contract_id));
-
-    eprintln!("{}", &contract_self);
-    execute_transaction(
-        &mut owned_env,
-        p2_principal,
-        &self_contract_id,
-        "execute",
-        &symbols_from_values(vec![target_contract]),
-    )
-    .unwrap();
-
-    let (_db, tracker) = owned_env.destruct().unwrap();
-    tracker.get_total()
+        let (_db, tracker) = owned_env.destruct().unwrap();
+        tracker.get_total()
+    })
 }
 
-#[test]
-fn test_all() {
-    let baseline = test_tracked_costs("1");
+// test each individual cost function can be correctly invoked as
+//  Clarity code executes in Epoch 2.00
+fn test_all(use_mainnet: bool) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch20);
 
     for f in NativeFunctions::ALL.iter() {
         let test = get_simple_test(f);
-        let cost = test_tracked_costs(test);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch20);
         assert!(cost.exceeds(&baseline));
     }
 }
 
 #[test]
-fn test_cost_contract_short_circuits() {
+fn test_all_mainnet() {
+    test_all(true)
+}
+
+#[test]
+fn test_all_testnet() {
+    test_all(false)
+}
+
+// test each individual cost function can be correctly invoked as
+//  Clarity code executes in Epoch 2.05
+fn epoch_205_test_all(use_mainnet: bool) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch2_05);
+
+    for f in NativeFunctions::ALL.iter() {
+        let test = get_simple_test(f);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
+        assert!(cost.exceeds(&baseline));
+    }
+}
+
+#[test]
+fn epoch_205_test_all_mainnet() {
+    epoch_205_test_all(true)
+}
+
+#[test]
+fn epoch_205_test_all_testnet() {
+    epoch_205_test_all(false)
+}
+
+fn test_cost_contract_short_circuits(use_mainnet: bool) {
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -286,15 +924,15 @@ fn test_cost_contract_short_circuits() {
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
             ),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         )
         .commit_block();
 
     let marf_kv = clarity_instance.destroy();
 
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+    let p1 = execute_on_network("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR", use_mainnet);
+    let p2 = execute_on_network("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G", use_mainnet);
 
     let p1_principal = match p1 {
         Value::Principal(PrincipalData::Standard(ref data)) => data.clone(),
@@ -311,15 +949,15 @@ fn test_cost_contract_short_circuits() {
     let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
 
     let mut marf_kv = {
-        let mut clarity_inst = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+        let mut clarity_inst = ClarityInstance::new(use_mainnet, marf_kv);
         let mut block_conn = clarity_inst.begin_block(
             &StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
             ),
             &StacksBlockId([1 as u8; 32]),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         );
 
         let cost_definer_src = "
@@ -366,7 +1004,9 @@ fn test_cost_contract_short_circuits() {
     let without_interposing_5 = {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
+            use_mainnet,
         );
 
         execute_transaction(
@@ -387,7 +1027,9 @@ fn test_cost_contract_short_circuits() {
     let without_interposing_10 = {
         let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
+            use_mainnet,
         );
 
         execute_transaction(
@@ -405,12 +1047,18 @@ fn test_cost_contract_short_circuits() {
         tracker.get_total()
     };
 
+    let voting_contract_to_use: &QualifiedContractIdentifier = if use_mainnet {
+        &COST_VOTING_MAINNET_CONTRACT
+    } else {
+        &COST_VOTING_TESTNET_CONTRACT
+    };
+
     {
         let mut store = marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
-        let mut db = store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
         db.begin();
         db.set_variable_unknown_descriptor(
-            &COST_VOTING_TESTNET_CONTRACT,
+            voting_contract_to_use,
             "confirmed-proposal-count",
             Value::UInt(1),
         )
@@ -424,10 +1072,10 @@ fn test_cost_contract_short_circuits() {
             intercepted, "\"intercepted-function\"", cost_definer, "\"cost-definition\""
         );
         db.set_entry_unknown_descriptor(
-            &COST_VOTING_TESTNET_CONTRACT,
+            voting_contract_to_use,
             "confirmed-proposals",
-            execute("{ confirmed-id: u0 }"),
-            execute(&value),
+            execute_on_network("{ confirmed-id: u0 }", use_mainnet),
+            execute_on_network(&value, use_mainnet),
         )
         .unwrap();
         db.commit();
@@ -438,7 +1086,9 @@ fn test_cost_contract_short_circuits() {
         let mut store = marf_kv.begin(&StacksBlockId([4 as u8; 32]), &StacksBlockId([5 as u8; 32]));
 
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
+            use_mainnet,
         );
 
         execute_transaction(
@@ -459,7 +1109,9 @@ fn test_cost_contract_short_circuits() {
     let with_interposing_10 = {
         let mut store = marf_kv.begin(&StacksBlockId([5 as u8; 32]), &StacksBlockId([6 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
+            use_mainnet,
         );
 
         execute_transaction(
@@ -484,9 +1136,18 @@ fn test_cost_contract_short_circuits() {
 }
 
 #[test]
-fn test_cost_voting_integration() {
+fn test_cost_contract_short_circuits_mainnet() {
+    test_cost_contract_short_circuits(true)
+}
+
+#[test]
+fn test_cost_contract_short_circuits_testnet() {
+    test_cost_contract_short_circuits(false)
+}
+
+fn test_cost_voting_integration(use_mainnet: bool) {
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -494,8 +1155,8 @@ fn test_cost_voting_integration() {
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
             ),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         )
         .commit_block();
 
@@ -523,15 +1184,15 @@ fn test_cost_voting_integration() {
     let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
 
     let mut marf_kv = {
-        let mut clarity_inst = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+        let mut clarity_inst = ClarityInstance::new(use_mainnet, marf_kv);
         let mut block_conn = clarity_inst.begin_block(
             &StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
             ),
             &StacksBlockId([1 as u8; 32]),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         );
 
         let cost_definer_src = "
@@ -688,7 +1349,7 @@ fn test_cost_voting_integration() {
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
 
-        let mut db = store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
         db.begin();
 
         db.set_variable_unknown_descriptor(
@@ -724,7 +1385,9 @@ fn test_cost_voting_integration() {
     let le_cost_without_interception = {
         let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
+            use_mainnet,
         );
 
         execute_transaction(
@@ -783,7 +1446,7 @@ fn test_cost_voting_integration() {
     {
         let mut store = marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
 
-        let mut db = store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+        let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
         db.begin();
 
         let good_proposals = good_cases.len() as u128;
@@ -821,7 +1484,9 @@ fn test_cost_voting_integration() {
     {
         let mut store = marf_kv.begin(&StacksBlockId([4 as u8; 32]), &StacksBlockId([5 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            StacksEpochId::Epoch20,
+            use_mainnet,
         );
 
         execute_transaction(
@@ -856,7 +1521,7 @@ fn test_cost_voting_integration() {
         for (target, referenced_function) in tracker.cost_function_references().into_iter() {
             if target == &ClarityCostFunction::Le {
                 assert_eq!(&referenced_function.contract_id, &cost_definer);
-                assert_eq!(&referenced_function.function_name, "cost-definition-le");
+                assert_eq!(&referenced_fun	ction.function_name, "cost-definition-le");
             } else {
                 assert_eq!(
                     &referenced_function.contract_id,
@@ -872,4 +1537,15 @@ fn test_cost_voting_integration() {
         }
         store.test_commit();
     };
+}
+
+// TODO: Reinstate this test. We couldn't get it working in time for pr/2940.
+//#[test]
+//fn test_cost_voting_integration_mainnet() {
+//    test_cost_voting_integration(true)
+//}
+
+#[test]
+fn test_cost_voting_integration_testnet() {
+    test_cost_voting_integration(false)
 }

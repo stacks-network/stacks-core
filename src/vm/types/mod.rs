@@ -1319,6 +1319,12 @@ impl fmt::Display for TupleData {
     }
 }
 
+/// Given the serialized string representation of a Clarity value,
+///  return the size of the same byte representation.
+pub fn byte_len_of_serialization(serialized: &str) -> u64 {
+    serialized.len() as u64 / 2
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

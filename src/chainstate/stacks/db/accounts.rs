@@ -932,6 +932,7 @@ mod test {
             &user_burns,
             &ExecutionCost::zero(),
             123,
+            false,
         )
         .unwrap();
         tx.commit().unwrap();
