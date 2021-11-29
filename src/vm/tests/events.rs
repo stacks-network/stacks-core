@@ -43,7 +43,7 @@ fn helper_execute_epoch(
     let sender = execute(address).expect_principal();
 
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf_kv);
     let mut genesis = clarity_instance.begin_test_genesis_block(
         &StacksBlockId::sentinel(),
         &StacksBlockHeader::make_index_block_hash(

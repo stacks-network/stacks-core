@@ -1654,7 +1654,7 @@ mod tests {
     #[test]
     pub fn test_block_roll_back() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+        let mut clarity_instance = ClarityInstance::new(false, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
