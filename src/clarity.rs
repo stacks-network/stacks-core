@@ -415,7 +415,7 @@ where
 ///  for program evaluation, not by consensus critical code.
 pub fn vm_execute(program: &str, version:&ClarityVersion) -> Result<Option<Value>, Error> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone(), version);
+    let mut contract_context = ContractContext::new(contract_id.clone(), version.clone());
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(
@@ -425,7 +425,7 @@ pub fn vm_execute(program: &str, version:&ClarityVersion) -> Result<Option<Value
         DEFAULT_CLI_EPOCH,
     );
     global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        let parsed = ast::build_ast(&contract_id, program, &mut (), version.clone())?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
 }
