@@ -399,6 +399,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     execute_on_network(program, false)
 }
 
+/// Runs `program` in a test environment with the provided parameters.
 #[cfg(test)]
 pub fn execute_with_parameters(
     program: &str,
@@ -412,8 +413,8 @@ pub fn execute_with_parameters(
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(use_mainnet, conn, LimitedCostTracker::new_free(), epoch);
     global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
-        eval_all(&parsed, &mut contract_context, g)
+        let parsed = ast::build_ast(&contract_id, program, &mut (), clarity_version)?.expressions;
+        eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
