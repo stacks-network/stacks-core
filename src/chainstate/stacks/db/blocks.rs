@@ -8718,7 +8718,7 @@ pub mod test {
         stream: &mut BlockStreamData,
         count: u64,
     ) -> Result<Vec<u8>, chainstate_error> {
-        let mempool = MemPoolDB::open(
+        let mempool = MemPoolDB::open_test(
             chainstate.mainnet,
             chainstate.chain_id,
             &chainstate.root_path,
@@ -8738,7 +8738,7 @@ pub mod test {
         stream: &mut BlockStreamData,
         count: u64,
     ) -> Result<Vec<u8>, chainstate_error> {
-        let mempool = MemPoolDB::open(
+        let mempool = MemPoolDB::open_test(
             chainstate.mainnet,
             chainstate.chain_id,
             &chainstate.root_path,
