@@ -419,18 +419,11 @@ pub fn execute_with_parameters(
 
 /// Run provided program in a brand new environment, with a transient, empty
 /// database. Only used by CLI and unit tests.
-#[cfg(test)]
-pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
-    execute_against_version_and_network(program, version, false)
-}
-
-/// Run provided program in a brand new environment, with a transient, empty
-/// database. Only used by CLI and unit tests.
 ///
 /// This version of the function assumes that the ClarityVersion is Clarity2.
 #[cfg(test)]
 pub fn execute_v2(program: &str) -> Result<Option<Value>> {
-    execute_against_version(program, ClarityVersion::Clarity2)
+    execute_with_parameters(program, ClarityVersion::Clarity2, StacksEpochId::Epoch21, false)
 }
 
 #[cfg(test)]
