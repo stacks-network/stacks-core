@@ -293,7 +293,6 @@ pub fn setup_states(
             0x80000000,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
-            block_limit.clone(),
         )
         .unwrap();
     }
