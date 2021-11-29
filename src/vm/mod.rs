@@ -383,8 +383,8 @@ pub fn eval_all(
 /// that the result is the same before returning the result
 #[cfg(test)]
 pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Value>> {
-    let epoch_200_result = execute_against_version_and_network(program, StacksEpochId::Epoch20, use_mainnet);
-    let epoch_205_result = execute_against_version_and_network(program, StacksEpochId::Epoch2_05, use_mainnet);
+    let epoch_200_result = execute_in_epoch(program, StacksEpochId::Epoch20, use_mainnet);
+    let epoch_205_result = execute_in_epoch(program, StacksEpochId::Epoch2_05, use_mainnet);
     assert_eq!(
         epoch_200_result, epoch_205_result,
         "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
@@ -400,7 +400,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 }
 
 #[cfg(test)]
-pub fn execute_against_version_and_network(
+pub fn execute_in_epoch(
     program: &str,
     epoch: StacksEpochId,
     use_mainnet: bool,
