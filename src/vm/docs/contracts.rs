@@ -3,8 +3,6 @@ use vm::analysis::{mem_type_check, ContractAnalysis};
 use vm::docs::{get_input_type_string, get_output_type_string, get_signature};
 use vm::types::{FunctionType, Value};
 
-use vm::execute;
-
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::FromIterator;
 
