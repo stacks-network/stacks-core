@@ -83,6 +83,7 @@ pub fn type_check(
     expressions: &mut [SymbolicExpression],
     analysis_db: &mut AnalysisDatabase,
     insert_contract: bool,
+    version:&ClarityVersion,
 ) -> CheckResult<ContractAnalysis> {
     run_analysis(
         &contract_identifier,
@@ -92,6 +93,7 @@ pub fn type_check(
         // for the type check tests, the cost tracker's epoch doesn't
         //  matter: the costs in those tests are all free anyways.
         LimitedCostTracker::new_free(),
+        version.clone(),
     )
     .map_err(|(e, _cost_tracker)| e)
 }
