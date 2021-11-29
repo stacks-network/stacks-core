@@ -1363,7 +1363,7 @@ impl StacksBlockBuilder {
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
         let (mut chainstate, _) =
-            chainstate_handle.reopen_limited(chainstate_handle.block_limit.clone())?; // used for processing a block up to the given limit
+            chainstate_handle.reopen()?; // used for processing a block up to the given limit
         let (mut epoch_tx, _) = builder.epoch_begin(&mut chainstate, burn_dbconn)?;
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {

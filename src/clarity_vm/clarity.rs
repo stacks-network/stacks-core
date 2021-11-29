@@ -2193,14 +2193,6 @@ mod tests {
             conn.commit_block();
         }
 
-        clarity_instance.block_limit = ExecutionCost {
-            write_length: u64::MAX,
-            write_count: u64::MAX,
-            read_count: u64::MAX,
-            read_length: u64::MAX,
-            runtime: 100,
-        };
-
         {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([1 as u8; 32]),
