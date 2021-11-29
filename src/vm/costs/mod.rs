@@ -923,11 +923,6 @@ impl CostTracker for LimitedCostTracker {
                 compute_cost(data, cost_function_ref, input, data.epoch)
             }
         }
-        if cost_function == ClarityCostFunction::Unimplemented {
-            info!("Used unimplemented cost function");
-            return Ok(ExecutionCost::zero());
-        }
-
     }
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
         match self {
