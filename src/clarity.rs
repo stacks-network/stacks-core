@@ -413,9 +413,9 @@ where
 
 /// Execute program in a transient environment. To be used only by CLI tools
 ///  for program evaluation, not by consensus critical code.
-pub fn vm_execute(program: &str) -> Result<Option<Value>, Error> {
+pub fn vm_execute(program: &str, version:&ClarityVersion) -> Result<Option<Value>, Error> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone());
+    let mut contract_context = ContractContext::new(contract_id.clone(), version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(
@@ -426,7 +426,7 @@ pub fn vm_execute(program: &str) -> Result<Option<Value>, Error> {
     );
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
-        eval_all(&parsed, &mut contract_context, g)
+        eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
@@ -1531,7 +1531,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 .iter()
                 .map(|argument| {
                     let argument_parsed = friendly_expect(
-                        vm_execute(argument),
+                        vm_execute(argument, &ClarityVersion::Clarity1),
                         &format!("Error parsing argument \"{}\"", argument),
                     );
                     let argument_value = friendly_expect_opt(

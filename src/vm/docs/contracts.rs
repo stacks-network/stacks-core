@@ -204,7 +204,7 @@ fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
 
 fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone());
+    let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(

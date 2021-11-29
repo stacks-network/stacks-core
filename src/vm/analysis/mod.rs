@@ -59,6 +59,7 @@ pub fn mem_type_check(
         &mut analysis_db,
         false,
         cost_tracker,
+        version,
     ) {
         Ok(x) => {
             // return the first type result of the type checker
