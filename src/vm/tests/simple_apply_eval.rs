@@ -36,7 +36,7 @@ use vm::types::signatures::*;
 use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
 use vm::{
-    eval, execute as vm_execute, execute_against_version_and_network, execute_v2 as vm_execute_v2,
+    eval, execute as vm_execute, execute_with_parameters, execute_v2 as vm_execute_v2,
 };
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
@@ -314,7 +314,7 @@ fn test_principal_of_fix() {
     // Clarity2, mainnet, should have a mainnet principal.
     assert_eq!(
         Value::Principal(mainnet_principal.clone()),
-        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity2, true)
+        execute_with_parameters(principal_of_program, ClarityVersion::Clarity2, StacksEpochId::Epoch21, true)
             .unwrap()
             .unwrap()
     );
@@ -322,7 +322,7 @@ fn test_principal_of_fix() {
     // Clarity2, testnet, should have a testnet principal.
     assert_eq!(
         Value::Principal(testnet_principal.clone()),
-        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity2, false)
+        execute_with_parameters(principal_of_program, ClarityVersion::Clarity2, StacksEpochId::Epoch21, false)
             .unwrap()
             .unwrap()
     );
@@ -330,7 +330,7 @@ fn test_principal_of_fix() {
     // Clarity1, mainnet, should have a test principal (this is the bug that we need to preserve).
     assert_eq!(
         Value::Principal(testnet_principal.clone()),
-        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity1, true)
+        execute_with_parameters(principal_of_program, ClarityVersion::Clarity1, StacksEpochId::Epoch21, true)
             .unwrap()
             .unwrap()
     );
@@ -338,7 +338,7 @@ fn test_principal_of_fix() {
     // Clarity1, testnet, should have a testnet principal.
     assert_eq!(
         Value::Principal(testnet_principal.clone()),
-        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity1, false)
+        execute_with_parameters(principal_of_program, ClarityVersion::Clarity1, StacksEpochId::Epoch21, false)
             .unwrap()
             .unwrap()
     );
@@ -1023,7 +1023,7 @@ fn test_stx_ops_errors() {
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
         assert_eq!(
             *expectation,
-            execute_against_version_and_network(program, ClarityVersion::Clarity2, false)
+            execute_with_parameters(program, ClarityVersion::Clarity2, StacksEpochId::Epoch21, false)
                 .unwrap_err()
         );
     }
@@ -1368,7 +1368,7 @@ fn test_is_mainnet() {
         .for_each(|(program, expectation)| {
             assert_eq!(
                 expectation.clone(),
-                execute_against_version_and_network(program, ClarityVersion::Clarity2, true)
+                execute_with_parameters(program, ClarityVersion::Clarity2, StacksEpochId::Epoch21, true)
                     .unwrap()
                     .unwrap()
             )
@@ -1382,7 +1382,7 @@ fn test_is_mainnet() {
         .for_each(|(program, expectation)| {
             assert_eq!(
                 expectation.clone(),
-                execute_against_version_and_network(program, ClarityVersion::Clarity2, false)
+                execute_with_parameters(program, ClarityVersion::Clarity2, StacksEpochId::Epoch21, false)
                     .unwrap()
                     .unwrap()
             )
