@@ -83,11 +83,14 @@ use vm::{
     ClarityName, ContractName, Value,
 };
 
+use crate::chainstate::stacks::TransactionPayload;
 use crate::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
 };
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+
+use super::FeeRateEstimateRequestBody;
 
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
@@ -103,6 +106,7 @@ lazy_static! {
     static ref PATH_GETTRANSACTION_UNCONFIRMED: Regex =
         Regex::new(r#"^/v2/transactions/unconfirmed/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_POSTTRANSACTION: Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
+    static ref PATH_POST_FEE_RATE_ESIMATE: Regex = Regex::new(r#"^/v2/fees/transaction$"#).unwrap();
     static ref PATH_POSTBLOCK: Regex = Regex::new(r#"^/v2/blocks/upload/([0-9a-f]{40})$"#).unwrap();
     static ref PATH_POSTMICROBLOCK: Regex = Regex::new(r#"^/v2/microblocks$"#).unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
@@ -1480,6 +1484,11 @@ impl HttpRequestType {
             ),
             (
                 "POST",
+                &PATH_POST_FEE_RATE_ESIMATE,
+                &HttpRequestType::parse_post_fee_rate_estimate,
+            ),
+            (
+                "POST",
                 &PATH_POSTTRANSACTION,
                 &HttpRequestType::parse_posttransaction,
             ),
@@ -2098,6 +2107,61 @@ impl HttpRequestType {
         ))
     }
 
+    fn parse_post_fee_rate_estimate<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        _regex: &Captures,
+        _query: Option<&str>,
+        fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        let content_len = preamble.get_content_length();
+        if !(content_len > 0 && content_len < MAX_PAYLOAD_LEN) {
+            return Err(net_error::DeserializeError(format!(
+                "Invalid Http request: invalid body length for FeeRateEstimate ({})",
+                content_len
+            )));
+        }
+
+        if preamble.content_type != Some(HttpContentType::JSON) {
+            return Err(net_error::DeserializeError(
+                "Invalid content-type: expected application/json".to_string(),
+            ));
+        }
+
+        let bound_fd = BoundReader::from_reader(fd, content_len as u64);
+
+        let body: FeeRateEstimateRequestBody = serde_json::from_reader(bound_fd).map_err(|e| {
+            net_error::DeserializeError(format!("Failed to parse JSON body: {}", e))
+        })?;
+
+        let payload_hex = if body.transaction_payload.starts_with("0x") {
+            &body.transaction_payload[2..]
+        } else {
+            &body.transaction_payload
+        };
+
+        let payload_data = hex_bytes(payload_hex).map_err(|_e| {
+            net_error::DeserializeError("Bad hex string supplied for transaction payload".into())
+        })?;
+
+        let payload = TransactionPayload::consensus_deserialize(&mut payload_data.as_slice())
+            .map_err(|e| {
+                net_error::DeserializeError(format!(
+                    "Failed to deserialize transaction payload: {}",
+                    e
+                ))
+            })?;
+
+        let estimated_len =
+            std::cmp::max(body.estimated_len.unwrap_or(0), payload_data.len() as u64);
+
+        Ok(HttpRequestType::FeeRateEstimate(
+            HttpRequestMetadata::from_preamble(preamble),
+            payload,
+            estimated_len,
+        ))
+    }
+
     fn parse_posttransaction<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
@@ -2485,6 +2549,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachmentsInv(ref md, ..) => md,
             HttpRequestType::GetAttachment(ref md, ..) => md,
             HttpRequestType::MemPoolQuery(ref md, ..) => md,
+            HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
         }
     }
@@ -2513,6 +2578,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachmentsInv(ref mut md, ..) => md,
             HttpRequestType::GetAttachment(ref mut md, ..) => md,
             HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
+            HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
         }
     }
@@ -2647,6 +2713,7 @@ impl HttpRequestType {
                 format!("/v2/attachments/{}", to_hex(&content_hash.0[..]))
             }
             HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query".to_string(),
+            HttpRequestType::FeeRateEstimate(_, _, _) => self.get_path().to_string(),
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
@@ -2654,7 +2721,7 @@ impl HttpRequestType {
         }
     }
 
-    pub fn get_path(&self) -> &str {
+    pub fn get_path(&self) -> &'static str {
         match self {
             HttpRequestType::GetInfo(..) => "/v2/info",
             HttpRequestType::GetPoxInfo(..) => "/v2/pox",
@@ -2683,6 +2750,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachment(..) => "/v2/attachments/:hash",
             HttpRequestType::GetIsTraitImplemented(..) => "/v2/traits/:principal/:contract_name",
             HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query",
+            HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
         }
     }
@@ -3617,6 +3685,7 @@ impl HttpResponseType {
             HttpResponseType::MemPoolTxStream(ref md) => md,
             HttpResponseType::MemPoolTxs(ref md, ..) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
+            HttpResponseType::TransactionFeeEstimation(ref md, _) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -3695,6 +3764,10 @@ impl HttpResponseType {
             HttpResponseType::GetAccount(ref md, ref account_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, account_data)?;
+            }
+            HttpResponseType::TransactionFeeEstimation(ref md, ref data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
             }
             HttpResponseType::GetContractABI(ref md, ref data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
@@ -3978,6 +4051,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::MemPoolQuery(..) => "HTTP(MemPoolQuery)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
+                HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
@@ -4013,6 +4087,9 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::ServerError(_, _) => "HTTP(500)",
                 HttpResponseType::ServiceUnavailable(_, _) => "HTTP(503)",
                 HttpResponseType::Error(_, _, _) => "HTTP(other)",
+                HttpResponseType::TransactionFeeEstimation(_, _) => {
+                    "HTTP(TransactionFeeEstimation)"
+                }
             },
         }
     }

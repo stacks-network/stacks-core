@@ -5,17 +5,20 @@ use std::sync::Mutex;
 use reqwest;
 
 use stacks::burnchains::Address;
+use stacks::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
 };
+use stacks::chainstate::stacks::{TokenTransferMemo, TransactionContractCall, TransactionPayload};
 use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
+use stacks::core::PEER_VERSION_EPOCH_2_0;
 use stacks::net::GetIsTraitImplementedResponse;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
-use stacks::util::hash::hex_bytes;
 use stacks::util::hash::Sha256Sum;
+use stacks::util::hash::{hex_bytes, to_hex};
 use stacks::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},
@@ -29,6 +32,9 @@ use stacks::vm::{
 use crate::config::InitialBalance;
 use crate::helium::RunLoop;
 use crate::tests::make_sponsored_stacks_transfer_on_testnet;
+use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochId;
+use stacks::vm::costs::ExecutionCost;
 
 use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
@@ -212,6 +218,8 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
                 let publish_tx =
@@ -223,6 +231,8 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
                 let publish_tx =
@@ -234,6 +244,8 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -253,6 +265,8 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round >= 3 {
@@ -269,7 +283,14 @@ fn integration_test_get_info() {
                 eprintln!("update-info submitted");
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
             }
 
@@ -283,7 +304,14 @@ fn integration_test_get_info() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx_xfer)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        tx_xfer,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
             }
 
@@ -820,6 +848,166 @@ fn integration_test_get_info() {
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert!(!res.is_implemented);
+
+
+                // perform some tests of the fee rate interface
+                let path = format!("{}/v2/fees/transaction", &http_origin);
+
+                let tx_payload =
+                    TransactionPayload::TokenTransfer(contract_addr.clone().into(), 10_000_000, TokenTransferMemo([0; 34]));
+
+                let payload_data = tx_payload.serialize_to_vec();
+                let payload_hex = format!("0x{}", to_hex(&payload_data));
+
+                eprintln!("Test: POST {}", path);
+
+                let body = json!({ "transaction_payload": payload_hex.clone() });
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .expect("Should be able to post")
+                    .json::<serde_json::Value>()
+                    .expect("Failed to parse result into JSON");
+
+                eprintln!("{}", res);
+
+                // destruct the json result
+                //  estimated_cost for transfers should be 0 -- their cost is just in their length
+                let estimated_cost = res.get("estimated_cost").expect("Response should have estimated_cost field");
+                assert_eq!(estimated_cost.get("read_count").unwrap().as_u64().unwrap(), 0);
+                assert_eq!(estimated_cost.get("read_length").unwrap().as_u64().unwrap(), 0);
+                assert_eq!(estimated_cost.get("write_count").unwrap().as_u64().unwrap(), 0);
+                assert_eq!(estimated_cost.get("write_length").unwrap().as_u64().unwrap(), 0);
+                assert_eq!(estimated_cost.get("runtime").unwrap().as_u64().unwrap(), 0);
+
+                // the estimated scalar should still be non-zero, because the length of the tx goes into this field.
+                assert!(res.get("estimated_cost_scalar").unwrap().as_u64().unwrap() > 0);
+
+                let estimations = res.get("estimations").expect("Should have an estimations field")
+                    .as_array()
+                    .expect("Fees should be array");
+
+                let estimated_fee_rates: Vec<_> = estimations
+                    .iter()
+                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"))
+                    .collect();
+                let estimated_fees: Vec<_> = estimations
+                    .iter()
+                    .map(|x| x.get("fee").expect("Should have fee field"))
+                    .collect();
+
+                assert!(estimated_fee_rates.len() == 3, "Fee rates should be length 3 array");
+                assert!(estimated_fees.len() == 3, "Fees should be length 3 array");
+
+                let tx_payload = TransactionPayload::from(TransactionContractCall {
+                    address: contract_addr.clone(),
+                    contract_name: "get-info".into(),
+                    function_name: "update-info".into(),
+                    function_args: vec![],
+                });
+
+                let payload_data = tx_payload.serialize_to_vec();
+                let payload_hex = to_hex(&payload_data);
+
+                eprintln!("Test: POST {}", path);
+
+                let body = json!({ "transaction_payload": payload_hex.clone() });
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .expect("Should be able to post")
+                    .json::<serde_json::Value>()
+                    .expect("Failed to parse result into JSON");
+
+                eprintln!("{}", res);
+
+                // destruct the json result
+                //  estimated_cost for transfers should be non-zero
+                let estimated_cost = res.get("estimated_cost").expect("Response should have estimated_cost field");
+                assert!(estimated_cost.get("read_count").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("read_length").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("write_count").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("write_length").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("runtime").unwrap().as_u64().unwrap() > 0);
+
+                let estimated_cost_scalar = res.get("estimated_cost_scalar").unwrap().as_u64().unwrap();
+                assert!(estimated_cost_scalar > 0);
+
+                let estimations = res.get("estimations").expect("Should have an estimations field")
+                    .as_array()
+                    .expect("Fees should be array");
+
+                let estimated_fee_rates: Vec<_> = estimations
+                    .iter()
+                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"))
+                    .collect();
+                let estimated_fees: Vec<_> = estimations
+                    .iter()
+                    .map(|x| x.get("fee").expect("Should have fee field"))
+                    .collect();
+
+                assert!(estimated_fee_rates.len() == 3, "Fee rates should be length 3 array");
+                assert!(estimated_fees.len() == 3, "Fees should be length 3 array");
+
+                let tx_payload = TransactionPayload::from(TransactionContractCall {
+                    address: contract_addr.clone(),
+                    contract_name: "get-info".into(),
+                    function_name: "update-info".into(),
+                    function_args: vec![],
+                });
+
+                let payload_data = tx_payload.serialize_to_vec();
+                let payload_hex = to_hex(&payload_data);
+
+                let estimated_len = 1550;
+                let body = json!({ "transaction_payload": payload_hex.clone(), "estimated_len": estimated_len });
+                info!("POST body\n {}", body);
+
+                let res = client.post(&path)
+                    .json(&body)
+                    .send()
+                    .expect("Should be able to post")
+                    .json::<serde_json::Value>()
+                    .expect("Failed to parse result into JSON");
+
+                info!("{}", res);
+
+                // destruct the json result
+                //  estimated_cost for transfers should be non-zero
+                let estimated_cost = res.get("estimated_cost").expect("Response should have estimated_cost field");
+                assert!(estimated_cost.get("read_count").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("read_length").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("write_count").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("write_length").unwrap().as_u64().unwrap() > 0);
+                assert!(estimated_cost.get("runtime").unwrap().as_u64().unwrap() > 0);
+
+                let new_estimated_cost_scalar = res.get("estimated_cost_scalar").unwrap().as_u64().unwrap();
+                assert!(estimated_cost_scalar > 0);
+                assert!(new_estimated_cost_scalar > estimated_cost_scalar, "New scalar estimate should be higher because of the tx length increase");
+
+                let new_estimations = res.get("estimations").expect("Should have an estimations field")
+                    .as_array()
+                    .expect("Fees should be array");
+
+                let new_estimated_fees: Vec<_> = new_estimations
+                    .iter()
+                    .map(|x| x.get("fee").expect("Should have fee field"))
+                    .collect();
+
+                let minimum_relay_fee = estimated_len * MINIMUM_TX_FEE_RATE_PER_BYTE;
+
+                assert!(new_estimated_fees[2].as_u64().unwrap() >= estimated_fees[2].as_u64().unwrap(),
+                        "Supplying an estimated tx length should increase the estimated fees");
+                assert!(new_estimated_fees[0].as_u64().unwrap() >= estimated_fees[0].as_u64().unwrap(),
+                        "Supplying an estimated tx length should increase the estimated fees");
+                assert!(new_estimated_fees[1].as_u64().unwrap() >= estimated_fees[1].as_u64().unwrap(),
+                        "Supplying an estimated tx length should increase the estimated fees");
+                for estimate in new_estimated_fees.iter() {
+                    assert!(estimate.as_u64().unwrap() >= minimum_relay_fee,
+                            "The estimated fees must always be greater than minimum_relay_fee");
+                }
             },
             _ => {},
         }
@@ -883,6 +1071,8 @@ fn contract_stx_transfer() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -896,6 +1086,8 @@ fn contract_stx_transfer() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 3 {
@@ -909,7 +1101,14 @@ fn contract_stx_transfer() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
 
                 let tx = make_contract_call(
@@ -923,7 +1122,14 @@ fn contract_stx_transfer() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
             } else if round == 4 {
                 // let's testing "chaining": submit MAXIMUM_MEMPOOL_TX_CHAINING - 1 txs, which should succeed
@@ -946,6 +1152,8 @@ fn contract_stx_transfer() {
                             &header_hash,
                             &xfer_to_contract,
                             None,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch20,
                         )
                         .unwrap();
                 }
@@ -962,6 +1170,8 @@ fn contract_stx_transfer() {
                         &header_hash,
                         &xfer_to_contract,
                         None,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap_err()
                 {
@@ -1177,6 +1387,8 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1189,6 +1401,8 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 3 {
@@ -1201,6 +1415,8 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 4 {
@@ -1213,6 +1429,8 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }
@@ -1309,7 +1527,14 @@ fn mine_contract_twice() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
 
                 // throw an extra "run" in.
@@ -1403,6 +1628,8 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1419,6 +1646,8 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -1431,6 +1660,8 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -1438,14 +1669,28 @@ fn bad_contract_tx_rollback() {
                     make_contract_publish(&contract_sk, 0, 10, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
 
                 let publish_tx =
                     make_contract_publish(&contract_sk, 1, 10, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
             }
 
@@ -1586,9 +1831,21 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
 fn block_limit_runtime_test() {
     let mut conf = super::new_test_conf();
 
-    // use a shorter runtime limit. the current runtime limit
-    //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
-    conf.block_limit.runtime = 1_000_000_000;
+    conf.burnchain.epochs = Some(vec![StacksEpoch {
+        epoch_id: StacksEpochId::Epoch20,
+        start_height: 0,
+        end_height: 9223372036854775807,
+        block_limit: ExecutionCost {
+            write_length: 150000000,
+            write_count: 50000,
+            read_length: 1000000000,
+            read_count: 50000,
+            // use a shorter runtime limit. the current runtime limit
+            //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+            runtime: 1_000_000_000,
+        },
+        network_epoch: PEER_VERSION_EPOCH_2_0,
+    }]);
     conf.burnchain.commit_anchor_block_within = 5000;
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
@@ -1601,7 +1858,6 @@ fn block_limit_runtime_test() {
     }
 
     let num_rounds = 6;
-
     let mut run_loop = RunLoop::new(conf);
 
     run_loop
@@ -1631,7 +1887,14 @@ fn block_limit_runtime_test() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
             } else if round > 1 {
                 eprintln!("Begin Round: {}", round);
@@ -1653,7 +1916,14 @@ fn block_limit_runtime_test() {
                     );
                     tenure
                         .mem_pool
-                        .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, tx)
+                        .submit_raw(
+                            &mut chainstate_copy,
+                            consensus_hash,
+                            block_hash,
+                            tx,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch20,
+                        )
                         .unwrap();
                 }
             }
@@ -1737,6 +2007,8 @@ fn mempool_errors() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }

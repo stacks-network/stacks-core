@@ -37,6 +37,25 @@ use vm::types::{
 use vm::{eval, Environment, LocalContext};
 
 use crate::types::chainstate::StacksAddress;
+use crate::vm::callables::cost_input_sized_vararg;
+
+macro_rules! switch_on_global_epoch {
+    ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
+        pub fn $Name(
+            args: &[SymbolicExpression],
+            env: &mut Environment,
+            context: &LocalContext,
+        ) -> Result<Value> {
+            match env.epoch() {
+                StacksEpochId::Epoch10 => {
+                    panic!("Executing Clarity method during Epoch 1.0, before Clarity")
+                }
+                StacksEpochId::Epoch20 => $Epoch2Version(args, env, context),
+                StacksEpochId::Epoch2_05 => $Epoch205Version(args, env, context),
+            }
+        }
+    };
+}
 
 mod arithmetic;
 mod assets;
@@ -135,7 +154,7 @@ define_named_enum!(NativeFunctions {
 });
 
 pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
-    use vm::callables::CallableType::{NativeFunction, SpecialFunction};
+    use vm::callables::CallableType::{NativeFunction, NativeFunction205, SpecialFunction};
     use vm::functions::NativeFunctions::*;
     if let Some(native_function) = NativeFunctions::lookup_by_name(name) {
         let callable = match native_function {
@@ -221,10 +240,11 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
                 NativeHandle::SingleArg(&boolean::native_not),
                 ClarityCostFunction::Not,
             ),
-            Equals => NativeFunction(
+            Equals => NativeFunction205(
                 "native_eq",
                 NativeHandle::MoreArg(&native_eq),
                 ClarityCostFunction::Eq,
+                &cost_input_sized_vararg,
             ),
             If => SpecialFunction("special_if", &special_if),
             Let => SpecialFunction("special_let", &special_let),
@@ -246,10 +266,11 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
                 NativeHandle::DoubleArg(&sequences::native_element_at),
                 ClarityCostFunction::ElementAt,
             ),
-            IndexOf => NativeFunction(
+            IndexOf => NativeFunction205(
                 "native_index_of",
                 NativeHandle::DoubleArg(&sequences::native_index_of),
                 ClarityCostFunction::IndexOf,
+                &cost_input_sized_vararg,
             ),
             ListCons => SpecialFunction("special_list_cons", &sequences::list_cons),
             FetchEntry => SpecialFunction("special_map-get?", &database::special_fetch_entry),
@@ -258,40 +279,46 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             DeleteEntry => SpecialFunction("special_delete-entry", &database::special_delete_entry),
             TupleCons => SpecialFunction("special_tuple", &tuples::tuple_cons),
             TupleGet => SpecialFunction("special_get-tuple", &tuples::tuple_get),
-            TupleMerge => NativeFunction(
+            TupleMerge => NativeFunction205(
                 "native_merge-tuple",
                 NativeHandle::DoubleArg(&tuples::tuple_merge),
                 ClarityCostFunction::TupleMerge,
+                &cost_input_sized_vararg,
             ),
             Begin => NativeFunction(
                 "native_begin",
                 NativeHandle::MoreArg(&native_begin),
                 ClarityCostFunction::Begin,
             ),
-            Hash160 => NativeFunction(
+            Hash160 => NativeFunction205(
                 "native_hash160",
                 NativeHandle::SingleArg(&crypto::native_hash160),
                 ClarityCostFunction::Hash160,
+                &cost_input_sized_vararg,
             ),
-            Sha256 => NativeFunction(
+            Sha256 => NativeFunction205(
                 "native_sha256",
                 NativeHandle::SingleArg(&crypto::native_sha256),
                 ClarityCostFunction::Sha256,
+                &cost_input_sized_vararg,
             ),
-            Sha512 => NativeFunction(
+            Sha512 => NativeFunction205(
                 "native_sha512",
                 NativeHandle::SingleArg(&crypto::native_sha512),
                 ClarityCostFunction::Sha512,
+                &cost_input_sized_vararg,
             ),
-            Sha512Trunc256 => NativeFunction(
+            Sha512Trunc256 => NativeFunction205(
                 "native_sha512trunc256",
                 NativeHandle::SingleArg(&crypto::native_sha512trunc256),
                 ClarityCostFunction::Sha512t256,
+                &cost_input_sized_vararg,
             ),
-            Keccak256 => NativeFunction(
+            Keccak256 => NativeFunction205(
                 "native_keccak256",
                 NativeHandle::SingleArg(&crypto::native_keccak256),
                 ClarityCostFunction::Keccak256,
+                &cost_input_sized_vararg,
             ),
             Secp256k1Recover => SpecialFunction(
                 "native_secp256k1-recover",

@@ -42,6 +42,15 @@ chrono = "0.4.19"
 libc = "0.2.82"
 siphasher = "0.3.7"
 
+[target.'cfg(unix)'.dependencies]
+nix = "0.23"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["consoleapi", "handleapi", "synchapi", "winbase"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
+
 [dependencies.serde_json]
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]

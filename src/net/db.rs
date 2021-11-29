@@ -25,6 +25,7 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::fs;
 
+use util::db::sqlite_open;
 use util::db::tx_begin_immediate;
 use util::db::DBConn;
 use util::db::Error as db_error;
@@ -526,10 +527,8 @@ impl PeerDB {
             }
         };
 
-        let conn =
-            Connection::open_with_flags(path, open_flags).map_err(|e| db_error::SqliteError(e))?;
+        let conn = sqlite_open(path, open_flags, false)?;
 
-        conn.busy_handler(Some(tx_busy_handler))?;
         let mut db = PeerDB {
             conn: conn,
             readwrite: readwrite,
@@ -1243,6 +1242,7 @@ impl PeerDB {
     pub fn get_random_neighbors(
         conn: &DBConn,
         network_id: u32,
+        network_epoch: u8,
         count: u32,
         block_height: u64,
         always_include_allowed: bool,
@@ -1254,9 +1254,13 @@ impl PeerDB {
 
         if always_include_allowed {
             // always include allowed neighbors, freshness be damned
-            let allow_qry = "SELECT * FROM frontier WHERE network_id = ?1 AND denied < ?2 AND (allowed < 0 OR ?3 < allowed)".to_string();
-            let allow_args: &[&dyn ToSql] =
-                &[&network_id, &u64_to_sql(now_secs)?, &u64_to_sql(now_secs)?];
+            let allow_qry = "SELECT * FROM frontier WHERE network_id = ?1 AND denied < ?2 AND (allowed < 0 OR ?3 < allowed) AND (peer_version & 0x000000ff) >= ?4".to_string();
+            let allow_args: &[&dyn ToSql] = &[
+                &network_id,
+                &u64_to_sql(now_secs)?,
+                &u64_to_sql(now_secs)?,
+                &network_epoch,
+            ];
             let mut allow_rows = query_rows::<Neighbor, _>(conn, &allow_qry, allow_args)?;
 
             if allow_rows.len() >= (count as usize) {
@@ -1268,14 +1272,17 @@ impl PeerDB {
 
             ret.append(&mut allow_rows);
         }
+        if (ret.len() as u32) >= count {
+            return Ok(ret);
+        }
 
         // fill in with non-allowed, randomly-chosen, fresh peers
         let random_peers_qry = if always_include_allowed {
             "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND denied < ?3 AND \
-                 (allowed >= 0 AND allowed <= ?4) ORDER BY RANDOM() LIMIT ?5".to_string()
+                 (allowed >= 0 AND allowed <= ?4) AND (peer_version & 0x000000ff) >= ?5 ORDER BY RANDOM() LIMIT ?6".to_string()
         } else {
             "SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= 0 AND ?2 < expire_block_height AND denied < ?3 AND \
-                 (allowed < 0 OR (allowed >= 0 AND allowed <= ?4)) ORDER BY RANDOM() LIMIT ?5".to_string()
+                 (allowed < 0 OR (allowed >= 0 AND allowed <= ?4)) AND (peer_version & 0x000000ff) >= ?5 ORDER BY RANDOM() LIMIT ?6".to_string()
         };
 
         let random_peers_args: &[&dyn ToSql] = &[
@@ -1283,6 +1290,7 @@ impl PeerDB {
             &u64_to_sql(block_height)?,
             &u64_to_sql(now_secs)?,
             &u64_to_sql(now_secs)?,
+            &network_epoch,
             &(count - (ret.len() as u32)),
         ];
         let mut random_peers =
@@ -1299,10 +1307,11 @@ impl PeerDB {
     pub fn get_initial_neighbors(
         conn: &DBConn,
         network_id: u32,
+        network_epoch: u8,
         count: u32,
         block_height: u64,
     ) -> Result<Vec<Neighbor>, db_error> {
-        PeerDB::get_random_neighbors(conn, network_id, count, block_height, true)
+        PeerDB::get_random_neighbors(conn, network_id, network_epoch, count, block_height, true)
     }
 
     /// Get a randomized set of peers for walking the peer graph.
@@ -1310,10 +1319,11 @@ impl PeerDB {
     pub fn get_random_walk_neighbors(
         conn: &DBConn,
         network_id: u32,
+        network_epoch: u8,
         count: u32,
         block_height: u64,
     ) -> Result<Vec<Neighbor>, db_error> {
-        PeerDB::get_random_neighbors(conn, network_id, count, block_height, false)
+        PeerDB::get_random_neighbors(conn, network_id, network_epoch, count, block_height, false)
     }
 
     /// Add an IPv4 <--> ASN mapping
@@ -1636,17 +1646,17 @@ mod test {
         )
         .unwrap();
 
-        let n5 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 5, 23455).unwrap();
+        let n5 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 5, 23455).unwrap();
         assert!(are_present(&n5, &initial_neighbors));
 
-        let n10 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 10, 23455).unwrap();
+        let n10 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 10, 23455).unwrap();
         assert!(are_present(&n10, &initial_neighbors));
 
-        let n20 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 20, 23455).unwrap();
+        let n20 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 20, 23455).unwrap();
         assert!(are_present(&initial_neighbors, &n20));
 
         let n15_fresh =
-            PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 15, 23456 + 14).unwrap();
+            PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 0x78, 15, 23456 + 14).unwrap();
         assert!(are_present(
             &n15_fresh[10..15].to_vec(),
             &initial_neighbors[10..20].to_vec()
@@ -1665,6 +1675,126 @@ mod test {
             )
             .unwrap());
         }
+    }
+
+    #[test]
+    fn test_get_neighbors_in_current_epoch() {
+        let mut initial_neighbors = vec![];
+        let now_secs = util::get_epoch_time_secs();
+        for i in 0..10 {
+            // epoch 2.0 neighbors
+            initial_neighbors.push(Neighbor {
+                addr: NeighborKey {
+                    peer_version: 0x18000000,
+                    network_id: 0x9abcdef0,
+                    addrbytes: PeerAddress([i as u8; 16]),
+                    port: i,
+                },
+                public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+                expire_block: (i + 23456) as u64,
+                last_contact_time: (1552509642 + (i as u64)) as u64,
+                allowed: -1,
+                denied: -1,
+                asn: (34567 + i) as u32,
+                org: (45678 + i) as u32,
+                in_degree: 1,
+                out_degree: 1,
+            });
+        }
+
+        for i in 10..20 {
+            // epoch 2.05 neighbors
+            initial_neighbors.push(Neighbor {
+                addr: NeighborKey {
+                    peer_version: 0x18000005,
+                    network_id: 0x9abcdef0,
+                    addrbytes: PeerAddress([i as u8; 16]),
+                    port: i,
+                },
+                public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
+                expire_block: (i + 23456) as u64,
+                last_contact_time: (1552509642 + (i as u64)) as u64,
+                allowed: -1,
+                denied: -1,
+                asn: (34567 + i) as u32,
+                org: (45678 + i) as u32,
+                in_degree: 1,
+                out_degree: 1,
+            });
+        }
+
+        fn are_present(ne: &Vec<Neighbor>, nei: &Vec<Neighbor>) -> bool {
+            for n in ne {
+                let mut found = false;
+                for ni in nei {
+                    if *n == *ni {
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    eprintln!("Not found: {:?}", &n);
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        let db = PeerDB::connect_memory(
+            0x9abcdef0,
+            12345,
+            0,
+            "http://foo.com".into(),
+            &vec![],
+            &initial_neighbors,
+        )
+        .unwrap();
+
+        // epoch 2.0
+        let n5 =
+            PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x00, 5, 23455, false).unwrap();
+        assert_eq!(n5.len(), 5);
+        assert!(are_present(&n5, &initial_neighbors));
+
+        let n10 =
+            PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x00, 10, 23455, false).unwrap();
+        assert_eq!(n10.len(), 10);
+        assert!(are_present(&n10, &initial_neighbors));
+
+        let n20 =
+            PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x00, 20, 23455, false).unwrap();
+        assert_eq!(n20.len(), 20);
+        assert!(are_present(&initial_neighbors, &n20));
+
+        // epoch 2.05
+        let n5 =
+            PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x05, 5, 23455, false).unwrap();
+        assert_eq!(n5.len(), 5);
+        assert!(are_present(&n5, &initial_neighbors));
+        for n in n5 {
+            assert_eq!(n.addr.peer_version, 0x18000005);
+        }
+
+        let n10 =
+            PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x05, 10, 23455, false).unwrap();
+        assert_eq!(n10.len(), 10);
+        assert!(are_present(&n10, &initial_neighbors));
+        for n in n10 {
+            assert_eq!(n.addr.peer_version, 0x18000005);
+        }
+
+        let n20 =
+            PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x05, 20, 23455, false).unwrap();
+        assert_eq!(n20.len(), 10); // only 10 such neighbors are recent enough
+        assert!(are_present(&n20, &initial_neighbors));
+        for n in n20 {
+            assert_eq!(n.addr.peer_version, 0x18000005);
+        }
+
+        // post epoch 2.05 -- no such neighbors
+        let n20 =
+            PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x06, 20, 23455, false).unwrap();
+        assert_eq!(n20.len(), 0);
     }
 
     #[test]

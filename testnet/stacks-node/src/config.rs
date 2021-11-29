@@ -8,13 +8,17 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
+use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
+use stacks::core::StacksEpoch;
 use stacks::core::{
-    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use stacks::cost_estimates::metrics::CostMetric;
+use stacks::cost_estimates::metrics::ProportionalDotProduct;
+use stacks::cost_estimates::CostEstimator;
+use stacks::cost_estimates::FeeEstimator;
 use stacks::cost_estimates::PessimisticEstimator;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
@@ -22,7 +26,6 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
@@ -285,7 +288,6 @@ pub struct Config {
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
     pub miner: MinerConfig,
-    pub block_limit: ExecutionCost,
     pub estimation: FeeEstimationConfig,
 }
 
@@ -484,6 +486,10 @@ impl Config {
                     rbf_fee_increment: burnchain
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
+                    epochs: match burnchain.epochs {
+                        Some(epochs) => Some(epochs),
+                        None => default_burnchain_config.epochs,
+                    },
                 }
             }
             None => default_burnchain_config,
@@ -499,6 +505,9 @@ impl Config {
                 subsequent_attempt_time_ms: miner
                     .subsequent_attempt_time_ms
                     .unwrap_or(miner_default_config.subsequent_attempt_time_ms),
+                probability_pick_no_estimate_tx: miner
+                    .probability_pick_no_estimate_tx
+                    .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),
             },
             None => miner_default_config,
         };
@@ -735,8 +744,6 @@ impl Config {
             None => HELIUM_DEFAULT_CONNECTION_OPTIONS.clone(),
         };
 
-        let block_limit = BLOCK_LIMIT_MAINNET.clone();
-
         let estimation = match config_file.fee_estimation {
             Some(f) => FeeEstimationConfig::from(f),
             None => FeeEstimationConfig::default(),
@@ -748,7 +755,6 @@ impl Config {
             initial_balances,
             events_observers,
             connection_options,
-            block_limit,
             estimation,
             miner,
         }
@@ -844,7 +850,6 @@ impl Config {
 
     pub fn make_block_builder_settings(&self, attempt: u64) -> BlockBuilderSettings {
         BlockBuilderSettings {
-            execution_cost: self.block_limit.clone(),
             max_miner_time_ms: if attempt <= 1 {
                 // first attempt to mine a block -- do so right away
                 self.miner.first_attempt_time_ms
@@ -861,6 +866,7 @@ impl Config {
                     // second or later attempt to mine a block -- give it some time
                     self.miner.subsequent_attempt_time_ms
                 },
+                consider_no_estimate_tx_prob: self.miner.probability_pick_no_estimate_tx,
             },
         }
     }
@@ -878,7 +884,6 @@ impl std::default::Default for Config {
         };
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
-        let block_limit = HELIUM_BLOCK_LIMIT.clone();
         let estimation = FeeEstimationConfig::default();
 
         Config {
@@ -887,14 +892,13 @@ impl std::default::Default for Config {
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
-            block_limit,
             estimation,
             miner: MinerConfig::default(),
         }
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
@@ -918,6 +922,9 @@ pub struct BurnchainConfig {
     pub leader_key_tx_estimated_size: u64,
     pub block_commit_tx_estimated_size: u64,
     pub rbf_fee_increment: u64,
+    /// Custom override for the definitions of the epochs. This will only be applied for testnet and
+    /// regtest nodes.
+    pub epochs: Option<Vec<StacksEpoch>>,
 }
 
 impl BurnchainConfig {
@@ -945,6 +952,7 @@ impl BurnchainConfig {
             leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
+            epochs: None,
         }
     }
 
@@ -998,6 +1006,7 @@ pub struct BurnchainConfigFile {
     pub block_commit_tx_estimated_size: Option<u64>,
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
+    pub epochs: Option<Vec<StacksEpoch>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1106,7 +1115,7 @@ impl Default for FeeEstimationConfig {
             cost_estimator: Some(CostEstimatorName::default()),
             fee_estimator: Some(FeeEstimatorName::default()),
             cost_metric: Some(CostMetricName::default()),
-            log_error: true,
+            log_error: false,
         }
     }
 }
@@ -1133,13 +1142,49 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
             .cost_metric
             .map(CostMetricName::panic_parse)
             .unwrap_or_default();
-        let log_error = f.log_error.unwrap_or(true);
+        let log_error = f.log_error.unwrap_or(false);
         Self {
             cost_estimator: Some(cost_estimator),
             fee_estimator: Some(fee_estimator),
             cost_metric: Some(cost_metric),
             log_error,
         }
+    }
+}
+
+impl Config {
+    pub fn make_cost_estimator(&self) -> Option<Box<dyn CostEstimator>> {
+        let cost_estimator: Box<dyn CostEstimator> =
+            match self.estimation.cost_estimator.as_ref()? {
+                CostEstimatorName::NaivePessimistic => Box::new(
+                    self.estimation
+                        .make_pessimistic_cost_estimator(self.get_chainstate_path()),
+                ),
+            };
+
+        Some(cost_estimator)
+    }
+
+    pub fn make_cost_metric(&self) -> Option<Box<dyn CostMetric>> {
+        let metric: Box<dyn CostMetric> = match self.estimation.cost_metric.as_ref()? {
+            CostMetricName::ProportionDotProduct => {
+                Box::new(ProportionalDotProduct::new(MAX_BLOCK_LEN as u64))
+            }
+        };
+
+        Some(metric)
+    }
+
+    pub fn make_fee_estimator(&self) -> Option<Box<dyn FeeEstimator>> {
+        let metric = self.make_cost_metric()?;
+        let fee_estimator: Box<dyn FeeEstimator> = match self.estimation.fee_estimator.as_ref()? {
+            FeeEstimatorName::ScalarFeeRate => Box::new(
+                self.estimation
+                    .make_scalar_fee_estimator(self.get_chainstate_path(), metric),
+            ),
+        };
+
+        Some(fee_estimator)
     }
 }
 
@@ -1295,6 +1340,7 @@ pub struct MinerConfig {
     pub min_tx_fee: u64,
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
+    pub probability_pick_no_estimate_tx: u8,
 }
 
 impl MinerConfig {
@@ -1303,6 +1349,7 @@ impl MinerConfig {
             min_tx_fee: 1,
             first_attempt_time_ms: 1_000,
             subsequent_attempt_time_ms: 60_000,
+            probability_pick_no_estimate_tx: 5,
         }
     }
 }
@@ -1399,6 +1446,7 @@ pub struct MinerConfigFile {
     pub min_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
+    pub probability_pick_no_estimate_tx: Option<u8>,
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -1422,6 +1470,7 @@ pub enum EventKeyType {
     Microblocks,
     AnyEvent,
     BurnchainBlocks,
+    MinedBlocks,
 }
 
 impl EventKeyType {

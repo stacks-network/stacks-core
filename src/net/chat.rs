@@ -66,6 +66,7 @@ use util::secp256k1::Secp256k1PublicKey;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksBlockHeader;
 use crate::types::StacksPublicKeyBuffer;
+use core::StacksEpoch;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -318,6 +319,9 @@ pub struct ConversationP2P {
 
     // outbound replies
     pub reply_handles: VecDeque<ReplyHandleP2P>,
+
+    // system epochs
+    epochs: Vec<StacksEpoch>,
 }
 
 impl fmt::Display for ConversationP2P {
@@ -480,6 +484,7 @@ impl ConversationP2P {
         conn_opts: &ConnectionOptions,
         outbound: bool,
         conn_id: usize,
+        epochs: Vec<StacksEpoch>,
     ) -> ConversationP2P {
         ConversationP2P {
             instantiated: get_epoch_time_secs(),
@@ -509,6 +514,8 @@ impl ConversationP2P {
 
             stats: NeighborStats::new(outbound),
             reply_handles: VecDeque::new(),
+
+            epochs: epochs,
         }
     }
 
@@ -647,16 +654,69 @@ impl ConversationP2P {
         false
     }
 
+    /// Get the current epoch
+    fn get_current_epoch(&self, cur_burn_height: u64) -> StacksEpoch {
+        let epoch_index = StacksEpoch::find_epoch(&self.epochs, cur_burn_height).expect(&format!(
+            "BUG: block {} is not in a known epoch",
+            cur_burn_height
+        ));
+        let epoch = self.epochs[epoch_index].clone();
+        epoch
+    }
+
+    /// Determine whether or not a remote node has the proper epoch marker in its peer version
+    /// * If the local and remote nodes are in the same system epoch, then yes
+    /// * If they're in different epochs, but the epoch shift hasn't happened yet, then yes
+    /// * Otherwise, no
+    fn has_acceptable_epoch(&self, cur_burn_height: u64, remote_peer_version: u32) -> bool {
+        // which epochs do I support, and which epochs does the remote peer support?
+        let my_epoch = (self.version & 0x000000ff) as u8;
+        let remote_epoch = (remote_peer_version & 0x000000ff) as u8;
+
+        if my_epoch <= remote_epoch {
+            // remote node supports same epochs we do
+            test_debug!(
+                "Remote peer has epoch {}, which is newer than our epoch {}",
+                remote_epoch,
+                my_epoch
+            );
+            return true;
+        }
+
+        test_debug!(
+            "Remote peer has old network version {} (epoch {})",
+            remote_peer_version,
+            remote_epoch
+        );
+
+        // what epoch are we in?
+        // note that it might not be my_epoch -- for example, my_epoch can be 0x05 for a 2.05 node,
+        // which can run in epoch 2.0 as well (in which case cur_epoch would be 0x00).
+        let epoch = self.get_current_epoch(cur_burn_height);
+        let cur_epoch = epoch.network_epoch;
+
+        if cur_epoch <= remote_epoch {
+            // epoch shift hasn't happened yet, and this peer supports the current epoch
+            test_debug!(
+                "Remote peer has epoch {} and current epoch is {}, so still valid",
+                remote_epoch,
+                cur_epoch
+            );
+            return true;
+        }
+
+        return false;
+    }
+
     /// Validate an inbound message's preamble against our knowledge of the burn chain.
-    /// Return Ok(true) if we can proceed
-    /// Return Ok(false) if we can't proceed, but the remote peer is not in violation of the protocol
+    /// Return Ok(()) if we can proceed
     /// Return Err(net_error::InvalidMessage) if the remote peer returns an invalid message in
     ///     violation of the protocol
     pub fn is_preamble_valid(
         &self,
         msg: &StacksMessage,
         chain_view: &BurnchainView,
-    ) -> Result<bool, net_error> {
+    ) -> Result<(), net_error> {
         if msg.preamble.network_id != self.network_id {
             // not on our network
             debug!(
@@ -672,6 +732,13 @@ impl ConversationP2P {
                 &self,
                 msg.preamble.peer_version,
                 self.version
+            );
+            return Err(net_error::InvalidMessage);
+        }
+        if !self.has_acceptable_epoch(chain_view.burn_block_height, msg.preamble.peer_version) {
+            debug!(
+                "{:?}: Preamble invalid: remote peer has stale max-epoch {} (ours is {})",
+                &self, msg.preamble.peer_version, self.version
             );
             return Err(net_error::InvalidMessage);
         }
@@ -714,7 +781,7 @@ impl ConversationP2P {
             return Err(net_error::InvalidMessage);
         }
 
-        Ok(true)
+        Ok(())
     }
 
     /// Get next message sequence number
@@ -1170,7 +1237,6 @@ impl ConversationP2P {
         chain_view: &BurnchainView,
         message: &mut StacksMessage,
     ) -> Result<Option<StacksMessage>, net_error> {
-        // monitoring::increment_p2p_msg_ping_received_counter();
         monitoring::increment_msg_counter("p2p_ping".to_string());
 
         let ping_data = match message.payload {
@@ -1196,10 +1262,14 @@ impl ConversationP2P {
     ) -> Result<ReplyHandleP2P, net_error> {
         monitoring::increment_msg_counter("p2p_get_neighbors".to_string());
 
-        // get neighbors at random as long as they're fresh
+        let epoch = self.get_current_epoch(chain_view.burn_block_height);
+
+        // get neighbors at random as long as they're fresh, and as long as they're compatible with
+        // the current system epoch
         let mut neighbors = PeerDB::get_random_neighbors(
             peer_dbconn,
             self.network_id,
+            epoch.network_epoch,
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
@@ -1905,40 +1975,27 @@ impl ConversationP2P {
         burnchain_view: &BurnchainView,
     ) -> Result<bool, net_error> {
         // validate message preamble
-        match self.is_preamble_valid(&msg, burnchain_view) {
-            Ok(res) => {
-                if !res {
+        if let Err(e) = self.is_preamble_valid(&msg, burnchain_view) {
+            match e {
+                net_error::InvalidMessage => {
+                    // Disconnect from this peer.  If it thinks nothing's wrong, it'll
+                    // reconnect on its own.
+                    // However, only count this message as error.  Drop all other queued
+                    // messages.
                     info!(
-                        "{:?}: Received message with stale preamble; ignoring",
+                        "{:?}: Received invalid preamble; dropping connection",
                         &self
                     );
                     self.stats.msgs_err += 1;
                     self.stats.add_healthpoint(false);
-                    return Ok(false);
+                    return Err(e);
                 }
-            }
-            Err(e) => {
-                match e {
-                    net_error::InvalidMessage => {
-                        // Disconnect from this peer.  If it thinks nothing's wrong, it'll
-                        // reconnect on its own.
-                        // However, only count this message as error.  Drop all other queued
-                        // messages.
-                        info!(
-                            "{:?}: Received invalid preamble; dropping connection",
-                            &self
-                        );
-                        self.stats.msgs_err += 1;
-                        self.stats.add_healthpoint(false);
-                        return Err(e);
-                    }
-                    _ => {
-                        // skip this message
-                        info!("{:?}: Failed to process message: {:?}", &self, &e);
-                        self.stats.msgs_err += 1;
-                        self.stats.add_healthpoint(false);
-                        return Ok(false);
-                    }
+                _ => {
+                    // skip this message
+                    info!("{:?}: Failed to process message: {:?}", &self, &e);
+                    self.stats.msgs_err += 1;
+                    self.stats.add_healthpoint(false);
+                    return Ok(false);
                 }
             }
         }
@@ -2329,7 +2386,7 @@ mod test {
     use chainstate::burn::*;
     use chainstate::stacks::db::ChainStateBootData;
     use chainstate::*;
-    use core::{NETWORK_P2P_PORT, PEER_VERSION_TESTNET};
+    use core::*;
     use net::connection::*;
     use net::db::*;
     use net::p2p::*;
@@ -2387,6 +2444,7 @@ mod test {
             burnchain.first_block_height,
             &burnchain.first_block_hash,
             get_epoch_time_secs(),
+            &StacksEpoch::unit_test_pre_2_05(burnchain.first_block_height),
             true,
         )
         .unwrap();
@@ -2401,7 +2459,6 @@ mod test {
             network_id,
             &chainstate_path,
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
         )
         .unwrap();
 
@@ -2601,10 +2658,26 @@ mod test {
             let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
             let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-            let mut convo_1 =
-                ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-            let mut convo_2 =
-                ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+            let mut convo_1 = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
+            let mut convo_2 = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_1,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
 
             // no peer public keys known yet
             assert!(convo_1.connection.get_public_key().is_none());
@@ -2756,10 +2829,26 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_2,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+        let mut convo_2 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
 
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -2876,10 +2965,26 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_2,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+        let mut convo_2 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
 
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -2994,10 +3099,26 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_2,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+        let mut convo_2 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
 
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -3113,10 +3234,26 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_2,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+        let mut convo_2 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
 
         // convo_1 sends a handshake to convo_2
         let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
@@ -3264,10 +3401,26 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 1);
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_2,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+        let mut convo_2 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            1,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
 
         for i in 0..5 {
             // do handshake/ping over and over, with different keys.
@@ -3465,10 +3618,26 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_2,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+        let mut convo_2 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
 
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -3587,10 +3756,26 @@ mod test {
             let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
             let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-            let mut convo_1 =
-                ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-            let mut convo_2 =
-                ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+            let mut convo_1 = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
+            let mut convo_2 = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_1,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
 
             // no peer public keys known yet
             assert!(convo_1.connection.get_public_key().is_none());
@@ -3875,10 +4060,26 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
-        let mut convo_2 =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr_1, &conn_opts, true, 0);
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_2,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+        let mut convo_2 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
 
         // convo_1 sends natpunch request to convo_2
         let natpunch_1 = convo_1
@@ -3981,8 +4182,16 @@ mod test {
 
         // network ID check
         {
-            let mut convo_bad =
-                ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+            let mut convo_bad = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
 
             let ping_data = PingData::new();
             convo_bad.network_id += 1;
@@ -4003,8 +4212,16 @@ mod test {
 
         // stable block height check
         {
-            let mut convo_bad =
-                ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+            let mut convo_bad = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
 
             let ping_data = PingData::new();
 
@@ -4027,8 +4244,16 @@ mod test {
 
         // unstable burn header hash mismatch
         {
-            let mut convo_bad =
-                ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+            let mut convo_bad = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
 
             let ping_data = PingData::new();
 
@@ -4049,16 +4274,21 @@ mod test {
                 .unwrap();
 
             // considered valid as long as the stable burn header hash is valid
-            assert_eq!(
-                convo_bad.is_preamble_valid(&ping_bad, &chain_view),
-                Ok(true)
-            );
+            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(()));
         }
 
         // stable burn header hash mismatch
         {
-            let mut convo_bad =
-                ConversationP2P::new(123, 456, &burnchain, &socketaddr_2, &conn_opts, true, 0);
+            let mut convo_bad = ConversationP2P::new(
+                123,
+                456,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                StacksEpoch::unit_test_pre_2_05(0),
+            );
 
             let ping_data = PingData::new();
 
@@ -4081,6 +4311,96 @@ mod test {
             assert_eq!(
                 convo_bad.is_preamble_valid(&ping_bad, &chain_view),
                 Err(net_error::InvalidMessage)
+            );
+        }
+
+        // stale peer version max-epoch
+        {
+            // convo thinks its epoch 2.05
+            let epochs = StacksEpoch::unit_test_2_05(chain_view.burn_block_height - 4);
+            let cur_epoch_idx =
+                StacksEpoch::find_epoch(&epochs, chain_view.burn_block_height).unwrap();
+            let cur_epoch = epochs[cur_epoch_idx].clone();
+            assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch2_05);
+
+            eprintln!(
+                "cur_epoch = {:?}, burn height = {}",
+                &cur_epoch, chain_view.burn_block_height
+            );
+
+            let mut convo_bad = ConversationP2P::new(
+                123,
+                0x18000005,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                epochs,
+            );
+
+            let ping_data = PingData::new();
+
+            // give ping a pre-2.05 epoch marker in its peer version
+            convo_bad.version = 0x18000000;
+            let ping_bad = convo_bad
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Ping(ping_data.clone()),
+                )
+                .unwrap();
+            convo_bad.version = 0x18000005;
+
+            assert_eq!(
+                convo_bad.is_preamble_valid(&ping_bad, &chain_view),
+                Err(net_error::InvalidMessage)
+            );
+
+            // give ping the same peer version as the convo
+            let ping_good = convo_bad
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Ping(ping_data.clone()),
+                )
+                .unwrap();
+            assert_eq!(convo_bad.is_preamble_valid(&ping_good, &chain_view), Ok(()));
+
+            // give ping a newer epoch than we support
+            convo_bad.version = 0x18000006;
+            let ping_good = convo_bad
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Ping(ping_data.clone()),
+                )
+                .unwrap();
+            convo_bad.version = 0x18000005;
+            assert_eq!(convo_bad.is_preamble_valid(&ping_good, &chain_view), Ok(()));
+
+            // give ping an older version, but test with a block in which the ping's version is
+            // valid
+            convo_bad.version = 0x18000000;
+            let ping_old = convo_bad
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Ping(ping_data.clone()),
+                )
+                .unwrap();
+            convo_bad.version = 0x18000005;
+
+            let mut old_chain_view = chain_view.clone();
+            old_chain_view.burn_block_height -= 1;
+            old_chain_view.burn_stable_block_height -= 1;
+            old_chain_view.last_burn_block_hashes.insert(
+                old_chain_view.burn_stable_block_height,
+                BurnchainHeaderHash([0xff; 32]),
+            );
+            assert_eq!(
+                convo_bad.is_preamble_valid(&ping_old, &old_chain_view),
+                Ok(())
             );
         }
     }
@@ -4115,8 +4435,16 @@ mod test {
             get_epoch_time_secs() + 123456,
             UrlString::try_from("http://foo.com").unwrap(),
         );
-        let mut convo =
-            ConversationP2P::new(123, 456, &burnchain, &socketaddr, &conn_opts, true, 0);
+        let mut convo = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
 
         let payload = StacksMessageType::Nack(NackData { error_code: 123 });
         let msg = convo
