@@ -832,7 +832,8 @@ impl LeaderBlockCommitOp {
                     );
                 }
             }
-            StacksEpochId::Epoch2_05 => {
+            // Note: 2.05 and 2.1 share the same marker.
+            StacksEpochId::Epoch2_05 | StacksEpochId::Epoch21 => {
                 if self.memo.len() < 1 {
                     debug!(
                         "Invalid block commit";

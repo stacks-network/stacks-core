@@ -2463,6 +2463,8 @@ impl SortitionDB {
             StacksEpochId::Epoch10 => false,
             StacksEpochId::Epoch20 => (version == "1" || version == "2"),
             StacksEpochId::Epoch2_05 => version == "2",
+            // Note: Reuse 2.05 for 2.1.
+            StacksEpochId::Epoch21 => version == "2",
         }
     }
 
