@@ -646,7 +646,7 @@ pub mod test {
         let conn = DBConn::open_with_flags(&db_path, open_flags).unwrap();
 
         conn.busy_handler(Some(tx_busy_handler)).unwrap();
-        sql_pragma(&conn, "PRAGMA journal_mode = WAL;").unwrap();
+        sql_pragma(&conn, "journal_mode", &"WAL".to_string()).unwrap();
         conn
     }
 
