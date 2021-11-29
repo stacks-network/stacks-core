@@ -4360,7 +4360,7 @@ mod test {
                     StacksMessageType::Ping(ping_data.clone()),
                 )
                 .unwrap();
-            assert_eq!(convo_bad.is_preamble_valid(&ping_good, &chain_view), Ok(()));
+            assert_eq!(convo_bad.is_preamble_valid(&ping_good, &chain_view), Ok(true));
 
             // give ping a newer epoch than we support
             convo_bad.version = 0x18000006;
@@ -4372,7 +4372,7 @@ mod test {
                 )
                 .unwrap();
             convo_bad.version = 0x18000005;
-            assert_eq!(convo_bad.is_preamble_valid(&ping_good, &chain_view), Ok(()));
+            assert_eq!(convo_bad.is_preamble_valid(&ping_good, &chain_view), Ok(true));
 
             // give ping an older version, but test with a block in which the ping's version is
             // valid
@@ -4395,7 +4395,7 @@ mod test {
             );
             assert_eq!(
                 convo_bad.is_preamble_valid(&ping_old, &old_chain_view),
-                Ok(())
+                Ok(true)
             );
         }
     }
