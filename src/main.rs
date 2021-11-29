@@ -72,6 +72,7 @@ use blockstack_lib::{
 use blockstack_lib::{
     net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
     vm::representations::UrlString,
+    ClarityVersion;
 };
 
 fn main() {
@@ -642,7 +643,7 @@ simulating a miner.
         }
         let program: String =
             fs::read_to_string(&argv[2]).expect(&format!("Error reading file: {}", argv[2]));
-        match clarity::vm_execute(&program) {
+        match clarity::vm_execute(&program, ClarityVersion::Clarity2) {
             Ok(Some(result)) => println!("{}", result),
             Ok(None) => println!(""),
             Err(error) => {
