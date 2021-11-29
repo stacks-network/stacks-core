@@ -72,7 +72,7 @@ use blockstack_lib::{
 use blockstack_lib::{
     net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
     vm::representations::UrlString,
-    ClarityVersion;
+    ClarityVersion,
 };
 
 fn main() {
