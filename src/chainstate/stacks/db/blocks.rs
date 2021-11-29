@@ -4585,12 +4585,6 @@ impl StacksChainState {
 
             applied_epoch_transition = epoch_transition;
 
-            // is this stacks block the first of a new epoch?
-            let mut receipts = StacksChainState::process_epoch_transition(
-                &mut clarity_tx,
-                chain_tip_burn_header_height,
-            )?;
-
             // process stacking operations from bitcoin ops
             receipts.extend(StacksChainState::process_stacking_ops(
                 &mut clarity_tx,
