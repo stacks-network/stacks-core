@@ -217,7 +217,7 @@ fn exec_cost(contract: &str, use_mainnet: bool, epoch: StacksEpochId) -> Executi
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
-            .initialize_contract(contract_id.clone(), contract)
+            .initialize_contract(contract_id.clone(), contract, None)
             .unwrap();
 
         let cost_before = owned_env.get_cost_total();
@@ -844,13 +844,13 @@ fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> Ex
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
-            .initialize_contract(trait_contract_id.clone(), contract_trait)
+            .initialize_contract(trait_contract_id.clone(), contract_trait, None)
             .unwrap();
         owned_env
-            .initialize_contract(other_contract_id.clone(), contract_other)
+            .initialize_contract(other_contract_id.clone(), contract_other, None)
             .unwrap();
         owned_env
-            .initialize_contract(self_contract_id.clone(), &contract_self)
+            .initialize_contract(self_contract_id.clone(), &contract_self, None)
             .unwrap();
 
         let target_contract = Value::from(PrincipalData::Contract(other_contract_id.clone()));
