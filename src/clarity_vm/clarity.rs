@@ -50,7 +50,6 @@ use vm::types::{
 use vm::ContractName;
 
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
-use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::TransactionAuth;
 use crate::chainstate::stacks::TransactionPayload;
 use crate::chainstate::stacks::TransactionPublicKeyEncoding;
@@ -79,9 +78,7 @@ use crate::types::chainstate::SortitionId;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
-use crate::util::boot::boot_code_addr;
 use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
-use crate::util::secp256k1::MessageSignature;
 use types::chainstate::BurnchainHeaderHash;
 use crate::util::secp256k1::MessageSignature;
 use crate::util::strings::StacksString;

@@ -241,6 +241,7 @@ impl fmt::Display for Error {
             Error::PoxNoRewardCycle => write!(f, "No such reward cycle"),
             Error::StacksTransactionSkipped => {
                 write!(f, "Stacks transaction skipped during assembly")
+            }
             Error::DefunctPoxContract => {
                 write!(f, "A defunct PoX contract was called after transition")
             }

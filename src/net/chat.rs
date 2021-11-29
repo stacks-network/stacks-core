@@ -1989,30 +1989,6 @@ impl ConversationP2P {
                     return Ok(false);
                 }
             }
-            Err(e) => {
-                match e {
-                    net_error::InvalidMessage => {
-                        // Disconnect from this peer.  If it thinks nothing's wrong, it'll
-                        // reconnect on its own.
-                        // However, only count this message as error.  Drop all other queued
-                        // messages.
-                        info!(
-                            "{:?}: Received invalid preamble; dropping connection",
-                            &self
-                        );
-                        self.stats.msgs_err += 1;
-                        self.stats.add_healthpoint(false);
-                        return Err(e);
-                    }
-                    _ => {
-                        // skip this message
-                        info!("{:?}: Failed to process message: {:?}", &self, &e);
-                        self.stats.msgs_err += 1;
-                        self.stats.add_healthpoint(false);
-                        return Ok(false);
-                    }
-                }
-            }
         }
         return Ok(true);
     }
