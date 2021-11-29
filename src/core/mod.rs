@@ -201,6 +201,7 @@ pub enum StacksEpochId {
     Epoch10 = 0x01000,
     Epoch20 = 0x02000,
     Epoch2_05 = 0x02005,
+    Epoch21 = 0x0201,
 }
 
 impl std::fmt::Display for StacksEpochId {
@@ -361,6 +362,11 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
+    StacksEpoch {
+        epoch_id: StacksEpochId::Epoch21,
+        start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
+        end_height: STACKS_EPOCH_MAX,
+    },
     ];
 }
 
@@ -474,14 +480,6 @@ fn test_ord_for_stacks_epoch_id() {
     );
 }
 
-#[repr(u32)]
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy)]
-pub enum StacksEpochId {
-    Epoch10 = 0x0100,
-    Epoch20 = 0x0200,
-    Epoch21 = 0x0201,
-}
-
 impl std::fmt::Display for StacksEpochId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -567,52 +565,3 @@ impl Ord for StacksEpoch {
         self.start_height.cmp(&other.start_height)
     }
 }
-
-pub const STACKS_EPOCHS_MAINNET: &[StacksEpoch] = &[
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch10,
-        start_height: 0,
-        end_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
-        end_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch21,
-        start_height: STACKS_2_0_LAST_BLOCK_TO_PROCESS + 1,
-        end_height: STACKS_EPOCH_MAX,
-    },
-];
-
-pub const STACKS_EPOCHS_TESTNET: &[StacksEpoch] = &[
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch10,
-        start_height: 0,
-        end_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-        end_height: STACKS_EPOCH_MAX,
-    }, // TODO: add Epoch21 when its start height is decided
-];
-
-pub const STACKS_EPOCHS_REGTEST: &[StacksEpoch] = &[
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch10,
-        start_height: 0,
-        end_height: 0,
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: 0,
-        end_height: 1000,
-    },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch21,
-        start_height: 1000,
-        end_height: STACKS_EPOCH_MAX,
-    },
-];

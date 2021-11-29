@@ -1928,7 +1928,6 @@ pub mod test {
     use vm::types::*;
 
     use crate::chainstate::stacks::boot::test::get_parent_tip;
-    use crate::codec::StacksMessageCodec;
     use crate::types::chainstate::StacksMicroblockHeader;
     use crate::types::proof::TrieHash;
     use crate::util::boot::boot_code_test_addr;
@@ -1940,7 +1939,6 @@ pub mod test {
     use super::*;
     use chainstate::stacks::db::accounts::MinerReward;
     use chainstate::stacks::events::StacksTransactionReceipt;
-    use std::sync::Mutex;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
