@@ -280,7 +280,7 @@ You can learn more by visiting [the Blockstack Website](https://blockstack.org) 
 
 You can also read the technical papers:
 
-- ["PoX: Proof of Transfer Mining with Bitcoin"](https://assets.website-files.com/5fcf9ac604d37418aa70a5ab/60072dbb32d416d6b3806935_5f1596b12bcc0800f3dcadcd_pox.pdf), May 2020
+- ["PoX: Proof of Transfer Mining with Bitcoin"](https://community.stacks.org/pox), May 2020
 - ["Stacks 2.0: Apps and Smart Contracts for Bitcoin"](https://stacks.org/stacks), Dec 2020
 
 If you have high-level questions about Blockstack, try [searching our forum](https://forum.stacks.org) and start a new question if your question is not answered there.
