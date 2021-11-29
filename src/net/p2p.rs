@@ -4885,6 +4885,7 @@ impl PeerNetwork {
         for tx in network_result.synced_transactions.drain(..) {
             PeerNetwork::store_transaction(
                 mempool,
+                sortdb,
                 chainstate,
                 &canonical_consensus_hash,
                 &canonical_block_hash,
