@@ -146,6 +146,7 @@ impl BitcoinIndexerConfig {
             spv_headers_path: "./headers.sqlite".to_string(),
             first_block,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            epochs: None,
         }
     }
 
