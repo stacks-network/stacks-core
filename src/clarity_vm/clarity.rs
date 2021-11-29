@@ -289,10 +289,9 @@ impl ClarityBlockConnection<'_> {
 }
 
 impl ClarityInstance {
-    pub fn new(mainnet: bool, datastore: MarfedKV, block_limit: ExecutionCost) -> ClarityInstance {
+    pub fn new(mainnet: bool, datastore: MarfedKV) -> ClarityInstance {
         ClarityInstance {
             datastore,
-            block_limit,
             mainnet,
         }
     }
