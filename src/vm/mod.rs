@@ -406,13 +406,13 @@ pub fn execute_in_epoch(
     use_mainnet: bool,
 ) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone(), version);
+    let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free(), epoch);
     global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut (), version)?.expressions;
-        eval_all(&parsed, &mut contract_context, g, None)
+        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        eval_all(&parsed, &mut contract_context, g)
     })
 }
 

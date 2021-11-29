@@ -1928,7 +1928,6 @@ pub mod test {
     use vm::types::*;
 
     use crate::chainstate::stacks::boot::test::get_parent_tip;
-    use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::codec::StacksMessageCodec;
     use crate::types::chainstate::StacksMicroblockHeader;
     use crate::types::proof::TrieHash;

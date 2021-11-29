@@ -159,7 +159,7 @@ impl BitcoinIndexerConfig {
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 30,
-            spv_headers_path,
+            spv_headers_path: spv_headers_path,
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
             epochs: None,

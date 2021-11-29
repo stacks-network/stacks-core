@@ -52,13 +52,13 @@ pub fn mem_type_check(
     let mut contract = parse(&contract_identifier, snippet, version).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
+    let cost_tracker = LimitedCostTracker::new_free();
     match run_analysis(
         &QualifiedContractIdentifier::transient(),
         &mut contract,
         &mut analysis_db,
         false,
-        LimitedCostTracker::new_free(),
-        version,
+        cost_tracker,
     ) {
         Ok(x) => {
             // return the first type result of the type checker

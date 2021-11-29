@@ -128,7 +128,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         SortitionDB::get_stacks_epoch_by_epoch_id(self.tx(), epoch_id)
             .expect("BUG: failed to get epoch for epoch id")
-
+    }
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {

@@ -2146,7 +2146,6 @@ mod test {
                 network_epoch: PEER_VERSION_EPOCH_2_0,
             })
         }
-
         fn get_burn_start_height(&self) -> u32 {
             0
         }

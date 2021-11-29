@@ -1321,7 +1321,6 @@ impl StacksBlockBuilder {
         );
 
         StacksChainState::process_epoch_transition(&mut tx, burn_tip_height + 1)?;
-
         StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops);
         StacksChainState::process_transfer_ops(&mut tx, transfer_burn_ops);
 
@@ -9805,7 +9804,19 @@ pub mod test {
             0,
             &BurnchainHeaderHash([1; 32]),
             1,
-(??)
+            &[StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: i64::MAX as u64,
+                block_limit: ExecutionCost {
+                    write_length: 15_000_000, // roughly 15 mb
+                    write_count: 500,
+                    read_length: 100_000_000,
+                    read_count: 7_750,
+                    runtime: 5_000_000_000,
+                },
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            }],
             true,
         )
         .unwrap();

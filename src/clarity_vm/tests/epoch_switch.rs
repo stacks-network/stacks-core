@@ -134,4 +134,3 @@ fn test_vm_epoch_switch() {
         test_burnstatedb_epoch(&burntx, start_height, end_height, 8, 12);
     }
 }
-

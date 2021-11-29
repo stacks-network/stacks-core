@@ -24,6 +24,7 @@ use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
 use util::hash::hex_bytes;
+use vm::ast;
 use vm::ast::errors::ParseErrors;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;

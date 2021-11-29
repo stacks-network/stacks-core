@@ -765,7 +765,6 @@ impl<'a> ClarityBlockConnection<'a> {
 
         self.cost_track.unwrap()
     }
-
     pub fn initialize_epoch_2_05(&mut self) -> Result<StacksTransactionReceipt, Error> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
@@ -843,7 +842,8 @@ impl<'a> ClarityBlockConnection<'a> {
         })
     }
 
-    pub fn initialize_epoch_2_1(&mut self) -> Result<StacksTransactionReceipt, Error> {
+
+   pub fn initialize_epoch_2_1(&mut self) -> Result<StacksTransactionReceipt, Error> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
         using!(self.cost_track, "cost tracker", |old_cost_tracker| {
@@ -968,6 +968,7 @@ impl<'a> ClarityBlockConnection<'a> {
             (old_cost_tracker, Ok(initialization_receipt))
         })
     }
+
 
     pub fn start_transaction_processing<'b>(&'b mut self) -> ClarityTransactionConnection<'b, 'a> {
         let store = &mut self.datastore;

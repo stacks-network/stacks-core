@@ -3988,7 +3988,7 @@ impl StacksChainState {
                 }
             }
         }
-        Ok(receipts)
+        Ok((applied, receipts))
     }
 
     /// Process any Stacking-related bitcoin operations
