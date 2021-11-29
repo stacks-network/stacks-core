@@ -409,6 +409,7 @@ fn handle_contract_call(
     args_slice: &[String],
     version: TransactionVersion,
     chain_id: u32,
+    clarity_version:ClarityVersion,
 ) -> Result<String, CliError> {
     let mut args = args_slice.to_vec();
     if args.len() >= 1 && args[0] == "-h" {
@@ -447,7 +448,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
-                blockstack_lib::clarity::vm_execute(input)?
+                blockstack_lib::clarity::vm_execute(input, clarity_version)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
             _ => {
@@ -768,7 +769,7 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
 
     if let Some((method, args)) = argv.split_first() {
         match method.as_str() {
-            "contract-call" => handle_contract_call(args, tx_version, chain_id),
+            "contract-call" => handle_contract_call(args, tx_version, chain_id, ClarityVersion::Clarity2),
             "publish" => handle_contract_publish(args, tx_version, chain_id),
             "token-transfer" => handle_token_transfer(args, tx_version, chain_id),
             "generate-sk" => generate_secret_key(args, tx_version),
