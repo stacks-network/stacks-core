@@ -37,6 +37,7 @@ use stacks::chainstate::stacks::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use stacks::core::STACKS_EPOCH_2_05_MARKER;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
@@ -67,6 +68,7 @@ use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
@@ -312,7 +314,7 @@ fn inner_generate_block_commit_op(
         apparent_sender: sender,
         key_block_ptr: key.block_height as u32,
         key_vtxindex: key.op_vtxindex as u16,
-        memo: vec![],
+        memo: vec![STACKS_EPOCH_2_05_MARKER],
         new_seed: vrf_seed,
         parent_block_ptr,
         parent_vtxindex,
@@ -625,18 +627,16 @@ fn spawn_peer(
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
-    let block_limit = config.block_limit.clone();
     let exit_at_block_height = config.burnchain.process_exit_at_block_height;
 
     this.bind(p2p_sock, rpc_sock).unwrap();
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
     let sortdb = SortitionDB::open(&burn_db_path, false).map_err(NetError::DBError)?;
 
-    let (mut chainstate, _) = StacksChainState::open_with_block_limit(
+    let (mut chainstate, _) = StacksChainState::open(
         is_mainnet,
         config.burnchain.chain_id,
         &stacks_chainstate_path,
-        block_limit,
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
@@ -838,13 +838,8 @@ fn spawn_miner_relayer(
     //   should address via #1449
     let mut sortdb = SortitionDB::open(&burn_db_path, true).map_err(NetError::DBError)?;
 
-    let (mut chainstate, _) = StacksChainState::open_with_block_limit(
-        is_mainnet,
-        chain_id,
-        &stacks_chainstate_path,
-        config.block_limit.clone(),
-    )
-    .map_err(|e| NetError::ChainstateError(e.to_string()))?;
+    let (mut chainstate, _) = StacksChainState::open(is_mainnet, chain_id, &stacks_chainstate_path)
+        .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
     let mut last_mined_blocks: HashMap<
         BurnchainHeaderHash,
@@ -1178,6 +1173,9 @@ impl InitializedNeonNode {
         let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), false)
             .expect("Error while instantiating sortition db");
 
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
+            .expect("Error while loading stacks epochs");
+
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
                 .expect("Failed to get sortition tip");
@@ -1314,6 +1312,7 @@ impl InitializedNeonNode {
             burnchain.clone(),
             view,
             config.connection_options.clone(),
+            epochs,
         );
 
         // setup the relayer channel
@@ -1839,6 +1838,11 @@ impl InitializedNeonNode {
                     config.burnchain.chain_id,
                 );
 
+                let stacks_epoch = burn_db
+                    .index_conn()
+                    .get_stacks_epoch(burn_block.block_height as u32)
+                    .expect("Could not find a stacks epoch.");
+
                 // submit the poison payload, privately, so we'll mine it when building the
                 // anchored block.
                 if let Err(e) = mem_pool.submit(
@@ -1847,6 +1851,8 @@ impl InitializedNeonNode {
                     &stacks_parent_header.anchored_header.block_hash(),
                     &poison_microblock_tx,
                     Some(event_observer),
+                    &stacks_epoch.block_limit,
+                    &stacks_epoch.epoch_id,
                 ) {
                     warn!(
                         "Detected but failed to mine poison-microblock transaction: {:?}",
@@ -2123,7 +2129,6 @@ impl NeonGenesisNode {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
-            config.block_limit.clone(),
         ) {
             Ok(res) => res,
             Err(err) => panic!(

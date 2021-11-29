@@ -39,7 +39,10 @@ jobs:
       - name: Single full genesis integration test
         env:
           DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
+        # Remove .dockerignore file so codecov has access to git info
+        run: |
+          rm .dockerignore
+          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
 
   # Run unit tests with code coverage
   unit-tests:
@@ -221,7 +224,7 @@ jobs:
           tag_name: ${{ github.event.inputs.tag || github.ref }}
           release_name: Release ${{ github.event.inputs.tag || github.ref }}
           draft: false
-          prerelease: false
+          prerelease: true
 
   # Upload distributables to a new release if we're building a tag or a tag was passed in
   upload-dist:

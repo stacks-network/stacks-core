@@ -53,6 +53,10 @@ jobs:
           - tests::neon_integrations::filter_low_fee_tx_integration_test
           - tests::neon_integrations::filter_long_runtime_tx_integration_test
           - tests::neon_integrations::mining_transactions_is_fair
+          - tests::epoch_205::test_dynamic_db_method_costs
+          - tests::epoch_205::transition_empty_blocks
+          - tests::epoch_205::test_cost_limit_switch_version205
+          - tests::epoch_205::test_exact_block_costs
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image

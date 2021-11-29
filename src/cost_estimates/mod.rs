@@ -21,6 +21,7 @@ pub mod pessimistic;
 pub mod tests;
 
 use crate::chainstate::stacks::StacksTransaction;
+use core::StacksEpochId;
 
 use self::metrics::CostMetric;
 pub use self::pessimistic::PessimisticEstimator;
@@ -39,7 +40,11 @@ pub use self::pessimistic::PessimisticEstimator;
 pub trait FeeEstimator {
     /// This method is invoked by the `stacks-node` to update the fee estimator with a new
     ///  block receipt.
-    fn notify_block(&mut self, receipt: &StacksEpochReceipt) -> Result<(), EstimatorError>;
+    fn notify_block(
+        &mut self,
+        receipt: &StacksEpochReceipt,
+        block_limit: &ExecutionCost,
+    ) -> Result<(), EstimatorError>;
     /// Get the current estimates for fee rate
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError>;
 }
@@ -101,9 +106,11 @@ pub fn estimate_fee_rate<CE: CostEstimator + ?Sized, CM: CostMetric + ?Sized>(
     tx: &StacksTransaction,
     estimator: &CE,
     metric: &CM,
+    block_limit: &ExecutionCost,
+    stacks_epoch_id: &StacksEpochId,
 ) -> Result<f64, EstimatorError> {
-    let cost_estimate = estimator.estimate_cost(&tx.payload)?;
-    let metric_estimate = metric.from_cost_and_len(&cost_estimate, tx.tx_len());
+    let cost_estimate = estimator.estimate_cost(&tx.payload, stacks_epoch_id)?;
+    let metric_estimate = metric.from_cost_and_len(&cost_estimate, block_limit, tx.tx_len());
     Ok(tx.get_tx_fee() as f64 / metric_estimate as f64)
 }
 
@@ -122,19 +129,30 @@ pub trait CostEstimator: Send {
         &mut self,
         tx: &TransactionPayload,
         actual_cost: &ExecutionCost,
+        block_limit: &ExecutionCost,
+        evaluated_epoch: &StacksEpochId,
     ) -> Result<(), EstimatorError>;
 
     /// This method is used by a stacks-node to obtain an estimate for a given transaction payload.
     /// If the estimator cannot provide an accurate estimate for a given payload, it should return
     /// `EstimatorError::NoEstimateAvailable`
-    fn estimate_cost(&self, tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError>;
+    fn estimate_cost(
+        &self,
+        tx: &TransactionPayload,
+        evaluated_epoch: &StacksEpochId,
+    ) -> Result<ExecutionCost, EstimatorError>;
 
     /// This method is invoked by the `stacks-node` to notify the estimator of all the transaction
     /// receipts in a given block.
     ///
     /// A default implementation is provided to implementing structs that processes the transaction
     /// receipts by feeding them into `CostEstimator::notify_event()`
-    fn notify_block(&mut self, receipts: &[StacksTransactionReceipt]) {
+    fn notify_block(
+        &mut self,
+        receipts: &[StacksTransactionReceipt],
+        block_limit: &ExecutionCost,
+        stacks_epoch_id: &StacksEpochId,
+    ) {
         // iterate over receipts, and for all the tx receipts, notify the event
         for current_receipt in receipts.iter() {
             let current_txid = match current_receipt.transaction {
@@ -146,7 +164,12 @@ pub trait CostEstimator: Send {
                 TransactionOrigin::Stacks(ref tx) => &tx.payload,
             };
 
-            if let Err(e) = self.notify_event(tx_payload, &current_receipt.execution_cost) {
+            if let Err(e) = self.notify_event(
+                tx_payload,
+                &current_receipt.execution_cost,
+                block_limit,
+                stacks_epoch_id,
+            ) {
                 info!("CostEstimator failed to process event";
                       "txid" => %current_txid,
                       "error" => %e,
@@ -216,11 +239,17 @@ impl CostEstimator for () {
         &mut self,
         _tx: &TransactionPayload,
         _actual_cost: &ExecutionCost,
+        _block_limit: &ExecutionCost,
+        _evaluated_epoch: &StacksEpochId,
     ) -> Result<(), EstimatorError> {
         Ok(())
     }
 
-    fn estimate_cost(&self, _tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError> {
+    fn estimate_cost(
+        &self,
+        _tx: &TransactionPayload,
+        _evaluated_epoch: &StacksEpochId,
+    ) -> Result<ExecutionCost, EstimatorError> {
         Err(EstimatorError::NoEstimateAvailable)
     }
 }
@@ -228,7 +257,11 @@ impl CostEstimator for () {
 /// Null `FeeEstimator` implementation: this is useful in rust typing when supplying
 /// a `None` value to the `ChainsCoordinator` estimator field.
 impl FeeEstimator for () {
-    fn notify_block(&mut self, _receipt: &StacksEpochReceipt) -> Result<(), EstimatorError> {
+    fn notify_block(
+        &mut self,
+        _receipt: &StacksEpochReceipt,
+        _block_limit: &ExecutionCost,
+    ) -> Result<(), EstimatorError> {
         Ok(())
     }
 
@@ -247,11 +280,17 @@ impl CostEstimator for UnitEstimator {
         &mut self,
         _tx: &TransactionPayload,
         _actual_cost: &ExecutionCost,
+        _block_limit: &ExecutionCost,
+        _evaluated_epoch: &StacksEpochId,
     ) -> Result<(), EstimatorError> {
         Ok(())
     }
 
-    fn estimate_cost(&self, _tx: &TransactionPayload) -> Result<ExecutionCost, EstimatorError> {
+    fn estimate_cost(
+        &self,
+        _tx: &TransactionPayload,
+        _evaluated_epoch: &StacksEpochId,
+    ) -> Result<ExecutionCost, EstimatorError> {
         Ok(ExecutionCost {
             write_length: 1,
             write_count: 1,

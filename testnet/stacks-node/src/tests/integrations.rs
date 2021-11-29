@@ -13,6 +13,7 @@ use stacks::chainstate::stacks::{TokenTransferMemo, TransactionContractCall, Tra
 use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
+use stacks::core::PEER_VERSION_EPOCH_2_0;
 use stacks::net::GetIsTraitImplementedResponse;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
@@ -31,6 +32,9 @@ use stacks::vm::{
 use crate::config::InitialBalance;
 use crate::helium::RunLoop;
 use crate::tests::make_sponsored_stacks_transfer_on_testnet;
+use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochId;
+use stacks::vm::costs::ExecutionCost;
 
 use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
@@ -214,6 +218,8 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
                 let publish_tx =
@@ -225,6 +231,8 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
                 let publish_tx =
@@ -236,6 +244,8 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -255,6 +265,8 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round >= 3 {
@@ -271,7 +283,14 @@ fn integration_test_get_info() {
                 eprintln!("update-info submitted");
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
             }
 
@@ -285,7 +304,14 @@ fn integration_test_get_info() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx_xfer)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        tx_xfer,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
             }
 
@@ -1045,6 +1071,8 @@ fn contract_stx_transfer() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1058,6 +1086,8 @@ fn contract_stx_transfer() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 3 {
@@ -1071,7 +1101,14 @@ fn contract_stx_transfer() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
 
                 let tx = make_contract_call(
@@ -1085,7 +1122,14 @@ fn contract_stx_transfer() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
             } else if round == 4 {
                 // let's testing "chaining": submit MAXIMUM_MEMPOOL_TX_CHAINING - 1 txs, which should succeed
@@ -1108,6 +1152,8 @@ fn contract_stx_transfer() {
                             &header_hash,
                             &xfer_to_contract,
                             None,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch20,
                         )
                         .unwrap();
                 }
@@ -1124,6 +1170,8 @@ fn contract_stx_transfer() {
                         &header_hash,
                         &xfer_to_contract,
                         None,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap_err()
                 {
@@ -1339,6 +1387,8 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1351,6 +1401,8 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 3 {
@@ -1363,6 +1415,8 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 4 {
@@ -1375,6 +1429,8 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }
@@ -1471,7 +1527,14 @@ fn mine_contract_twice() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
 
                 // throw an extra "run" in.
@@ -1565,6 +1628,8 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1581,6 +1646,8 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -1593,6 +1660,8 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -1600,14 +1669,28 @@ fn bad_contract_tx_rollback() {
                     make_contract_publish(&contract_sk, 0, 10, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
 
                 let publish_tx =
                     make_contract_publish(&contract_sk, 1, 10, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
             }
 
@@ -1748,9 +1831,21 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
 fn block_limit_runtime_test() {
     let mut conf = super::new_test_conf();
 
-    // use a shorter runtime limit. the current runtime limit
-    //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
-    conf.block_limit.runtime = 1_000_000_000;
+    conf.burnchain.epochs = Some(vec![StacksEpoch {
+        epoch_id: StacksEpochId::Epoch20,
+        start_height: 0,
+        end_height: 9223372036854775807,
+        block_limit: ExecutionCost {
+            write_length: 150000000,
+            write_count: 50000,
+            read_length: 1000000000,
+            read_count: 50000,
+            // use a shorter runtime limit. the current runtime limit
+            //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+            runtime: 1_000_000_000,
+        },
+        network_epoch: PEER_VERSION_EPOCH_2_0,
+    }]);
     conf.burnchain.commit_anchor_block_within = 5000;
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
@@ -1763,7 +1858,6 @@ fn block_limit_runtime_test() {
     }
 
     let num_rounds = 6;
-
     let mut run_loop = RunLoop::new(conf);
 
     run_loop
@@ -1793,7 +1887,14 @@ fn block_limit_runtime_test() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
                     .unwrap();
             } else if round > 1 {
                 eprintln!("Begin Round: {}", round);
@@ -1815,7 +1916,14 @@ fn block_limit_runtime_test() {
                     );
                     tenure
                         .mem_pool
-                        .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, tx)
+                        .submit_raw(
+                            &mut chainstate_copy,
+                            consensus_hash,
+                            block_hash,
+                            tx,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch20,
+                        )
                         .unwrap();
                 }
             }
@@ -1899,6 +2007,8 @@ fn mempool_errors() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }

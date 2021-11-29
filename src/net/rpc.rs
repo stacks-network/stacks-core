@@ -98,7 +98,8 @@ use vm::{
     analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
-        clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
+        clarity_store::ContractCommitment, BurnStateDB, ClarityDatabase, ClaritySerializable,
+        STXBalance,
     },
     errors::Error as ClarityRuntimeError,
     errors::Error::Unchecked,
@@ -421,6 +422,7 @@ impl RPCNeighborsInfo {
     /// Load neighbor address information from the peer network
     pub fn from_p2p(
         network_id: u32,
+        network_epoch: u8,
         peers: &PeerMap,
         chain_view: &BurnchainView,
         peerdb: &PeerDB,
@@ -428,6 +430,7 @@ impl RPCNeighborsInfo {
         let neighbor_sample = PeerDB::get_random_neighbors(
             peerdb.conn(),
             network_id,
+            network_epoch,
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
@@ -756,9 +759,12 @@ impl ConversationHttp {
         req: &HttpRequestType,
         network: &PeerNetwork,
     ) -> Result<(), net_error> {
+        let epoch = network.get_current_epoch();
+
         let response_metadata = HttpResponseMetadata::from(req);
         let neighbor_data = RPCNeighborsInfo::from_p2p(
             network.local_peer.network_id,
+            epoch.network_epoch,
             &network.peers,
             &network.chain_view,
             &network.peerdb,
@@ -1192,9 +1198,10 @@ impl ConversationHttp {
 
         let data_opt_res =
             chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                let epoch = clarity_tx.get_epoch();
                 let cost_track = clarity_tx
                     .with_clarity_db_readonly(|clarity_db| {
-                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db)
+                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db, epoch)
                     })
                     .map_err(|_| {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
@@ -1602,12 +1609,22 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         handler_args: &RPCHandlerArgs,
+        sortdb: &SortitionDB,
         tx: &TransactionPayload,
         estimated_len: u64,
     ) -> Result<(), net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        let stacks_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), tip.block_height)?
+                .ok_or_else(|| {
+                    warn!(
+                        "Failed to get fee rate estimate because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
+                })?;
         if let Some((cost_estimator, fee_estimator, metric)) = handler_args.get_estimators_ref() {
-            let estimated_cost = match cost_estimator.estimate_cost(tx) {
+            let estimated_cost = match cost_estimator.estimate_cost(tx, &stacks_epoch.epoch_id) {
                 Ok(x) => x,
                 Err(e) => {
                     debug!(
@@ -1618,7 +1635,9 @@ impl ConversationHttp {
                         .send(http, fd);
                 }
             };
-            let scalar_cost = metric.from_cost_and_len(&estimated_cost, estimated_len);
+
+            let scalar_cost =
+                metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
             let fee_rates = match fee_estimator.get_rate_estimates() {
                 Ok(x) => x,
                 Err(e) => {
@@ -1673,6 +1692,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
         consensus_hash: ConsensusHash,
         block_hash: BlockHeaderHash,
         mempool: &mut MemPoolDB,
@@ -1690,12 +1710,26 @@ impl ConversationHttp {
                 false,
             )
         } else {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+            let stacks_epoch = sortdb
+                .index_conn()
+                .get_stacks_epoch(tip.block_height as u32)
+                .ok_or_else(|| {
+                    warn!(
+                        "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
+                })?;
+
             match mempool.submit(
                 chainstate,
                 &consensus_hash,
                 &block_hash,
                 &tx,
                 event_observer,
+                &stacks_epoch.block_limit,
+                &stacks_epoch.epoch_id,
             ) {
                 Ok(_) => {
                     debug!("Mempool accepted POSTed transaction {}", &txid);
@@ -2104,6 +2138,7 @@ impl ConversationHttp {
                     &mut reply,
                     &req,
                     handler_opts,
+                    sortdb,
                     tx,
                     estimated_len,
                 )?;
@@ -2180,6 +2215,7 @@ impl ConversationHttp {
                             &mut reply,
                             &req,
                             chainstate,
+                            sortdb,
                             tip.consensus_hash,
                             tip.anchored_block_hash,
                             mempool,
