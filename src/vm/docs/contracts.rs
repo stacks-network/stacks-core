@@ -216,7 +216,7 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
     );
     global_context.execute(|g| {
         let parsed = vm::ast::build_ast(&contract_id, program, &mut (), version.clone())?.expressions;
-        vm::eval_all(&parsed, &mut contract_context, g)
+        vm::eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
