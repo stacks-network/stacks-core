@@ -921,11 +921,10 @@ simulating a miner.
                 epochs,
             )
             .unwrap();
-        let (mut p2p_chainstate, _) = StacksChainState::open_with_block_limit(
+        let (mut p2p_chainstate, _) = StacksChainState::open(
             false,
             0x80000000,
             new_chainstate_path,
-            ExecutionCost::max_value(),
         )
         .unwrap();
 
