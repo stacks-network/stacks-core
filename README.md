@@ -13,7 +13,7 @@ Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and ena
 | Stacks 2.0                 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
 | Stacks 1.0                 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
 | Use the package            | [our core docs](https://docs.blockstack.org/core/naming/introduction.html)        |
-| Develop a Blockstack App   | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html)   |
+| Develop a Blockstack App   | [our developer docs](https://docs.stacks.co/build-apps/overview)                  |
 | Use a Blockstack App       | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
 | Blockstack PBC the company | [our website](https://blockstack.org)                                             |
 
@@ -30,8 +30,8 @@ to the main branch which are backported to the develop branch after merging. The
 according to the following rubric:
 
 - **High Priority**. Any fix for an issue that could deny service to the network as a whole, e.g., an issue where a particular kind of invalid transaction would cause nodes to stop processing requests or shut down unintentionally. Any fix for an issue that could cause honest miners to produce invalid blocks.
-- **Medium Priority**. Any fix for an issue that could cause miners to waste funds
-- **Low Priority**. Any fix for an issue that could deny service to individual nodes
+- **Medium Priority**. Any fix for an issue that could cause miners to waste funds.
+- **Low Priority**. Any fix for an issue that could deny service to individual nodes.
 
 ## Versioning
 
@@ -260,7 +260,7 @@ For help cross-compiling on memory-constrained devices, please see the community
 ## Community
 
 Beyond this Github project,
-Blockstack maintains a public [forum](https://forum.blockstack.org) and an
+Blockstack maintains a public [forum](https://forum.stacks.org) and an
 opened [Discord](https://discord.com/invite/XYdRyhf) channel. In addition, the project
 maintains a [mailing list](https://blockstack.org/signup) which sends out
 community announcements.
@@ -280,10 +280,10 @@ You can learn more by visiting [the Blockstack Website](https://blockstack.org) 
 
 You can also read the technical papers:
 
-- ["PoX: Proof of Transfer Mining with Bitcoin"](https://blockstack.org/pox.pdf), May 2020
-- ["The Blockstack Decentralized Computing Network"](https://blockstack.org/whitepaper.pdf), May 2019
+- ["PoX: Proof of Transfer Mining with Bitcoin"](https://community.stacks.org/pox), May 2020
+- ["Stacks 2.0: Apps and Smart Contracts for Bitcoin"](https://stacks.org/stacks), Dec 2020
 
-If you have high-level questions about Blockstack, try [searching our forum](https://forum.blockstack.org) and start a new question if your question is not answered there.
+If you have high-level questions about Blockstack, try [searching our forum](https://forum.stacks.org) and start a new question if your question is not answered there.
 
 ## Contributing
 
