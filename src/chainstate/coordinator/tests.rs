@@ -185,7 +185,7 @@ pub fn setup_states(
 
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
-
+        let epochs = StacksEpoch::unit_test(stacks_epoch_id, burnchain.first_block_height);
         let sortition_db = SortitionDB::connect(
             &burnchain.get_db_path(),
             burnchain.first_block_height,

@@ -210,6 +210,7 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch10 => write!(f, "1.0"),
             StacksEpochId::Epoch20 => write!(f, "2.0"),
             StacksEpochId::Epoch2_05 => write!(f, "2.05"),
+            StacksEpochId::Epoch21 => write!(f, "2.1"),
         }
     }
 }
@@ -222,6 +223,7 @@ impl TryFrom<u32> for StacksEpochId {
             x if x == StacksEpochId::Epoch10 as u32 => Ok(StacksEpochId::Epoch10),
             x if x == StacksEpochId::Epoch20 as u32 => Ok(StacksEpochId::Epoch20),
             x if x == StacksEpochId::Epoch2_05 as u32 => Ok(StacksEpochId::Epoch2_05),
+            x if x == StacksEpochId::Epoch21 as u32 => Ok(StacksEpochId::Epoch21),
             _ => Err("Invalid epoch"),
         }
     }
@@ -480,29 +482,6 @@ fn test_ord_for_stacks_epoch_id() {
     );
 }
 
-impl std::fmt::Display for StacksEpochId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StacksEpochId::Epoch10 => write!(f, "1.0"),
-            StacksEpochId::Epoch20 => write!(f, "2.0"),
-            StacksEpochId::Epoch21 => write!(f, "2.1"),
-        }
-    }
-}
-
-impl TryFrom<u32> for StacksEpochId {
-    type Error = &'static str;
-
-    fn try_from(value: u32) -> Result<StacksEpochId, Self::Error> {
-        match value {
-            x if x == StacksEpochId::Epoch10 as u32 => Ok(StacksEpochId::Epoch10),
-            x if x == StacksEpochId::Epoch20 as u32 => Ok(StacksEpochId::Epoch20),
-            x if x == StacksEpochId::Epoch21 as u32 => Ok(StacksEpochId::Epoch21),
-            _ => Err("Invalid epoch"),
-        }
-    }
-}
-
 impl StacksEpoch {
     #[cfg(test)]
     pub fn unit_test(first_burnchain_height: u64) -> Vec<StacksEpoch> {
@@ -543,18 +522,5 @@ impl StacksEpoch {
                 end_height: STACKS_EPOCH_MAX,
             },
         ]
-    }
-}
-
-// StacksEpochs are ordered by start block height
-impl PartialOrd for StacksEpoch {
-    fn partial_cmp(&self, other: &StacksEpoch) -> Option<Ordering> {
-        self.start_height.partial_cmp(&other.start_height)
-    }
-}
-
-impl Ord for StacksEpoch {
-    fn cmp(&self, other: &StacksEpoch) -> Ordering {
-        self.start_height.cmp(&other.start_height)
     }
 }
