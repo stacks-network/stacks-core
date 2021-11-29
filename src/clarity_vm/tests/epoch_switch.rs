@@ -123,13 +123,13 @@ fn test_vm_epoch_switch() {
     // impl BurnStateDB for SortitionHandleConn
     {
         let burndb = db.index_conn();
-        test_burnstatedb_epoch(&burndb, start_height, end_height, 8, 12);
+        test_burnstatedb_epoch(&burndb, start_height, end_height, 8, 12, 20);
     }
 
     // impl BurnStateDB for SortitionHandleTx
     {
         let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         let burntx = db.tx_handle_begin(&tip.sortition_id).unwrap();
-        test_burnstatedb_epoch(&burntx, start_height, end_height, 8, 12);
+        test_burnstatedb_epoch(&burntx, start_height, end_height, 8, 12, 20);
     }
 }
