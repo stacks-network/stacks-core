@@ -403,12 +403,6 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
     epoch_205_result
 }
 
-/// Execute `program` on the `Testnet`.
-#[cfg(test)]
-pub fn execute(program: &str) -> Result<Option<Value>> {
-    execute_on_network(program, false)
-}
-
 /// Runs `program` in a test environment with the provided parameters.
 #[cfg(test)]
 pub fn execute_with_parameters(
@@ -429,18 +423,22 @@ pub fn execute_with_parameters(
     })
 }
 
-/// Run provided program in a brand new environment, with a transient, empty
-/// database. Only used by CLI and unit tests.
-///
-/// This version of the function assumes that the ClarityVersion is Clarity2.
+/// Execute for test with `version`, Epoch20, testnet.
+#[cfg(test)]
+pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
+    execute_with_parameters(program, version, StacksEpochId::Epoch20, false)
+}
+
+/// Execute for test in Clarity1, Epoch20, testnet.
+#[cfg(test)]
+pub fn execute(program: &str) -> Result<Option<Value>> {
+    execute_with_parameters(program, ClarityVersion::Clarity1, StacksEpochId::Epoch20, false)
+}
+
+/// Execute for test in in Clarity2, Epoch21, testnet.
 #[cfg(test)]
 pub fn execute_v2(program: &str) -> Result<Option<Value>> {
-    execute_with_parameters(
-        program,
-        ClarityVersion::Clarity2,
-        StacksEpochId::Epoch21,
-        false,
-    )
+    execute_with_parameters(program, ClarityVersion::Clarity2, StacksEpochId::Epoch21, false)
 }
 
 #[cfg(test)]

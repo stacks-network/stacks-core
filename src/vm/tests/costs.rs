@@ -43,6 +43,7 @@ use vm::tests::{
 use vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
+use vm::ClarityVersion;
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
@@ -898,9 +899,12 @@ fn epoch_205_test_all(use_mainnet: bool) {
     let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch2_05);
 
     for f in NativeFunctions::ALL.iter() {
-        let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
-        assert!(cost.exceeds(&baseline));
+        // Note: The 2.05 test assumes Clarity1.
+        if f.get_version() == ClarityVersion::Clarity1 {
+            let test = get_simple_test(f);
+            let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
+            assert!(cost.exceeds(&baseline));
+        }
     }
 }
 
