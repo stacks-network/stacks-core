@@ -30,20 +30,22 @@ use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use core::StacksEpochId;
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
-    helper_execute_epoch(contract, method, None)
+    helper_execute_epoch(contract, method, None, StacksEpochId::Epoch21, false)
 }
 
 fn helper_execute_epoch(
     contract: &str,
     method: &str,
     set_epoch: Option<StacksEpochId>,
+        epoch: StacksEpochId,
+        use_mainnet: bool,
 ) -> (Value, Vec<StacksTransactionEvent>) {
     let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
     let address = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
     let sender = execute(address).expect_principal();
 
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv);
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
     let mut genesis = clarity_instance.begin_test_genesis_block(
         &StacksBlockId::sentinel(),
         &StacksBlockHeader::make_index_block_hash(
@@ -80,6 +82,8 @@ fn helper_execute_epoch(
 
     let mut owned_env = OwnedEnvironment::new_max_limit(
         store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB_2_1),
+        epoch,
+        use_mainnet,
     );
 
     {
@@ -169,7 +173,7 @@ fn test_emit_stx_transfer_memo_ok() {
                 (ok u1)))"#;
 
     let (value, mut events) =
-        helper_execute_epoch(contract, "emit-event-ok", Some(StacksEpochId::Epoch21));
+        helper_execute_epoch(contract, "emit-event-ok", Some(StacksEpochId::Epoch21), StacksEpochId::Epoch21, false);
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 1);
     match events.pop() {
