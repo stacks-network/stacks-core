@@ -202,17 +202,39 @@ jobs:
           echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
           echo "GITHUB_REF_SHORT=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
 
-      - name: Build/Tag/Push Image
-        uses: docker/build-push-action@v1
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v3
         with:
-          repository: blockstack/${{ github.workflow }}
-          dockerfile: Dockerfile.stretch
+          images: |
+            blockstack/${{ github.workflow }}
+          tags: |
+            ${{ env.STRETCH_TAG }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
-          tags: ${{ env.STRETCH_TAG }}
-          tag_with_ref: false
-          add_git_labels: true
-          build_args: STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }},GIT_BRANCH=${{ env.GITHUB_REF_SHORT }},GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
+
+      - name: Build/Tag/Push Image
+        uses: docker/build-push-action@v2
+        with:
+          platforms: linux/amd64,linux/arm64
+          context: .
+          file: Dockerfile.stretch
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
+            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
+            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
           # Only push if (a tag was passed in) or (we're building a non-master branch which isn't a PR)
           push: ${{ github.event.inputs.tag != '' || (github.ref != 'refs/heads/master' && !contains(github.ref, 'refs/pull')) }}
 
