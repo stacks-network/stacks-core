@@ -38,7 +38,6 @@ use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, Stri
 use vm::{eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
-use crate::core;
 use crate::types::chainstate::StacksAddress;
 use crate::{clarity_vm::database::MemoryBackingStore, vm::ClarityVersion};
 use chainstate::stacks::{
@@ -315,7 +314,7 @@ fn test_principal_of_fix() {
         execute_with_parameters(
             principal_of_program,
             ClarityVersion::Clarity2,
-            StacksEpochId::Epoch21,
+            StacksEpochId::Epoch20,
             true
         )
         .unwrap()
@@ -328,7 +327,7 @@ fn test_principal_of_fix() {
         execute_with_parameters(
             principal_of_program,
             ClarityVersion::Clarity2,
-            StacksEpochId::Epoch21,
+            StacksEpochId::Epoch20,
             false
         )
         .unwrap()
@@ -341,7 +340,7 @@ fn test_principal_of_fix() {
         execute_with_parameters(
             principal_of_program,
             ClarityVersion::Clarity1,
-            StacksEpochId::Epoch21,
+            StacksEpochId::Epoch20,
             true
         )
         .unwrap()
@@ -354,7 +353,7 @@ fn test_principal_of_fix() {
         execute_with_parameters(
             principal_of_program,
             ClarityVersion::Clarity1,
-            StacksEpochId::Epoch21,
+            StacksEpochId::Epoch20,
             false
         )
         .unwrap()
@@ -490,7 +489,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion) {
             false,
             marf.as_clarity_db(),
             LimitedCostTracker::new_free(),
-            StacksEpochId::Epoch2_05,
+            StacksEpochId::Epoch20,
         );
 
         contract_context
@@ -1044,7 +1043,7 @@ fn test_stx_ops_errors() {
             execute_with_parameters(
                 program,
                 ClarityVersion::Clarity2,
-                StacksEpochId::Epoch21,
+                StacksEpochId::Epoch20,
                 false
             )
             .unwrap_err()
@@ -1394,7 +1393,7 @@ fn test_is_mainnet() {
                 execute_with_parameters(
                     program,
                     ClarityVersion::Clarity2,
-                    StacksEpochId::Epoch21,
+                    StacksEpochId::Epoch20,
                     true
                 )
                 .unwrap()
@@ -1413,7 +1412,7 @@ fn test_is_mainnet() {
                 execute_with_parameters(
                     program,
                     ClarityVersion::Clarity2,
-                    StacksEpochId::Epoch21,
+                    StacksEpochId::Epoch20,
                     false
                 )
                 .unwrap()
