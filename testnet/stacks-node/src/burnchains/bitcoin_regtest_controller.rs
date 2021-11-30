@@ -1477,7 +1477,7 @@ impl BurnchainController for BitcoinRegtestController {
             true,
             burnchain_indexer.get_first_block_header_hash()?,
             burnchain_indexer.get_first_block_header_timestamp()?,
-            burnchain_indexer.get_stacks_epochs()?,
+            burnchain_indexer.get_stacks_epochs(),
         )?;
         Ok(())
     }
