@@ -83,7 +83,7 @@ pub fn type_check(
     expressions: &mut [SymbolicExpression],
     analysis_db: &mut AnalysisDatabase,
     insert_contract: bool,
-    version:&ClarityVersion,
+    version: &ClarityVersion,
 ) -> CheckResult<ContractAnalysis> {
     run_analysis(
         &contract_identifier,

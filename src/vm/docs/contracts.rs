@@ -11,8 +11,8 @@ use crate::core::StacksEpochId;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::{self, ContractContext};
 use crate::vm::ClarityVersion;
+use crate::vm::{self, ContractContext};
 
 const DOCS_GENERATION_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
 
@@ -213,7 +213,8 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
         DOCS_GENERATION_EPOCH,
     );
     global_context.execute(|g| {
-        let parsed = vm::ast::build_ast(&contract_id, program, &mut (), version.clone())?.expressions;
+        let parsed =
+            vm::ast::build_ast(&contract_id, program, &mut (), version.clone())?.expressions;
         vm::eval_all(&parsed, &mut contract_context, g, None)
     })
 }

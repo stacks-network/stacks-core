@@ -413,7 +413,7 @@ where
 
 /// Execute program in a transient environment. To be used only by CLI tools
 ///  for program evaluation, not by consensus critical code.
-pub fn vm_execute(program: &str, version:&ClarityVersion) -> Result<Option<Value>, Error> {
+pub fn vm_execute(program: &str, version: &ClarityVersion) -> Result<Option<Value>, Error> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), version.clone());
     let mut marf = MemoryBackingStore::new();

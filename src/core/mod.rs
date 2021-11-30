@@ -357,13 +357,13 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch21,
-        start_height: BITCOIN_MAINNET_STACKS_21_BURN_HEIGHT,
-        end_height: STACKS_EPOCH_MAX,
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: BITCOIN_MAINNET_STACKS_21_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05
-    },
+        },
     ];
 }
 
@@ -390,13 +390,13 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
-    StacksEpoch {
-        epoch_id: StacksEpochId::Epoch21,
-        start_height: BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT,
-        end_height: STACKS_EPOCH_MAX,
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05
-    },
+        },
     ];
 }
 

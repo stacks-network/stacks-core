@@ -383,8 +383,18 @@ pub fn eval_all(
 /// that the result is the same before returning the result
 #[cfg(test)]
 pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Value>> {
-    let epoch_200_result = execute_with_parameters(program, ClarityVersion::Clarity2, StacksEpochId::Epoch20, use_mainnet);
-    let epoch_205_result = execute_with_parameters(program, ClarityVersion::Clarity2, StacksEpochId::Epoch2_05, use_mainnet);
+    let epoch_200_result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity2,
+        StacksEpochId::Epoch20,
+        use_mainnet,
+    );
+    let epoch_205_result = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity2,
+        StacksEpochId::Epoch2_05,
+        use_mainnet,
+    );
     assert_eq!(
         epoch_200_result, epoch_205_result,
         "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
@@ -403,7 +413,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 #[cfg(test)]
 pub fn execute_with_parameters(
     program: &str,
-    clarity_version:ClarityVersion,
+    clarity_version: ClarityVersion,
     epoch: StacksEpochId,
     use_mainnet: bool,
 ) -> Result<Option<Value>> {
@@ -411,7 +421,8 @@ pub fn execute_with_parameters(
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(use_mainnet, conn, LimitedCostTracker::new_free(), epoch);
+    let mut global_context =
+        GlobalContext::new(use_mainnet, conn, LimitedCostTracker::new_free(), epoch);
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut (), clarity_version)?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
@@ -424,7 +435,12 @@ pub fn execute_with_parameters(
 /// This version of the function assumes that the ClarityVersion is Clarity2.
 #[cfg(test)]
 pub fn execute_v2(program: &str) -> Result<Option<Value>> {
-    execute_with_parameters(program, ClarityVersion::Clarity2, StacksEpochId::Epoch21, false)
+    execute_with_parameters(
+        program,
+        ClarityVersion::Clarity2,
+        StacksEpochId::Epoch21,
+        false,
+    )
 }
 
 #[cfg(test)]

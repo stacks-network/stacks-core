@@ -7107,7 +7107,7 @@ pub mod tests {
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 8);
     }
 
-// DO NOT SUBMIT: dubplicate this test
+    // DO NOT SUBMIT: dubplicate this test
     #[test]
     fn test_epoch_switch() {
         let mut rng = rand::thread_rng();
@@ -7161,7 +7161,7 @@ pub mod tests {
             } else if cur_snapshot.block_height < 12 {
                 assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch20);
             } else {
-// alt: assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch2_05);
+                // alt: assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch2_05);
                 assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch21);
             }
 

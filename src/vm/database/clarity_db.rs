@@ -45,11 +45,9 @@ use vm::types::{
     TypeSignature, Value, NONE,
 };
 
-use crate::{
-    types::chainstate::{
-        BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
-        StacksBlockId, VRFSeed,
-    },
+use crate::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
+    StacksBlockId, VRFSeed,
 };
 
 use crate::types::proof::TrieMerkleProof;
@@ -179,7 +177,6 @@ impl BurnStateDB for &dyn BurnStateDB {
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         (*self).get_stacks_epoch_by_epoch_id(epoch_id)
     }
-
 }
 
 pub struct NullHeadersDB {}

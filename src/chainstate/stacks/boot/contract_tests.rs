@@ -325,7 +325,7 @@ impl BurnStateDB for TestSimBurnStateDB {
                         end_height: self.epoch_bounds[0],
                         epoch_id: StacksEpochId::Epoch10,
                         block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
+                        network_epoch: PEER_VERSION_EPOCH_1_0,
                     });
                 } else {
                     index - 1
@@ -347,8 +347,8 @@ impl BurnStateDB for TestSimBurnStateDB {
                 .cloned()
                 .unwrap_or(u64::max_value()),
             epoch_id,
-                        block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_1_0,
         })
     }
 

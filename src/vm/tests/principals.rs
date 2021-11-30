@@ -7,6 +7,7 @@ use vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
 use vm::ClarityVersion;
 
 use crate::clarity_vm::database::MemoryBackingStore;
+use crate::core::StacksEpochId;
 use std::collections::HashMap;
 use vm::callables::{DefineType, DefinedFunction};
 use vm::costs::LimitedCostTracker;
@@ -19,14 +20,18 @@ use vm::types::{QualifiedContractIdentifier, TypeSignature};
 use vm::{
     CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
 };
-use crate::core::StacksEpochId;
 
 #[test]
 fn test_simple_is_standard_check_inputs() {
     let wrong_type_test = "(is-standard u10)";
     assert_eq!(
-        execute_with_parameters(wrong_type_test, ClarityVersion::Clarity2, StacksEpochId::Epoch21, true)
-            .unwrap_err(),
+        execute_with_parameters(
+            wrong_type_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            true
+        )
+        .unwrap_err(),
         CheckErrors::TypeValueError(PrincipalType, Value::UInt(10)).into()
     );
 }
@@ -36,57 +41,97 @@ fn test_simple_is_standard_testnet_cases() {
     let testnet_addr_test = "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)";
     assert_eq!(
         Value::Bool(true),
-        execute_with_parameters(testnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,false)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            testnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            false
+        )
+        .unwrap()
+        .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(testnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,true)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            testnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            true
+        )
+        .unwrap()
+        .unwrap()
     );
 
     let testnet_addr_test = "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.tokens)";
     assert_eq!(
         Value::Bool(true),
-        execute_with_parameters(testnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,false)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            testnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            false
+        )
+        .unwrap()
+        .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(testnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,true)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            testnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            true
+        )
+        .unwrap()
+        .unwrap()
     );
 
     let testnet_addr_test = "(is-standard 'SN2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKP6D2ZK9)";
     assert_eq!(
         Value::Bool(true),
-        execute_with_parameters(testnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,false)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            testnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            false
+        )
+        .unwrap()
+        .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(testnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,true)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            testnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            true
+        )
+        .unwrap()
+        .unwrap()
     );
 
     let testnet_addr_test = "(is-standard 'SN2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKP6D2ZK9.tokens)";
     assert_eq!(
         Value::Bool(true),
-        execute_with_parameters(testnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,false)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            testnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            false
+        )
+        .unwrap()
+        .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(testnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,true)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            testnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            true
+        )
+        .unwrap()
+        .unwrap()
     );
 }
 
@@ -94,57 +139,97 @@ fn test_simple_is_standard_mainnet_cases() {
     let mainnet_addr_test = "(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
     assert_eq!(
         Value::Bool(true),
-        execute_with_parameters(mainnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,true)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            mainnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            true
+        )
+        .unwrap()
+        .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(mainnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,false)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            mainnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            false
+        )
+        .unwrap()
+        .unwrap()
     );
 
     let mainnet_addr_test = "(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.tokens)";
     assert_eq!(
         Value::Bool(true),
-        execute_with_parameters(mainnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,true)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            mainnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            true
+        )
+        .unwrap()
+        .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(mainnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,false)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            mainnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            false
+        )
+        .unwrap()
+        .unwrap()
     );
 
     let mainnet_addr_test = "(is-standard 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
     assert_eq!(
         Value::Bool(true),
-        execute_with_parameters(mainnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,true)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            mainnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            true
+        )
+        .unwrap()
+        .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(mainnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,false)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            mainnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            false
+        )
+        .unwrap()
+        .unwrap()
     );
 
     let mainnet_addr_test = "(is-standard 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.tokens)";
     assert_eq!(
         Value::Bool(true),
-        execute_with_parameters(mainnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,true)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            mainnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            true
+        )
+        .unwrap()
+        .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(mainnet_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,false)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            mainnet_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            false
+        )
+        .unwrap()
+        .unwrap()
     );
 }
 
@@ -154,28 +239,48 @@ fn test_simple_is_standard_undefined_cases() {
     let invalid_addr_test = "(is-standard 'S1G2081040G2081040G2081040G208105NK8PE5)";
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(invalid_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,true)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            invalid_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            true
+        )
+        .unwrap()
+        .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(invalid_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,false)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            invalid_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            false
+        )
+        .unwrap()
+        .unwrap()
     );
 
     let invalid_addr_test = "(is-standard 'S1G2081040G2081040G2081040G208105NK8PE5.tokens)";
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(invalid_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,true)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            invalid_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            true
+        )
+        .unwrap()
+        .unwrap()
     );
     assert_eq!(
         Value::Bool(false),
-        execute_with_parameters(invalid_addr_test, ClarityVersion::Clarity2,  StacksEpochId::Epoch21,false)
-            .unwrap()
-            .unwrap()
+        execute_with_parameters(
+            invalid_addr_test,
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+            false
+        )
+        .unwrap()
+        .unwrap()
     );
 }

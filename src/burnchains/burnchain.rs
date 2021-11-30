@@ -80,9 +80,9 @@ use util::vrf::VRFPublicKey;
 
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
 use burnchains::bitcoin::indexer::BitcoinIndexer;
-use core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 use chainstate::stacks::boot::POX_2_MAINNET_CODE;
 use chainstate::stacks::boot::POX_2_TESTNET_CODE;
+use core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {

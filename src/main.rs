@@ -920,12 +920,8 @@ simulating a miner.
                 epochs,
             )
             .unwrap();
-        let (mut p2p_chainstate, _) = StacksChainState::open(
-            false,
-            0x80000000,
-            new_chainstate_path,
-        )
-        .unwrap();
+        let (mut p2p_chainstate, _) =
+            StacksChainState::open(false, 0x80000000, new_chainstate_path).unwrap();
 
         let _ = thread::spawn(move || {
             loop {

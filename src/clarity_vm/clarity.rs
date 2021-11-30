@@ -19,6 +19,34 @@ use std::error;
 use std::fmt;
 use std::thread;
 
+use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
+use crate::chainstate::stacks::boot::POX_2_NAME;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::TransactionAuth;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::chainstate::stacks::TransactionPublicKeyEncoding;
+use crate::chainstate::stacks::TransactionSmartContract;
+use crate::chainstate::stacks::TransactionSpendingCondition;
+use crate::chainstate::stacks::TransactionVersion;
+use crate::core::StacksEpoch;
+use crate::core::FIRST_STACKS_BLOCK_ID;
+use crate::core::GENESIS_EPOCH;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::SortitionId;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::StacksMicroblockHeader;
+use crate::types::proof::TrieHash;
+use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::util::secp256k1::MessageSignature;
+use crate::{
+    burnchains::Burnchain,
+    clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
+};
+use crate::{
+    clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId, vm::ClarityVersion,
+};
+use chainstate::stacks::boot::POX_2_MAINNET_CODE;
+use chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
     BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
@@ -29,6 +57,7 @@ use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
+use types::chainstate::BurnchainHeaderHash;
 use util::strings::StacksString;
 use vm::analysis;
 use vm::analysis::AnalysisDatabase;
@@ -47,35 +76,6 @@ use vm::types::{
     AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
     TypeSignature, Value,
 };
-use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
-use crate::chainstate::stacks::TransactionAuth;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::chainstate::stacks::TransactionPublicKeyEncoding;
-use crate::chainstate::stacks::TransactionSmartContract;
-use crate::chainstate::stacks::TransactionSpendingCondition;
-use crate::chainstate::stacks::TransactionVersion;
-use crate::chainstate::stacks::boot::POX_2_NAME;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::core::StacksEpoch;
-use crate::core::FIRST_STACKS_BLOCK_ID;
-use crate::core::GENESIS_EPOCH;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::SortitionId;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::StacksMicroblockHeader;
-use crate::types::proof::TrieHash;
-use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
-use types::chainstate::BurnchainHeaderHash;
-use crate::util::secp256k1::MessageSignature;
-use crate::{
-    burnchains::Burnchain,
-    clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
-};
-use crate::{
-    clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId, vm::ClarityVersion,
-};
-use chainstate::stacks::boot::POX_2_MAINNET_CODE;
-use chainstate::stacks::boot::POX_2_TESTNET_CODE;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -290,10 +290,7 @@ impl ClarityBlockConnection<'_> {
 
 impl ClarityInstance {
     pub fn new(mainnet: bool, datastore: MarfedKV) -> ClarityInstance {
-        ClarityInstance {
-            datastore,
-            mainnet,
-        }
+        ClarityInstance { datastore, mainnet }
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -824,8 +821,7 @@ impl<'a> ClarityBlockConnection<'a> {
         })
     }
 
-
-   pub fn initialize_epoch_2_1(&mut self) -> Result<StacksTransactionReceipt, Error> {
+    pub fn initialize_epoch_2_1(&mut self) -> Result<StacksTransactionReceipt, Error> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
         using!(self.cost_track, "cost tracker", |old_cost_tracker| {
@@ -950,7 +946,6 @@ impl<'a> ClarityBlockConnection<'a> {
             (old_cost_tracker, Ok(initialization_receipt))
         })
     }
-
 
     pub fn start_transaction_processing<'b>(&'b mut self) -> ClarityTransactionConnection<'b, 'a> {
         let store = &mut self.datastore;
