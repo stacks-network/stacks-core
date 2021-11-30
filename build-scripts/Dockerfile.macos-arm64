@@ -15,8 +15,6 @@ RUN apt-get update && apt-get install -y clang zstd
 RUN wget -nc -O /tmp/osxcross.tar.zst "https://github.com/hirosystems/docker-osxcross-rust/releases/download/MacOSX12.0.sdk/osxcross-d904031_MacOSX12.0.sdk.tar.zst"
 RUN mkdir /opt/osxcross && tar -xaf /tmp/osxcross.tar.zst -C /opt/osxcross
 
-RUN . /opt/osxcross/env-macos-aarch64 && printenv
-
 RUN . /opt/osxcross/env-macos-aarch64 && \
     cargo build --target aarch64-apple-darwin --release --workspace=./
 
