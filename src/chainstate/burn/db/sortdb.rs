@@ -4381,7 +4381,7 @@ pub mod tests {
         assert!(res.is_err());
         assert!(format!("{:?}", res).contains("no such table: epochs"));
 
-        assert!(SortitionDB::open(&db_path_dir, true).is_err());
+        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default()).is_err());
 
         // create a v2 sortition DB at the same path as the v1 DB.
         // the schema migration should be successfully applied, and the epochs table should exist.
@@ -4399,7 +4399,7 @@ pub mod tests {
             .expect("Database should not error querying epochs")
             .expect("Database should have an epoch entry");
 
-        assert!(SortitionDB::open(&db_path_dir, true).is_ok());
+        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default()).is_ok());
     }
 
     #[test]
