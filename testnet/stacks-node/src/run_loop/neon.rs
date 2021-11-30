@@ -1,4 +1,3 @@
-use ctrlc as termination;
 use std::cmp;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
