@@ -53,6 +53,7 @@ use stacks::{
     util::db::query_rows,
     util::db::u64_to_sql,
 };
+use stacks::vm::ClarityVersion;
 
 use crate::{
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
@@ -3996,7 +3997,7 @@ fn pox_integration_test() {
             execute(&format!(
                 "{{ hashbytes: 0x{}, version: 0x00 }}",
                 pox_pubkey_hash
-            ))
+            ), &ClarityVersion::Clarity2)
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
@@ -4109,7 +4110,7 @@ fn pox_integration_test() {
             execute(&format!(
                 "{{ hashbytes: 0x{}, version: 0x00 }}",
                 pox_2_pubkey_hash
-            ))
+            ), &ClarityVersion::Clarity2)
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
@@ -4132,7 +4133,7 @@ fn pox_integration_test() {
             execute(&format!(
                 "{{ hashbytes: 0x{}, version: 0x00 }}",
                 pox_2_pubkey_hash
-            ))
+            ), &ClarityVersion::Clarity2)
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
