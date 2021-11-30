@@ -58,6 +58,7 @@ use crate::{
 };
 
 use clarity_vm::clarity::Error as ClarityError;
+use core::PEER_VERSION_EPOCH_1_0;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -323,6 +324,8 @@ impl BurnStateDB for TestSimBurnStateDB {
                         start_height: 0,
                         end_height: self.epoch_bounds[0],
                         epoch_id: StacksEpochId::Epoch10,
+                        block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
                     });
                 } else {
                     index - 1
@@ -344,6 +347,8 @@ impl BurnStateDB for TestSimBurnStateDB {
                 .cloned()
                 .unwrap_or(u64::max_value()),
             epoch_id,
+                        block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
         })
     }
 
