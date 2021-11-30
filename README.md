@@ -253,7 +253,7 @@ Congratulations, you can now [write your own smart contracts with Clarity](https
 
 Officially supported platforms: `Linux 64-bit`, `MacOS 64-bit`, `Windows 64-bit`.
 
-Platforms with second-tier status _(builds are provided but not tested)_: `Linux ARMv7`, `Linux ARM64`.
+Platforms with second-tier status _(builds are provided but not tested)_: `MacOS Apple Silicon (ARM64)`, `Linux ARMv7`, `Linux ARM64`.
 
 For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
 
