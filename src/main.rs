@@ -819,7 +819,7 @@ simulating a miner.
         );
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
-        let epochs = StacksEpoch::all(first_burnchain_block_height, u64::max_value());
+        let epochs = StacksEpoch::all(first_burnchain_block_height, u64::max_value(), u64::max_value());
         let (mut new_sortition_db, _) = burnchain
             .connect_db(
                 &indexer,
@@ -910,7 +910,7 @@ simulating a miner.
         let mut known_stacks_blocks = HashSet::new();
         let mut next_arrival = 0;
 
-        let epochs = StacksEpoch::all(first_burnchain_block_height, u64::max_value());
+        let epochs = StacksEpoch::all(first_burnchain_block_height, u64::max_value(), u64::max_value());
 
         let (p2p_new_sortition_db, _) = burnchain
             .connect_db(

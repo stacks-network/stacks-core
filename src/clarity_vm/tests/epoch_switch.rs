@@ -101,6 +101,13 @@ fn test_vm_epoch_switch() {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
                 start_height: 12,
+                end_height: 16,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: 16,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_2_05,
@@ -123,13 +130,13 @@ fn test_vm_epoch_switch() {
     // impl BurnStateDB for SortitionHandleConn
     {
         let burndb = db.index_conn();
-        test_burnstatedb_epoch(&burndb, start_height, end_height, 8, 12, 20);
+        test_burnstatedb_epoch(&burndb, start_height, end_height, 8, 12, 16);
     }
 
     // impl BurnStateDB for SortitionHandleTx
     {
         let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         let burntx = db.tx_handle_begin(&tip.sortition_id).unwrap();
-        test_burnstatedb_epoch(&burntx, start_height, end_height, 8, 12, 20);
+        test_burnstatedb_epoch(&burntx, start_height, end_height, 8, 12, 16);
     }
 }

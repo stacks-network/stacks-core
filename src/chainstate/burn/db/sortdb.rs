@@ -2226,7 +2226,6 @@ impl SortitionDB {
         // and the range of epochs should span the whole non-negative i64 space.
         let mut epochs = epochs_ref.to_vec();
         let mut seen_epochs = HashSet::new();
-        epochs.sort();
 
         let mut epoch_end_height = 0;
         for epoch in epochs.iter() {
