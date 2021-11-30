@@ -673,6 +673,7 @@ pub struct Preamble {
     pub burn_block_hash: BurnchainHeaderHash, // hash of the last-seen burn block
     pub burn_stable_block_height: u64, // latest stable block height (e.g. chain tip minus 7)
     pub burn_stable_block_hash: BurnchainHeaderHash, // latest stable burnchain header hash.
+    pub canonical_stacks_tip_height: u64, // chain tip height of the Stacks blockchain
     pub additional_data: u32, // RESERVED; pointer to additional data (should be all 0's if not used)
     pub signature: MessageSignature, // signature from the peer that sent this
     pub payload_len: u32,     // length of the following payload, including relayers vector

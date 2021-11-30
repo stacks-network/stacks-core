@@ -256,6 +256,7 @@ pub struct PeerNetwork {
     // (maintained by the inv state machine)
     pub tip_sort_id: SortitionId,
     pub pox_id: PoxId,
+    pub canonical_stacks_tip_height: u64,
 
     // cached block header hashes, for handling inventory requests
     // (maintained by the downloader state machine)
@@ -386,6 +387,7 @@ impl PeerNetwork {
             inv_state: None,
             pox_id: PoxId::initial(),
             tip_sort_id: SortitionId([0x00; 32]),
+            canonical_stacks_tip_height: 0,
             header_cache: BlockHeaderCache::new(),
 
             block_downloader: None,
@@ -706,6 +708,7 @@ impl PeerNetwork {
                     match convo.sign_and_forward(
                         &self.local_peer,
                         &self.chain_view,
+                        self.canonical_stacks_tip_height,
                         relay_hints.clone(),
                         message_payload.clone(),
                     ) {
@@ -1548,6 +1551,7 @@ impl PeerNetwork {
                 None => Err(net_error::PeerNotConnected),
                 Some(ref mut convo) => convo.sign_message(
                     &self.chain_view,
+                    self.canonical_stacks_tip_height,
                     &self.local_peer.private_key,
                     message_payload,
                 ),
@@ -1621,6 +1625,7 @@ impl PeerNetwork {
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
         pox_id: &PoxId,
+        canonical_stacks_tip_height: u64,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
         chain_view: &BurnchainView,
@@ -1661,6 +1666,7 @@ impl PeerNetwork {
             peerdb,
             sortdb,
             pox_id,
+            canonical_stacks_tip_height,
             chainstate,
             header_cache,
             chain_view,
@@ -1754,6 +1760,7 @@ impl PeerNetwork {
                         &mut self.peerdb,
                         sortdb,
                         &self.pox_id,
+                        self.canonical_stacks_tip_height,
                         chainstate,
                         &mut self.header_cache,
                         &self.chain_view,
@@ -1843,8 +1850,12 @@ impl PeerNetwork {
             {
                 // haven't talked to this neighbor in a while
                 let payload = StacksMessageType::Ping(PingData::new());
-                let ping_res =
-                    convo.sign_message(&self.chain_view, &self.local_peer.private_key, payload);
+                let ping_res = convo.sign_message(
+                    &self.chain_view,
+                    self.canonical_stacks_tip_height,
+                    &self.local_peer.private_key,
+                    payload,
+                );
 
                 match ping_res {
                     Ok(ping) => {
@@ -2004,9 +2015,12 @@ impl PeerNetwork {
                 &nk
             );
 
-            if let Ok(msg) =
-                convo.sign_message(&self.chain_view, &_old_local_peer.private_key, handshake)
-            {
+            if let Ok(msg) = convo.sign_message(
+                &self.chain_view,
+                self.canonical_stacks_tip_height,
+                &_old_local_peer.private_key,
+                handshake,
+            ) {
                 msgs.insert(nk, (*event_id, msg));
             }
         }
@@ -2149,6 +2163,7 @@ impl PeerNetwork {
                 let natpunch_request = convo
                     .sign_message(
                         &self.chain_view,
+                        self.canonical_stacks_tip_height,
                         &self.local_peer.private_key,
                         StacksMessageType::NatPunchRequest(nonce),
                     )
@@ -4790,6 +4805,7 @@ mod test {
                 &p2p.chain_view.burn_block_hash,
                 p2p.chain_view.burn_stable_block_height,
                 &p2p.chain_view.burn_stable_block_hash,
+                p2p.canonical_stacks_tip_height,
                 StacksMessageType::Ping(PingData::new()),
             );
 
@@ -4881,6 +4897,7 @@ mod test {
                 &p2p.chain_view.burn_block_hash,
                 p2p.chain_view.burn_stable_block_height,
                 &p2p.chain_view.burn_stable_block_hash,
+                p2p.canonical_stacks_tip_height,
                 StacksMessageType::Ping(PingData::new()),
             );
 

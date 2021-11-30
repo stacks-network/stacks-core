@@ -1741,6 +1741,7 @@ mod test {
             &BurnchainHeaderHash([0x11; 32]),
             12339,
             &BurnchainHeaderHash([0x22; 32]),
+            122,
             StacksMessageType::Ping(PingData { nonce: nonce }),
         );
         let privkey = Secp256k1PrivateKey::new();
@@ -1786,6 +1787,7 @@ mod test {
             &BurnchainHeaderHash([0x11; 32]),
             12339,
             &BurnchainHeaderHash([0x22; 32]),
+            122,
             StacksMessageType::Ping(PingData { nonce: 0x01020304 }),
         );
 
@@ -1953,6 +1955,7 @@ mod test {
                 &BurnchainHeaderHash([0x11; 32]),
                 12339 + i,
                 &BurnchainHeaderHash([0x22; 32]),
+                122,
                 StacksMessageType::Ping(PingData { nonce: 0x01020304 }),
             );
 
@@ -2052,6 +2055,7 @@ mod test {
                     &BurnchainHeaderHash([0x11; 32]),
                     12339 + i,
                     &BurnchainHeaderHash([0x22; 32]),
+                    122,
                     StacksMessageType::Ping(PingData {
                         nonce: (0x01020304 + i) as u32,
                     }),
@@ -2166,6 +2170,7 @@ mod test {
                 &BurnchainHeaderHash([0x11; 32]),
                 12339 + i,
                 &BurnchainHeaderHash([0x22; 32]),
+                122,
                 StacksMessageType::Ping(PingData {
                     nonce: (0x01020304 + i) as u32,
                 }),

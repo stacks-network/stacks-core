@@ -96,6 +96,7 @@ impl Preamble {
         burn_block_hash: &BurnchainHeaderHash,
         stable_block_height: u64,
         stable_burn_block_hash: &BurnchainHeaderHash,
+        canonical_stacks_tip_height: u64,
         payload_len: u32,
     ) -> Preamble {
         Preamble {
@@ -106,6 +107,7 @@ impl Preamble {
             burn_block_hash: burn_block_hash.clone(),
             burn_stable_block_height: stable_block_height,
             burn_stable_block_hash: stable_burn_block_hash.clone(),
+            canonical_stacks_tip_height: canonical_stacks_tip_height,
             additional_data: 0,
             signature: MessageSignature::empty(),
             payload_len: payload_len,
@@ -189,6 +191,7 @@ impl StacksMessageCodec for Preamble {
         write_next(fd, &self.burn_block_hash)?;
         write_next(fd, &self.burn_stable_block_height)?;
         write_next(fd, &self.burn_stable_block_hash)?;
+        write_next(fd, &self.canonical_stacks_tip_height)?;
         write_next(fd, &self.additional_data)?;
         write_next(fd, &self.signature)?;
         write_next(fd, &self.payload_len)?;
@@ -203,6 +206,7 @@ impl StacksMessageCodec for Preamble {
         let burn_block_hash: BurnchainHeaderHash = read_next(fd)?;
         let burn_stable_block_height: u64 = read_next(fd)?;
         let burn_stable_block_hash: BurnchainHeaderHash = read_next(fd)?;
+        let canonical_stacks_tip_height: u64 = read_next(fd)?;
         let additional_data: u32 = read_next(fd)?;
         let signature: MessageSignature = read_next(fd)?;
         let payload_len: u32 = read_next(fd)?;
@@ -244,6 +248,7 @@ impl StacksMessageCodec for Preamble {
             burn_block_hash,
             burn_stable_block_height,
             burn_stable_block_hash,
+            canonical_stacks_tip_height,
             additional_data,
             signature,
             payload_len,
@@ -1071,6 +1076,7 @@ impl StacksMessage {
         burn_header_hash: &BurnchainHeaderHash,
         stable_block_height: u64,
         stable_burn_header_hash: &BurnchainHeaderHash,
+        canonical_stacks_tip_height: u64,
         message: StacksMessageType,
     ) -> StacksMessage {
         let preamble = Preamble::new(
@@ -1080,6 +1086,7 @@ impl StacksMessage {
             burn_header_hash,
             stable_block_height,
             stable_burn_header_hash,
+            canonical_stacks_tip_height,
             0,
         );
         StacksMessage {
@@ -1094,6 +1101,7 @@ impl StacksMessage {
         peer_version: u32,
         network_id: u32,
         chain_view: &BurnchainView,
+        canonical_stacks_tip_height: u64,
         message: StacksMessageType,
     ) -> StacksMessage {
         StacksMessage::new(
@@ -1103,6 +1111,7 @@ impl StacksMessage {
             &chain_view.burn_block_hash,
             chain_view.burn_stable_block_height,
             &chain_view.burn_stable_block_hash,
+            canonical_stacks_tip_height,
             message,
         )
     }
@@ -1491,6 +1500,7 @@ pub mod test {
             burn_block_hash: BurnchainHeaderHash([0x11; 32]),
             burn_stable_block_height: 0x00001111,
             burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            canonical_stacks_tip_height: 0x00001122,
             additional_data: 0x33333333,
             signature: MessageSignature::from_raw(&vec![0x44; 65]),
             payload_len: 0x000007ff,
@@ -1507,7 +1517,8 @@ pub mod test {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x11, // stable_burn_block_hash
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
-            0x22, 0x22, 0x22, 0x22, // additional_data
+            0x22, 0x22, 0x22, 0x22, // canonical_stacks_tip_height
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, // additional_data
             0x33, 0x33, 0x33, 0x33, // signature
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
@@ -2120,6 +2131,7 @@ pub mod test {
                 burn_block_hash: BurnchainHeaderHash([0x11; 32]),
                 burn_stable_block_height: 0x00001111,
                 burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+                canonical_stacks_tip_height: 0,
                 additional_data: 0x33333333,
                 signature: MessageSignature::from_raw(&vec![0x44; 65]),
                 payload_len: (relayers_bytes.len() + payload_bytes.len()) as u32,
@@ -2173,6 +2185,7 @@ pub mod test {
             &BurnchainHeaderHash([0x11; 32]),
             12339,
             &BurnchainHeaderHash([0x22; 32]),
+            122,
             StacksMessageType::Ping(PingData { nonce: 0x01020304 }),
         );
 

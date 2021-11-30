@@ -2177,7 +2177,7 @@ impl PeerNetwork {
             .as_mut()
             .expect("Unreachable: inv state not initialized");
 
-        let (new_tip_sort_id, new_pox_id, reloaded) = {
+        let (new_tip_sort_id, new_pox_id, new_canonical_stacks_tip_height, reloaded) = {
             if self.burnchain_tip.sortition_id != self.tip_sort_id {
                 // reloaded burnchain tip disagrees with our last-considered sortition tip
                 let ic = sortdb.index_conn();
@@ -2186,10 +2186,16 @@ impl PeerNetwork {
                 (
                     self.burnchain_tip.sortition_id.clone(),
                     sortdb_reader.get_pox_id()?,
+                    self.burnchain_tip.canonical_stacks_tip_height,
                     true,
                 )
             } else {
-                (self.tip_sort_id.clone(), self.pox_id.clone(), false)
+                (
+                    self.tip_sort_id.clone(),
+                    self.pox_id.clone(),
+                    self.canonical_stacks_tip_height.clone(),
+                    false,
+                )
             }
         };
 
@@ -2223,6 +2229,7 @@ impl PeerNetwork {
 
             self.tip_sort_id = new_tip_sort_id;
             self.pox_id = new_pox_id;
+            self.canonical_stacks_tip_height = new_canonical_stacks_tip_height;
         }
 
         debug!(

@@ -2167,6 +2167,7 @@ mod test {
                 .sign_relay_message(
                     &peer.network.local_peer,
                     &peer.network.chain_view,
+                    peer.network.canonical_stacks_tip_height,
                     relay_hints,
                     msg,
                 )
