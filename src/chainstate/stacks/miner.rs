@@ -9817,6 +9817,7 @@ pub mod test {
                 },
                 network_epoch: PEER_VERSION_EPOCH_2_0,
             }],
+            PoxConstants::test_default(),
             true,
         )
         .unwrap();

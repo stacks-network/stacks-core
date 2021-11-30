@@ -2294,6 +2294,7 @@ mod tests {
                     network_epoch: PEER_VERSION_EPOCH_2_05,
                 },
             ],
+            PoxConstants::test_default(),
             true,
         )
         .unwrap();
