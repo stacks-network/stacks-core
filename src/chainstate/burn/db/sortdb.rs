@@ -2200,6 +2200,7 @@ impl SortitionDB {
             readwrite,
             first_block_height,
             first_burn_header_hash: first_burn_hash.clone(),
+            pox_constants: PoxConstants::test_default(),
         };
 
         if create_flag {
@@ -4391,6 +4392,7 @@ pub mod tests {
             &first_burn_hash,
             get_epoch_time_secs(),
             &StacksEpoch::unit_test_2_05(first_block_height),
+            PoxConstants::test_default(),
             true,
         )
         .unwrap();
