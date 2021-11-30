@@ -10,25 +10,14 @@ COPY . .
 
 RUN rustup target add aarch64-apple-darwin
 
-RUN apt-get update && apt-get install -y git clang cmake
+RUN apt-get update && apt-get install -y clang zstd
 
-RUN git clone --depth 1 https://github.com/tpoechtrager/osxcross /opt/osxcross
+RUN wget -nc -O /tmp/osxcross.tar.zst "https://github.com/hirosystems/docker-osxcross-rust/releases/download/MacOSX12.0.sdk/osxcross-d904031_MacOSX12.0.sdk.tar.zst"
+RUN mkdir /opt/osxcross && tar -xaf /tmp/osxcross.tar.zst -C /opt/osxcross
 
-RUN cd /opt/osxcross/tarballs && wget -nc "http://192.168.1.76:3000/MacOSX12.0.sdk.tar.bz2"
+RUN . /opt/osxcross/env-macos-aarch64 && printenv
 
-RUN cd /opt/osxcross && UNATTENDED=1 ./build.sh
-RUN cargo update --workspace=./
-RUN cargo fetch --target aarch64-apple-darwin
-#RUN ls /opt/osxcross/target/bin && exit 1
-#RUN ls /opt/osxcross/target/lib && exit 1
-RUN PATH="/opt/osxcross/target/bin:${PATH}" \
-    TARGET_CC=aarch64-apple-darwin21.1-clang \
-    LIBZ_SYS_STATIC=1 \
-    LD_LIBRARY_PATH="/opt/osxcross/target/lib:$LD_LIBRARY_PATH" \
-    CC=o64-clang \
-    CC_aarch64_apple_darwin=aarch64-apple-darwin21.1-clang \
-    CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=aarch64-apple-darwin21.1-clang \
-    CARGO_TARGET_AARCH64_APPLE_DARWIN_AR=aarch64-apple-darwin21.1-ar \
+RUN . /opt/osxcross/env-macos-aarch64 && \
     cargo build --target aarch64-apple-darwin --release --workspace=./
 
 RUN mkdir /out && cp -R /src/target/aarch64-apple-darwin/release/. /out
