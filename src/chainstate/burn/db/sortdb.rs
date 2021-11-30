@@ -604,13 +604,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
     "CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
     "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
-    r#"
-    CREATE TABLE epochs (
-        start_block_height INTEGER NOT NULL,
-        end_block_height INTEGER NOT NULL,
-        epoch_id INTEGER NOT NULL,
-        PRIMARY KEY(start_block_height,epoch_id)
-    );"#
 ];
 
 const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
@@ -2301,19 +2294,6 @@ impl SortitionDB {
 
         SortitionDB::validate_and_insert_epochs(&db_tx, epochs_ref)?;
 
-        let epochs = SortitionDB::validate_epochs(epochs_ref);
-        for epoch in epochs.into_iter() {
-            let args: &[&dyn ToSql] = &[
-                &(epoch.epoch_id as u32),
-                &u64_to_sql(epoch.start_height)?,
-                &u64_to_sql(epoch.end_height)?,
-            ];
-            db_tx.execute(
-                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height) VALUES (?1,?2,?3)",
-                args
-            )?;
-        }
-
         db_tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
             &[&SORTITION_DB_VERSION],
@@ -2463,9 +2443,7 @@ impl SortitionDB {
         match epoch {
             StacksEpochId::Epoch10 => false,
             StacksEpochId::Epoch20 => (version == "1" || version == "2"),
-            StacksEpochId::Epoch2_05 => version == "2",
-            // Note: Reuse 2.05 for 2.1.
-            StacksEpochId::Epoch21 => version == "2",
+            StacksEpochId::Epoch2_05 | StacksEpochId::Epoch21 => version == "2",
         }
     }
 

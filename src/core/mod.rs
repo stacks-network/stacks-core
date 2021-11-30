@@ -501,8 +501,9 @@ impl StacksEpoch {
             StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {
                 StacksEpoch::unit_test_pre_2_05(first_burnchain_height)
             }
-            StacksEpochId::Epoch2_05 => StacksEpoch::unit_test_2_05(first_burnchain_height),
-            StacksEpochId::Epoch21 => StacksEpoch::unit_test_2_05(first_burnchain_height),
+            StacksEpochId::Epoch2_05 | StacksEpochId::Epoch21 => {
+                StacksEpoch::unit_test_2_05(first_burnchain_height)
+            }
         }
     }
 
