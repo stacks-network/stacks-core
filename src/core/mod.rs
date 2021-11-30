@@ -424,7 +424,7 @@ lazy_static! {
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
         StacksEpoch {
-            epoch_id: StacksEpochId::Epoch2_05,
+            epoch_id: StacksEpochId::Epoch21,
             start_height: 2000,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
