@@ -371,6 +371,9 @@ impl BurnStateDB for TestSimBurnStateDB {
     fn get_pox_rejection_fraction(&self) -> u64 {
         self.pox_constants.pox_rejection_fraction
     }
+    fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        self.get_stacks_epoch(0)
+    }
 }
 
 impl HeadersDB for TestSimHeadersDB {
