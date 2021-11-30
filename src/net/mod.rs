@@ -110,6 +110,8 @@ pub mod chat;
 pub mod codec;
 pub mod connection;
 pub mod db;
+/// Implements `DNSResolver`, a simple DNS resolver state machine. Also implements `DNSClient`,
+/// which serves as an API for `DNSResolver`.  
 pub mod dns;
 pub mod download;
 pub mod http;
