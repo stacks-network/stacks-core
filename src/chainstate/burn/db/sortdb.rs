@@ -7139,8 +7139,7 @@ pub mod tests {
             } else if cur_snapshot.block_height < 12 {
                 assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch20);
             } else {
-                // alt: assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch2_05);
-                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch21);
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch2_05);
             }
 
             cur_snapshot =
