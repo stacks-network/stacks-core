@@ -92,9 +92,21 @@ pub use self::http::StacksHttp;
 
 use core::StacksEpoch;
 
+/// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
 pub mod asn;
+/// Implements the Atlas network. This network uses the infrastructure created in `src/net` to
+/// discover peers, query attachment inventories, and download attachments.
 pub mod atlas;
+/// Implements the `ConversationP2P` object, a host-to-host session abstraction which allows
+/// the node to recieve `StacksMessage` instances. The downstream consumer of this API is `PeerNetwork`.
+/// To use OSI terminology, this module implements the session & presentation layers of the P2P network.
+/// Other functionality includes (but is not limited to):
+///     * set up & tear down of sessions
+///     * dealing with and responding to invalid messages
+///     * rate limiting messages  
 pub mod chat;
+/// Implements serialization and deserialization for `StacksMessage` types.
+/// Also has functionality to sign, verify, and ensure well-formedness of messages.
 pub mod codec;
 pub mod connection;
 pub mod db;
@@ -104,6 +116,10 @@ pub mod http;
 pub mod inv;
 pub mod neighbors;
 pub mod p2p;
+/// Implements wrapper around `mio` crate, which itself is a wrpper around Linux's `epoll(2)` syscall.
+/// Creates a pollable interface for sockets, and provides an API for registering and deregistering
+/// sockets. This is used to control how many sockets are allocated for the two network servers: the
+/// p2p server and the http server.
 pub mod poll;
 pub mod prune;
 pub mod relay;
