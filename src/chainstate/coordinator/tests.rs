@@ -2585,7 +2585,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht));
+    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht, u32::max_value()));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
