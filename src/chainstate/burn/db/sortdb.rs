@@ -2155,7 +2155,7 @@ impl SortitionDB {
             first_block_height,
             first_burn_hash,
             get_epoch_time_secs(),
-            &StacksEpoch::unit_test(first_block_height),
+            &StacksEpoch::unit_test(StacksEpochId::Epoch20, first_block_height),
             PoxConstants::test_default(),
             true,
         )
