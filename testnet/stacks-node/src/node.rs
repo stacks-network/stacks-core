@@ -441,12 +441,6 @@ impl Node {
     pub fn spawn_peer_server(&mut self, attachments_rx: Receiver<HashSet<AttachmentInstance>>) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        let sortdb = SortitionDB::open(&self.config.get_burn_db_file_path(), true)
-            .expect("Error while instantiating burnchain db");
-
-        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
-            .expect("Error while loading stacks epochs");
-
         let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
 
         let sortdb = SortitionDB::open(
@@ -455,6 +449,9 @@ impl Node {
             burnchain.pox_constants.clone(),
         )
         .expect("Error while instantiating burnchain db");
+
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
+            .expect("Error while loading stacks epochs");
 
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
