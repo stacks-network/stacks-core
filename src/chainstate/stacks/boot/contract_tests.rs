@@ -221,8 +221,14 @@ impl ClarityTestSim {
             let headers_db = TestSimHeadersDB {
                 height: self.height + 1,
             };
-            let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
+            let burn_db = TestSimBurnStateDB {
+                epoch_bounds: self.epoch_bounds.clone(),
+                pox_constants: PoxConstants::test_default(),
+            };
+
+            Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+
+            let mut owned_env = OwnedEnvironment::new(store.as_clarity_db(&headers_db, &burn_db));
             f(&mut owned_env)
         };
 
