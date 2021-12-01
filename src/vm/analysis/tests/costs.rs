@@ -21,22 +21,27 @@ use vm::contexts::Environment;
 use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
 use vm::contracts::Contract;
 use vm::costs::ExecutionCost;
-use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use vm::database::ClarityDatabase;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
 use vm::tests::costs::get_simple_test;
-use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memory_environment};
+use vm::tests::{
+    execute, symbols_from_values, with_marfed_environment, with_memory_environment,
+    TEST_BURN_STATE_DB, TEST_HEADER_DB,
+};
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
+use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::database::marf::MarfedKV;
+use crate::core::StacksEpochId;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::proof::ClarityMarfTrieId;
 
-pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
+pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf);
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -75,8 +80,8 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         )
         .commit_block();
 
@@ -84,9 +89,30 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
         let mut conn = clarity_instance.begin_block(
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         );
+
+        if epoch == StacksEpochId::Epoch2_05 {
+            conn.initialize_epoch_2_05().unwrap();
+        }
+
+        conn.commit_block();
+    }
+
+    {
+        let mut conn = clarity_instance.begin_block(
+            &StacksBlockId([1 as u8; 32]),
+            &StacksBlockId([2 as u8; 32]),
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
+        );
+
+        assert_eq!(
+            conn.with_clarity_db_readonly(|db| db.get_clarity_epoch_version()),
+            epoch
+        );
+
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(&trait_contract_id, contract_trait)
@@ -104,10 +130,10 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
 
     {
         let mut conn = clarity_instance.begin_block(
-            &StacksBlockId([1 as u8; 32]),
             &StacksBlockId([2 as u8; 32]),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &StacksBlockId([3 as u8; 32]),
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         );
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
@@ -126,10 +152,10 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
 
     {
         let mut conn = clarity_instance.begin_block(
-            &StacksBlockId([2 as u8; 32]),
             &StacksBlockId([3 as u8; 32]),
-            &NULL_HEADER_DB,
-            &NULL_BURN_STATE_DB,
+            &StacksBlockId([4 as u8; 32]),
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
         );
 
         conn.as_transaction(|conn| {
@@ -147,13 +173,42 @@ pub fn test_tracked_costs(prog: &str) -> ExecutionCost {
     }
 }
 
-#[test]
-fn test_all() {
-    let baseline = test_tracked_costs("1");
+fn test_all(use_mainnet: bool) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch20);
 
     for f in NativeFunctions::ALL.iter() {
         let test = get_simple_test(f);
-        let cost = test_tracked_costs(test);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch20);
         assert!(cost.exceeds(&baseline));
     }
+}
+
+#[test]
+fn test_all_mainnet() {
+    test_all(true)
+}
+
+#[test]
+fn test_all_testnet() {
+    test_all(false)
+}
+
+fn epoch_205_test_all(use_mainnet: bool) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch2_05);
+
+    for f in NativeFunctions::ALL.iter() {
+        let test = get_simple_test(f);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
+        assert!(cost.exceeds(&baseline));
+    }
+}
+
+#[test]
+fn epoch_205_test_all_mainnet() {
+    epoch_205_test_all(true)
+}
+
+#[test]
+fn epoch_205_test_all_testnet() {
+    epoch_205_test_all(false)
 }

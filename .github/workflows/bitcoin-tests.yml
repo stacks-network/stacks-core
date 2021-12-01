@@ -13,7 +13,10 @@ jobs:
       - name: Build bitcoin integration testing image
         env:
           DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-node:integrations .
+        # Remove .dockerignore file so codecov has access to git info
+        run: |
+          rm .dockerignore
+          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-node:integrations .
       - name: Export docker image as tarball
         run: docker save -o integration-image.tar stacks-node:integrations
       - name: Upload built docker image
@@ -50,6 +53,11 @@ jobs:
           - tests::neon_integrations::filter_low_fee_tx_integration_test
           - tests::neon_integrations::filter_long_runtime_tx_integration_test
           - tests::neon_integrations::mining_transactions_is_fair
+          - tests::epoch_205::test_dynamic_db_method_costs
+          - tests::epoch_205::transition_empty_blocks
+          - tests::epoch_205::test_cost_limit_switch_version205
+          - tests::epoch_205::test_exact_block_costs
+          - tests::epoch_205::bigger_microblock_streams_in_2_05
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image

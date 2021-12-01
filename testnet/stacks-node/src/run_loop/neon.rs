@@ -13,7 +13,7 @@ use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
-    BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
+    check_chainstate_db_versions, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
@@ -165,7 +165,20 @@ impl RunLoop {
             burnchain_opt,
             Some(should_keep_running.clone()),
         );
+
         let pox_constants = burnchain.get_pox_constants();
+        let epochs = burnchain.get_stacks_epochs();
+        if !check_chainstate_db_versions(
+            &epochs,
+            &self.config.get_burn_db_file_path(),
+            &self.config.get_chainstate_path_str(),
+        )
+        .expect("FATAL: unable to query filesystem or databases for version information")
+        {
+            panic!(
+                "FATAL: chainstate database(s) are not compatible with the current system epoch"
+            );
+        }
 
         let is_miner = if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
@@ -217,9 +230,14 @@ impl RunLoop {
             }
         };
 
+        // Invoke connect() to perform any db instantiation early
+        if let Err(e) = burnchain.connect_dbs() {
+            error!("Failed to connect to burnchain databases: {}", e);
+            return;
+        };
+
         let mainnet = self.config.is_mainnet();
         let chainid = self.config.burnchain.chain_id;
-        let block_limit = self.config.block_limit.clone();
         let initial_balances = self
             .config
             .initial_balances
@@ -274,7 +292,6 @@ impl RunLoop {
             chainid,
             &chainstate_path,
             Some(&mut boot_data),
-            block_limit,
         )
         .unwrap();
         coordinator_dispatcher.dispatch_boot_receipts(receipts);
@@ -489,7 +506,7 @@ impl RunLoop {
                         let ic = burnchain.sortdb_ref().index_conn();
                         SortitionDB::get_ancestor_snapshot(&ic, block_to_process, sortition_tip)
                             .unwrap()
-                            .expect("Failed to find block in fork processed by bitcoin indexer")
+                            .expect("Failed to find block in fork processed by burnchain indexer")
                     };
                     if block.sortition {
                         sort_count += 1;
