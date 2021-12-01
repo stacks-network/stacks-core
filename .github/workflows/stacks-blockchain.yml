@@ -236,7 +236,8 @@ jobs:
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
           # Only push if (a tag was passed in) or (we're building a non-master branch which isn't a PR)
-          push: ${{ github.event.inputs.tag != '' || (github.ref != 'refs/heads/master' && !contains(github.ref, 'refs/pull')) }}
+          # push: ${{ github.event.inputs.tag != '' || (github.ref != 'refs/heads/master' && !contains(github.ref, 'refs/pull')) }}
+          push: true # (TEMP) always push this branch 
 
   # Create a new release if we're building a tag
   create-release:
