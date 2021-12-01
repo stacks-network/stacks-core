@@ -432,13 +432,23 @@ pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result
 /// Execute for test in Clarity1, Epoch20, testnet.
 #[cfg(test)]
 pub fn execute(program: &str) -> Result<Option<Value>> {
-    execute_with_parameters(program, ClarityVersion::Clarity1, StacksEpochId::Epoch20, false)
+    execute_with_parameters(
+        program,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch20,
+        false,
+    )
 }
 
 /// Execute for test in in Clarity2, Epoch21, testnet.
 #[cfg(test)]
 pub fn execute_v2(program: &str) -> Result<Option<Value>> {
-    execute_with_parameters(program, ClarityVersion::Clarity2, StacksEpochId::Epoch21, false)
+    execute_with_parameters(
+        program,
+        ClarityVersion::Clarity2,
+        StacksEpochId::Epoch21,
+        false,
+    )
 }
 
 #[cfg(test)]

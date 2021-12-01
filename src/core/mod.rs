@@ -501,16 +501,18 @@ impl StacksEpoch {
             StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {
                 StacksEpoch::unit_test_pre_2_05(epoch_2_0_block_height)
             }
-            StacksEpochId::Epoch2_05 => {
-                StacksEpoch::unit_test_2_05(epoch_2_0_block_height)
-            }
+            StacksEpochId::Epoch2_05 => StacksEpoch::unit_test_2_05(epoch_2_0_block_height),
             StacksEpochId::Epoch21 => {
                 panic!("This method signature is not prepared to go up to Stacks 2.1")
             }
         }
     }
 
-    pub fn all(epoch_2_0_block_height: u64, epoch_2_05_block_height: u64,epoch_2_1_block_height: u64) -> Vec<StacksEpoch> {
+    pub fn all(
+        epoch_2_0_block_height: u64,
+        epoch_2_05_block_height: u64,
+        epoch_2_1_block_height: u64,
+    ) -> Vec<StacksEpoch> {
         vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,

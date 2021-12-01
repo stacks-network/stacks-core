@@ -879,9 +879,9 @@ fn test_all(use_mainnet: bool) {
     for f in NativeFunctions::ALL.iter() {
         // Note: The 2.05 test assumes Clarity1.
         if f.get_version() == ClarityVersion::Clarity1 {
-        let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch20);
-        assert!(cost.exceeds(&baseline));
+            let test = get_simple_test(f);
+            let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch20);
+            assert!(cost.exceeds(&baseline));
         }
     }
 }

@@ -34,6 +34,7 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::vm::database::ClarityDeserializable;
 use stacks::vm::types::PrincipalData;
+use stacks::vm::ClarityVersion;
 use stacks::vm::Value;
 use stacks::{
     burnchains::db::BurnchainDB,
@@ -53,7 +54,6 @@ use stacks::{
     util::db::query_rows,
     util::db::u64_to_sql,
 };
-use stacks::vm::ClarityVersion;
 
 use crate::{
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
@@ -3994,10 +3994,10 @@ fn pox_integration_test() {
         "stack-stx",
         &[
             Value::UInt(stacked_bal),
-            execute(&format!(
-                "{{ hashbytes: 0x{}, version: 0x00 }}",
-                pox_pubkey_hash
-            ), &ClarityVersion::Clarity2)
+            execute(
+                &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
+                &ClarityVersion::Clarity2,
+            )
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
@@ -4107,10 +4107,10 @@ fn pox_integration_test() {
         "stack-stx",
         &[
             Value::UInt(stacked_bal / 2),
-            execute(&format!(
-                "{{ hashbytes: 0x{}, version: 0x00 }}",
-                pox_2_pubkey_hash
-            ), &ClarityVersion::Clarity2)
+            execute(
+                &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_2_pubkey_hash),
+                &ClarityVersion::Clarity2,
+            )
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
@@ -4130,10 +4130,10 @@ fn pox_integration_test() {
         "stack-stx",
         &[
             Value::UInt(stacked_bal / 2),
-            execute(&format!(
-                "{{ hashbytes: 0x{}, version: 0x00 }}",
-                pox_2_pubkey_hash
-            ), &ClarityVersion::Clarity2)
+            execute(
+                &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_2_pubkey_hash),
+                &ClarityVersion::Clarity2,
+            )
             .unwrap()
             .unwrap(),
             Value::UInt(sort_height as u128),
