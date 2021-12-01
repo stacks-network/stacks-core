@@ -73,15 +73,8 @@ paths:
         in: query
         schema:
           type: string
-        description: The Stacks chain tip to query from
-      - name: use_latest_tip
-        in: query
-        schema:
-          type: boolean
-        description: |
-          If use_latest_tip == true, the query will be run from the latest known tip (includes unconfirmed state).
-          If use_latest_tip == false or is unspecified, the tip is selected as usual (first checking value of the
-          tip parameter, otherwise taking the stacks chain tip).
+        description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          known tip (includes unconfirmed state).
   /v2/map_entry/{contract_address}/{contract_name}/{map_name}:
     post:
       summary: Get specific data-map inside a contract
@@ -133,15 +126,8 @@ paths:
           in: query
           schema:
             type: string
-          description: The Stacks chain tip to query from
-        - name: use_latest_tip
-          in: query
-          schema:
-            type: boolean
-          description: |
-            If use_latest_tip == true, the query will be run from the latest known tip (includes unconfirmed state).
-            If use_latest_tip == false or is unspecified, the tip is selected as usual (first checking value of the
-            tip parameter, otherwise taking the stacks chain tip).
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+            known tip (includes unconfirmed state).
       x-codegen-request-body-name: key
       requestBody:
         description: Hex string serialization of the lookup key (which should be a Clarity value)
@@ -189,16 +175,9 @@ paths:
         in: query
         schema:
           type: string
-        description: The Stacks chain tip to query from
+        description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          known tip (includes unconfirmed state).
         required: false
-      - name: use_latest_tip
-        in: query
-        schema:
-          type: boolean
-        description: |
-          If use_latest_tip == true, the query will be run from the latest known tip (includes unconfirmed state).
-          If use_latest_tip == false or is unspecified, the tip is selected as usual (first checking value of the
-          tip parameter, otherwise taking the stacks chain tip).
 
   /v2/contracts/call-read/{contract_address}/{contract_name}/{function_name}:
     post:
@@ -245,16 +224,9 @@ paths:
           in: query
           schema:
             type: string
-          description: The Stacks chain tip to query from
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+            known tip (includes unconfirmed state).
           required: false
-        - name: use_latest_tip
-          in: query
-          schema:
-            type: boolean
-          description: |
-            If use_latest_tip == true, the query will be run from the latest known tip (includes unconfirmed state).
-            If use_latest_tip == false or is unspecified, the tip is selected as usual (first checking value of the
-            tip parameter, otherwise taking the stacks chain tip).
       requestBody:
         description: map of arguments and the simulated tx-sender where sender is either a Contract identifier or a normal Stacks address, and arguments is an array of hex serialized Clarity values.
         required: true
@@ -296,15 +268,8 @@ paths:
           in: query
           schema:
             type: string
-          description: The Stacks chain tip to query from
-        - name: use_latest_tip
-          in: query
-          schema:
-            type: boolean
-          description: |
-            If use_latest_tip == true, the query will be run from the latest known tip (includes unconfirmed state).
-            If use_latest_tip == false or is unspecified, the tip is selected as usual (first checking value of the
-            tip parameter, otherwise taking the stacks chain tip).
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+            known tip (includes unconfirmed state).
       responses:
         200:
           description: Success
@@ -460,15 +425,8 @@ paths:
           in: query
           schema:
             type: string
-          description: The Stacks chain tip to query from
-        - name: use_latest_tip
-          in: query
-          schema:
-            type: boolean
-          description: |
-            If use_latest_tip == true, the query will be run from the latest known tip (includes unconfirmed state).
-            If use_latest_tip == false or is unspecified, the tip is selected as usual (first checking value of the
-            tip parameter, otherwise taking the stacks chain tip).
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+            known tip (includes unconfirmed state).
 
   /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_ contract_name}/{trait_name}:
     get:

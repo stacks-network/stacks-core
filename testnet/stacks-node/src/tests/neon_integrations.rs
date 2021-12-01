@@ -710,9 +710,9 @@ fn get_contract_src(
 ) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
     let query_string = if use_latest_tip {
-        "?use_latest_tip=true".to_string()
+        "?tip=latest".to_string()
     } else {
-        "?use_latest_tip=false".to_string()
+        "".to_string()
     };
     let path = format!(
         "{}/v2/contracts/source/{}/{}{}",
@@ -5883,16 +5883,16 @@ fn atlas_stress_integration_test() {
 #[test]
 #[ignore]
 fn use_latest_tip_integration_test() {
-    // The purpose of this test is to check if the `use_latest_tip` query parameter is working
+    // The purpose of this test is to check if setting the query parameter `tip` to `latest` is working
     // as expected. Multiple endpoints accept this parameter, and in this test, we are using the
     // GetContractSrc method to test it.
     //
     // The following scenarios are tested here:
-    // - The caller passes use_latest_tip=0, and the canonical chain tip is used regardless of the
+    // - The caller does not specify the tip paramater, and the canonical chain tip is used regardless of the
     //    state of the unconfirmed microblock stream.
-    // - The caller passes use_latest_tip=1 with an existing unconfirmed microblock stream, and
+    // - The caller passes tip=latest with an existing unconfirmed microblock stream, and
     //   Clarity state from the unconfirmed microblock stream is successfully loaded.
-    // - The caller passes use_latest_tip=1 with an empty unconfirmed microblock stream, and
+    // - The caller passes tip=latest with an empty unconfirmed microblock stream, and
     //   Clarity state from the canonical chain tip is successfully loaded (i.e. you don't
     //   get a 404 even though the unconfirmed chain tip points to a nonexistent MARF trie).
     //
@@ -6060,7 +6060,7 @@ fn use_latest_tip_integration_test() {
     let microblock_events = test_observer::get_microblocks();
     assert_eq!(microblock_events.len(), 1);
 
-    // Set use_latest_tip=0, and ask for the source of the contract we just defined in a microblock.
+    // Don't set the tip parameter, and ask for the source of the contract we just defined in a microblock.
     // This should fail because the anchored tip would be unaware of this contract.
     let err_opt = get_contract_src(
         &http_origin,
@@ -6072,17 +6072,17 @@ fn use_latest_tip_integration_test() {
         Ok(_) => {
             panic!(
                 "Asking for the contract source off the anchored tip for a contract published \
-            only in unconfirmed state should panic."
+            only in unconfirmed state should error."
             );
         }
         // Expect to get "NoSuchContract" because the function we are attempting to call is in a
-        // contract that only exists on unconfirmed state (and we set `use_unconfirmed_tip` to false).
+        // contract that only exists on unconfirmed state (and we did not set tip).
         Err(err_str) => {
             assert!(err_str.contains("No contract source data found"));
         }
     }
 
-    // Set use_latest_tip=1, and ask for the source of the contract defined in the microblock.
+    // Set tip=latest, and ask for the source of the contract defined in the microblock.
     // This should succeeed.
     assert!(get_contract_src(
         &http_origin,
@@ -6109,7 +6109,7 @@ fn use_latest_tip_integration_test() {
     };
     assert!(!trie_exists);
 
-    // Set use_latest_tip=1, and ask for the source of the contract defined in the previous epoch.
+    // Set tip=latest, and ask for the source of the contract defined in the previous epoch.
     // The underlying MARF trie for the unconfirmed tip does not exist, so the transaction will be
     // validated against the confirmed chain tip instead of the unconfirmed tip. This should be valid.
     assert!(get_contract_src(

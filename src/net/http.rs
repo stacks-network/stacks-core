@@ -2533,10 +2533,7 @@ impl HttpRequestType {
     fn make_query_string(tip_req: &TipRequest, with_proof: bool) -> String {
         match tip_req {
             TipRequest::UseLatestUnconfirmedTip => {
-                format!(
-                    "?use_latest_tip=true{}",
-                    if with_proof { "" } else { "&proof=0" }
-                )
+                format!("?tip=latest{}", if with_proof { "" } else { "&proof=0" })
             }
             TipRequest::SpecificTip(tip) => {
                 format!("?tip={}{}", tip, if with_proof { "" } else { "&proof=0" })
