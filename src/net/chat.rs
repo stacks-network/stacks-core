@@ -2512,7 +2512,7 @@ mod test {
 
     use super::*;
 
-    // Returns tuple of the peer DB, the sortition DB, the pox id, the stacks tip height, and the
+    // Returns tuple of the peer DB, the sortition DB, the pox id, and the
     // stacks chain state
     fn make_test_chain_dbs(
         testname: &str,
@@ -2522,7 +2522,7 @@ mod test {
         data_url: UrlString,
         asn4_entries: &Vec<ASEntry4>,
         initial_neighbors: &Vec<Neighbor>,
-    ) -> (PeerDB, SortitionDB, PoxId, u64, StacksChainState) {
+    ) -> (PeerDB, SortitionDB, PoxId, StacksChainState) {
         let test_path = format!("/tmp/blockstack-test-databases-{}", testname);
         match fs::metadata(&test_path) {
             Ok(_) => {
@@ -2574,27 +2574,14 @@ mod test {
         )
         .unwrap();
 
-        let (pox_id, canonical_stacks_tip_height) = {
+        let pox_id = {
             let ic = sortdb.index_conn();
             let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
             let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-            (
-                sortdb_reader.get_pox_id().unwrap(),
-                sortdb_reader
-                    .get_tip_snapshot()
-                    .unwrap()
-                    .unwrap()
-                    .canonical_stacks_tip_height,
-            )
+            sortdb_reader.get_pox_id().unwrap()
         };
 
-        (
-            peerdb,
-            sortdb,
-            pox_id,
-            canonical_stacks_tip_height,
-            chainstate,
-        )
+        (peerdb, sortdb, pox_id, chainstate)
     }
 
     fn convo_send_recv(
@@ -2758,26 +2745,24 @@ mod test {
             };
             chain_view.make_test_data();
 
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, stacks_tip_height_1, mut chainstate_1) =
-                make_test_chain_dbs(
-                    "convo_handshake_accept_1",
-                    &burnchain,
-                    0x9abcdef0,
-                    12350,
-                    "http://peer1.com".into(),
-                    &vec![],
-                    &vec![],
-                );
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, stacks_tip_height_2, mut chainstate_2) =
-                make_test_chain_dbs(
-                    "convo_handshake_accept_2",
-                    &burnchain,
-                    0x9abcdef0,
-                    12351,
-                    "http://peer2.com".into(),
-                    &vec![],
-                    &vec![],
-                );
+            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+                "convo_handshake_accept_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+            );
+            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+                "convo_handshake_accept_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+            );
 
             db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
             db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -2815,7 +2800,7 @@ mod test {
             let handshake_1 = convo_1
                 .sign_message(
                     &chain_view,
-                    stacks_tip_height_1,
+                    122,
                     &local_peer_1.private_key,
                     StacksMessageType::Handshake(handshake_data_1.clone()),
                 )
@@ -2832,7 +2817,7 @@ mod test {
                     &mut peerdb_2,
                     &sortdb_2,
                     &pox_id_2,
-                    stacks_tip_height_2,
+                    122,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -2848,7 +2833,7 @@ mod test {
                     &mut peerdb_1,
                     &sortdb_1,
                     &pox_id_1,
-                    stacks_tip_height_1,
+                    122,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -2934,26 +2919,24 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, stacks_tip_height_1, mut chainstate_1) =
-            make_test_chain_dbs(
-                "convo_handshake_reject_1",
-                &burnchain,
-                0x9abcdef0,
-                12350,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-            );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, stacks_tip_height_2, mut chainstate_2) =
-            make_test_chain_dbs(
-                "convo_handshake_reject_2",
-                &burnchain,
-                0x9abcdef0,
-                12351,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-            );
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            "convo_handshake_reject_1",
+            &burnchain,
+            0x9abcdef0,
+            12350,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+        );
+        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            "convo_handshake_reject_2",
+            &burnchain,
+            0x9abcdef0,
+            12351,
+            "http://peer2.com".into(),
+            &vec![],
+            &vec![],
+        );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -2992,7 +2975,7 @@ mod test {
         let handshake_1 = convo_1
             .sign_message(
                 &chain_view,
-                stacks_tip_height_1,
+                122,
                 &local_peer_1.private_key,
                 StacksMessageType::Handshake(handshake_data_1.clone()),
             )
@@ -3008,7 +2991,7 @@ mod test {
                 &mut peerdb_2,
                 &sortdb_2,
                 &pox_id_2,
-                stacks_tip_height_2,
+                122,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3023,7 +3006,7 @@ mod test {
                 &mut peerdb_1,
                 &sortdb_1,
                 &pox_id_1,
-                stacks_tip_height_1,
+                122,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3075,26 +3058,24 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, stacks_tip_height_1, mut chainstate_1) =
-            make_test_chain_dbs(
-                "convo_handshake_badsignature_1",
-                &burnchain,
-                0x9abcdef0,
-                12350,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-            );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, stacks_tip_height_2, mut chainstate_2) =
-            make_test_chain_dbs(
-                "convo_handshake_badsignature_2",
-                &burnchain,
-                0x9abcdef0,
-                12351,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-            );
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            "convo_handshake_badsignature_1",
+            &burnchain,
+            0x9abcdef0,
+            12350,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+        );
+        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            "convo_handshake_badsignature_2",
+            &burnchain,
+            0x9abcdef0,
+            12351,
+            "http://peer2.com".into(),
+            &vec![],
+            &vec![],
+        );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3132,7 +3113,7 @@ mod test {
         let mut handshake_1 = convo_1
             .sign_message(
                 &chain_view,
-                stacks_tip_height_1,
+                122,
                 &local_peer_1.private_key,
                 StacksMessageType::Handshake(handshake_data_1.clone()),
             )
@@ -3153,7 +3134,7 @@ mod test {
             &mut peerdb_2,
             &sortdb_2,
             &pox_id_2,
-            stacks_tip_height_2,
+            122,
             &mut chainstate_2,
             &mut BlockHeaderCache::new(),
             &chain_view,
@@ -3167,7 +3148,7 @@ mod test {
                 &mut peerdb_1,
                 &sortdb_1,
                 &pox_id_1,
-                stacks_tip_height_1,
+                122,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3214,26 +3195,24 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, stacks_tip_height_1, mut chainstate_1) =
-            make_test_chain_dbs(
-                "convo_handshake_self_1",
-                &burnchain,
-                0x9abcdef0,
-                12350,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-            );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, stacks_tip_height_2, mut chainstate_2) =
-            make_test_chain_dbs(
-                "convo_handshake_self_2",
-                &burnchain,
-                0x9abcdef0,
-                12351,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-            );
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            "convo_handshake_self_1",
+            &burnchain,
+            0x9abcdef0,
+            12350,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+        );
+        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            "convo_handshake_self_2",
+            &burnchain,
+            0x9abcdef0,
+            12351,
+            "http://peer2.com".into(),
+            &vec![],
+            &vec![],
+        );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3271,7 +3250,7 @@ mod test {
         let handshake_1 = convo_1
             .sign_message(
                 &chain_view,
-                stacks_tip_height_1,
+                122,
                 &local_peer_2.private_key,
                 StacksMessageType::Handshake(handshake_data_1.clone()),
             )
@@ -3286,7 +3265,7 @@ mod test {
                 &mut peerdb_1,
                 &sortdb_1,
                 &pox_id_1,
-                stacks_tip_height_2,
+                122,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3301,7 +3280,7 @@ mod test {
                 &mut peerdb_2,
                 &sortdb_2,
                 &pox_id_2,
-                stacks_tip_height_1,
+                122,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3354,26 +3333,24 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, stacks_tip_height_1, mut chainstate_1) =
-            make_test_chain_dbs(
-                "convo_ping_1",
-                &burnchain,
-                0x9abcdef0,
-                12350,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-            );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, stacks_tip_height_2, mut chainstate_2) =
-            make_test_chain_dbs(
-                "convo_ping_2",
-                &burnchain,
-                0x9abcdef0,
-                12351,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-            );
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            "convo_ping_1",
+            &burnchain,
+            0x9abcdef0,
+            12350,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+        );
+        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            "convo_ping_2",
+            &burnchain,
+            0x9abcdef0,
+            12351,
+            "http://peer2.com".into(),
+            &vec![],
+            &vec![],
+        );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3407,7 +3384,7 @@ mod test {
         let handshake_1 = convo_1
             .sign_message(
                 &chain_view,
-                stacks_tip_height_1,
+                122,
                 &local_peer_1.private_key,
                 StacksMessageType::Handshake(handshake_data_1.clone()),
             )
@@ -3421,7 +3398,7 @@ mod test {
         let ping_1 = convo_1
             .sign_message(
                 &chain_view,
-                stacks_tip_height_1,
+                122,
                 &local_peer_1.private_key,
                 StacksMessageType::Ping(ping_data_1.clone()),
             )
@@ -3445,7 +3422,7 @@ mod test {
                 &mut peerdb_2,
                 &sortdb_2,
                 &pox_id_2,
-                stacks_tip_height_2,
+                122,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3466,7 +3443,7 @@ mod test {
                 &mut peerdb_1,
                 &sortdb_1,
                 &pox_id_1,
-                stacks_tip_height_1,
+                122,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3527,26 +3504,24 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, stacks_tip_height_1, mut chainstate_1) =
-            make_test_chain_dbs(
-                "convo_handshake_ping_loop_1",
-                &burnchain,
-                0x9abcdef0,
-                12350,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-            );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, stacks_tip_height_2, mut chainstate_2) =
-            make_test_chain_dbs(
-                "convo_handshake_ping_loop_2",
-                &burnchain,
-                0x9abcdef0,
-                12351,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-            );
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            "convo_handshake_ping_loop_1",
+            &burnchain,
+            0x9abcdef0,
+            12350,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+        );
+        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            "convo_handshake_ping_loop_2",
+            &burnchain,
+            0x9abcdef0,
+            12351,
+            "http://peer2.com".into(),
+            &vec![],
+            &vec![],
+        );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3584,7 +3559,7 @@ mod test {
             let handshake_1 = convo_1
                 .sign_message(
                     &chain_view,
-                    stacks_tip_height_1,
+                    122,
                     &local_peer_1.private_key,
                     StacksMessageType::Handshake(handshake_data_1.clone()),
                 )
@@ -3596,7 +3571,7 @@ mod test {
             let ping_1 = convo_1
                 .sign_message(
                     &chain_view,
-                    stacks_tip_height_1,
+                    122,
                     &local_peer_1.private_key,
                     StacksMessageType::Ping(ping_data_1.clone()),
                 )
@@ -3616,7 +3591,7 @@ mod test {
                     &mut peerdb_2,
                     &sortdb_2,
                     &pox_id_2,
-                    stacks_tip_height_2,
+                    122,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3635,7 +3610,7 @@ mod test {
                     &mut peerdb_1,
                     &sortdb_1,
                     &pox_id_1,
-                    stacks_tip_height_1,
+                    122,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3750,26 +3725,24 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, stacks_tip_height_1, mut chainstate_1) =
-            make_test_chain_dbs(
-                "convo_nack_unsolicited_1",
-                &burnchain,
-                0x9abcdef0,
-                12350,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-            );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, stacks_tip_height_2, mut chainstate_2) =
-            make_test_chain_dbs(
-                "convo_nack_unsolicited_2",
-                &burnchain,
-                0x9abcdef0,
-                12351,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-            );
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            "convo_nack_unsolicited_1",
+            &burnchain,
+            0x9abcdef0,
+            12350,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+        );
+        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            "convo_nack_unsolicited_2",
+            &burnchain,
+            0x9abcdef0,
+            12351,
+            "http://peer2.com".into(),
+            &vec![],
+            &vec![],
+        );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3807,7 +3780,7 @@ mod test {
         let ping_1 = convo_1
             .sign_message(
                 &chain_view,
-                stacks_tip_height_1,
+                122,
                 &local_peer_1.private_key,
                 StacksMessageType::Ping(ping_data_1.clone()),
             )
@@ -3822,7 +3795,7 @@ mod test {
                 &mut peerdb_2,
                 &sortdb_2,
                 &pox_id_2,
-                stacks_tip_height_2,
+                122,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3837,7 +3810,7 @@ mod test {
                 &mut peerdb_1,
                 &sortdb_1,
                 &pox_id_1,
-                stacks_tip_height_1,
+                122,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3893,26 +3866,24 @@ mod test {
             };
             chain_view.make_test_data();
 
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, stacks_tip_height_1, mut chainstate_1) =
-                make_test_chain_dbs(
-                    "convo_handshake_getblocksinv_1",
-                    &burnchain,
-                    0x9abcdef0,
-                    12350,
-                    "http://peer1.com".into(),
-                    &vec![],
-                    &vec![],
-                );
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, stacks_tip_height_2, mut chainstate_2) =
-                make_test_chain_dbs(
-                    "convo_handshake_getblocksinv_2",
-                    &burnchain,
-                    0x9abcdef0,
-                    12351,
-                    "http://peer2.com".into(),
-                    &vec![],
-                    &vec![],
-                );
+            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+                "convo_handshake_getblocksinv_1",
+                &burnchain,
+                0x9abcdef0,
+                12350,
+                "http://peer1.com".into(),
+                &vec![],
+                &vec![],
+            );
+            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+                "convo_handshake_getblocksinv_2",
+                &burnchain,
+                0x9abcdef0,
+                12351,
+                "http://peer2.com".into(),
+                &vec![],
+                &vec![],
+            );
 
             db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
             db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -3950,7 +3921,7 @@ mod test {
             let handshake_1 = convo_1
                 .sign_message(
                     &chain_view,
-                    stacks_tip_height_1,
+                    122,
                     &local_peer_1.private_key,
                     StacksMessageType::Handshake(handshake_data_1.clone()),
                 )
@@ -3967,7 +3938,7 @@ mod test {
                     &mut peerdb_2,
                     &sortdb_2,
                     &pox_id_2,
-                    stacks_tip_height_2,
+                    122,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3983,7 +3954,7 @@ mod test {
                     &mut peerdb_1,
                     &sortdb_1,
                     &pox_id_1,
-                    stacks_tip_height_1,
+                    122,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -4050,7 +4021,7 @@ mod test {
             let getblocksdata_1_msg = convo_1
                 .sign_message(
                     &chain_view,
-                    stacks_tip_height_1,
+                    122,
                     &local_peer_1.private_key,
                     StacksMessageType::GetBlocksInv(getblocksdata_1.clone()),
                 )
@@ -4068,7 +4039,7 @@ mod test {
                     &mut peerdb_2,
                     &sortdb_2,
                     &pox_id_2,
-                    stacks_tip_height_2,
+                    122,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -4084,7 +4055,7 @@ mod test {
                     &mut peerdb_1,
                     &sortdb_1,
                     &pox_id_1,
-                    stacks_tip_height_1,
+                    122,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -4122,7 +4093,7 @@ mod test {
             let getblocksdata_diverged_1_msg = convo_1
                 .sign_message(
                     &chain_view,
-                    stacks_tip_height_1,
+                    122,
                     &local_peer_1.private_key,
                     StacksMessageType::GetBlocksInv(getblocksdata_diverged_1.clone()),
                 )
@@ -4140,7 +4111,7 @@ mod test {
                     &mut peerdb_2,
                     &sortdb_2,
                     &pox_id_2,
-                    stacks_tip_height_2,
+                    122,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -4156,7 +4127,7 @@ mod test {
                     &mut peerdb_1,
                     &sortdb_1,
                     &pox_id_1,
-                    stacks_tip_height_1,
+                    122,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -4208,26 +4179,24 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, stacks_tip_height_1, mut chainstate_1) =
-            make_test_chain_dbs(
-                "convo_natpunch_1",
-                &burnchain,
-                0x9abcdef0,
-                12352,
-                "http://peer1.com".into(),
-                &vec![],
-                &vec![],
-            );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, stacks_tip_height_2, mut chainstate_2) =
-            make_test_chain_dbs(
-                "convo_natpunch_2",
-                &burnchain,
-                0x9abcdef0,
-                12353,
-                "http://peer2.com".into(),
-                &vec![],
-                &vec![],
-            );
+        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            "convo_natpunch_1",
+            &burnchain,
+            0x9abcdef0,
+            12352,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+        );
+        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            "convo_natpunch_2",
+            &burnchain,
+            0x9abcdef0,
+            12353,
+            "http://peer2.com".into(),
+            &vec![],
+            &vec![],
+        );
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut sortdb_2, &socketaddr_2, &chain_view);
@@ -4260,7 +4229,7 @@ mod test {
         let natpunch_1 = convo_1
             .sign_message(
                 &chain_view,
-                stacks_tip_height_1,
+                122,
                 &local_peer_1.private_key,
                 StacksMessageType::NatPunchRequest(0x12345678),
             )
@@ -4278,7 +4247,7 @@ mod test {
                 &mut peerdb_2,
                 &sortdb_2,
                 &pox_id_2,
-                stacks_tip_height_2,
+                122,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -4294,7 +4263,7 @@ mod test {
                 &mut peerdb_1,
                 &sortdb_1,
                 &pox_id_1,
-                stacks_tip_height_1,
+                122,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
