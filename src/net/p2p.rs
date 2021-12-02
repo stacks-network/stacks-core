@@ -3486,9 +3486,14 @@ impl PeerNetwork {
                     Err(net_error::NotFoundError) => {
                         // is this remote node simply ahead of us?
                         if let Some(convo) = self.peers.get(&event_id) {
-                            if self.chain_view.burn_block_height < convo.burnchain_tip_height {
-                                debug!("{:?}: Unrecognized consensus hash {}; it is possible that {} is ahead of us", &self.local_peer, consensus_hash, outbound_neighbor_key);
-                                return Err(net_error::NotFoundError);
+                            match convo.burnchain_tip_height {
+                                Some(burnchain_tip_height) => {
+                                    if self.chain_view.burn_block_height < burnchain_tip_height {
+                                        debug!("{:?}: Unrecognized consensus hash {}; it is possible that {} is ahead of us", & self.local_peer, consensus_hash, outbound_neighbor_key);
+                                        return Err(net_error::NotFoundError);
+                                    }
+                                }
+                                None => {}
                             }
                         }
                         // not ahead of us -- it's a bad consensus hash

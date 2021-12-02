@@ -310,10 +310,11 @@ pub struct ConversationP2P {
     pub data_url: UrlString, // where does this peer's data live?  Set to a 0-length string if not known.
 
     // highest block height and consensus hash this peer has seen
-    pub burnchain_tip_height: u64,
+    pub burnchain_tip_height: Option<u64>,
     pub burnchain_tip_burn_header_hash: BurnchainHeaderHash,
-    pub burnchain_stable_tip_height: u64,
+    pub burnchain_stable_tip_height: Option<u64>,
     pub burnchain_stable_tip_burn_header_hash: BurnchainHeaderHash,
+    pub canonical_stacks_tip_height: Option<u64>,
 
     pub stats: NeighborStats,
 
@@ -507,10 +508,11 @@ impl ConversationP2P {
 
             data_url: UrlString::try_from("".to_string()).unwrap(),
 
-            burnchain_tip_height: 0,
+            burnchain_tip_height: None,
             burnchain_tip_burn_header_hash: BurnchainHeaderHash::zero(),
-            burnchain_stable_tip_height: 0,
+            burnchain_stable_tip_height: None,
             burnchain_stable_tip_burn_header_hash: BurnchainHeaderHash::zero(),
+            canonical_stacks_tip_height: None,
 
             stats: NeighborStats::new(outbound),
             reply_handles: VecDeque::new(),
@@ -606,11 +608,11 @@ impl ConversationP2P {
     }
 
     pub fn get_burnchain_tip_height(&self) -> u64 {
-        self.burnchain_tip_height
+        self.burnchain_tip_height.unwrap_or(0)
     }
 
     pub fn get_stable_burnchain_tip_height(&self) -> u64 {
-        self.burnchain_stable_tip_height
+        self.burnchain_stable_tip_height.unwrap_or(0)
     }
 
     pub fn get_burnchain_tip_burn_header_hash(&self) -> BurnchainHeaderHash {
@@ -2380,19 +2382,17 @@ impl ConversationP2P {
                 self.stats.add_healthpoint(true);
 
                 // update chain view from preamble
-                if msg.preamble.burn_block_height > self.burnchain_tip_height {
-                    self.burnchain_tip_height = msg.preamble.burn_block_height;
-                    self.burnchain_tip_burn_header_hash = msg.preamble.burn_block_hash.clone();
-                }
+                self.burnchain_tip_height = Some(msg.preamble.burn_block_height);
+                self.burnchain_tip_burn_header_hash = msg.preamble.burn_block_hash.clone();
 
-                if msg.preamble.burn_stable_block_height > self.burnchain_stable_tip_height {
-                    self.burnchain_stable_tip_height = msg.preamble.burn_stable_block_height;
-                    self.burnchain_stable_tip_burn_header_hash =
-                        msg.preamble.burn_stable_block_hash.clone();
-                }
+                self.burnchain_stable_tip_height = Some(msg.preamble.burn_stable_block_height);
+                self.burnchain_stable_tip_burn_header_hash =
+                    msg.preamble.burn_stable_block_hash.clone();
+
+                self.canonical_stacks_tip_height = Some(msg.preamble.canonical_stacks_tip_height);
 
                 debug!(
-                    "{:?}: remote chain view is ({},{})-({},{})",
+                    "{:?}: remote chain view is ({:?},{})-({:?},{})",
                     self,
                     self.burnchain_stable_tip_height,
                     &self.burnchain_stable_tip_burn_header_hash,
