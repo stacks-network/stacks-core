@@ -3403,30 +3403,11 @@ pub mod test {
                         StacksChainState::open(false, network_id, &chainstate_path).unwrap();
                     let sort_iconn = sortdb.index_conn();
 
-                    let (
-                        mut chainstate_tx,
-                        clarity_instance,
-                        burn_tip,
-                        burn_tip_height,
-                        parent_microblocks,
-                        parent_consensus_hash,
-                        parent_header_hash,
-                        mainnet,
-                    ) = builder
+                    let mut miner_epoch_info = builder
                         .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
                         .unwrap();
                     let mut epoch = builder
-                        .epoch_begin(
-                            &mut chainstate_tx,
-                            clarity_instance,
-                            &sort_iconn,
-                            burn_tip,
-                            burn_tip_height,
-                            parent_microblocks,
-                            parent_consensus_hash,
-                            parent_header_hash,
-                            mainnet,
-                        )
+                        .epoch_begin(&sort_iconn, &mut miner_epoch_info)
                         .unwrap()
                         .0;
 

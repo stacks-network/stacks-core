@@ -152,6 +152,19 @@ pub enum MemPoolRejection {
     Other(String),
 }
 
+pub struct SetupBlockResult<'a> {
+    pub clarity_tx: ClarityTx<'a>,
+    pub tx_receipts: Vec<StacksTransactionReceipt>,
+    pub microblock_execution_cost: ExecutionCost,
+    pub microblock_fees: u128,
+    pub microblock_burns: u128,
+    pub microblock_txs_receipts: Vec<StacksTransactionReceipt>,
+    pub matured_miner_rewards_opt:
+        Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
+    pub evaluated_epoch: StacksEpochId,
+    pub applied_epoch_transition: bool,
+}
+
 impl MemPoolRejection {
     pub fn into_json(self, txid: &Txid) -> serde_json::Value {
         use self::MemPoolRejection::*;
@@ -4300,20 +4313,7 @@ impl StacksChainState {
         parent_microblocks: &Vec<StacksMicroblock>,
         mainnet: bool,
         miner_id_opt: Option<usize>,
-    ) -> Result<
-        (
-            ClarityTx<'a>,
-            Vec<StacksTransactionReceipt>,
-            ExecutionCost,
-            u128,
-            u128,
-            Vec<StacksTransactionReceipt>,
-            Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
-            StacksEpochId,
-            bool,
-        ),
-        Error,
-    > {
+    ) -> Result<SetupBlockResult<'a>, Error> {
         let parent_index_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
 
@@ -4434,8 +4434,8 @@ impl StacksChainState {
             );
         }
         // find microblock cost
-        let mut microblock_cost = clarity_tx.cost_so_far();
-        microblock_cost
+        let mut microblock_execution_cost = clarity_tx.cost_so_far();
+        microblock_execution_cost
             .sub(&parent_block_cost)
             .expect("BUG: block_cost + microblock_cost < block_cost");
 
@@ -4444,30 +4444,30 @@ impl StacksChainState {
         clarity_tx.reset_cost(ExecutionCost::zero());
 
         // is this stacks block the first of a new epoch?
-        let (applied_epoch_transition, mut receipts) =
+        let (applied_epoch_transition, mut tx_receipts) =
             StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
 
         // process stacking & transfer operations from bitcoin ops
-        receipts.extend(StacksChainState::process_stacking_ops(
+        tx_receipts.extend(StacksChainState::process_stacking_ops(
             &mut clarity_tx,
             stacking_burn_ops,
         ));
-        receipts.extend(StacksChainState::process_transfer_ops(
+        tx_receipts.extend(StacksChainState::process_transfer_ops(
             &mut clarity_tx,
             transfer_burn_ops,
         ));
 
-        Ok((
+        Ok(SetupBlockResult {
             clarity_tx,
-            receipts,
-            microblock_cost,
+            tx_receipts,
+            microblock_execution_cost,
             microblock_fees,
             microblock_burns,
             microblock_txs_receipts,
             matured_miner_rewards_opt,
             evaluated_epoch,
             applied_epoch_transition,
-        ))
+        })
     }
 
     /// This function is called in both `append_block` in blocks.rs (follower) and
@@ -4634,7 +4634,7 @@ impl StacksChainState {
         .expect("BUG: Failed to load snapshot for block snapshot during Stacks block processing")
         .parent_burn_header_hash;
 
-        let (
+        let SetupBlockResult {
             mut clarity_tx,
             mut tx_receipts,
             microblock_execution_cost,
@@ -4644,7 +4644,7 @@ impl StacksChainState {
             matured_miner_rewards_opt,
             evaluated_epoch,
             applied_epoch_transition,
-        ) = StacksChainState::setup_block(
+        } = StacksChainState::setup_block(
             chainstate_tx,
             clarity_instance,
             burn_dbconn,
