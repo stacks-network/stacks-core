@@ -29,7 +29,7 @@ use vm::representations::SymbolicExpression;
 use vm::tests::costs::get_simple_test;
 use vm::tests::{
     execute, symbols_from_values, with_marfed_environment, with_memory_environment,
-    TEST_BURN_STATE_DB, TEST_HEADER_DB, UnitTestBurnStateDB,
+    UnitTestBurnStateDB, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
@@ -80,7 +80,7 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
     let trait_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
-    let burn_state_db = UnitTestBurnStateDB { epoch_id:  epoch };
+    let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -97,16 +97,12 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
             &TEST_HEADER_DB,
             &burn_state_db,
         );
-        conn.as_transaction(|conn| {
-            conn.with_clarity_db(|db| {
-                db.set_clarity_epoch_version(epoch);
-                Ok(())
-            })
-        })
-        .unwrap();
 
-        if epoch == StacksEpochId::Epoch2_05 {
+        if epoch > StacksEpochId::Epoch20 {
             conn.initialize_epoch_2_05().unwrap();
+        }
+        if epoch > StacksEpochId::Epoch2_05 {
+            conn.initialize_epoch_2_1().unwrap();
         }
 
         conn.commit_block();
@@ -223,9 +219,9 @@ fn epoch_205_test_all(use_mainnet: bool) {
 
     for f in NativeFunctions::ALL.iter() {
         if f.get_version() == ClarityVersion::Clarity1 {
-        let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
-        assert!(cost.exceeds(&baseline));
+            let test = get_simple_test(f);
+            let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
+            assert!(cost.exceeds(&baseline));
         }
     }
 }
