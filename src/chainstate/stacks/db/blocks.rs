@@ -3491,6 +3491,7 @@ impl StacksChainState {
         block: &StacksBlock,
         microblocks: &Vec<StacksMicroblock>,
     ) -> Result<(), Error> {
+        warn!("check");
         let parent_sn = {
             let db_handle = sort_ic.as_handle(&snapshot.sortition_id);
             let sn = match db_handle.get_block_snapshot(&snapshot.parent_burn_header_hash)? {
@@ -3502,6 +3503,7 @@ impl StacksChainState {
             sn
         };
 
+        warn!("check");
         self.preprocess_anchored_block(
             sort_ic,
             &snapshot.consensus_hash,
@@ -3509,8 +3511,11 @@ impl StacksChainState {
             &parent_sn.consensus_hash,
             5,
         )?;
+        warn!("check");
         let block_hash = block.block_hash();
+        warn!("check");
         for mblock in microblocks.iter() {
+        warn!("check");
             self.preprocess_streamed_microblock(&snapshot.consensus_hash, &block_hash, mblock)?;
         }
         Ok(())

@@ -2411,6 +2411,7 @@ pub mod test {
             config.burnchain = burnchain.clone();
 
             let epochs = config.epochs.clone().unwrap_or_else(|| {
+                panic!("ohno");
                 StacksEpoch::unit_test_pre_2_05(config.burnchain.first_block_height)
             });
 
