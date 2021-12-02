@@ -1268,6 +1268,12 @@ impl fmt::Display for TupleData {
     }
 }
 
+/// Given the serialized string representation of a Clarity value,
+///  return the size of the same byte representation.
+pub fn byte_len_of_serialization(serialized: &str) -> u64 {
+    serialized.len() as u64 / 2
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1356,9 +1362,9 @@ mod test {
         }
 
         // on 32-bit archs, this error cannot even happen, so don't test (and cause an overflow panic)
-        if (u32::max_value() as usize) < usize::max_value() {
+        if (u32::MAX as usize) < usize::MAX {
             assert_eq!(
-                Value::buff_from(vec![0; (u32::max_value() as usize) + 10]),
+                Value::buff_from(vec![0; (u32::MAX as usize) + 10]),
                 Err(CheckErrors::ValueTooLarge.into())
             );
         }

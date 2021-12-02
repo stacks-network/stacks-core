@@ -1,4 +1,4 @@
-FROM rust:buster AS build
+FROM rust:bullseye AS build
 
 WORKDIR /build
 
@@ -16,4 +16,6 @@ RUN cargo build && \
 
 # Generate coverage report and upload it to codecov
 RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info && \
-    bash -c "bash <(curl -s https://codecov.io/bash)"
+    curl -Os https://uploader.codecov.io/latest/linux/codecov && \
+    chmod +x codecov && \
+    ./codecov --name "unit_tests"

@@ -13,7 +13,7 @@ Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and ena
 | Stacks 2.0                 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
 | Stacks 1.0                 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
 | Use the package            | [our core docs](https://docs.blockstack.org/core/naming/introduction.html)        |
-| Develop a Blockstack App   | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html)   |
+| Develop a Blockstack App   | [our developer docs](https://docs.stacks.co/build-apps/overview)                  |
 | Use a Blockstack App       | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
 | Blockstack PBC the company | [our website](https://blockstack.org)                                             |
 
@@ -30,8 +30,8 @@ to the main branch which are backported to the develop branch after merging. The
 according to the following rubric:
 
 - **High Priority**. Any fix for an issue that could deny service to the network as a whole, e.g., an issue where a particular kind of invalid transaction would cause nodes to stop processing requests or shut down unintentionally. Any fix for an issue that could cause honest miners to produce invalid blocks.
-- **Medium Priority**. Any fix for an issue that could cause miners to waste funds
-- **Low Priority**. Any fix for an issue that could deny service to individual nodes
+- **Medium Priority**. Any fix for an issue that could cause miners to waste funds.
+- **Low Priority**. Any fix for an issue that could deny service to individual nodes.
 
 ## Versioning
 
@@ -69,19 +69,11 @@ The SIPs are now located in the [stacksgov/sips](https://github.com/stacksgov/si
 
 ### Testnet versions
 
-- [x] **Helium** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can not only run Stacks 2.0 on their development machines, but also write, execute, and test smart contracts. See the instructions below for more details.
+- [x] **Krypton** is a Stacks 2 testnet with a fixed, two-minute block time, called `regtest`. Regtest is generally unstable for regular use, and is reset often. See the [regtest documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on using regtest.
 
-- [x] **Neon** is the first version of our public testnet, which shipped in Q2 2020. This testnet added SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
+- [x] **Xenon** is the Stacks 2 public testnet, which runs PoX against the Bitcoin testnet. It is the full implementation of the Stacks 2 blockchain, and should be considered a stable testnet for developing Clarity smart contracts. See the [testnet documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on the public testnet.
 
-- [x] **Argon** is the second version of our public testnet, which shipped in Q2 2020. This testnet improved on the stability of the Neon testnet.
-
-- [x] **Krypton** is the third version of our public testnet, which incorporates a partial implementation of SIP 007. It allows developers to test a simple version of Stacking and PoX consensus.
-
-- [x] **Xenon** is the upcoming version of our public testnet, which will run on the Bitcoin testnet. It will include SIP 006 and SIP 008, and will contain bugfixes and improvements to the implementation of SIP 007.
-
-- [x] **Mainnet** is the fully functional version, that is estimated for Q4 2020.
-
-See the [testnet website](https://testnet.blockstack.org) and ["when mainnet?" FAQ](https://github.com/blockstack/stacks/blob/master/whenmainnet.md) for details.
+- [x] **Mainnet** is the fully functional Stacks 2 blockchain, see the [Stacks overview](https://docs.stacks.co/understand-stacks/overview) for information on running a Stacks node, mining, stacking, and writing Clarity smart contracts.
 
 ## Getting started
 
@@ -261,12 +253,14 @@ Congratulations, you can now [write your own smart contracts with Clarity](https
 
 Officially supported platforms: `Linux 64-bit`, `MacOS 64-bit`, `Windows 64-bit`.
 
-Platforms with second-tier status _(builds are provided but not tested)_: `Linux ARMv7`, `Linux ARM64`.
+Platforms with second-tier status _(builds are provided but not tested)_: `MacOS Apple Silicon (ARM64)`, `Linux ARMv7`, `Linux ARM64`.
+
+For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
 
 ## Community
 
 Beyond this Github project,
-Blockstack maintains a public [forum](https://forum.blockstack.org) and an
+Blockstack maintains a public [forum](https://forum.stacks.org) and an
 opened [Discord](https://discord.com/invite/XYdRyhf) channel. In addition, the project
 maintains a [mailing list](https://blockstack.org/signup) which sends out
 community announcements.
@@ -278,8 +272,6 @@ videos from some of these meetups, as well as video tutorials to help new
 users get started and help developers wrap their heads around the system's
 design.
 
-For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
-
 ## Further Reading
 
 You can learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the documentation:
@@ -288,10 +280,10 @@ You can learn more by visiting [the Blockstack Website](https://blockstack.org) 
 
 You can also read the technical papers:
 
-- ["PoX: Proof of Transfer Mining with Bitcoin"](https://blockstack.org/pox.pdf), May 2020
-- ["The Blockstack Decentralized Computing Network"](https://blockstack.org/whitepaper.pdf), May 2019
+- ["PoX: Proof of Transfer Mining with Bitcoin"](https://community.stacks.org/pox), May 2020
+- ["Stacks 2.0: Apps and Smart Contracts for Bitcoin"](https://stacks.org/stacks), Dec 2020
 
-If you have high-level questions about Blockstack, try [searching our forum](https://forum.blockstack.org) and start a new question if your question is not answered there.
+If you have high-level questions about Blockstack, try [searching our forum](https://forum.stacks.org) and start a new question if your question is not answered there.
 
 ## Contributing
 
@@ -324,6 +316,67 @@ You can automatically reformat your commit via:
 ```bash
 cargo fmt --all
 ```
+
+## Mining
+
+Stacks tokens (STX) are mined by transferring BTC via PoX.  To run as a miner,
+you should make sure to add the following config fields to your config file:
+
+```
+[node]
+# Run as a miner
+miner = True
+# Bitcoin private key to spend
+seed = "YOUR PRIVATE KEY"
+# How long to wait for microblocks to arrive before mining a block to confirm them (in milliseconds)
+wait_time_for_microblocks = 10000
+# Run as a mock-miner, to test mining without spending BTC.
+# Mutually exclusive with `miner`.
+#mock_miner = True
+
+[miner]
+# Smallest allowed tx fee, in microSTX
+min_tx_fee = 100
+# Time to spend on the first attempt to make a block.
+# This can be small, so your node gets a block-commit into the Bitcoin mempool early.
+first_attempt_time_ms: 1000
+# Time to spend on subsequent attempts to make a block.
+# This can be bigger -- new block-commits will be RBF'ed.
+subsequent_attempt_time_ms: 60000
+```
+
+You can verify that your node is operating as a miner by checking its log output
+to verify that it was able to find its Bitcoin UTXOs:
+
+```bash
+$ head -n 100 /path/to/your/node/logs | grep -i utxo
+INFO [1630127492.031042] [testnet/stacks-node/src/run_loop/neon.rs:146] [main] Miner node: checking UTXOs at address: <redacted>
+INFO [1630127492.062652] [testnet/stacks-node/src/run_loop/neon.rs:164] [main] UTXOs found - will run as a Miner node
+```
+
+### Configuring Cost and Fee Estimation
+
+Fee and cost estimators can be configure via the config section `[fee_estimation]`:
+
+```
+[fee_estimation]
+cost_estimator = naive_pessimistic
+fee_estimator = scalar_fee_rate
+cost_metric = proportion_dot_product
+log_error = true
+enabled = true
+```
+
+Fee and cost estimators observe transactions on the network and use the
+observed costs of those transactions to build estimates for viable fee rates
+and expected execution costs for transactions. Estimators and metrics can be
+selected using the configuration fields above, though the default values are
+the only options currently. `log_error` controls whether or not the INFO logger
+will display information about the cost estimator accuracy as new costs are
+observed. Setting `enabled = false` turns off the cost estimators. Cost estimators
+are **not** consensus-critical components, but rather can be used by miners to
+rank transactions in the mempool or client to determine appropriate fee rates
+for transactions before broadcasting them.
 
 ## Non-Consensus Breaking Release Process
 

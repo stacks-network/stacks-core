@@ -46,7 +46,6 @@ use blockstack_lib::types::chainstate::StacksAddress;
 use blockstack_lib::util::{
     hash::hex_bytes, hash::to_hex, log, retry::LogReader, strings::StacksString,
 };
-use blockstack_lib::vm;
 use blockstack_lib::vm::{
     errors::{Error as ClarityError, RuntimeErrorType},
     types::PrincipalData,
@@ -448,7 +447,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
-                vm::execute(input)?
+                blockstack_lib::clarity::vm_execute(input)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
             _ => {

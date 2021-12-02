@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use core::StacksEpochId;
 use std::collections::HashMap;
 
 use address::c32;
@@ -34,6 +35,7 @@ use vm::{eval, execute as vm_execute};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
 use crate::clarity_vm::database::MemoryBackingStore;
+use crate::core;
 use crate::types::chainstate::StacksAddress;
 use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
@@ -382,8 +384,12 @@ fn test_simple_if_functions() {
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut marf = MemoryBackingStore::new();
-        let mut global_context =
-            GlobalContext::new(false, marf.as_clarity_db(), LimitedCostTracker::new_free());
+        let mut global_context = GlobalContext::new(
+            false,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch2_05,
+        );
 
         contract_context
             .functions
@@ -507,7 +513,7 @@ fn test_simple_arithmetic_functions() {
         Value::Bool(true),
         Value::Bool(true),
         Value::Int(65536),
-        Value::Int(u32::max_value() as i128 + 1),
+        Value::Int(u32::MAX as i128 + 1),
         Value::Int(1),
         Value::Int(170_141_183_460_469_231_731_687_303_715_884_105_727),
         Value::UInt(340_282_366_920_938_463_463_374_607_431_768_211_455),
@@ -525,10 +531,10 @@ fn test_simple_arithmetic_functions() {
         Value::Int(3),
         Value::Int(126),
         Value::UInt(127),
-        Value::UInt(u128::max_value()),
+        Value::UInt(u128::MAX),
         Value::UInt(137),
-        Value::Int(i128::max_value()),
-        Value::Int(-1 * (u32::max_value() as i128 + 1)),
+        Value::Int(i128::MAX),
+        Value::Int(-1 * (u32::MAX as i128 + 1)),
     ];
 
     tests

@@ -94,8 +94,7 @@ impl UnconfirmedState {
     fn new(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
-        let clarity_instance =
-            ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
+        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -127,8 +126,7 @@ impl UnconfirmedState {
     ) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
-        let clarity_instance =
-            ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
+        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -164,7 +162,7 @@ impl UnconfirmedState {
         burn_dbconn: &dyn BurnStateDB,
         mblocks: Vec<StacksMicroblock>,
     ) -> Result<ProcessedUnconfirmedState, Error> {
-        if self.last_mblock_seq == u16::max_value() {
+        if self.last_mblock_seq == u16::MAX {
             // drop them -- nothing to do
             return Ok(Default::default());
         }
@@ -317,7 +315,7 @@ impl UnconfirmedState {
             &chainstate.db(),
             &StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash),
             0,
-            u16::max_value(),
+            u16::MAX,
         )
     }
 
@@ -333,7 +331,7 @@ impl UnconfirmedState {
             "BUG: code tried to write unconfirmed state to a read-only instance"
         );
 
-        if self.last_mblock_seq == u16::max_value() {
+        if self.last_mblock_seq == u16::MAX {
             // no-op
             return Ok(Default::default());
         }
@@ -403,14 +401,9 @@ impl StacksChainState {
             "Dropping unconfirmed state off of {} ({})",
             &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
         );
-        let clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
-            self.config(),
-            &NULL_HEADER_DB,
-            &mut unconfirmed.clarity_inst,
-            &NULL_BURN_STATE_DB,
-            &unconfirmed.confirmed_chain_tip,
-        );
-        clarity_tx.rollback_unconfirmed();
+        unconfirmed
+            .clarity_inst
+            .drop_unconfirmed_state(&unconfirmed.confirmed_chain_tip);
         debug!(
             "Dropped unconfirmed state off of {} ({})",
             &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
@@ -699,6 +692,7 @@ mod test {
                         consensus_hash.clone(),
                         peer.chainstate(),
                         &sort_iconn,
+                        BlockBuilderSettings::max_value(),
                     )
                     .unwrap();
 
@@ -927,6 +921,7 @@ mod test {
                     consensus_hash.clone(),
                     peer.chainstate(),
                     &sort_iconn,
+                    BlockBuilderSettings::max_value(),
                 )
                 .unwrap();
                 let mut microblocks = vec![];

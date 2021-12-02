@@ -23,6 +23,7 @@ use std::io;
 use std::io::Error as IOError;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::path::Path;
 use std::path::PathBuf;
 
 use util::hash::to_hex;
@@ -37,6 +38,8 @@ use rusqlite::types::{
 };
 use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
+use rusqlite::OpenFlags;
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
@@ -59,6 +62,9 @@ use serde_json::Error as serde_error;
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;
+
+// 256MB
+pub const SQLITE_MMAP_SIZE: i64 = 256 * 1024 * 1024;
 
 #[derive(Debug)]
 pub enum Error {
@@ -179,6 +185,21 @@ impl FromColumn<u64> for u64 {
     }
 }
 
+impl FromColumn<Option<u64>> for u64 {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Option<u64>, Error> {
+        let x: Option<i64> = row.get_unwrap(column_name);
+        match x {
+            Some(x) => {
+                if x < 0 {
+                    return Err(Error::ParseError);
+                }
+                Ok(Some(x as u64))
+            }
+            None => Ok(None),
+        }
+    }
+}
+
 impl FromRow<i64> for i64 {
     fn from_row<'a>(row: &'a Row) -> Result<i64, Error> {
         let x: i64 = row.get_unwrap(0);
@@ -204,7 +225,7 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
 }
 
 pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
-    if x > (i64::max_value() as u64) {
+    if x > (i64::MAX as u64) {
         return Err(Error::ParseError);
     }
     Ok(x as i64)
@@ -384,13 +405,34 @@ where
 
 /// Run a PRAGMA statement.  This can't always be done via execute(), because it may return a result (and
 /// rusqlite does not like this).
-pub fn sql_pragma(conn: &Connection, pragma_stmt: &str) -> Result<(), Error> {
-    conn.query_row_and_then(pragma_stmt, NO_PARAMS, |_row| Ok(()))
+pub fn sql_pragma(
+    conn: &Connection,
+    pragma_name: &str,
+    pragma_value: &dyn ToSql,
+) -> Result<(), Error> {
+    inner_sql_pragma(conn, pragma_name, pragma_value).map_err(|e| Error::SqliteError(e))
+}
+
+fn inner_sql_pragma(
+    conn: &Connection,
+    pragma_name: &str,
+    pragma_value: &dyn ToSql,
+) -> Result<(), sqlite_error> {
+    conn.pragma_update(None, pragma_name, pragma_value)
+}
+
+/// Returns true if the database table `table_name` exists in the active
+///  database of the provided SQLite connection.
+pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_error> {
+    let sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=?";
+    conn.query_row(sql, &[table_name], |row| row.get::<_, String>(0))
+        .optional()
+        .map(|r| r.is_some())
 }
 
 /// Set up an on-disk database with a MARF index if they don't exist yet.
-/// Either way, returns (db path, MARF path)
-pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
+/// Either way, returns the MARF path
+pub fn db_mkdirs(path_str: &str) -> Result<String, Error> {
     let mut path = PathBuf::from(path_str);
     match fs::metadata(path_str) {
         Ok(md) => {
@@ -410,11 +452,7 @@ pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
     path.push("marf.sqlite");
     let marf_path = path.to_str().ok_or_else(|| Error::ParseError)?.to_string();
 
-    path.pop();
-    path.push("data.sqlite");
-    let data_path = path.to_str().ok_or_else(|| Error::ParseError)?.to_string();
-
-    Ok((data_path, marf_path))
+    Ok(marf_path)
 }
 
 /// Read-only connection to a MARF-indexed DB
@@ -507,9 +545,32 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
 /// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
 /// then we don't have to worry about any extra rollback logic.
 pub fn tx_begin_immediate<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, Error> {
+    tx_begin_immediate_sqlite(conn).map_err(Error::from)
+}
+
+/// Begin an immediate-mode transaction, and handle busy errors with exponential backoff.
+/// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
+/// then we don't have to worry about any extra rollback logic.
+/// Sames as `tx_begin_immediate` except that it returns a rusqlite error.
+pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a>, sqlite_error> {
     conn.busy_handler(Some(tx_busy_handler))?;
     let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
     Ok(tx)
+}
+
+/// Open a database connection and set some typically-used pragmas
+pub fn sqlite_open<P: AsRef<Path>>(
+    path: P,
+    flags: OpenFlags,
+    foreign_keys: bool,
+) -> Result<Connection, sqlite_error> {
+    let db = Connection::open_with_flags(path, flags)?;
+    db.busy_handler(Some(tx_busy_handler))?;
+    inner_sql_pragma(&db, "journal_mode", &"WAL")?;
+    if foreign_keys {
+        inner_sql_pragma(&db, "foreign_keys", &true)?;
+    }
+    Ok(db)
 }
 
 /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
@@ -518,7 +579,7 @@ pub fn get_ancestor_block_hash<T: MarfTrieId>(
     block_height: u64,
     tip_block_hash: &T,
 ) -> Result<Option<T>, Error> {
-    assert!(block_height < u32::max_value() as u64);
+    assert!(block_height < u32::MAX as u64);
     let mut read_only = index.reopen_readonly()?;
     let bh = read_only.get_block_at_height(block_height as u32, tip_block_hash)?;
     Ok(bh)
@@ -744,5 +805,43 @@ impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
             debug!("Dropping MARF linkage ({},{})", parent, child);
             index_tx.drop_current();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_pragma() {
+        let path = "/tmp/blockstack_db_test_pragma.db";
+        if fs::metadata(path).is_ok() {
+            fs::remove_file(path).unwrap();
+        }
+
+        // calls pragma_update with both journal_mode and foreign_keys
+        let db = sqlite_open(
+            path,
+            OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
+            true,
+        )
+        .unwrap();
+
+        // journal mode must be WAL
+        db.pragma_query(None, "journal_mode", |row| {
+            let value: String = row.get(0)?;
+            assert_eq!(value, "wal");
+            Ok(())
+        })
+        .unwrap();
+
+        // foreign keys must be on
+        db.pragma_query(None, "foreign_keys", |row| {
+            let value: i64 = row.get(0)?;
+            assert_eq!(value, 1);
+            Ok(())
+        })
+        .unwrap();
     }
 }

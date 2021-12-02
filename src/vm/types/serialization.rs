@@ -37,6 +37,7 @@ use vm::types::{
 };
 
 use crate::codec::{Error as codec_error, StacksMessageCodec};
+use crate::vm::types::byte_len_of_serialization;
 
 /// Errors that may occur in serialization or deserialization
 /// If deserialization failed because the described type is a bad type and
@@ -50,6 +51,10 @@ pub enum SerializationError {
     BadTypeError(CheckErrors),
     DeserializationError(String),
     DeserializeExpected(TypeSignature),
+}
+
+lazy_static! {
+    pub static ref NONE_SERIALIZATION_LEN: u64 = Value::none().serialize_to_vec().len() as u64;
 }
 
 impl std::fmt::Display for SerializationError {
@@ -646,6 +651,40 @@ impl Value {
         Value::try_deserialize_hex(hex, expected)
             .expect("ERROR: Failed to parse Clarity hex string")
     }
+
+    pub fn serialized_size(&self) -> u32 {
+        let mut counter = WriteCounter { count: 0 };
+        self.serialize_write(&mut counter)
+            .expect("Error: Failed to count serialization length of Clarity value");
+        counter.count
+    }
+}
+
+/// A writer that just counts the bytes written
+struct WriteCounter {
+    count: u32,
+}
+
+impl Write for WriteCounter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let input: u32 = buf.len().try_into().map_err(|_e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Serialization size would overflow u32",
+            )
+        })?;
+        self.count = self.count.checked_add(input).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Serialization size would overflow u32",
+            )
+        })?;
+        Ok(input as usize)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 impl ClaritySerializable for Value {
@@ -663,11 +702,33 @@ impl ClarityDeserializable<Value> for Value {
     }
 }
 
+impl ClaritySerializable for u32 {
+    fn serialize(&self) -> String {
+        let mut buffer = Vec::new();
+        buffer
+            .write_all(&self.to_be_bytes())
+            .expect("u32 serialization: failed writing.");
+        to_hex(buffer.as_slice())
+    }
+}
+
+impl ClarityDeserializable<u32> for u32 {
+    fn deserialize(input: &str) -> Self {
+        let bytes = hex_bytes(&input).expect("u32 deserialization: failed decoding bytes.");
+        assert_eq!(bytes.len(), 4);
+        u32::from_be_bytes(
+            bytes[0..4]
+                .try_into()
+                .expect("u32 deserialization: failed reading."),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
 
-    use vm::database::ClaritySerializable;
+    use vm::database::{ClarityDeserializable, ClaritySerializable};
     use vm::errors::Error;
     use vm::types::TypeSignature::{BoolType, IntType};
 
@@ -687,6 +748,16 @@ mod tests {
             &v,
             &Value::try_deserialize_hex_untyped(&v.serialize()).unwrap()
         );
+        // test the serialized_size implementation
+        assert_eq!(
+            v.serialized_size(),
+            v.serialize().len() as u32 / 2,
+            "serialized_size() should return the byte length of the serialization (half the length of the hex encoding)",
+        );
+    }
+
+    fn test_deser_u32_helper(num: u32) {
+        assert_eq!(num, u32::deserialize(&num.serialize()));
     }
 
     fn test_bad_expectation(v: Value, e: TypeSignature) {
@@ -696,6 +767,17 @@ mod tests {
                 _ => false,
             }
         )
+    }
+
+    #[test]
+    fn test_deser_u32() {
+        test_deser_u32_helper(0);
+        test_deser_u32_helper(10);
+        test_deser_u32_helper(42);
+        test_deser_u32_helper(10992);
+        test_deser_u32_helper(10992);
+        test_deser_u32_helper(262144);
+        test_deser_u32_helper(134217728);
     }
 
     #[test]
@@ -806,8 +888,8 @@ mod tests {
         test_deser_ser(Value::Int(0));
         test_deser_ser(Value::Int(1));
         test_deser_ser(Value::Int(-1));
-        test_deser_ser(Value::Int(i128::max_value()));
-        test_deser_ser(Value::Int(i128::min_value()));
+        test_deser_ser(Value::Int(i128::MAX));
+        test_deser_ser(Value::Int(i128::MIN));
 
         test_bad_expectation(Value::Int(1), TypeSignature::UIntType);
     }
@@ -816,8 +898,8 @@ mod tests {
     fn test_uints() {
         test_deser_ser(Value::UInt(0));
         test_deser_ser(Value::UInt(1));
-        test_deser_ser(Value::UInt(u128::max_value()));
-        test_deser_ser(Value::UInt(u128::min_value()));
+        test_deser_ser(Value::UInt(u128::MAX));
+        test_deser_ser(Value::UInt(u128::MIN));
 
         test_bad_expectation(Value::UInt(1), TypeSignature::IntType);
     }
@@ -1021,6 +1103,17 @@ mod tests {
                 expected,
                 &Value::try_deserialize_hex_untyped(&format!("0x{}", test))
             );
+        }
+
+        // test the serialized_size implementation
+        for (test, expected) in tests.iter() {
+            if let Ok(value) = expected {
+                assert_eq!(
+                    value.serialized_size(),
+                    test.len() as u32 / 2,
+                    "serialized_size() should return the byte length of the serialization (half the length of the hex encoding)",
+                );
+            }
         }
     }
 
