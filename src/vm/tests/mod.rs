@@ -55,11 +55,15 @@ mod sequences;
 mod simple_apply_eval;
 mod traits;
 
-pub struct UnitTestBurnStateDB {}
+pub struct UnitTestBurnStateDB {
+    pub epoch_id: StacksEpochId,
+}
 pub struct UnitTestHeaderDB {}
 
 pub const TEST_HEADER_DB: UnitTestHeaderDB = UnitTestHeaderDB {};
-pub const TEST_BURN_STATE_DB: UnitTestBurnStateDB = UnitTestBurnStateDB {};
+pub const TEST_BURN_STATE_DB: UnitTestBurnStateDB = UnitTestBurnStateDB {
+    epoch_id: StacksEpochId::Epoch20,
+};
 
 impl HeadersDB for UnitTestHeaderDB {
     fn get_burn_header_hash_for_block(
@@ -144,7 +148,7 @@ impl BurnStateDB for UnitTestBurnStateDB {
 
     fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
         Some(StacksEpoch {
-            epoch_id: StacksEpochId::Epoch20,
+            epoch_id: self.epoch_id,
             start_height: 0,
             end_height: u64::MAX,
             block_limit: ExecutionCost::max_value(),
