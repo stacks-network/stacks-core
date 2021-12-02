@@ -13,6 +13,7 @@ use vm::costs::ExecutionCost;
 use burnchains::Txid;
 use chainstate::stacks::db::StacksEpochReceipt;
 
+pub mod fee_medians;
 pub mod fee_scalar;
 pub mod metrics;
 pub mod pessimistic;
