@@ -245,6 +245,7 @@ impl ClarityBlockConnection<'_> {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
+        panic!("here we are");
         ClarityBlockConnection {
             datastore,
             header_db,
@@ -824,6 +825,8 @@ impl<'a> ClarityBlockConnection<'a> {
     }
 
     pub fn initialize_epoch_2_1(&mut self) -> Result<StacksTransactionReceipt, Error> {
+        let bt = backtrace::Backtrace::new();
+        warn!("init:bt {:?}", &bt);
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
         using!(self.cost_track, "cost tracker", |old_cost_tracker| {
@@ -2119,6 +2122,7 @@ mod tests {
             }
 
             fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
+                panic!("ohno");
                 // Note: We return this StacksEpoch for every input, because this test is not exercising
                 // this method.
                 Some(StacksEpoch {
