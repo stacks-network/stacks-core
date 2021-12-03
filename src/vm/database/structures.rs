@@ -281,16 +281,12 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         burn_height: u64,
         db_ref: &'conn mut ClarityDatabase<'db>,
     ) -> STXBalanceSnapshot<'db, 'conn> {
-        let bt = backtrace::Backtrace::new();
-        warn!("new:bt {:?}", &bt);
-        warn!("STXBalanceSnapshot {:?} {:?} {:?}", &principal, &balance, burn_height);
-        let r = STXBalanceSnapshot {
+        STXBalanceSnapshot {
             principal: principal.clone(),
             balance,
             burn_block_height: burn_height,
             db_ref,
-        };
-        r
+        }
     }
 
     pub fn balance(&self) -> &STXBalance {
@@ -325,7 +321,6 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
     pub fn get_available_balance(&self) -> u128 {
         let v1_unlock_height = self.db_ref.get_v1_unlock_height();
-        warn!("v1_unlock_height {}", v1_unlock_height);
         self.balance
             .get_available_balance_at_burn_block(self.burn_block_height, v1_unlock_height)
     }
@@ -640,9 +635,6 @@ impl STXBalance {
         burn_block_height: u64,
         v1_unlock_height: u32,
     ) -> u128 {
-        // WARN [1638487556.830324] [src/vm/database/structures.rs:640] [chainstate::stacks::boot::pox_2_tests::test_delegate_extend_transition_pox_2] &tokens, &burn_block_height, &v1_unlock_height true 37 37
-        let tokens = self.has_unlockable_tokens_at_burn_block(burn_block_height, v1_unlock_height);
-        warn!("&tokens, &burn_block_height, &v1_unlock_height {} {} {}", &tokens, &burn_block_height, &v1_unlock_height);
         if self.has_unlockable_tokens_at_burn_block(burn_block_height, v1_unlock_height) {
             self.get_total_balance()
         } else {
@@ -745,7 +737,6 @@ impl STXBalance {
         burn_block_height: u64,
         v1_unlock_height: u32,
     ) -> bool {
-        warn!("self {:?}", &self);
         match self {
             STXBalance::Unlocked { .. } => false,
             STXBalance::LockedPoxOne {
@@ -753,21 +744,15 @@ impl STXBalance {
                 unlock_height,
                 ..
             } => {
-                warn!("check");
                 if *amount_locked == 0 {
-                warn!("check");
                     return false;
                 }
-                warn!("check");
                 // if normally unlockable, return true
                 if *unlock_height <= burn_block_height {
-                warn!("check");
                     return true;
                 }
-                warn!("check");
                 // if unlockable due to Stacks 2.1 early unlock
                 if v1_unlock_height as u64 <= burn_block_height {
-                warn!("check");
                     return true;
                 }
                 false

@@ -824,8 +824,6 @@ impl<'a> ClarityBlockConnection<'a> {
     }
 
     pub fn initialize_epoch_2_1(&mut self) -> Result<StacksTransactionReceipt, Error> {
-        let bt = backtrace::Backtrace::new();
-        warn!("init:bt {:?}", &bt);
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
         using!(self.cost_track, "cost tracker", |old_cost_tracker| {

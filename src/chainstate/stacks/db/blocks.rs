@@ -3491,7 +3491,6 @@ impl StacksChainState {
         block: &StacksBlock,
         microblocks: &Vec<StacksMicroblock>,
     ) -> Result<(), Error> {
-        warn!("check");
         let parent_sn = {
             let db_handle = sort_ic.as_handle(&snapshot.sortition_id);
             let sn = match db_handle.get_block_snapshot(&snapshot.parent_burn_header_hash)? {
@@ -3503,7 +3502,6 @@ impl StacksChainState {
             sn
         };
 
-        warn!("check");
         self.preprocess_anchored_block(
             sort_ic,
             &snapshot.consensus_hash,
@@ -3511,11 +3509,8 @@ impl StacksChainState {
             &parent_sn.consensus_hash,
             5,
         )?;
-        warn!("check");
         let block_hash = block.block_hash();
-        warn!("check");
         for mblock in microblocks.iter() {
-        warn!("check");
             self.preprocess_streamed_microblock(&snapshot.consensus_hash, &block_hash, mblock)?;
         }
         Ok(())
@@ -3971,8 +3966,6 @@ impl StacksChainState {
             //  thinks should be in place.
             if stacks_parent_epoch != sortition_epoch.epoch_id {
                 info!("Applying epoch transition"; "new_epoch_id" => %sortition_epoch.epoch_id, "old_epoch_id" => %stacks_parent_epoch);
-        let bt = backtrace::Backtrace::new();
-        warn!("process:bt {:?}", &bt);
                 // this assertion failing means that the _parent_ block was invalid: this is bad and should panic.
                 assert!(stacks_parent_epoch < sortition_epoch.epoch_id, "The SortitionDB believes the epoch is earlier than this Stacks block's parent: sortition db epoch = {}, parent epoch = {}", sortition_epoch.epoch_id, stacks_parent_epoch);
                 // time for special cases:

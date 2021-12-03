@@ -939,9 +939,6 @@ impl StacksChainState {
                             return Err(Error::CostOverflowError(cost_before, cost_after, budget));
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
-                            let bt = backtrace::Backtrace::new();
-                            warn!("panic:bt {:?}", &bt);
-                            // Note: this is the problem. This is the first diff with next.
                             error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
                                        "contract_name" => %contract_id,
                                        "function_name" => %contract_call.function_name,
