@@ -7084,7 +7084,6 @@ pub mod tests {
         assert_eq!(last_snapshot.canonical_stacks_tip_height, 8);
     }
 
-    // DO NOT SUBMIT: dubplicate this test
     #[test]
     fn test_epoch_switch_205() {
         let mut rng = rand::thread_rng();
