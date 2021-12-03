@@ -912,10 +912,10 @@ impl CostTracker for LimitedCostTracker {
                 return Ok(ExecutionCost::zero());
             }
             Self::Limited(ref mut data) => {
-        if cost_function == ClarityCostFunction::Unimplemented {
-            info!("Used unimplemented cost function");
-            return Ok(ExecutionCost::zero());
-        }
+                if cost_function == ClarityCostFunction::Unimplemented {
+                    info!("Used unimplemented cost function");
+                    return Ok(ExecutionCost::zero());
+                }
                 let cost_function_ref = data
                     .cost_function_references
                     .get(&cost_function)

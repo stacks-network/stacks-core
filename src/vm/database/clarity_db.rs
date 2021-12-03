@@ -289,15 +289,15 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_pox_prepare_length(&self) -> u32 {
-        panic!("NullBurnStateDB should not return PoX info");
+        1
     }
 
     fn get_pox_reward_cycle_length(&self) -> u32 {
-        panic!("NullBurnStateDB should not return PoX info");
+        1
     }
 
     fn get_pox_rejection_fraction(&self) -> u64 {
-        panic!("NullBurnStateDB should not return PoX info");
+        1
     }
     fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         self.get_stacks_epoch(0)
