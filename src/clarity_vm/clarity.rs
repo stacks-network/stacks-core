@@ -245,7 +245,6 @@ impl ClarityBlockConnection<'_> {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
-        panic!("here we are");
         ClarityBlockConnection {
             datastore,
             header_db,
@@ -2122,7 +2121,6 @@ mod tests {
             }
 
             fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
-                panic!("ohno");
                 // Note: We return this StacksEpoch for every input, because this test is not exercising
                 // this method.
                 Some(StacksEpoch {
