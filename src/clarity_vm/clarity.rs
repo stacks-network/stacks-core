@@ -251,7 +251,6 @@ impl ClarityBlockConnection<'_> {
             burn_state_db,
             cost_track: Some(LimitedCostTracker::new_free()),
             mainnet: false,
-            // DO NOT SUBMIT: what should this be?
             epoch: StacksEpochId::Epoch20,
         }
     }
