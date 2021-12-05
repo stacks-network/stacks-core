@@ -816,6 +816,7 @@ pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
 }
 
 /// Returns (process-exit-code, Option<json-output>)
+/// Assumes version Clarity1.
 pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_json::Value>) {
     if args.len() < 1 {
         print_usage(invoked_by);

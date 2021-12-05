@@ -184,7 +184,6 @@ impl DBConfig {
             StacksEpochId::Epoch10 => false,
             StacksEpochId::Epoch20 => (self.version == "1" || self.version == "2"),
             StacksEpochId::Epoch2_05 => self.version == "2",
-            // Note: Reuse 2.05 in 2.1.
             StacksEpochId::Epoch21 => self.version == "2",
         }
     }
