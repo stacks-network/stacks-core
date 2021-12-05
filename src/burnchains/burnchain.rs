@@ -645,8 +645,6 @@ impl Burnchain {
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
-        let epochs = indexer.get_stacks_epochs();
-
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
 
