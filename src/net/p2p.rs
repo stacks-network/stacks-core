@@ -3323,9 +3323,7 @@ impl PeerNetwork {
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<bool, net_error> {
-        if get_epoch_time_secs() + self.connection_opts.mempool_sync_interval
-            <= self.mempool_sync_deadline
-        {
+        if get_epoch_time_secs() <= self.mempool_sync_deadline {
             debug!(
                 "Wait until {} to do a mempool sync",
                 self.mempool_sync_deadline
