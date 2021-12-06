@@ -95,36 +95,42 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         Ok(())
     }
 
+    fn update_estimate_local(
+        &self,
+        new_measure: &FeeRateEstimate,
+        old_estimate: &FeeRateEstimate,
+    ) -> FeeRateEstimate {
+        // TODO: use a window (part 1)
+        // compute the exponential windowing:
+        // estimate = (a/b * old_estimate) + ((1 - a/b) * new_estimate)
+        let prior_component = old_estimate.clone() * self.decay_rate;
+        let next_component = new_measure.clone() * (1_f64 - self.decay_rate);
+        let mut next_computed = prior_component + next_component;
+
+        // because of integer math, we can end up with some edge effects
+        // when the estimate is < decay_rate_fraction.1, so just saturate
+        // on the low end at a rate of "1"
+        next_computed.high = if next_computed.high >= 1f64 {
+            next_computed.high
+        } else {
+            1f64
+        };
+        next_computed.middle = if next_computed.middle >= 1f64 {
+            next_computed.middle
+        } else {
+            1f64
+        };
+        next_computed.low = if next_computed.low >= 1f64 {
+            next_computed.low
+        } else {
+            1f64
+        };
+
+        next_computed
+    }
     fn update_estimate(&mut self, new_measure: FeeRateEstimate) {
         let next_estimate = match self.get_rate_estimates() {
-            Ok(old_estimate) => {
-                // compute the exponential windowing:
-                // estimate = (a/b * old_estimate) + ((1 - a/b) * new_estimate)
-                let prior_component = old_estimate.clone() * self.decay_rate;
-                let next_component = new_measure.clone() * (1_f64 - self.decay_rate);
-                let mut next_computed = prior_component + next_component;
-
-                // because of integer math, we can end up with some edge effects
-                // when the estimate is < decay_rate_fraction.1, so just saturate
-                // on the low end at a rate of "1"
-                next_computed.high = if next_computed.high >= 1f64 {
-                    next_computed.high
-                } else {
-                    1f64
-                };
-                next_computed.middle = if next_computed.middle >= 1f64 {
-                    next_computed.middle
-                } else {
-                    1f64
-                };
-                next_computed.low = if next_computed.low >= 1f64 {
-                    next_computed.low
-                } else {
-                    1f64
-                };
-
-                next_computed
-            }
+            Ok(old_estimate) => self.update_estimate_local(&new_measure, &old_estimate),
             Err(EstimatorError::NoEstimateAvailable) => new_measure.clone(),
             Err(e) => {
                 warn!("Error in fee estimator fetching current estimates"; "err" => ?e);
@@ -166,6 +172,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
         receipt: &StacksEpochReceipt,
         block_limit: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
+        // TODO: use the unused part of the block as being at fee rate minum (part 3)
         let mut all_fee_rates: Vec<_> = receipt
             .tx_receipts
             .iter()
@@ -217,6 +224,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
 
         let measures_len = all_fee_rates.len();
         if measures_len > 0 {
+            // TODO: add weights (part 2)
             // use 5th, 50th, and 95th percentiles from block
             let highest_index = measures_len - cmp::max(1, measures_len / 20);
             let median_index = measures_len / 2;
