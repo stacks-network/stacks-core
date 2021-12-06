@@ -9081,34 +9081,6 @@ pub mod test {
         })
     }
 
-    fn decode_headers_stream(header_bytes: Vec<u8>) -> Vec<StacksBlockHeader> {
-        // decode stream
-        let mut header_ptr = header_bytes.as_slice();
-        let mut headers = vec![];
-        loop {
-            test_debug!("decoded {}", headers.len());
-            {
-                let mut debug_reader = LogReader::from_reader(&mut header_ptr);
-                let next_header = StacksBlockHeader::consensus_deserialize(&mut debug_reader)
-                    .map_err(|e| {
-                        eprintln!("Failed to decode header {}: {:?}", headers.len(), &e);
-                        eprintln!("Bytes consumed:");
-                        for buf in debug_reader.log().iter() {
-                            eprintln!("  {}", to_hex(buf));
-                        }
-                        assert!(false);
-                        unreachable!();
-                    })
-                    .unwrap();
-                headers.push(next_header);
-            }
-            if header_ptr.len() == 0 {
-                break;
-            }
-        }
-        headers
-    }
-
     fn decode_microblock_stream(mblock_bytes: &Vec<u8>) -> Vec<StacksMicroblock> {
         // decode stream
         let mut mblock_ptr = mblock_bytes.as_slice();
