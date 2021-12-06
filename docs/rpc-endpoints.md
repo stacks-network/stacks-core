@@ -28,6 +28,9 @@ Possible values for the "reason" field and "reason_data" field are:
 * `Deserialization`
    * The `reason_data` field will be an object containing a `message`
      string detailing the deserialization error
+* `EstimatorError`
+   * The `reason_data` field will be an object containing a `message`
+     string detailing the error
 * `SignatureValidation`
    * The `reason_data` field will be an object containing a `message`
      string detailing the signature validation error

@@ -76,6 +76,7 @@ use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
 use util::secp256k1::Secp256k1PublicKey;
+use vm::database::BurnStateDB;
 
 use crate::types::chainstate::{PoxId, SortitionId, StacksBlockHeader};
 
@@ -192,12 +193,19 @@ pub type PeerMap = HashMap<usize, ConversationP2P>;
 
 #[derive(Debug)]
 pub struct PeerNetwork {
-    pub local_peer: LocalPeer,
+    // constants
     pub peer_version: u32,
+    pub epochs: Vec<StacksEpoch>,
+
+    // refreshed when peer key expires
+    pub local_peer: LocalPeer,
+
+    // refreshed whenever the burnchain advances
     pub chain_view: BurnchainView,
     pub burnchain_tip: BlockSnapshot,
     pub chain_view_stable_consensus_hash: ConsensusHash,
 
+    // handles to p2p databases
     pub peerdb: PeerDB,
     pub atlasdb: AtlasDB,
 
@@ -313,6 +321,7 @@ impl PeerNetwork {
         burnchain: Burnchain,
         chain_view: BurnchainView,
         connection_opts: ConnectionOptions,
+        epochs: Vec<StacksEpoch>,
     ) -> PeerNetwork {
         let http = HttpPeer::new(connection_opts.clone(), 0);
         let pub_ip = connection_opts.public_ip_address.clone();
@@ -331,8 +340,10 @@ impl PeerNetwork {
         let first_burn_header_ts = burnchain.first_block_timestamp;
 
         let mut network = PeerNetwork {
-            local_peer: local_peer,
             peer_version: peer_version,
+            epochs: epochs,
+
+            local_peer: local_peer,
             chain_view: chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
             burnchain_tip: BlockSnapshot::initial(
@@ -418,6 +429,17 @@ impl PeerNetwork {
         network.init_attachments_downloader(vec![]);
 
         network
+    }
+
+    /// Get the current epoch
+    pub fn get_current_epoch(&self) -> StacksEpoch {
+        let epoch_index = StacksEpoch::find_epoch(&self.epochs, self.chain_view.burn_block_height)
+            .expect(&format!(
+                "BUG: block {} is not in a known epoch",
+                &self.chain_view.burn_block_height
+            ));
+        let epoch = self.epochs[epoch_index].clone();
+        epoch
     }
 
     /// Do something with the HTTP peer.
@@ -1382,6 +1404,7 @@ impl PeerNetwork {
             &self.connection_opts,
             outbound,
             event_id,
+            self.epochs.clone(),
         );
         new_convo.set_public_key(pubkey_opt);
 
@@ -4509,6 +4532,7 @@ impl PeerNetwork {
     /// Has to be done here, since only the p2p network has the unconfirmed state.
     fn store_transaction(
         mempool: &mut MemPoolDB,
+        sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
@@ -4520,9 +4544,30 @@ impl PeerNetwork {
             debug!("Already have tx {}", txid);
             return false;
         }
-
-        if let Err(e) = mempool.submit(chainstate, consensus_hash, block_hash, &tx, event_observer)
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        let stacks_epoch = match sortdb
+            .index_conn()
+            .get_stacks_epoch(tip.block_height as u32)
         {
+            Some(epoch) => epoch,
+            None => {
+                warn!(
+                        "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                return false;
+            }
+        };
+
+        if let Err(e) = mempool.submit(
+            chainstate,
+            consensus_hash,
+            block_hash,
+            &tx,
+            event_observer,
+            &stacks_epoch.block_limit,
+            &stacks_epoch.epoch_id,
+        ) {
             warn!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
         }
@@ -4551,6 +4596,7 @@ impl PeerNetwork {
             for (relayers, tx) in tx_data.into_iter() {
                 if PeerNetwork::store_transaction(
                     mempool,
+                    sortdb,
                     chainstate,
                     &canonical_consensus_hash,
                     &canonical_block_hash,
@@ -4788,6 +4834,7 @@ mod test {
             burnchain,
             burnchain_view,
             conn_opts,
+            StacksEpoch::unit_test_pre_2_05(0),
         );
         p2p
     }

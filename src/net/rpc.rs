@@ -24,6 +24,7 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
+use std::time::Instant;
 use std::{convert::TryFrom, fmt};
 
 use rand::prelude::*;
@@ -31,6 +32,11 @@ use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
 
 use crate::codec::StacksMessageCodec;
+use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::CostEstimator;
+use crate::cost_estimates::FeeEstimator;
+use crate::net::RPCFeeEstimate;
+use crate::net::RPCFeeEstimateResponse;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
 use burnchains::*;
@@ -93,8 +99,8 @@ use vm::{
     analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
-        clarity_store::ContractCommitment, ClarityDatabase, ClaritySerializable, STXBalance,
-        StoreType,
+        clarity_store::ContractCommitment, BurnStateDB, ClarityDatabase, ClaritySerializable,
+        STXBalance, StoreType
     },
     errors::Error as ClarityRuntimeError,
     errors::Error::Unchecked,
@@ -122,6 +128,9 @@ pub struct RPCHandlerArgs<'a> {
     pub exit_at_block_height: Option<&'a u64>,
     pub genesis_chainstate_hash: Sha256Sum,
     pub event_observer: Option<&'a dyn MemPoolEventDispatcher>,
+    pub cost_estimator: Option<&'a dyn CostEstimator>,
+    pub fee_estimator: Option<&'a dyn FeeEstimator>,
+    pub cost_metric: Option<&'a dyn CostMetric>,
 }
 
 pub struct ConversationHttp {
@@ -170,6 +179,17 @@ impl fmt::Debug for ConversationHttp {
             self.conn_id,
             self.pending_request.is_some()
         )
+    }
+}
+
+impl<'a> RPCHandlerArgs<'a> {
+    pub fn get_estimators_ref(
+        &self,
+    ) -> Option<(&dyn CostEstimator, &dyn FeeEstimator, &dyn CostMetric)> {
+        match (self.cost_estimator, self.fee_estimator, self.cost_metric) {
+            (Some(a), Some(b), Some(c)) => Some((a, b, c)),
+            _ => None,
+        }
     }
 }
 
@@ -403,6 +423,7 @@ impl RPCNeighborsInfo {
     /// Load neighbor address information from the peer network
     pub fn from_p2p(
         network_id: u32,
+        network_epoch: u8,
         peers: &PeerMap,
         chain_view: &BurnchainView,
         peerdb: &PeerDB,
@@ -410,6 +431,7 @@ impl RPCNeighborsInfo {
         let neighbor_sample = PeerDB::get_random_neighbors(
             peerdb.conn(),
             network_id,
+            network_epoch,
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
             false,
@@ -738,9 +760,12 @@ impl ConversationHttp {
         req: &HttpRequestType,
         network: &PeerNetwork,
     ) -> Result<(), net_error> {
+        let epoch = network.get_current_epoch();
+
         let response_metadata = HttpResponseMetadata::from(req);
         let neighbor_data = RPCNeighborsInfo::from_p2p(
             network.local_peer.network_id,
+            epoch.network_epoch,
             &network.peers,
             &network.chain_view,
             &network.peerdb,
@@ -1282,9 +1307,10 @@ impl ConversationHttp {
 
         let data_opt_res =
             chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                let epoch = clarity_tx.get_epoch();
                 let cost_track = clarity_tx
                     .with_clarity_db_readonly(|clarity_db| {
-                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db)
+                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db, epoch)
                     })
                     .map_err(|_| {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
@@ -1687,6 +1713,85 @@ impl ConversationHttp {
         response.send(http, fd).and_then(|_| Ok(None))
     }
 
+    fn handle_post_fee_rate_estimate<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        handler_args: &RPCHandlerArgs,
+        sortdb: &SortitionDB,
+        tx: &TransactionPayload,
+        estimated_len: u64,
+    ) -> Result<(), net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        let stacks_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), tip.block_height)?
+                .ok_or_else(|| {
+                    warn!(
+                        "Failed to get fee rate estimate because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
+                })?;
+        if let Some((cost_estimator, fee_estimator, metric)) = handler_args.get_estimators_ref() {
+            let estimated_cost = match cost_estimator.estimate_cost(tx, &stacks_epoch.epoch_id) {
+                Ok(x) => x,
+                Err(e) => {
+                    debug!(
+                        "Estimator RPC endpoint failed to estimate tx: {}",
+                        tx.name()
+                    );
+                    return HttpResponseType::BadRequestJSON(response_metadata, e.into_json())
+                        .send(http, fd);
+                }
+            };
+
+            let scalar_cost =
+                metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
+            let fee_rates = match fee_estimator.get_rate_estimates() {
+                Ok(x) => x,
+                Err(e) => {
+                    debug!(
+                        "Estimator RPC endpoint failed to estimate fees for tx: {}",
+                        tx.name()
+                    );
+                    return HttpResponseType::BadRequestJSON(response_metadata, e.into_json())
+                        .send(http, fd);
+                }
+            };
+
+            let mut estimations = RPCFeeEstimate::estimate_fees(scalar_cost, fee_rates).to_vec();
+
+            let minimum_fee = estimated_len * MINIMUM_TX_FEE_RATE_PER_BYTE;
+
+            for estimate in estimations.iter_mut() {
+                if estimate.fee < minimum_fee {
+                    estimate.fee = minimum_fee;
+                }
+            }
+
+            let response = HttpResponseType::TransactionFeeEstimation(
+                response_metadata,
+                RPCFeeEstimateResponse {
+                    estimated_cost,
+                    estimations,
+                    estimated_cost_scalar: scalar_cost,
+                    cost_scalar_change_by_byte: metric.change_per_byte(),
+                },
+            );
+            response.send(http, fd)
+        } else {
+            debug!("Fee and cost estimation not configured on this stacks node");
+            let response = HttpResponseType::BadRequestJSON(
+                response_metadata,
+                json!({
+                    "error": "Fee and Cost Estimation not configured on this Stacks node",
+                    "reason": "CostEstimationDisabled",
+                }),
+            );
+            response.send(http, fd)
+        }
+    }
+
     /// Handle a transaction.  Directly submit it to the mempool so the client can see any
     /// rejection reasons up-front (different from how the peer network handles it).  Indicate
     /// whether or not the transaction was accepted (and thus needs to be forwarded) in the return
@@ -1696,6 +1801,7 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
         consensus_hash: ConsensusHash,
         block_hash: BlockHeaderHash,
         mempool: &mut MemPoolDB,
@@ -1713,12 +1819,26 @@ impl ConversationHttp {
                 false,
             )
         } else {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+            let stacks_epoch = sortdb
+                .index_conn()
+                .get_stacks_epoch(tip.block_height as u32)
+                .ok_or_else(|| {
+                    warn!(
+                        "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
+                        tip.block_height
+                    );
+                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
+                })?;
+
             match mempool.submit(
                 chainstate,
                 &consensus_hash,
                 &block_hash,
                 &tx,
                 event_observer,
+                &stacks_epoch.block_limit,
+                &stacks_epoch.epoch_id,
             ) {
                 Ok(_) => {
                     debug!("Mempool accepted POSTed transaction {}", &txid);
@@ -2173,6 +2293,18 @@ impl ConversationHttp {
                 }
                 None
             }
+            HttpRequestType::FeeRateEstimate(ref _md, ref tx, estimated_len) => {
+                ConversationHttp::handle_post_fee_rate_estimate(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    handler_opts,
+                    sortdb,
+                    tx,
+                    estimated_len,
+                )?;
+                None
+            }
             HttpRequestType::CallReadOnlyFunction(
                 ref _md,
                 ref ctrct_addr,
@@ -2244,6 +2376,7 @@ impl ConversationHttp {
                             &mut reply,
                             &req,
                             chainstate,
+                            sortdb,
                             tip.consensus_hash,
                             tip.anchored_block_hash,
                             mempool,
@@ -2671,9 +2804,14 @@ impl ConversationHttp {
                     // new request
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
+                    let start_time = Instant::now();
+                    let path = req.get_path();
                     let msg_opt = monitoring::instrument_http_request_handler(req, |req| {
                         self.handle_request(req, network, sortdb, chainstate, mempool, handler_args)
                     })?;
+
+                    debug!("Processed HTTPRequest"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis());
+
                     if let Some(msg) = msg_opt {
                         ret.push(msg);
                     }

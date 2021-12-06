@@ -11,6 +11,7 @@ use stacks::chainstate::burn::operations::{
     LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
+use stacks::core::{StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, STACKS_EPOCH_MAX};
 use stacks::types::chainstate::{BurnchainHeaderHash, PoxId};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
@@ -18,6 +19,7 @@ use stacks::util::hash::Sha256Sum;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use stacks::vm::costs::ExecutionCost;
 
 /// MocknetController is simulating a simplistic burnchain.
 pub struct MocknetController {
@@ -84,15 +86,31 @@ impl BurnchainController for MocknetController {
         }
     }
 
+    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+        match &self.config.burnchain.epochs {
+            Some(epochs) => epochs.clone(),
+            None => vec![StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            }],
+        }
+    }
+
     fn start(
         &mut self,
         _ignored_target_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), BurnchainControllerError> {
+        // If `config` sets a value, use that. Otherwise, use a default.
+        let epoch_vector = self.get_stacks_epochs();
         let db = match SortitionDB::connect(
             &self.config.get_burn_db_file_path(),
             0,
             &BurnchainHeaderHash::zero(),
             get_epoch_time_secs(),
+            &epoch_vector,
             true,
         ) {
             Ok(db) => db,
@@ -273,4 +291,8 @@ impl BurnchainController for MocknetController {
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, _num_blocks: u64) {}
+
+    fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
+        Ok(())
+    }
 }
