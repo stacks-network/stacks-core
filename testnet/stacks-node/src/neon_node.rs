@@ -1283,8 +1283,11 @@ impl InitializedNeonNode {
         // update services to indicate we can support mempool sync
         {
             let mut tx = peerdb.tx_begin().unwrap();
-            tx.set_local_services(ServiceFlags::RPC | ServiceFlags::RELAY)
-                .unwrap();
+            PeerDB::set_local_services(
+                &mut tx,
+                (ServiceFlags::RPC as u16) | (ServiceFlags::RELAY as u16),
+            )
+            .unwrap();
             tx.commit().unwrap();
         }
 
