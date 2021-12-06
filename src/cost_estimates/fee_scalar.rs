@@ -26,6 +26,8 @@ use super::metrics::CostMetric;
 use super::FeeRateEstimate;
 use super::{EstimatorError, FeeEstimator};
 
+use cost_estimates::StacksTransactionReceipt;
+
 const SINGLETON_ROW_ID: i64 = 1;
 const CREATE_TABLE: &'static str = "
 CREATE TABLE scalar_fee_estimator (
@@ -128,6 +130,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
 
         next_computed
     }
+
     fn update_estimate(&mut self, new_measure: FeeRateEstimate) {
         let next_estimate = match self.get_rate_estimates() {
             Ok(old_estimate) => self.update_estimate_local(&new_measure, &old_estimate),
@@ -164,6 +167,45 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
 
         tx.commit().expect("SQLite failure");
     }
+    fn fee_rate_from_receipt(
+        &self,
+        tx_receipt: &StacksTransactionReceipt,
+        block_limit: &ExecutionCost,
+    ) -> Option<f64> {
+        let (payload, fee, tx_size) = match tx_receipt.transaction {
+            TransactionOrigin::Stacks(ref tx) => Some((&tx.payload, tx.get_tx_fee(), tx.tx_len())),
+            TransactionOrigin::Burn(_) => None,
+        }?;
+        let scalar_cost = match payload {
+            TransactionPayload::TokenTransfer(_, _, _) => {
+                // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
+                self.metric.from_len(tx_size)
+            }
+            TransactionPayload::Coinbase(_) => {
+                // Coinbase txs are "free", so they don't factor into the fee market.
+                return None;
+            }
+            TransactionPayload::PoisonMicroblock(_, _)
+            | TransactionPayload::ContractCall(_)
+            | TransactionPayload::SmartContract(_) => {
+                // These transaction payload types all "work" the same: they have associated ExecutionCosts
+                // and contibute to the block length limit with their tx_len
+                self.metric
+                    .from_cost_and_len(&tx_receipt.execution_cost, &block_limit, tx_size)
+            }
+        };
+        let fee_rate = fee as f64
+            / if scalar_cost >= 1 {
+                scalar_cost as f64
+            } else {
+                1f64
+            };
+        if fee_rate >= 1f64 && fee_rate.is_finite() {
+            Some(fee_rate)
+        } else {
+            Some(1f64)
+        }
+    }
 }
 
 impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
@@ -176,46 +218,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
         let mut all_fee_rates: Vec<_> = receipt
             .tx_receipts
             .iter()
-            .filter_map(|tx_receipt| {
-                let (payload, fee, tx_size) = match tx_receipt.transaction {
-                    TransactionOrigin::Stacks(ref tx) => {
-                        Some((&tx.payload, tx.get_tx_fee(), tx.tx_len()))
-                    }
-                    TransactionOrigin::Burn(_) => None,
-                }?;
-                let scalar_cost = match payload {
-                    TransactionPayload::TokenTransfer(_, _, _) => {
-                        // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
-                        self.metric.from_len(tx_size)
-                    }
-                    TransactionPayload::Coinbase(_) => {
-                        // Coinbase txs are "free", so they don't factor into the fee market.
-                        return None;
-                    }
-                    TransactionPayload::PoisonMicroblock(_, _)
-                    | TransactionPayload::ContractCall(_)
-                    | TransactionPayload::SmartContract(_) => {
-                        // These transaction payload types all "work" the same: they have associated ExecutionCosts
-                        // and contibute to the block length limit with their tx_len
-                        self.metric.from_cost_and_len(
-                            &tx_receipt.execution_cost,
-                            &block_limit,
-                            tx_size,
-                        )
-                    }
-                };
-                let fee_rate = fee as f64
-                    / if scalar_cost >= 1 {
-                        scalar_cost as f64
-                    } else {
-                        1f64
-                    };
-                if fee_rate >= 1f64 && fee_rate.is_finite() {
-                    Some(fee_rate)
-                } else {
-                    Some(1f64)
-                }
-            })
+            .filter_map(|tx_receipt| self.fee_rate_from_receipt(&tx_receipt, block_limit))
             .collect();
         all_fee_rates.sort_by(|a, b| {
             a.partial_cmp(b)
