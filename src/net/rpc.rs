@@ -44,7 +44,7 @@ use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::blocks::CheckError;
 use chainstate::stacks::db::{
-    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, BlockStreamData, StacksChainState,
+    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StreamCursor, StacksChainState,
 };
 use chainstate::stacks::Error as chain_error;
 use chainstate::stacks::*;
@@ -150,7 +150,7 @@ pub struct ConversationHttp {
     // ongoing block streams
     reply_streams: VecDeque<(
         ReplyHandleHttp,
-        Option<(HttpChunkedTransferWriterState, BlockStreamData)>,
+        Option<(HttpChunkedTransferWriterState, StreamCursor)>,
         bool,
     )>,
 
@@ -687,7 +687,7 @@ impl ConversationHttp {
                 MAX_ATTACHMENT_INV_PAGES_PER_REQUEST
             );
             warn!("{}", msg);
-            let response = HttpResponseType::NotFound(response_metadata, msg);
+            let response = HttpResponseType::BadRequest(response_metadata, msg);
             response.send(http, fd)?;
             return Ok(());
         }
@@ -780,7 +780,7 @@ impl ConversationHttp {
         fd: &mut W,
         response_metadata: HttpResponseMetadata,
         msg: String,
-    ) -> Result<Option<BlockStreamData>, net_error> {
+    ) -> Result<Option<StreamCursor>, net_error> {
         let response = HttpResponseType::NotFound(response_metadata, msg);
         return response.send(http, fd).and_then(|_| Ok(None));
     }
@@ -791,7 +791,7 @@ impl ConversationHttp {
         fd: &mut W,
         response_metadata: HttpResponseMetadata,
         msg: String,
-    ) -> Result<Option<BlockStreamData>, net_error> {
+    ) -> Result<Option<StreamCursor>, net_error> {
         // oops
         warn!("{}", &msg);
         let response = HttpResponseType::ServerError(response_metadata, msg);
@@ -801,7 +801,7 @@ impl ConversationHttp {
     /// Handle a GET headers. Start streaming the reply.
     /// The response's preamble (but not the headers list) will be synchronously written to the fd
     /// (so use a fd that can buffer!)
-    /// Return a BlockStreamData struct for the reward cycle we're sending, so we can continue to
+    /// Return a StreamCursor struct for the reward cycle we're sending, so we can continue to
     /// make progress sending it
     fn handle_getheaders<W: Write>(
         http: &mut StacksHttp,
@@ -810,7 +810,7 @@ impl ConversationHttp {
         tip: &StacksBlockId,
         quantity: u64,
         chainstate: &StacksChainState,
-    ) -> Result<Option<BlockStreamData>, net_error> {
+    ) -> Result<Option<StreamCursor>, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         if quantity > (MAX_HEADERS as u64) {
             // bad request
@@ -823,7 +823,7 @@ impl ConversationHttp {
             );
             response.send(http, fd).and_then(|_| Ok(None))
         } else {
-            let stream = match BlockStreamData::new_headers(chainstate, tip, quantity as u32) {
+            let stream = match StreamCursor::new_headers(chainstate, tip, quantity as u32) {
                 Ok(stream) => stream,
                 Err(chain_error::NoSuchBlockError) => {
                     return ConversationHttp::handle_notfound(
@@ -851,7 +851,7 @@ impl ConversationHttp {
     /// Handle a GET block.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
     /// (so use a fd that can buffer!)
-    /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
+    /// Return a StreamCursor struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getblock<W: Write>(
         http: &mut StacksHttp,
@@ -859,7 +859,7 @@ impl ConversationHttp {
         req: &HttpRequestType,
         index_block_hash: &StacksBlockId,
         chainstate: &StacksChainState,
-    ) -> Result<Option<BlockStreamData>, net_error> {
+    ) -> Result<Option<StreamCursor>, net_error> {
         monitoring::increment_stx_blocks_served_counter();
         let response_metadata = HttpResponseMetadata::from(req);
 
@@ -884,7 +884,7 @@ impl ConversationHttp {
             }
             Ok(true) => {
                 // yup! start streaming it back
-                let stream = BlockStreamData::new_block(index_block_hash.clone());
+                let stream = StreamCursor::new_block(index_block_hash.clone());
                 let response = HttpResponseType::BlockStream(response_metadata);
                 response.send(http, fd).and_then(|_| Ok(Some(stream)))
             }
@@ -894,7 +894,7 @@ impl ConversationHttp {
     /// Handle a GET confirmed microblock stream, by _anchor block hash_.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
     /// (so use a fd that can buffer!)
-    /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
+    /// Return a StreamCursor struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks_confirmed<W: Write>(
         http: &mut StacksHttp,
@@ -902,7 +902,7 @@ impl ConversationHttp {
         req: &HttpRequestType,
         index_anchor_block_hash: &StacksBlockId,
         chainstate: &StacksChainState,
-    ) -> Result<Option<BlockStreamData>, net_error> {
+    ) -> Result<Option<StreamCursor>, net_error> {
         monitoring::increment_stx_confirmed_micro_blocks_served_counter();
         let response_metadata = HttpResponseMetadata::from(req);
 
@@ -956,7 +956,7 @@ impl ConversationHttp {
                 );
             }
             Ok(Some(tail_index_microblock_hash)) => {
-                let (response, stream_opt) = match BlockStreamData::new_microblock_confirmed(
+                let (response, stream_opt) = match StreamCursor::new_microblock_confirmed(
                     chainstate,
                     tail_index_microblock_hash.clone(),
                 ) {
@@ -999,7 +999,7 @@ impl ConversationHttp {
     /// Handle a GET confirmed microblock stream, by last _index microblock hash_ in the stream.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
     /// (so use a fd that can buffer!)
-    /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
+    /// Return a StreamCursor struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks_indexed<W: Write>(
         http: &mut StacksHttp,
@@ -1007,7 +1007,7 @@ impl ConversationHttp {
         req: &HttpRequestType,
         tail_index_microblock_hash: &StacksBlockId,
         chainstate: &StacksChainState,
-    ) -> Result<Option<BlockStreamData>, net_error> {
+    ) -> Result<Option<StreamCursor>, net_error> {
         monitoring::increment_stx_micro_blocks_served_counter();
         let response_metadata = HttpResponseMetadata::from(req);
 
@@ -1042,7 +1042,7 @@ impl ConversationHttp {
             }
             Ok(true) => {
                 // yup! start streaming it back
-                let (response, stream_opt) = match BlockStreamData::new_microblock_confirmed(
+                let (response, stream_opt) = match StreamCursor::new_microblock_confirmed(
                     chainstate,
                     tail_index_microblock_hash.clone(),
                 ) {
@@ -1118,21 +1118,34 @@ impl ConversationHttp {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     let key = ClarityDatabase::make_key_for_account_balance(&account);
                     let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
-                    let (balance, balance_proof) = clarity_db
-                        .get_with_proof::<STXBalance>(&key)
-                        .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
-                        .unwrap_or_else(|| (STXBalance::zero(), "".into()));
-                    let balance_proof = if with_proof {
-                        Some(balance_proof)
-                    } else {
-                        None
-                    };
+                    let (balance, balance_proof) = 
+                        if with_proof {
+                            clarity_db
+                                .get_with_proof::<STXBalance>(&key)
+                                .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                                .unwrap_or_else(|| (STXBalance::zero(), None))
+                        }
+                        else {
+                            clarity_db
+                                .get::<STXBalance>(&key)
+                                .map(|a| (a, None))
+                                .unwrap_or_else(|| (STXBalance::zero(), None))
+                        };
+
                     let key = ClarityDatabase::make_key_for_account_nonce(&account);
-                    let (nonce, nonce_proof) = clarity_db
-                        .get_with_proof(&key)
-                        .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
-                        .unwrap_or_else(|| (0, "".into()));
-                    let nonce_proof = if with_proof { Some(nonce_proof) } else { None };
+                    let (nonce, nonce_proof) =
+                        if with_proof {
+                            clarity_db
+                                .get_with_proof(&key)
+                                .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                                .unwrap_or_else(|| (0, None))
+                        }
+                        else {
+                            clarity_db
+                                .get(&key)
+                                .map(|a| (a, None))
+                                .unwrap_or_else(|| (0, None))
+                        };
 
                     let unlocked = balance.get_available_balance_at_burn_block(burn_block_height);
                     let (locked, unlock_height) =
@@ -1187,20 +1200,18 @@ impl ConversationHttp {
                         var_name,
                     );
 
-                    let (value, marf_proof) = clarity_db
-                        .get_with_proof::<Value>(&key)
-                        .map(|(a, b)| (a, format!("0x{}", b.to_hex())))?;
+                    let (value, marf_proof) =
+                        if with_proof {
+                            clarity_db
+                                .get_with_proof::<Value>(&key)
+                                .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))?
 
-                    let marf_proof = if with_proof {
-                        test_debug!(
-                            "Return a MARF proof of '{}' of {} bytes",
-                            &key,
-                            marf_proof.as_bytes().len()
-                        );
-                        Some(marf_proof)
-                    } else {
-                        None
-                    };
+                        }
+                        else {
+                            clarity_db
+                                .get::<Value>(&key)
+                                .map(|a| (a, None))?
+                        };
 
                     let data = format!("0x{}", value.serialize());
                     Some(DataVarResponse { data, marf_proof })
@@ -1245,23 +1256,25 @@ impl ConversationHttp {
                         map_name,
                         key,
                     );
-                    let (value, marf_proof) = clarity_db
-                        .get_with_proof::<Value>(&key)
-                        .map(|(a, b)| (a, format!("0x{}", b.to_hex())))
-                        .unwrap_or_else(|| {
-                            test_debug!("No value for '{}' in {}", &key, tip);
-                            (Value::none(), "".into())
-                        });
-                    let marf_proof = if with_proof {
-                        test_debug!(
-                            "Return a MARF proof of '{}' of {} bytes",
-                            &key,
-                            marf_proof.as_bytes().len()
-                        );
-                        Some(marf_proof)
-                    } else {
-                        None
-                    };
+                    let (value, marf_proof) =
+                        if with_proof {
+                            clarity_db
+                                .get_with_proof::<Value>(&key)
+                                .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                                .unwrap_or_else(|| {
+                                    test_debug!("No value for '{}' in {}", &key, tip);
+                                    (Value::none(), None)
+                                })
+                        }
+                        else {
+                            clarity_db
+                                .get::<Value>(&key)
+                                .map(|a| (a, None))
+                                .unwrap_or_else(|| {
+                                    test_debug!("No value for '{}' in {}", &key, tip);
+                                    (Value::none(), None)
+                                })
+                        };
 
                     let data = format!("0x{}", value.serialize());
                     MapEntryResponse { data, marf_proof }
@@ -1387,19 +1400,25 @@ impl ConversationHttp {
                 clarity_tx.with_clarity_db_readonly(|db| {
                     let source = db.get_contract_src(&contract_identifier)?;
                     let contract_commit_key = make_contract_hash_key(&contract_identifier);
-                    let (contract_commit, proof) = db
-                        .get_with_proof::<ContractCommitment>(&contract_commit_key)
-                        .expect("BUG: obtained source, but couldn't get MARF proof.");
-                    let marf_proof = if with_proof {
-                        Some(format!("0x{}", proof.to_hex()))
-                    } else {
-                        None
-                    };
+                    let (contract_commit, proof) = 
+                        if with_proof {
+                            db
+                                .get_with_proof::<ContractCommitment>(&contract_commit_key)
+                                .map(|(a, b)| (a, Some(format!("0x{}", &b.to_hex()))))
+                                .expect("BUG: obtained source, but couldn't get contract commit")
+                        }
+                        else {
+                            db
+                                .get::<ContractCommitment>(&contract_commit_key)
+                                .map(|a| (a, None))
+                                .expect("BUG: obtained source, but couldn't get contract commit")
+                        };
+                    
                     let publish_height = contract_commit.block_height;
                     Some(ContractSrcResponse {
                         source,
                         publish_height,
-                        marf_proof,
+                        marf_proof: proof,
                     })
                 })
             }) {
@@ -1509,7 +1528,7 @@ impl ConversationHttp {
     /// Handle a GET unconfirmed microblock stream.  Start streaming the reply.
     /// The response's preamble (but not the block data) will be synchronously written to the fd
     /// (so use a fd that can buffer!)
-    /// Return a BlockStreamData struct for the block that we're sending, so we can continue to
+    /// Return a StreamCursor struct for the block that we're sending, so we can continue to
     /// make progress sending it.
     fn handle_getmicroblocks_unconfirmed<W: Write>(
         http: &mut StacksHttp,
@@ -1518,7 +1537,7 @@ impl ConversationHttp {
         index_anchor_block_hash: &StacksBlockId,
         min_seq: u16,
         chainstate: &StacksChainState,
-    ) -> Result<Option<BlockStreamData>, net_error> {
+    ) -> Result<Option<StreamCursor>, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
 
         // do we have this unconfirmed microblock stream?
@@ -1553,7 +1572,7 @@ impl ConversationHttp {
             }
             Ok(true) => {
                 // yup! start streaming it back
-                let (response, stream_opt) = match BlockStreamData::new_microblock_unconfirmed(
+                let (response, stream_opt) = match StreamCursor::new_microblock_unconfirmed(
                     chainstate,
                     index_anchor_block_hash.clone(),
                     min_seq,
@@ -3139,7 +3158,7 @@ mod test {
     use burnchains::*;
     use chainstate::burn::ConsensusHash;
     use chainstate::stacks::db::blocks::test::*;
-    use chainstate::stacks::db::BlockStreamData;
+    use chainstate::stacks::db::StreamCursor;
     use chainstate::stacks::db::StacksChainState;
     use chainstate::stacks::miner::*;
     use chainstate::stacks::test::*;
@@ -5031,7 +5050,7 @@ mod test {
                 let req_md = http_request.metadata().clone();
                 println!("{:?}", http_response);
                 match http_response {
-                    HttpResponseType::ServerError(_, msg) => {
+                    HttpResponseType::BadRequest(_, msg) => {
                         assert_eq!(
                             msg,
                             "Number of attachment inv pages is limited by 8 per request"
