@@ -453,7 +453,7 @@ impl<'de> Deserialize<'de> for PeerAddress {
 }
 
 impl PeerAddress {
-    pub fn from_bytevec(bytes: &Vec<u8>) -> Option<PeerAddress> {
+    pub fn from_slice(bytes: &[u8]) -> Option<PeerAddress> {
         if bytes.len() != 16 {
             return None;
         }
@@ -1052,11 +1052,34 @@ pub struct RPCPoxInfoData {
 }
 
 /// Headers response payload
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtendedStacksHeader {
     pub consensus_hash: ConsensusHash,
+    #[serde(
+        serialize_with = "ExtendedStacksHeader_StacksBlockHeader_serialize",
+        deserialize_with = "ExtendedStacksHeader_StacksBlockHeader_deserialize"
+    )]
     pub header: StacksBlockHeader,
     pub parent_block_id: StacksBlockId,
+}
+
+/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
+fn ExtendedStacksHeader_StacksBlockHeader_serialize<S: serde::Serializer>(
+    header: &StacksBlockHeader,
+    s: S
+) -> Result<S::Ok, S::Error> {
+    let bytes = header.serialize_to_vec();
+    let header_hex = to_hex(&bytes);
+    s.serialize_str(&header_hex.as_str())
+}
+
+/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
+fn ExtendedStacksHeader_StacksBlockHeader_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D
+) -> Result<StacksBlockHeader, D::Error> {
+    let header_hex = String::deserialize(d)?;
+    let header_bytes = hex_bytes(&header_hex).map_err(de_Error::custom)?;
+    StacksBlockHeader::consensus_deserialize(&mut &header_bytes[..]).map_err(de_Error::custom)
 }
 
 impl StacksMessageCodec for ExtendedStacksHeader {
@@ -2599,7 +2622,7 @@ pub mod test {
             let (tx, _) = sync_channel(100000);
 
             let mut coord = ChainsCoordinator::test_new_with_observer(
-                &burnchain,
+                &config.burnchain,
                 config.network_id,
                 &test_path,
                 OnChainRewardSetProvider(),
