@@ -889,7 +889,8 @@ impl BlockDownloader {
     }
 
     /// Set a hint that a block is now available from a remote peer, if we're idling or we're ahead
-    /// of the given height.
+    /// of the given height.  If force is true, then always restart the download scan at the target
+    /// sortition, even if we're in the middle of downloading.
     pub fn hint_block_sortition_height_available(
         &mut self,
         block_sortition_height: u64,
@@ -923,7 +924,8 @@ impl BlockDownloader {
     }
 
     /// Set a hint that a confirmed microblock stream is now available from a remote peer, if we're idling or we're ahead
-    /// of the given height.
+    /// of the given height.  If force is true, then always restart the download scan at the target
+    /// sortition, even if we're in the middle of downloading.
     pub fn hint_microblock_sortition_height_available(
         &mut self,
         mblock_sortition_height: u64,
