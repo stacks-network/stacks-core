@@ -3046,6 +3046,9 @@ impl PeerNetwork {
         let mut did_cycle = false;
 
         while !did_cycle {
+            // Make the p2p state machine more aggressive about going and fetching newly-discovered
+            // blocks that it gets notified about.  That is, interrupt the state machine and go
+            // process the associated block download first.
             if self.have_data_to_download && self.work_state == PeerNetworkWorkState::BlockInvSync {
                 self.have_data_to_download = false;
                 // forcibly advance
@@ -3100,35 +3103,46 @@ impl PeerNetwork {
                             .map(|neighbor| neighbor.addr)
                             .collect();
 
-                            let mut have_always_allowed = false;
+                            // have we finished a full pass of the inventory state machine on an
+                            // always-allowed peer?
+                            let mut finished_always_allowed_inv_sync = false;
 
                             if always_allowed.len() == 0 {
-                                have_always_allowed = true;
+                                // vacuously, we have done so 
+                                finished_always_allowed_inv_sync = true;
                             } else {
+                                // do we have an always-allowed peer that we have not fully synced
+                                // with?
                                 let mut have_unsynced = false;
                                 if let Some(ref inv_state) = self.inv_state {
                                     for (nk, stats) in inv_state.block_stats.iter() {
                                         if self.is_bound(&nk) {
+                                            // this is the same address we're bound to
                                             continue;
                                         }
                                         if Some((nk.addrbytes.clone(), nk.port))
                                             == self.local_peer.public_ip_address
                                         {
+                                            // this is a peer at our address
                                             continue;
                                         }
                                         if !always_allowed.contains(&nk) {
+                                            // this peer isn't in the always-allowed set
                                             continue;
                                         }
 
                                         if stats.inv.num_reward_cycles
                                             >= self.pox_id.num_inventory_reward_cycles() as u64
                                         {
+                                            // we have fully sync'ed with an always-allowed peer
                                             debug!(
                                                 "{:?}: Fully-sync'ed PoX inventory from {}",
                                                 &self.local_peer, nk
                                             );
-                                            have_always_allowed = true;
+                                            finished_always_allowed_inv_sync = true;
                                         } else {
+                                            // there exists an always-allowed peer that we have not
+                                            // fully sync'ed with
                                             debug!(
                                                 "{:?}: Have not fully sync'ed with {}",
                                                 &self.local_peer, &nk
@@ -3139,11 +3153,17 @@ impl PeerNetwork {
                                 }
 
                                 if !have_unsynced {
-                                    have_always_allowed = true;
+                                    // There exists one or more always-allowed peers in
+                                    // the inv state machine (per the peer DB), but all such peers
+                                    // report either our bind address or our public IP address.
+                                    // If this is the case (i.e. a configuration error, a weird
+                                    // case where nodes share an IP, etc), then we declare this inv
+                                    // sync pass as finished.
+                                    finished_always_allowed_inv_sync = true;
                                 }
                             }
 
-                            if have_always_allowed {
+                            if finished_always_allowed_inv_sync {
                                 debug!("{:?}: synchronized inventories with at least one always-allowed peer", &self.local_peer);
                                 self.num_inv_sync_passes += 1;
                             } else {
@@ -3725,8 +3745,8 @@ impl PeerNetwork {
                         // advance straight to download state if we're in inv state
                         if self.work_state == PeerNetworkWorkState::BlockInvSync {
                             debug!("{:?}: advance directly to block download with knowledge of block sortition {}", &self.local_peer, block_sortition_height);
-                            self.have_data_to_download = true;
                         }
+                        self.have_data_to_download = true;
                     }
                     None => {}
                 }
@@ -3835,8 +3855,8 @@ impl PeerNetwork {
                         // advance straight to download state if we're in inv state
                         if self.work_state == PeerNetworkWorkState::BlockInvSync {
                             debug!("{:?}: advance directly to block download with knowledge of microblock stream {}", &self.local_peer, mblock_sortition_height);
-                            self.have_data_to_download = true;
                         }
+                        self.have_data_to_download = true;
                     }
                     None => {}
                 }
