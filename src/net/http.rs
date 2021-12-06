@@ -3368,7 +3368,7 @@ impl HttpResponseType {
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
         let headers: Vec<ExtendedStacksHeader> =
-            HttpResponseType::parse_bytestream(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
         Ok(HttpResponseType::Headers(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             headers,
@@ -3864,11 +3864,11 @@ impl HttpResponseType {
                     200,
                     "OK",
                     None,
-                    &HttpContentType::Bytes,
+                    &HttpContentType::JSON,
                     md.request_id,
                     |ref mut fd| keep_alive_headers(fd, md),
                 )?;
-                HttpResponseType::send_bytestream(protocol, md, fd, headers)?;
+                HttpResponseType::send_json(protocol, md, fd, headers)?;
             }
             HttpResponseType::HeaderStream(ref md) => {
                 // only send the preamble.  The caller will need to figure out how to send along
@@ -3878,7 +3878,7 @@ impl HttpResponseType {
                     200,
                     "OK",
                     None,
-                    &HttpContentType::Bytes,
+                    &HttpContentType::JSON,
                     md.request_id,
                     |ref mut fd| keep_alive_headers(fd, md),
                 )?;
