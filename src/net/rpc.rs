@@ -4659,10 +4659,6 @@ mod test {
              ref mut convo_client,
              ref mut peer_server,
              ref mut convo_server| {
-                let principal =
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap()
-                        .to_account_principal();
                 convo_client.new_getdatavar(
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
@@ -4711,10 +4707,6 @@ mod test {
                     .unwrap()
                     .unconfirmed_chain_tip
                     .clone();
-                let principal =
-                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
-                        .unwrap()
-                        .to_account_principal();
                 convo_client.new_getdatavar(
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
