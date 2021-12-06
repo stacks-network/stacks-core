@@ -473,28 +473,69 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-/// Opaque structure for streaming block and microblock data from disk
+/// Interface for streaming data
+pub trait Streamer {
+    fn offset(&self) -> u64;
+    fn add_bytes(&mut self, nw: u64);
+}
+
+/// Opaque structure for streaming block, microblock, and header data from disk
+#[derive(Debug, PartialEq, Clone)]
+pub enum StreamCursor {
+    Block(BlockStreamData),
+    Microblocks(MicroblockStreamData),
+    Headers(HeaderStreamData)
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct BlockStreamData {
-    index_block_hash: StacksBlockId, // index block hash of the block to download
-    rowid: Option<i64>,              // used when reading a blob out of staging
-    offset: u64, // offset into whatever is being read (the blob, or the file in the chunk store)
-    total_bytes: u64, // total number of bytes read.
+    /// index block hash of the block to download
+    index_block_hash: StacksBlockId,
+    /// offset into whatever is being read (the blob, or the file in the chunk store)
+    offset: u64,
+    /// total number of bytes read.
+    total_bytes: u64,
+}
 
-    // used for microblocks and headers
+#[derive(Debug, PartialEq, Clone)]
+pub struct MicroblockStreamData {
+    /// index block hash of the block to download
+    index_block_hash: StacksBlockId,
+    /// microblock blob row id
+    rowid: Option<i64>,
+    /// offset into whatever is being read (the blob, or the file in the chunk store)
+    offset: u64,
+    /// total number of bytes read.
+    total_bytes: u64,
+
+    /// length prefix
     num_items_buf: [u8; 4],
     num_items_ptr: usize,
 
-    // used only for microblocks
-    is_microblock: bool,
+    /// microblock pointer
     microblock_hash: BlockHeaderHash,
     parent_index_block_hash: StacksBlockId,
-    seq: u16, // only used for unconfirmed microblocks
+    
+    /// unconfirmed state
+    seq: u16,
     unconfirmed: bool,
+}
 
-    // used only for headers
-    is_headers: bool,
+#[derive(Debug, PartialEq, Clone)]
+pub struct HeaderStreamData {
+    /// index block hash of the block to download
+    index_block_hash: StacksBlockId,
+    /// offset into whatever is being read (the blob, or the file in the chunk store)
+    offset: u64,
+    /// total number of bytes read.
+    total_bytes: u64,
+    /// number of headers requested
     num_headers: u32,
+
+    /// header buffer data
+    header_bytes: Option<Vec<u8>>,
+    end_of_stream: bool,
+    corked: bool
 }
 
 pub const CHAINSTATE_VERSION: &'static str = "2";
