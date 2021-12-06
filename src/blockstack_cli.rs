@@ -691,7 +691,9 @@ fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String
     let mut debug_cursor = LogReader::from_reader(&mut cursor);
 
     match StacksBlockHeader::consensus_deserialize(&mut debug_cursor) {
-        Ok(header) => Ok(serde_json::to_string(&header).expect("Failed to serialize header to JSON")),
+        Ok(header) => {
+            Ok(serde_json::to_string(&header).expect("Failed to serialize header to JSON"))
+        }
         Err(e) => {
             let mut ret = String::new();
             ret.push_str(&format!("Failed to decode header: {:?}\n", &e));

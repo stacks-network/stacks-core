@@ -484,7 +484,7 @@ pub trait Streamer {
 pub enum StreamCursor {
     Block(BlockStreamData),
     Microblocks(MicroblockStreamData),
-    Headers(HeaderStreamData)
+    Headers(HeaderStreamData),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -515,7 +515,7 @@ pub struct MicroblockStreamData {
     /// microblock pointer
     microblock_hash: BlockHeaderHash,
     parent_index_block_hash: StacksBlockId,
-    
+
     /// unconfirmed state
     seq: u16,
     unconfirmed: bool,
@@ -535,7 +535,7 @@ pub struct HeaderStreamData {
     /// header buffer data
     header_bytes: Option<Vec<u8>>,
     end_of_stream: bool,
-    corked: bool
+    corked: bool,
 }
 
 pub const CHAINSTATE_VERSION: &'static str = "2";

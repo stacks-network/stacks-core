@@ -1066,7 +1066,7 @@ pub struct ExtendedStacksHeader {
 /// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
 fn ExtendedStacksHeader_StacksBlockHeader_serialize<S: serde::Serializer>(
     header: &StacksBlockHeader,
-    s: S
+    s: S,
 ) -> Result<S::Ok, S::Error> {
     let bytes = header.serialize_to_vec();
     let header_hex = to_hex(&bytes);
@@ -1075,7 +1075,7 @@ fn ExtendedStacksHeader_StacksBlockHeader_serialize<S: serde::Serializer>(
 
 /// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
 fn ExtendedStacksHeader_StacksBlockHeader_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D
+    d: D,
 ) -> Result<StacksBlockHeader, D::Error> {
     let header_hex = String::deserialize(d)?;
     let header_bytes = hex_bytes(&header_hex).map_err(de_Error::custom)?;

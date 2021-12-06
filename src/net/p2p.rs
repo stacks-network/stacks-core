@@ -3108,7 +3108,7 @@ impl PeerNetwork {
                             let mut finished_always_allowed_inv_sync = false;
 
                             if always_allowed.len() == 0 {
-                                // vacuously, we have done so 
+                                // vacuously, we have done so
                                 finished_always_allowed_inv_sync = true;
                             } else {
                                 // do we have an always-allowed peer that we have not fully synced

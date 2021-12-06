@@ -44,7 +44,7 @@ use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::blocks::CheckError;
 use chainstate::stacks::db::{
-    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StreamCursor, StacksChainState,
+    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState, StreamCursor,
 };
 use chainstate::stacks::Error as chain_error;
 use chainstate::stacks::*;
@@ -100,7 +100,7 @@ use vm::{
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
         clarity_store::ContractCommitment, BurnStateDB, ClarityDatabase, ClaritySerializable,
-        STXBalance, StoreType
+        STXBalance, StoreType,
     },
     errors::Error as ClarityRuntimeError,
     errors::Error::Unchecked,
@@ -1118,34 +1118,30 @@ impl ConversationHttp {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     let key = ClarityDatabase::make_key_for_account_balance(&account);
                     let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
-                    let (balance, balance_proof) = 
-                        if with_proof {
-                            clarity_db
-                                .get_with_proof::<STXBalance>(&key)
-                                .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
-                                .unwrap_or_else(|| (STXBalance::zero(), None))
-                        }
-                        else {
-                            clarity_db
-                                .get::<STXBalance>(&key)
-                                .map(|a| (a, None))
-                                .unwrap_or_else(|| (STXBalance::zero(), None))
-                        };
+                    let (balance, balance_proof) = if with_proof {
+                        clarity_db
+                            .get_with_proof::<STXBalance>(&key)
+                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                            .unwrap_or_else(|| (STXBalance::zero(), None))
+                    } else {
+                        clarity_db
+                            .get::<STXBalance>(&key)
+                            .map(|a| (a, None))
+                            .unwrap_or_else(|| (STXBalance::zero(), None))
+                    };
 
                     let key = ClarityDatabase::make_key_for_account_nonce(&account);
-                    let (nonce, nonce_proof) =
-                        if with_proof {
-                            clarity_db
-                                .get_with_proof(&key)
-                                .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
-                                .unwrap_or_else(|| (0, None))
-                        }
-                        else {
-                            clarity_db
-                                .get(&key)
-                                .map(|a| (a, None))
-                                .unwrap_or_else(|| (0, None))
-                        };
+                    let (nonce, nonce_proof) = if with_proof {
+                        clarity_db
+                            .get_with_proof(&key)
+                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                            .unwrap_or_else(|| (0, None))
+                    } else {
+                        clarity_db
+                            .get(&key)
+                            .map(|a| (a, None))
+                            .unwrap_or_else(|| (0, None))
+                    };
 
                     let unlocked = balance.get_available_balance_at_burn_block(burn_block_height);
                     let (locked, unlock_height) =
@@ -1200,18 +1196,13 @@ impl ConversationHttp {
                         var_name,
                     );
 
-                    let (value, marf_proof) =
-                        if with_proof {
-                            clarity_db
-                                .get_with_proof::<Value>(&key)
-                                .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))?
-
-                        }
-                        else {
-                            clarity_db
-                                .get::<Value>(&key)
-                                .map(|a| (a, None))?
-                        };
+                    let (value, marf_proof) = if with_proof {
+                        clarity_db
+                            .get_with_proof::<Value>(&key)
+                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))?
+                    } else {
+                        clarity_db.get::<Value>(&key).map(|a| (a, None))?
+                    };
 
                     let data = format!("0x{}", value.serialize());
                     Some(DataVarResponse { data, marf_proof })
@@ -1256,25 +1247,23 @@ impl ConversationHttp {
                         map_name,
                         key,
                     );
-                    let (value, marf_proof) =
-                        if with_proof {
-                            clarity_db
-                                .get_with_proof::<Value>(&key)
-                                .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
-                                .unwrap_or_else(|| {
-                                    test_debug!("No value for '{}' in {}", &key, tip);
-                                    (Value::none(), None)
-                                })
-                        }
-                        else {
-                            clarity_db
-                                .get::<Value>(&key)
-                                .map(|a| (a, None))
-                                .unwrap_or_else(|| {
-                                    test_debug!("No value for '{}' in {}", &key, tip);
-                                    (Value::none(), None)
-                                })
-                        };
+                    let (value, marf_proof) = if with_proof {
+                        clarity_db
+                            .get_with_proof::<Value>(&key)
+                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                            .unwrap_or_else(|| {
+                                test_debug!("No value for '{}' in {}", &key, tip);
+                                (Value::none(), None)
+                            })
+                    } else {
+                        clarity_db
+                            .get::<Value>(&key)
+                            .map(|a| (a, None))
+                            .unwrap_or_else(|| {
+                                test_debug!("No value for '{}' in {}", &key, tip);
+                                (Value::none(), None)
+                            })
+                    };
 
                     let data = format!("0x{}", value.serialize());
                     MapEntryResponse { data, marf_proof }
@@ -1400,20 +1389,16 @@ impl ConversationHttp {
                 clarity_tx.with_clarity_db_readonly(|db| {
                     let source = db.get_contract_src(&contract_identifier)?;
                     let contract_commit_key = make_contract_hash_key(&contract_identifier);
-                    let (contract_commit, proof) = 
-                        if with_proof {
-                            db
-                                .get_with_proof::<ContractCommitment>(&contract_commit_key)
-                                .map(|(a, b)| (a, Some(format!("0x{}", &b.to_hex()))))
-                                .expect("BUG: obtained source, but couldn't get contract commit")
-                        }
-                        else {
-                            db
-                                .get::<ContractCommitment>(&contract_commit_key)
-                                .map(|a| (a, None))
-                                .expect("BUG: obtained source, but couldn't get contract commit")
-                        };
-                    
+                    let (contract_commit, proof) = if with_proof {
+                        db.get_with_proof::<ContractCommitment>(&contract_commit_key)
+                            .map(|(a, b)| (a, Some(format!("0x{}", &b.to_hex()))))
+                            .expect("BUG: obtained source, but couldn't get contract commit")
+                    } else {
+                        db.get::<ContractCommitment>(&contract_commit_key)
+                            .map(|a| (a, None))
+                            .expect("BUG: obtained source, but couldn't get contract commit")
+                    };
+
                     let publish_height = contract_commit.block_height;
                     Some(ContractSrcResponse {
                         source,
@@ -3158,8 +3143,8 @@ mod test {
     use burnchains::*;
     use chainstate::burn::ConsensusHash;
     use chainstate::stacks::db::blocks::test::*;
-    use chainstate::stacks::db::StreamCursor;
     use chainstate::stacks::db::StacksChainState;
+    use chainstate::stacks::db::StreamCursor;
     use chainstate::stacks::miner::*;
     use chainstate::stacks::test::*;
     use chainstate::stacks::Error as chain_error;

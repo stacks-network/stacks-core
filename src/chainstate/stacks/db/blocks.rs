@@ -511,7 +511,7 @@ impl StreamCursor {
             num_headers: num_headers,
             header_bytes: None,
             end_of_stream: false,
-            corked: false
+            corked: false,
         }))
     }
 
@@ -546,7 +546,7 @@ impl StreamCursor {
         match self {
             StreamCursor::Block(ref stream) => stream.offset(),
             StreamCursor::Microblocks(ref stream) => stream.offset(),
-            StreamCursor::Headers(ref stream) => stream.offset()
+            StreamCursor::Headers(ref stream) => stream.offset(),
         }
     }
 
@@ -554,7 +554,7 @@ impl StreamCursor {
         match self {
             StreamCursor::Block(ref mut stream) => stream.add_bytes(nw),
             StreamCursor::Microblocks(ref mut stream) => stream.add_bytes(nw),
-            StreamCursor::Headers(ref mut stream) => stream.add_bytes(nw)
+            StreamCursor::Headers(ref mut stream) => stream.add_bytes(nw),
         }
     }
 
@@ -578,7 +578,7 @@ impl StreamCursor {
                     StacksChainState::stream_microblocks_unconfirmed(&chainstate, fd, stream, count)
                         .and_then(|bytes_sent| Ok(bytes_sent + num_written))
                 }
-            },
+            }
             StreamCursor::Headers(ref mut stream) => {
                 let mut num_written = 0;
                 if stream.total_bytes == 0 {
@@ -588,8 +588,7 @@ impl StreamCursor {
                     stream.total_bytes += byte_written;
                 }
                 if stream.total_bytes > 0 {
-                    let mut sent = chainstate
-                        .stream_headers(fd, stream, count)?;
+                    let mut sent = chainstate.stream_headers(fd, stream, count)?;
 
                     if stream.end_of_stream && !stream.corked {
                         // end of stream; cork it
@@ -604,10 +603,8 @@ impl StreamCursor {
                     num_written += sent;
                 }
                 Ok(num_written)
-            },
-            StreamCursor::Block(ref mut stream) => {
-                chainstate.stream_block(fd, stream, count)
             }
+            StreamCursor::Block(ref mut stream) => chainstate.stream_block(fd, stream, count),
         }
     }
 }
@@ -2859,21 +2856,31 @@ impl StacksChainState {
                 parent_block_id: parent_index_block_hash,
             };
 
-            serde_json::to_writer(&mut header_bytes, &extended_header)
-                .map_err(|e| Error::NetError(net_error::SerializeError(format!("Failed to send as JSON: {:?}", &e))))?;
+            serde_json::to_writer(&mut header_bytes, &extended_header).map_err(|e| {
+                Error::NetError(net_error::SerializeError(format!(
+                    "Failed to send as JSON: {:?}",
+                    &e
+                )))
+            })?;
 
             if stream.num_headers > 1 {
                 header_bytes.push(',' as u8);
             }
 
-            test_debug!("header_bytes: {}", String::from_utf8(header_bytes.clone()).unwrap());
+            test_debug!(
+                "header_bytes: {}",
+                String::from_utf8(header_bytes.clone()).unwrap()
+            );
 
             stream.header_bytes = Some(header_bytes);
             stream.offset = 0;
         }
 
         if stream.header_bytes.is_some() {
-            let header_bytes = stream.header_bytes.take().expect("Do not have header bytes and did not set them");
+            let header_bytes = stream
+                .header_bytes
+                .take()
+                .expect("Do not have header bytes and did not set them");
             let res = (|| {
                 if stream.offset >= (header_bytes.len() as u64) {
                     // EOF
@@ -2898,8 +2905,7 @@ impl StacksChainState {
             })();
             stream.header_bytes = Some(header_bytes);
             res
-        }
-        else {
+        } else {
             Ok(0)
         }
     }
@@ -8993,18 +8999,17 @@ pub mod test {
             StacksChainState::stream_one_header(blocks_conn, blocks_path, &mut bytes, stream, count)
                 .map(|nr| {
                     assert_eq!(bytes.len(), nr as usize);
-                   
+
                     // truncate trailing ',' if it exists
                     let len = bytes.len();
                     if len > 0 {
-                        if bytes[len-1] == ',' as u8 {
+                        if bytes[len - 1] == ',' as u8 {
                             let _ = bytes.pop();
                         }
                     }
                     bytes
                 })
-        }
-        else {
+        } else {
             panic!("not a header stream");
         }
     }
@@ -9016,12 +9021,13 @@ pub mod test {
     ) -> Result<Vec<u8>, chainstate_error> {
         if let StreamCursor::Microblocks(ref mut stream) = stream {
             let mut bytes = vec![];
-            StacksChainState::stream_one_microblock(blocks_conn, &mut bytes, stream, count).map(|nr| {
-                assert_eq!(bytes.len(), nr as usize);
-                bytes
-            })
-        }
-        else {
+            StacksChainState::stream_one_microblock(blocks_conn, &mut bytes, stream, count).map(
+                |nr| {
+                    assert_eq!(bytes.len(), nr as usize);
+                    bytes
+                },
+            )
+        } else {
             panic!("not a microblock stream");
         }
     }
@@ -9033,14 +9039,12 @@ pub mod test {
     ) -> Result<Vec<u8>, chainstate_error> {
         if let StreamCursor::Block(ref mut stream) = stream {
             let mut bytes = vec![];
-            StacksChainState::stream_data_from_chunk_store(blocks_path, &mut bytes, stream, count).map(
-                |nr| {
+            StacksChainState::stream_data_from_chunk_store(blocks_path, &mut bytes, stream, count)
+                .map(|nr| {
                     assert_eq!(bytes.len(), nr as usize);
                     bytes
-                },
-            )
-        }
-        else {
+                })
+        } else {
             panic!("not a block stream");
         }
     }
@@ -9302,7 +9306,8 @@ pub mod test {
                 next_header_bytes.append(&mut next_bytes);
             }
             test_debug!("Got {} total bytes", next_header_bytes.len());
-            let header : ExtendedStacksHeader = serde_json::from_reader(&mut &next_header_bytes[..]).unwrap();
+            let header: ExtendedStacksHeader =
+                serde_json::from_reader(&mut &next_header_bytes[..]).unwrap();
 
             assert_eq!(header.consensus_hash, ConsensusHash([(i + 1) as u8; 20]));
             assert_eq!(header.header, blocks[i].header);
@@ -9341,7 +9346,10 @@ pub mod test {
         let header_bytes =
             stream_headers_to_vec(&mut chainstate, &mut stream, 1024 * 1024).unwrap();
 
-        eprintln!("headers: {}", String::from_utf8(header_bytes.clone()).unwrap());
+        eprintln!(
+            "headers: {}",
+            String::from_utf8(header_bytes.clone()).unwrap()
+        );
         let headers: Vec<ExtendedStacksHeader> =
             serde_json::from_reader(&mut &header_bytes[..]).unwrap();
 
@@ -9358,12 +9366,9 @@ pub mod test {
             }
         }
 
-        let mut stream = StreamCursor::new_headers(
-            &chainstate,
-            blocks_fork_index_hashes.last().unwrap(),
-            4096,
-        )
-        .unwrap();
+        let mut stream =
+            StreamCursor::new_headers(&chainstate, blocks_fork_index_hashes.last().unwrap(), 4096)
+                .unwrap();
         let header_bytes =
             stream_headers_to_vec(&mut chainstate, &mut stream, 1024 * 1024).unwrap();
         let fork_headers: Vec<ExtendedStacksHeader> =
@@ -9404,7 +9409,10 @@ pub mod test {
             header_bytes.append(&mut next_bytes);
         }
 
-        eprintln!("header bytes: {}", String::from_utf8(header_bytes.clone()).unwrap());
+        eprintln!(
+            "header bytes: {}",
+            String::from_utf8(header_bytes.clone()).unwrap()
+        );
 
         let headers: Vec<ExtendedStacksHeader> =
             serde_json::from_reader(&mut &header_bytes[..]).unwrap();
@@ -9457,15 +9465,17 @@ pub mod test {
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &block.block_hash());
 
         // can't stream a non-existant microblock
-        if let Err(super::Error::NoSuchBlockError) = StreamCursor::new_microblock_confirmed(&chainstate, index_block_header.clone()) {
-        }
-        else {
+        if let Err(super::Error::NoSuchBlockError) =
+            StreamCursor::new_microblock_confirmed(&chainstate, index_block_header.clone())
+        {
+        } else {
             panic!("Opened nonexistant microblock");
         }
-        
-        if let Err(super::Error::NoSuchBlockError) = StreamCursor::new_microblock_unconfirmed(&chainstate, index_block_header.clone(), 0) {
-        }
-        else {
+
+        if let Err(super::Error::NoSuchBlockError) =
+            StreamCursor::new_microblock_unconfirmed(&chainstate, index_block_header.clone(), 0)
+        {
+        } else {
             panic!("Opened nonexistant microblock");
         }
 
