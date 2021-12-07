@@ -1122,7 +1122,7 @@ impl ConversationHttp {
                         clarity_db
                             .get_with_proof::<STXBalance>(&key)
                             .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
-                            .unwrap_or_else(|| (STXBalance::zero(), None))
+                            .unwrap_or_else(|| (STXBalance::zero(), Some("".into())))
                     } else {
                         clarity_db
                             .get::<STXBalance>(&key)
@@ -1135,7 +1135,7 @@ impl ConversationHttp {
                         clarity_db
                             .get_with_proof(&key)
                             .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
-                            .unwrap_or_else(|| (0, None))
+                            .unwrap_or_else(|| (0, Some("".into())))
                     } else {
                         clarity_db
                             .get(&key)
@@ -1253,7 +1253,7 @@ impl ConversationHttp {
                             .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
                             .unwrap_or_else(|| {
                                 test_debug!("No value for '{}' in {}", &key, tip);
-                                (Value::none(), None)
+                                (Value::none(), Some("".into()))
                             })
                     } else {
                         clarity_db
