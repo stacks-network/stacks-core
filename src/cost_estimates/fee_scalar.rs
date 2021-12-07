@@ -216,15 +216,19 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
     ) -> Result<(), EstimatorError> {
         // Step 1: Calculate a fee rate for each transaction in the block.
         // TODO: use the unused part of the block as being at fee rate minum (part 3)
-        let mut sorted_fee_rates: Vec<_> = receipt
-            .tx_receipts
-            .iter()
-            .filter_map(|tx_receipt| self.fee_rate_from_receipt(&tx_receipt, block_limit))
-            .collect();
-        sorted_fee_rates.sort_by(|a, b| {
-            a.partial_cmp(b)
-                .expect("BUG: Fee rates should be orderable: NaN and infinite values are filtered")
-        });
+        let sorted_fee_rates: Vec<_> = {
+            let mut result = receipt
+                .tx_receipts
+                .iter()
+                .filter_map(|tx_receipt| self.fee_rate_from_receipt(&tx_receipt, block_limit))
+                .collect();
+            result.sort_by(|a, b| {
+                a.partial_cmp(b).expect(
+                    "BUG: Fee rates should be orderable: NaN and infinite values are filtered",
+                )
+            });
+            result
+        };
 
         // Step 2: If we have fee rates, update them.
         let num_fee_rates = sorted_fee_rates.len();
