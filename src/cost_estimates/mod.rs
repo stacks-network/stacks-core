@@ -14,6 +14,7 @@ use burnchains::Txid;
 use chainstate::stacks::db::StacksEpochReceipt;
 
 pub mod fee_scalar;
+pub mod fee_medians;
 pub mod metrics;
 pub mod pessimistic;
 
