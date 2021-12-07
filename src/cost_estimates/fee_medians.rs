@@ -44,7 +44,7 @@ CREATE TABLE median_fee_estimator (
 /// the subsequent fee rate using the actual paid fee. The 5th, 50th and 95th
 /// percentile fee rates for each block are used as the low, middle, and high
 /// estimates. Estimates are updated via exponential decay windowing.
-pub struct ScalarFeeRateEstimator<M: CostMetric> {
+pub struct WeightedMedianFeeRateEstimator<M: CostMetric> {
     db: Connection,
     /// We only look back `window_size` fee rates when averaging past estimates.
     window_size: u32,
@@ -58,7 +58,7 @@ struct FeeRateAndWeight {
     pub weight: u64,
 }
 
-impl<M: CostMetric> ScalarFeeRateEstimator<M> {
+impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
     /// Open a fee rate estimator at the given db path. Creates if not existent.
     pub fn open(p: &Path, metric: M) -> Result<Self, SqliteError> {
         let db =
@@ -195,7 +195,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
     }
 }
 
-impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
+impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
     /// Compute a FeeRateEstimate for this block. Update the
     /// running estimate using this rounds estimate.
     fn notify_block(
