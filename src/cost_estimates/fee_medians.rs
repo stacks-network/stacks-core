@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::{iter::FromIterator, path::Path};
 
+use rusqlite::AndThenRows;
 use rusqlite::Transaction as SqlTransaction;
 use rusqlite::{
     types::{FromSql, FromSqlError},
@@ -40,10 +41,13 @@ CREATE TABLE median_fee_estimator (
 )";
 
 /// This struct estimates fee rates by translating a transaction's `ExecutionCost`
-/// into a scalar using `ExecutionCost::proportion_dot_product` and computing
-/// the subsequent fee rate using the actual paid fee. The 5th, 50th and 95th
+/// into a scalar using a `CostMetric` (type parameter `M`) and computing
+/// the subsequent fee rate using the actual paid fee. The *weighted* 5th, 50th and 95th
 /// percentile fee rates for each block are used as the low, middle, and high
-/// estimates. Estimates are updated via exponential decay windowing.
+/// estimates. The fee rates are weighted by the scalar value for each transaction.
+/// Blocks which do not exceed at least 1-dimension of the block limit are filled
+/// with a rate = 1.0 transaction. Estimates are updated via the median value over
+/// a parameterized window.
 pub struct WeightedMedianFeeRateEstimator<M: CostMetric> {
     db: Connection,
     /// We only look back `window_size` fee rates when averaging past estimates.
@@ -51,8 +55,7 @@ pub struct WeightedMedianFeeRateEstimator<M: CostMetric> {
     metric: M,
 }
 
-/// Pair of "fee rate" and a "weight". The "weight" is a non-negative integer for a transaction
-/// that gets its meaning relative to the other weights in the block.
+/// Convenience pair for return values.
 struct FeeRateAndWeight {
     pub fee_rate: f64,
     pub weight: u64,
@@ -61,27 +64,18 @@ struct FeeRateAndWeight {
 impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
     /// Open a fee rate estimator at the given db path. Creates if not existent.
     pub fn open(p: &Path, metric: M) -> Result<Self, SqliteError> {
-        let db =
-            sqlite_open(p, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE, false).or_else(|e| {
-                if let SqliteError::SqliteFailure(ref internal, _) = e {
-                    if let rusqlite::ErrorCode::CannotOpen = internal.code {
-                        let mut db = sqlite_open(
-                            p,
-                            rusqlite::OpenFlags::SQLITE_OPEN_CREATE
-                                | rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
-                            false,
-                        )?;
-                        let tx = tx_begin_immediate_sqlite(&mut db)?;
-                        Self::instantiate_db(&tx)?;
-                        tx.commit()?;
-                        Ok(db)
-                    } else {
-                        Err(e)
-                    }
-                } else {
-                    Err(e)
-                }
-            })?;
+        let mut db = sqlite_open(
+            p,
+            rusqlite::OpenFlags::SQLITE_OPEN_CREATE | rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+            false,
+        )?;
+
+        // check if the db needs to be instantiated regardless of whether or not
+        //  it was newly created: the db itself may be shared with other fee estimators,
+        //  which would not have created the necessary table for this estimator.
+        let tx = tx_begin_immediate_sqlite(&mut db)?;
+        Self::instantiate_db(&tx)?;
+        tx.commit()?;
 
         Ok(Self {
             db,
@@ -225,18 +219,7 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
     }
 
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
-        let sql = "SELECT high, middle, low FROM median_fee_estimator WHERE estimate_key = ?";
-        self.db
-            .query_row(sql, &[SINGLETON_ROW_ID], |row| {
-                let high: f64 = row.get(0)?;
-                let middle: f64 = row.get(1)?;
-                let low: f64 = row.get(2)?;
-                Ok((high, middle, low))
-            })
-            .optional()
-            .expect("SQLite failure")
-            .map(|(high, middle, low)| FeeRateEstimate { high, middle, low })
-            .ok_or_else(|| EstimatorError::NoEstimateAvailable)
+        Self::get_rate_estimates_from_sql(&self.db, self.window_size)
     }
 }
 
