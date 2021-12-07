@@ -1,4 +1,5 @@
 use std::cmp;
+use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::{iter::FromIterator, path::Path};
 
@@ -31,8 +32,8 @@ use cost_estimates::StacksTransactionReceipt;
 
 const SINGLETON_ROW_ID: i64 = 1;
 const CREATE_TABLE: &'static str = "
-CREATE TABLE scalar_fee_estimator (
-    estimate_key NUMBER PRIMARY KEY,
+CREATE TABLE median_fee_estimator (
+    measure_key INTEGER PRIMARY KEY AUTOINCREMENT,
     high NUMBER NOT NULL,
     middle NUMBER NOT NULL,
     low NUMBER NOT NULL
@@ -92,7 +93,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
     /// Check if the SQL database was already created. Necessary to avoid races if
     ///  different threads open an estimator at the same time.
     fn db_already_instantiated(tx: &SqlTransaction) -> Result<bool, SqliteError> {
-        table_exists(tx, "scalar_fee_estimator")
+        table_exists(tx, "median_fee_estimator")
     }
 
     fn instantiate_db(tx: &SqlTransaction) -> Result<(), SqliteError> {
@@ -103,75 +104,94 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         Ok(())
     }
 
-    fn update_estimate_local(
-        &self,
-        new_measure: &FeeRateEstimate,
-        old_estimate: &FeeRateEstimate,
-    ) -> FeeRateEstimate {
-        // TODO: use a window (part 1)
-        // compute the exponential windowing:
-        // estimate = (a/b * old_estimate) + ((1 - a/b) * new_estimate)
-        let prior_component = old_estimate.clone();
-        let next_component = new_measure.clone();
-        let mut next_computed = prior_component + next_component;
+    fn get_rate_estimates_from_sql(
+        conn: &Connection,
+        window_size: u32,
+    ) -> Result<FeeRateEstimate, EstimatorError> {
+        let sql =
+            "SELECT high, middle, low FROM median_fee_estimator ORDER BY measure_key DESC LIMIT ?";
+        let mut stmt = conn.prepare(sql).expect("SQLite failure");
 
-        // because of integer math, we can end up with some edge effects
-        // when the estimate is < decay_rate_fraction.1, so just saturate
-        // on the low end at a rate of "1"
-        next_computed.high = if next_computed.high >= 1f64 {
-            next_computed.high
-        } else {
-            1f64
-        };
-        next_computed.middle = if next_computed.middle >= 1f64 {
-            next_computed.middle
-        } else {
-            1f64
-        };
-        next_computed.low = if next_computed.low >= 1f64 {
-            next_computed.low
-        } else {
-            1f64
-        };
+        // shuttle high, low, middle estimates into these lists, and then sort and find median.
+        let mut highs = Vec::with_capacity(window_size as usize);
+        let mut mids = Vec::with_capacity(window_size as usize);
+        let mut lows = Vec::with_capacity(window_size as usize);
+        let results = stmt
+            .query_and_then::<_, SqliteError, _, _>(&[window_size], |row| {
+                let high: f64 = row.get(0)?;
+                let middle: f64 = row.get(1)?;
+                let low: f64 = row.get(2)?;
+                Ok((low, middle, high))
+            })
+            .expect("SQLite failure");
 
-        next_computed
+        for result in results {
+            let (low, middle, high) = result.expect("SQLite failure");
+            highs.push(high);
+            mids.push(middle);
+            lows.push(low);
+        }
+
+        if highs.is_empty() || mids.is_empty() || lows.is_empty() {
+            return Err(EstimatorError::NoEstimateAvailable);
+        }
+
+        fn median(len: usize, l: Vec<f64>) -> f64 {
+            if len % 2 == 1 {
+                l[len / 2]
+            } else {
+                // note, measures_len / 2 - 1 >= 0, because
+                //  len % 2 == 0 and emptiness is checked above
+                (l[len / 2] + l[len / 2 - 1]) / 2f64
+            }
+        }
+
+        // sort our float arrays. for float values that do not compare easily,
+        //  treat them as equals.
+        highs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        mids.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        lows.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+
+        Ok(FeeRateEstimate {
+            high: median(highs.len(), highs),
+            middle: median(mids.len(), mids),
+            low: median(lows.len(), lows),
+        })
     }
 
     fn update_estimate(&mut self, new_measure: FeeRateEstimate) {
-        let next_estimate = match self.get_rate_estimates() {
-            Ok(old_estimate) => self.update_estimate_local(&new_measure, &old_estimate),
-            Err(EstimatorError::NoEstimateAvailable) => new_measure.clone(),
-            Err(e) => {
-                warn!("Error in fee estimator fetching current estimates"; "err" => ?e);
-                return;
-            }
-        };
-
-        debug!("Updating fee rate estimate for new block";
-               "new_measure_high" => new_measure.high,
-               "new_measure_middle" => new_measure.middle,
-               "new_measure_low" => new_measure.low,
-               "new_estimate_high" => next_estimate.high,
-               "new_estimate_middle" => next_estimate.middle,
-               "new_estimate_low" => next_estimate.low);
-
-        let sql = "INSERT OR REPLACE INTO scalar_fee_estimator
-                     (estimate_key, high, middle, low) VALUES (?, ?, ?, ?)";
-
         let tx = tx_begin_immediate_sqlite(&mut self.db).expect("SQLite failure");
 
+        let insert_sql = "INSERT INTO median_fee_estimator
+                          (high, middle, low) VALUES (?, ?, ?)";
+
+        let deletion_sql = "DELETE FROM median_fee_estimator
+                            WHERE measure_key <= (
+                               SELECT MAX(measure_key) - ?
+                               FROM median_fee_estimator )";
+
         tx.execute(
-            sql,
-            rusqlite::params![
-                SINGLETON_ROW_ID,
-                next_estimate.high,
-                next_estimate.middle,
-                next_estimate.low,
-            ],
+            insert_sql,
+            rusqlite::params![new_measure.high, new_measure.middle, new_measure.low,],
         )
         .expect("SQLite failure");
 
+        tx.execute(deletion_sql, rusqlite::params![self.window_size])
+            .expect("SQLite failure");
+
+        let estimate = Self::get_rate_estimates_from_sql(&tx, self.window_size);
+
         tx.commit().expect("SQLite failure");
+
+        if let Ok(next_estimate) = estimate {
+            debug!("Updating fee rate estimate for new block";
+                   "new_measure_high" => new_measure.high,
+                   "new_measure_middle" => new_measure.middle,
+                   "new_measure_low" => new_measure.low,
+                   "new_estimate_high" => next_estimate.high,
+                   "new_estimate_middle" => next_estimate.middle,
+                   "new_estimate_low" => next_estimate.low);
+        }
     }
 }
 
