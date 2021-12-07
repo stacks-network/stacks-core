@@ -2740,29 +2740,6 @@ impl StacksChainState {
         )
     }
 
-    /// Given an index microblock hash, get the microblock hash and its anchored block and
-    /// consensus hash
-    pub fn get_microblock_parent_header_hashes(
-        blocks_conn: &DBConn,
-        index_microblock_hash: &StacksBlockId,
-    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, BlockHeaderHash)>, Error> {
-        let sql = format!("SELECT consensus_hash,anchored_block_hash,microblock_hash FROM staging_microblocks WHERE index_microblock_hash = ?1");
-        let args = [index_microblock_hash as &dyn ToSql];
-
-        blocks_conn
-            .query_row(&sql, &args, |row| {
-                let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")
-                    .expect("Expected consensus_hash - database corrupted");
-                let anchored_block_hash = BlockHeaderHash::from_column(row, "anchored_block_hash")
-                    .expect("Expected anchored_block_hash - database corrupted");
-                let microblock_hash = BlockHeaderHash::from_column(row, "microblock_hash")
-                    .expect("Expected microblock_hash - database corrupted");
-                Ok((consensus_hash, anchored_block_hash, microblock_hash))
-            })
-            .optional()
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))
-    }
-
     /// Get the sqlite rowid for a staging microblock, given the hash of the microblock.
     /// Returns None if no such microblock.
     fn stream_microblock_get_rowid(
@@ -5643,6 +5620,8 @@ impl StacksChainState {
         Ok(ret)
     }
 
+    /// Is the given address version currently supported?
+    /// NOTE: not consensus-critical; only used for mempool admission
     fn is_valid_address_version(mainnet: bool, version: u8) -> bool {
         if mainnet {
             version == C32_ADDRESS_VERSION_MAINNET_SINGLESIG
