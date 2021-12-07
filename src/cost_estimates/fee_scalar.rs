@@ -52,10 +52,9 @@ pub struct ScalarFeeRateEstimator<M: CostMetric> {
 /// Pair of "fee rate" and a "weight". The "weight" is a non-negative integer for a transaction
 /// that gets its meaning relative to the other weights in the block.
 struct FeeRateAndWeight {
-    pub fee_rate:f64 ,
-    pub weight:u64,
+    pub fee_rate: f64,
+    pub weight: u64,
 }
-
 
 impl<M: CostMetric> ScalarFeeRateEstimator<M> {
     /// Open a fee rate estimator at the given db path. Creates if not existent.
@@ -209,26 +208,47 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         };
         let fee_rate = fee as f64 / denominator;
         if fee_rate >= 1f64 && fee_rate.is_finite() {
-            Some(FeeRateAndWeight { fee_rate, weight: scalar_cost } )
+            Some(FeeRateAndWeight {
+                fee_rate,
+                weight: scalar_cost,
+            })
         } else {
-            Some(FeeRateAndWeight { fee_rate: 1f64, weight: scalar_cost } )
+            Some(FeeRateAndWeight {
+                fee_rate: 1f64,
+                weight: scalar_cost,
+            })
         }
     }
-    fn compute_updates_from_fee_rates(&mut self, sorted_fee_rates: Vec<FeeRateAndWeight>) {
-        let num_fee_rates = sorted_fee_rates.len();
-        if num_fee_rates > 0 {
-            // TODO: add weights (part 2)
-            // use 5th, 50th, and 95th percentiles from block
-            let highest_index = num_fee_rates - cmp::max(1, num_fee_rates / 20);
-            let median_index = num_fee_rates / 2;
-            let lowest_index = num_fee_rates / 20;
-            let block_estimate = FeeRateEstimate {
-                high: sorted_fee_rates[highest_index].fee_rate,
-                middle: sorted_fee_rates[median_index].fee_rate,
-                low: sorted_fee_rates[lowest_index].fee_rate,
-            };
+    fn fee_rate_esimate_from_sorted_weights(&self, sorted_fee_rates: &Vec<FeeRateAndWeight>) -> FeeRateEstimate {
+        let mut total_weight = 0u64;
+        for rate_and_weight in sorted_fee_rates {
+            total_weight += rate_and_weight.weight;
+        }
+        let mut cumulative_weight = 0u64;
+        let mut percentiles = Vec::new();
+        for rate_and_weight in sorted_fee_rates {
+            cumulative_weight += rate_and_weight.weight;
+            let percentile_n: f64 = (cumulative_weight as f64
+                - rate_and_weight.weight as f64 / 2f64)
+                / total_weight as f64;
+            percentiles.push(percentile_n);
+        }
 
-            self.update_estimate(block_estimate);
+        let target_percentiles = vec![0.05, 0.5, 0.95];
+        let mut fees_index = 1; // index into `sorted_fee_rates`
+        let mut values_at_target_percentiles = Vec::new();
+        for target_percentile in target_percentiles {
+            while fees_index < percentiles.len() && percentiles[fees_index] < target_percentile {
+                fees_index += 1;
+            }
+            // TODO: use an interpolation
+            values_at_target_percentiles.push(&sorted_fee_rates[fees_index - 1]);
+        }
+
+        FeeRateEstimate {
+            high: values_at_target_percentiles[2].fee_rate,
+            middle: values_at_target_percentiles[1].fee_rate,
+            low: values_at_target_percentiles[0].fee_rate,
         }
     }
 }
@@ -239,13 +259,15 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
         receipt: &StacksEpochReceipt,
         block_limit: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
-        // Step 1: Calculate a fee rate for each transaction in the block.
+        // Step 1: Calculate sorted fee rate for each transaction in the block.
         // TODO: use the unused part of the block as being at fee rate minum (part 3)
         let sorted_fee_rates: Vec<FeeRateAndWeight> = {
             let mut result: Vec<FeeRateAndWeight> = receipt
                 .tx_receipts
                 .iter()
-                .filter_map(|tx_receipt| self.fee_rate_and_weight_from_receipt(&tx_receipt, block_limit))
+                .filter_map(|tx_receipt| {
+                    self.fee_rate_and_weight_from_receipt(&tx_receipt, block_limit)
+                })
                 .collect();
             result.sort_by(|a, b| {
                 a.fee_rate.partial_cmp(&b.fee_rate).expect(
@@ -255,8 +277,11 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
             result
         };
 
-        // Step 2: If we have fee rates, update them.
-        self.compute_updates_from_fee_rates(sorted_fee_rates);
+        // Step2: Compute a FeeRateEstimate from the sorted fee rates.
+        let block_estimate = self.fee_rate_esimate_from_sorted_weights(&sorted_fee_rates);
+
+        // Step 3: Update the estimate.
+        self.update_estimate(block_estimate);
 
         Ok(())
     }
