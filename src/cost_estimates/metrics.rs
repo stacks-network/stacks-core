@@ -5,6 +5,11 @@ use crate::vm::costs::ExecutionCost;
 /// This trait defines metrics used to convert `ExecutionCost` and tx_len usage into single-dimensional
 /// metrics that can be used to compute a fee rate.
 pub trait CostMetric: Send {
+    /// Returns a single-dimensional integer representing the proportion of `block_limit` that
+    /// `cost` and `tx_len` up.
+    ///
+    /// TODO: Can we state more invariants about this? E.g., that the sum of all costs in a block
+    /// equals some constant value?
     fn from_cost_and_len(
         &self,
         cost: &ExecutionCost,

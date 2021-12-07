@@ -44,12 +44,18 @@ CREATE TABLE scalar_fee_estimator (
 /// estimates. Estimates are updated via exponential decay windowing.
 pub struct ScalarFeeRateEstimator<M: CostMetric> {
     db: Connection,
-    /// how quickly does the current estimate decay
-    /// compared to the newly received block estimate
-    ///      new_estimate := (decay_rate) * old_estimate + (1 - decay_rate) * new_measure
-    decay_rate: f64,
+    /// We only look back `window_size` fee rates when averaging past estimates.
+    window_size: u32,
     metric: M,
 }
+
+/// Pair of "fee rate" and a "weight". The "weight" is a non-negative integer for a transaction
+/// that gets its meaning relative to the other weights in the block.
+struct FeeRateAndWeight {
+    pub fee_rate:f64 ,
+    pub weight:u64,
+}
+
 
 impl<M: CostMetric> ScalarFeeRateEstimator<M> {
     /// Open a fee rate estimator at the given db path. Creates if not existent.
@@ -79,7 +85,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         Ok(Self {
             db,
             metric,
-            decay_rate: 0.5_f64,
+            window_size: 5,
         })
     }
 
@@ -105,8 +111,8 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         // TODO: use a window (part 1)
         // compute the exponential windowing:
         // estimate = (a/b * old_estimate) + ((1 - a/b) * new_estimate)
-        let prior_component = old_estimate.clone() * self.decay_rate;
-        let next_component = new_measure.clone() * (1_f64 - self.decay_rate);
+        let prior_component = old_estimate.clone();
+        let next_component = new_measure.clone();
         let mut next_computed = prior_component + next_component;
 
         // because of integer math, we can end up with some edge effects
@@ -167,11 +173,13 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
 
         tx.commit().expect("SQLite failure");
     }
-    fn fee_rate_from_receipt(
+
+    /// The fee rate is the `fee_paid/cost_metric_used`
+    fn fee_rate_and_weight_from_receipt(
         &self,
         tx_receipt: &StacksTransactionReceipt,
         block_limit: &ExecutionCost,
-    ) -> Option<f64> {
+    ) -> Option<FeeRateAndWeight> {
         let (payload, fee, tx_size) = match tx_receipt.transaction {
             TransactionOrigin::Stacks(ref tx) => Some((&tx.payload, tx.get_tx_fee(), tx.tx_len())),
             TransactionOrigin::Burn(_) => None,
@@ -194,16 +202,33 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
                     .from_cost_and_len(&tx_receipt.execution_cost, &block_limit, tx_size)
             }
         };
-        let fee_rate = fee as f64
-            / if scalar_cost >= 1 {
-                scalar_cost as f64
-            } else {
-                1f64
-            };
-        if fee_rate >= 1f64 && fee_rate.is_finite() {
-            Some(fee_rate)
+        let denominator = if scalar_cost >= 1 {
+            scalar_cost as f64
         } else {
-            Some(1f64)
+            1f64
+        };
+        let fee_rate = fee as f64 / denominator;
+        if fee_rate >= 1f64 && fee_rate.is_finite() {
+            Some(FeeRateAndWeight { fee_rate, weight: scalar_cost } )
+        } else {
+            Some(FeeRateAndWeight { fee_rate: 1f64, weight: scalar_cost } )
+        }
+    }
+    fn compute_updates_from_fee_rates(&mut self, sorted_fee_rates: Vec<FeeRateAndWeight>) {
+        let num_fee_rates = sorted_fee_rates.len();
+        if num_fee_rates > 0 {
+            // TODO: add weights (part 2)
+            // use 5th, 50th, and 95th percentiles from block
+            let highest_index = num_fee_rates - cmp::max(1, num_fee_rates / 20);
+            let median_index = num_fee_rates / 2;
+            let lowest_index = num_fee_rates / 20;
+            let block_estimate = FeeRateEstimate {
+                high: sorted_fee_rates[highest_index].fee_rate,
+                middle: sorted_fee_rates[median_index].fee_rate,
+                low: sorted_fee_rates[lowest_index].fee_rate,
+            };
+
+            self.update_estimate(block_estimate);
         }
     }
 }
@@ -216,14 +241,14 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
     ) -> Result<(), EstimatorError> {
         // Step 1: Calculate a fee rate for each transaction in the block.
         // TODO: use the unused part of the block as being at fee rate minum (part 3)
-        let sorted_fee_rates: Vec<_> = {
-            let mut result = receipt
+        let sorted_fee_rates: Vec<FeeRateAndWeight> = {
+            let mut result: Vec<FeeRateAndWeight> = receipt
                 .tx_receipts
                 .iter()
-                .filter_map(|tx_receipt| self.fee_rate_from_receipt(&tx_receipt, block_limit))
+                .filter_map(|tx_receipt| self.fee_rate_and_weight_from_receipt(&tx_receipt, block_limit))
                 .collect();
             result.sort_by(|a, b| {
-                a.partial_cmp(b).expect(
+                a.fee_rate.partial_cmp(&b.fee_rate).expect(
                     "BUG: Fee rates should be orderable: NaN and infinite values are filtered",
                 )
             });
@@ -231,21 +256,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
         };
 
         // Step 2: If we have fee rates, update them.
-        let num_fee_rates = sorted_fee_rates.len();
-        if num_fee_rates > 0 {
-            // TODO: add weights (part 2)
-            // use 5th, 50th, and 95th percentiles from block
-            let highest_index = num_fee_rates - cmp::max(1, num_fee_rates / 20);
-            let median_index = num_fee_rates / 2;
-            let lowest_index = num_fee_rates / 20;
-            let block_estimate = FeeRateEstimate {
-                high: sorted_fee_rates[highest_index],
-                middle: sorted_fee_rates[median_index],
-                low: sorted_fee_rates[lowest_index],
-            };
-
-            self.update_estimate(block_estimate);
-        }
+        self.compute_updates_from_fee_rates(sorted_fee_rates);
 
         Ok(())
     }
