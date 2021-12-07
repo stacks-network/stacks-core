@@ -4722,6 +4722,44 @@ mod test {
 
     #[test]
     #[ignore]
+    fn test_rpc_get_data_var_nonexistant() {
+        test_rpc(
+            "test_rpc_get_data_var_nonexistant",
+            40125,
+            40126,
+            50125,
+            50126,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getdatavar(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "bar-nonexistant".try_into().unwrap(),
+                    None,
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::NotFound(_, msg) => {
+                        assert_eq!(msg, "Data var not found");
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
     fn test_rpc_get_map_entry() {
         test_rpc(
             "test_rpc_get_map_entry",
