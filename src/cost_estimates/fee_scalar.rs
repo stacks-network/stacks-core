@@ -214,28 +214,30 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
         receipt: &StacksEpochReceipt,
         block_limit: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
+        // Step 1: Calculate a fee rate for each transaction in the block.
         // TODO: use the unused part of the block as being at fee rate minum (part 3)
-        let mut all_fee_rates: Vec<_> = receipt
+        let mut sorted_fee_rates: Vec<_> = receipt
             .tx_receipts
             .iter()
             .filter_map(|tx_receipt| self.fee_rate_from_receipt(&tx_receipt, block_limit))
             .collect();
-        all_fee_rates.sort_by(|a, b| {
+        sorted_fee_rates.sort_by(|a, b| {
             a.partial_cmp(b)
                 .expect("BUG: Fee rates should be orderable: NaN and infinite values are filtered")
         });
 
-        let measures_len = all_fee_rates.len();
-        if measures_len > 0 {
+        // Step 2: If we have fee rates, update them.
+        let num_fee_rates = sorted_fee_rates.len();
+        if num_fee_rates > 0 {
             // TODO: add weights (part 2)
             // use 5th, 50th, and 95th percentiles from block
-            let highest_index = measures_len - cmp::max(1, measures_len / 20);
-            let median_index = measures_len / 2;
-            let lowest_index = measures_len / 20;
+            let highest_index = num_fee_rates - cmp::max(1, num_fee_rates / 20);
+            let median_index = num_fee_rates / 2;
+            let lowest_index = num_fee_rates / 20;
             let block_estimate = FeeRateEstimate {
-                high: all_fee_rates[highest_index],
-                middle: all_fee_rates[median_index],
-                low: all_fee_rates[lowest_index],
+                high: sorted_fee_rates[highest_index],
+                middle: sorted_fee_rates[median_index],
+                low: sorted_fee_rates[lowest_index],
             };
 
             self.update_estimate(block_estimate);
