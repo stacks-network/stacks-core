@@ -9,4 +9,4 @@ RUN cargo build && \
 RUN grcov . --binary-path ../../target/debug/ -s ../.. -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
 
 FROM scratch AS export-stage
-COPY --from=test /build/lcov.info /
+COPY --from=test /src/lcov.info /
