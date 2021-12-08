@@ -1228,9 +1228,11 @@ impl PeerNetwork {
         for (i, (consensus_hash, block_hash_opt, mut neighbors)) in
             availability.drain(..).enumerate()
         {
-            debug!(
+            test_debug!(
                 "{:?}: consider availability of {}/{:?}",
-                &self.local_peer, &consensus_hash, &block_hash_opt
+                &self.local_peer,
+                &consensus_hash,
+                &block_hash_opt
             );
 
             if (i as u64) >= scan_batch_size {

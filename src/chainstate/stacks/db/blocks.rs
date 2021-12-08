@@ -1046,14 +1046,7 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<StacksBlockHeader>, Error> {
         let block_path = StacksChainState::get_block_path(blocks_dir, consensus_hash, block_hash)?;
-        let sz = StacksChainState::get_file_size(&block_path)?;
-        if sz == 0 {
-            debug!("Zero-sized block {}", &block_hash);
-            return Ok(None);
-        }
-
-        let block_header: StacksBlockHeader = StacksChainState::consensus_load(&block_path)?;
-        Ok(Some(block_header))
+        StacksChainState::inner_load_block_header(&block_path)
     }
 
     /// Load up an anchored block header from the chunk store, given the index block hash
