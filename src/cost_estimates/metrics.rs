@@ -5,11 +5,6 @@ use crate::vm::costs::ExecutionCost;
 /// This trait defines metrics used to convert `ExecutionCost` and tx_len usage into single-dimensional
 /// metrics that can be used to compute a fee rate.
 pub trait CostMetric: Send {
-    /// Returns a single-dimensional integer representing the proportion of `block_limit` that
-    /// `cost` and `tx_len` up.
-    ///
-    /// TODO: Can we state more invariants about this? E.g., that the sum of all costs in a block
-    /// equals some constant value?
     fn from_cost_and_len(
         &self,
         cost: &ExecutionCost,
@@ -29,7 +24,6 @@ impl CostMetric for Box<dyn CostMetric> {
         block_limit: &ExecutionCost,
         tx_len: u64,
     ) -> u64 {
-        warn!("check");
         self.as_ref().from_cost_and_len(cost, block_limit, tx_len)
     }
 
@@ -82,10 +76,6 @@ impl CostMetric for ProportionalDotProduct {
     ) -> u64 {
         let exec_proportion = cost.proportion_dot_product(block_limit, PROPORTION_RESOLUTION);
         let len_proportion = self.calculate_len_proportion(tx_len);
-        warn!(
-            "exec_proportion {} len_proportion {}",
-            exec_proportion, len_proportion
-        );
         exec_proportion + len_proportion
     }
 
@@ -105,7 +95,6 @@ impl CostMetric for UnitMetric {
         _block_limit: &ExecutionCost,
         _tx_len: u64,
     ) -> u64 {
-        warn!("check");
         1
     }
 
