@@ -153,8 +153,19 @@ const tenth_operation_cost: ExecutionCost = ExecutionCost {
     runtime: 10,
 };
 
+const half_operation_cost: ExecutionCost = ExecutionCost {
+    write_length: 50,
+    write_count: 50,
+    read_length: 50,
+    read_count: 50,
+    runtime: 50,
+};
+
 // The scalar cost of `make_dummy_cc_tx(_, &tenth_operation_cost)`.
-const contract_call_cost_basis:u64 = 5160;
+const tenth_operation_cost_basis:u64 = 5160;
+
+// The scalar cost of `make_dummy_cc_tx(_, &half_operation_cost)`.
+const half_operation_cost_basis:u64 = 25160;
 
 #[test]
 fn test_empty_fee_estimator() {
@@ -194,13 +205,13 @@ fn test_empty_block_returns_minimum() {
 }
 
 #[test]
-fn test_single_contract_call() {
+fn test_one_block_partially_filled() {
     let metric = ProportionalDotProduct::new(10_000);
     let mut estimator = instantiate_test_db(metric);
 
     let single_tx_receipt = make_block_receipt(vec![
         StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
-        make_dummy_cc_tx(10 * contract_call_cost_basis, &tenth_operation_cost),
+        make_dummy_cc_tx(10 * tenth_operation_cost_basis, &tenth_operation_cost),
     ]);
 
     estimator
@@ -222,7 +233,36 @@ fn test_single_contract_call() {
 }
 
 #[test]
-fn test_five_contract_calls() {
+fn test_one_block_mostly_filled() {
+    let metric = ProportionalDotProduct::new(10_000);
+    let mut estimator = instantiate_test_db(metric);
+
+    let single_tx_receipt = make_block_receipt(vec![
+        StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
+        make_dummy_cc_tx(10 * half_operation_cost_basis, &half_operation_cost),
+        make_dummy_cc_tx(10 * half_operation_cost_basis, &half_operation_cost),
+    ]);
+
+    estimator
+        .notify_block(&single_tx_receipt, &block_limit)
+        .expect("Should be able to process block receipt");
+
+    // The higher fee is 10, because that's what we paid.
+    // The lower fee is 1 because of the minimum fee rate padding.
+    assert!(is_close(
+        estimator
+            .get_rate_estimates()
+            .expect("Should be able to create estimate now"),
+        FeeRateEstimate {
+            high: 10.0f64,
+            middle: 10.0f64,
+            low: 1f64
+        }
+    ));
+}
+
+#[test]
+fn test_five_blocks_mostly_filled() {
     let metric = ProportionalDotProduct::new(10_000);
     let mut estimator = instantiate_test_db(metric);
 
@@ -230,7 +270,8 @@ fn test_five_contract_calls() {
         warn!("i {}", i);
         let single_tx_receipt = make_block_receipt(vec![
             StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
-            make_dummy_cc_tx(i * 10 * contract_call_cost_basis, &tenth_operation_cost),
+            make_dummy_cc_tx(i * 10 * half_operation_cost_basis, &half_operation_cost),
+            make_dummy_cc_tx(i * 10 * half_operation_cost_basis, &half_operation_cost),
         ]);
 
         estimator
