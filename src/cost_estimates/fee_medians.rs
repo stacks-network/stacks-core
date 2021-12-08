@@ -31,7 +31,6 @@ use super::{EstimatorError, FeeEstimator};
 use super::metrics::PROPORTION_RESOLUTION;
 use cost_estimates::StacksTransactionReceipt;
 
-const SINGLETON_ROW_ID: i64 = 1;
 const CREATE_TABLE: &'static str = "
 CREATE TABLE median_fee_estimator (
     measure_key INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,14 +39,15 @@ CREATE TABLE median_fee_estimator (
     low NUMBER NOT NULL
 )";
 
-/// This struct estimates fee rates by translating a transaction's `ExecutionCost`
-/// into a scalar using a `CostMetric` (type parameter `M`) and computing
-/// the subsequent fee rate using the actual paid fee. The *weighted* 5th, 50th and 95th
-/// percentile fee rates for each block are used as the low, middle, and high
-/// estimates. The fee rates are weighted by the scalar value for each transaction.
-/// Blocks which do not exceed at least 1-dimension of the block limit are filled
-/// with a rate = 1.0 transaction. Estimates are updated via the median value over
-/// a parameterized window.
+/// FeeRateEstimator with the following properties:
+///
+/// 1) We use a "weighted" percentile approach for calculating the percentile values. Described
+///    below, larger transactions contribute more to the ranking than small transactions.
+/// 2) Use "windowed" decay instead of exponential decay. This allows outliers to be forgotten
+///    faster, and so reduces the influence of outliers.
+/// 3) "Pad" the block, so that any unused spaces is considered to have an associated fee rate of
+///    1f, the minimum. Ignoring the amount of empty space leads to over-estimates because it
+///    ignores the fact that there was still space in the block.
 pub struct WeightedMedianFeeRateEstimator<M: CostMetric> {
     db: Connection,
     /// We only look back `window_size` fee rates when averaging past estimates.
@@ -55,10 +55,11 @@ pub struct WeightedMedianFeeRateEstimator<M: CostMetric> {
     /// The weight of a "full block" in abstract scalar cost units. This is the weight of
     /// a block that is filled on each dimension.
     full_block_weight: u64,
+    /// Use this cost metric in fee rate calculations.
     metric: M,
 }
 
-/// Convenience pair for return values.
+/// Convenience struct for passing around this pair.
 #[derive(Debug)]
 struct FeeRateAndWeight {
     pub fee_rate: f64,
@@ -145,8 +146,8 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
             }
         }
 
-        // sort our float arrays. for float values that do not compare easily,
-        //  treat them as equals.
+        // Sort our float arrays. For float values that do not compare easily,
+        // treat them as equals.
         highs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
         mids.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
         lows.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
@@ -160,28 +161,22 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
 
     fn update_estimate(&mut self, new_measure: FeeRateEstimate) {
         let tx = tx_begin_immediate_sqlite(&mut self.db).expect("SQLite failure");
-
         let insert_sql = "INSERT INTO median_fee_estimator
                           (high, middle, low) VALUES (?, ?, ?)";
-
         let deletion_sql = "DELETE FROM median_fee_estimator
                             WHERE measure_key <= (
                                SELECT MAX(measure_key) - ?
                                FROM median_fee_estimator )";
-
         tx.execute(
             insert_sql,
             rusqlite::params![new_measure.high, new_measure.middle, new_measure.low,],
         )
         .expect("SQLite failure");
-
         tx.execute(deletion_sql, rusqlite::params![self.window_size])
             .expect("SQLite failure");
 
         let estimate = Self::get_rate_estimates_from_sql(&tx, self.window_size);
-
         tx.commit().expect("SQLite failure");
-
         if let Ok(next_estimate) = estimate {
             debug!("Updating fee rate estimate for new block";
                    "new_measure_high" => new_measure.high,
@@ -195,8 +190,6 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
 }
 
 impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
-    /// Compute a FeeRateEstimate for this block. Update the
-    /// running estimate using this rounds estimate.
     fn notify_block(
         &mut self,
         receipt: &StacksEpochReceipt,
@@ -216,12 +209,14 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
 
         // If fee rates non-empty, then compute an update.
         if working_fee_rates.len() > 0 {
+            // Values must be sorted.
             working_fee_rates.sort_by(|a, b| {
                 a.fee_rate
                     .partial_cmp(&b.fee_rate)
                     .unwrap_or(Ordering::Equal)
             });
 
+            // Compute the estimate and update.
             let block_estimate = fee_rate_estimate_from_sorted_weighted_fees(&working_fee_rates);
             self.update_estimate(block_estimate);
         }
@@ -234,6 +229,11 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
     }
 }
 
+/// Computes a `FeeRateEstimate` based on `sorted_fee_rates` using a "weighted percentile" method
+/// described in https://en.wikipedia.org/wiki/Percentile#Weighted_percentile
+///
+/// The percentiles computed are [0.05, 0.5, 0.95].
+///
 /// `sorted_fee_rates` must be non-empty.
 fn fee_rate_estimate_from_sorted_weighted_fees(
     sorted_fee_rates: &Vec<FeeRateAndWeight>,
@@ -290,6 +290,8 @@ fn fee_rate_estimate_from_sorted_weighted_fees(
     }
 }
 
+/// If the weights in `working_rates` do not add up to `full_block_weight`, add a new entry **in
+/// place** that takes up the remaining space.
 fn maybe_add_minimum_fee_rate(working_rates: &mut Vec<FeeRateAndWeight>, full_block_weight: u64) {
     let mut total_weight = 0u64;
     for rate_and_weight in working_rates.into_iter() {
@@ -309,7 +311,7 @@ fn maybe_add_minimum_fee_rate(working_rates: &mut Vec<FeeRateAndWeight>, full_bl
     }
 }
 
-/// The fee rate is the `fee_paid/cost_metric_used`
+/// Depending on the type of the transaction, calculate fee rate and total cost.
 fn fee_rate_and_weight_from_receipt(
     metric: &dyn CostMetric,
     tx_receipt: &StacksTransactionReceipt,

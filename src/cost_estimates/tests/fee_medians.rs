@@ -28,12 +28,13 @@ use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
 
+/// Tolerance for approximate comparison.
 const error_epsilon: f64 = 0.1;
 
 /// Returns `true` iff each value in `left` is within `error_epsilon` of the
 /// corresponding value in `right`.
 fn is_close(left: FeeRateEstimate, right: FeeRateEstimate) -> bool {
-        warn!("Checking ExecutionCost's. {:?} vs {:?}", left, right);
+    warn!("Checking ExecutionCost's. {:?} vs {:?}", left, right);
     let is_ok = (left.high - right.high).abs() < error_epsilon
         && (left.middle - right.middle).abs() < error_epsilon
         && (left.low - right.low).abs() < error_epsilon;
@@ -96,26 +97,6 @@ fn make_dummy_coinbase_tx() -> StacksTransaction {
     )
 }
 
-fn make_dummy_transfer_tx(fee: u64) -> StacksTransactionReceipt {
-    let mut tx = StacksTransaction::new(
-        TransactionVersion::Mainnet,
-        TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
-        TransactionPayload::TokenTransfer(
-            PrincipalData::Standard(StandardPrincipalData(0, [0; 20])),
-            1,
-            TokenTransferMemo([0; 34]),
-        ),
-    );
-    tx.set_tx_fee(fee);
-
-    StacksTransactionReceipt::from_stx_transfer(
-        tx,
-        vec![],
-        Value::okay(Value::Bool(true)).unwrap(),
-        ExecutionCost::zero(),
-    )
-}
-
 fn make_dummy_cc_tx(fee: u64, execution_cost: &ExecutionCost) -> StacksTransactionReceipt {
     let mut tx = StacksTransaction::new(
         TransactionVersion::Mainnet,
@@ -162,11 +143,12 @@ const half_operation_cost: ExecutionCost = ExecutionCost {
 };
 
 // The scalar cost of `make_dummy_cc_tx(_, &tenth_operation_cost)`.
-const tenth_operation_cost_basis:u64 = 5160;
+const tenth_operation_cost_basis: u64 = 5160;
 
 // The scalar cost of `make_dummy_cc_tx(_, &half_operation_cost)`.
-const half_operation_cost_basis:u64 = 25160;
+const half_operation_cost_basis: u64 = 25160;
 
+/// Tests that we have no estimate available until we `notify`.
 #[test]
 fn test_empty_fee_estimator() {
     let metric = ProportionalDotProduct::new(10_000);
@@ -204,6 +186,8 @@ fn test_empty_block_returns_minimum() {
     ));
 }
 
+/// A block that is only a very small minority filled should reflect the paid value,
+/// but be dominated by the padded fee rate.
 #[test]
 fn test_one_block_partially_filled() {
     let metric = ProportionalDotProduct::new(10_000);
@@ -232,6 +216,8 @@ fn test_one_block_partially_filled() {
     ));
 }
 
+/// A block that is mostly filled should create an estimate dominated by the transactions paid, and
+/// the padding should only affect `low`.
 #[test]
 fn test_one_block_mostly_filled() {
     let metric = ProportionalDotProduct::new(10_000);
@@ -261,6 +247,10 @@ fn test_one_block_mostly_filled() {
     ));
 }
 
+/// Tests the effect of adding blocks over time. We add five blocks with an easy to calculate
+/// median.
+///
+/// We add 5 blocks with window size 5 so none should be forgotten.
 #[test]
 fn test_five_blocks_mostly_filled() {
     let metric = ProportionalDotProduct::new(10_000);
@@ -293,6 +283,10 @@ fn test_five_blocks_mostly_filled() {
     ));
 }
 
+/// Tests the effect of adding blocks over time. We add five blocks with an easy to calculate
+/// median.
+///
+/// We add 10 blocks with window size 5 so the first 5 should be forgotten.
 #[test]
 fn test_ten_blocks_mostly_filled() {
     let metric = ProportionalDotProduct::new(10_000);
