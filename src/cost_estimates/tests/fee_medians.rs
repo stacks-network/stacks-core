@@ -22,6 +22,7 @@ use crate::chainstate::stacks::{
 };
 use crate::core::StacksEpochId;
 use crate::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
+use crate::cost_estimates::metrics::ProportionalDotProduct;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
@@ -35,30 +36,6 @@ fn instantiate_test_db<CM: CostMetric>(m: CM) -> WeightedMedianFeeRateEstimator<
     let window_size = 5;
     WeightedMedianFeeRateEstimator::open(&path, m, window_size)
         .expect("Test failure: could not open fee rate DB")
-}
-
-/// This struct implements a simple metric used for unit testing the
-/// the fee rate estimator. It always returns a cost of 1, making the
-/// fee rate of a transaction always equal to the paid fee.
-struct TestCostMetric;
-
-impl CostMetric for TestCostMetric {
-    fn from_cost_and_len(
-        &self,
-        _cost: &ExecutionCost,
-        _block_limit: &ExecutionCost,
-        _tx_len: u64,
-    ) -> u64 {
-        1
-    }
-
-    fn from_len(&self, _tx_len: u64) -> u64 {
-        1
-    }
-
-    fn change_per_byte(&self) -> f64 {
-        0f64
-    }
 }
 
 fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksEpochReceipt {
@@ -124,7 +101,7 @@ fn make_dummy_transfer_tx(fee: u64) -> StacksTransactionReceipt {
     )
 }
 
-fn make_dummy_cc_tx(fee: u64) -> StacksTransactionReceipt {
+fn make_dummy_cc_tx(fee: u64, execution_cost: &ExecutionCost) -> StacksTransactionReceipt {
     let mut tx = StacksTransaction::new(
         TransactionVersion::Mainnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
@@ -141,13 +118,29 @@ fn make_dummy_cc_tx(fee: u64) -> StacksTransactionReceipt {
         vec![],
         Value::okay(Value::Bool(true)).unwrap(),
         0,
-        ExecutionCost::zero(),
+        execution_cost.clone(),
     )
 }
 
+const block_limit: ExecutionCost = ExecutionCost {
+    write_length: 100,
+    write_count: 100,
+    read_length: 100,
+    read_count: 100,
+    runtime: 100,
+};
+
+const operation_cost: ExecutionCost = ExecutionCost {
+    write_length: 10,
+    write_count: 10,
+    read_length: 10,
+    read_count: 10,
+    runtime: 10,
+};
+
 #[test]
 fn test_empty_fee_estimator() {
-    let metric = TestCostMetric;
+    let metric = ProportionalDotProduct::new(10_000);
     let estimator = instantiate_test_db(metric);
     assert_eq!(
         estimator
@@ -162,11 +155,10 @@ fn test_empty_fee_estimator() {
 /// block, the fee rate should be 1f.
 #[test]
 fn test_empty_block_returns_minimum() {
-    let metric = TestCostMetric;
+    let metric = ProportionalDotProduct::new(10_000);
     let mut estimator = instantiate_test_db(metric);
 
     let empty_block_receipt = make_block_receipt(vec![]);
-    let block_limit = ExecutionCost::max_value();
     estimator
         .notify_block(&empty_block_receipt, &block_limit)
         .expect("Should be able to process an empty block");
@@ -185,21 +177,16 @@ fn test_empty_block_returns_minimum() {
 
 #[test]
 fn test_simple_contract_call() {
-    let metric = TestCostMetric;
+    let metric = ProportionalDotProduct::new(10_000);
     let mut estimator = instantiate_test_db(metric);
 
+    // The scalar cost of `make_dummy_cc_tx(_, &operation_cost)`.
+    let operation_cost_basis = 5160;
     let single_tx_receipt = make_block_receipt(vec![
         StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
-        make_dummy_cc_tx(10),
+        make_dummy_cc_tx(10 * operation_cost_basis, &operation_cost),
     ]);
 
-    let block_limit = ExecutionCost {
-        write_length: 100,
-        write_count: 100,
-        read_length: 100,
-        read_count: 100,
-        runtime: 100,
-    };
     estimator
         .notify_block(&single_tx_receipt, &block_limit)
         .expect("Should be able to process block receipt");
@@ -220,23 +207,16 @@ fn test_simple_contract_call() {
 
 #[test]
 fn test_five_contract_calls() {
-    let metric = TestCostMetric;
+    let metric = ProportionalDotProduct::new(10_000);
     let mut estimator = instantiate_test_db(metric);
 
     for i in 1..6 {
         warn!("i {}", i);
         let single_tx_receipt = make_block_receipt(vec![
             StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
-            make_dummy_cc_tx(i * 10),
+            make_dummy_cc_tx(i * 10, &operation_cost),
         ]);
 
-        let block_limit = ExecutionCost {
-            write_length: 100,
-            write_count: 100,
-            read_length: 100,
-            read_count: 100,
-            runtime: 100,
-        };
         estimator
             .notify_block(&single_tx_receipt, &block_limit)
             .expect("Should be able to process block receipt");
@@ -259,7 +239,7 @@ fn test_five_contract_calls() {
 //
 //#[test]
 //fn test_fee_estimator() {
-//    let metric = TestCostMetric;
+//    let metric = ProportionalDotProduct;
 //    let mut estimator = instantiate_test_db(metric);
 //
 //    assert_eq!(

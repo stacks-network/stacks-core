@@ -52,6 +52,9 @@ pub struct WeightedMedianFeeRateEstimator<M: CostMetric> {
     db: Connection,
     /// We only look back `window_size` fee rates when averaging past estimates.
     window_size: u32,
+    /// The weight of a "full block" in abstract scalar cost units. This is the weight of
+    /// a block that is filled on each dimension.
+    full_block_weight: u64,
     metric: M,
 }
 
@@ -82,6 +85,7 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
             db,
             metric,
             window_size,
+            full_block_weight: 6 * PROPORTION_RESOLUTION,
         })
     }
 
@@ -208,13 +212,20 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
             .collect();
 
         // If necessary, add the "minimum" fee rate to fill the block.
-        maybe_add_minimum_fee_rate(&mut working_fee_rates, PROPORTION_RESOLUTION);
+        maybe_add_minimum_fee_rate(&mut working_fee_rates, self.full_block_weight);
 
-        // Compute a FeeRateEstimate from the sorted, adjusted fee rates.
-        let block_estimate = fee_rate_esimate_from_sorted_weights(&working_fee_rates);
+        // If fee rates non-empty, then compute an update.
+        if working_fee_rates.len() > 0 {
+            working_fee_rates.sort_by(|a, b| {
+                a.fee_rate
+                    .partial_cmp(&b.fee_rate)
+                    .unwrap_or(Ordering::Equal)
+            });
 
-        // Update the running estimate using this rounds estimate.
-        self.update_estimate(block_estimate);
+            let block_estimate =
+                fee_rate_estimate_from_sorted_weighted_fees(&working_fee_rates);
+            self.update_estimate(block_estimate);
+        }
 
         Ok(())
     }
@@ -224,9 +235,14 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
     }
 }
 
-fn fee_rate_esimate_from_sorted_weights(
+/// `sorted_fee_rates` must be non-empty.
+fn fee_rate_estimate_from_sorted_weighted_fees(
     sorted_fee_rates: &Vec<FeeRateAndWeight>,
 ) -> FeeRateEstimate {
+    if sorted_fee_rates.is_empty() {
+        panic!("`sorted_fee_rates` cannot be empty.");
+    }
+
     let mut total_weight = 0u64;
     for rate_and_weight in sorted_fee_rates {
         total_weight += rate_and_weight.weight;
@@ -241,30 +257,50 @@ fn fee_rate_esimate_from_sorted_weights(
     }
 
     let target_percentiles = vec![0.05, 0.5, 0.95];
-    let mut fees_index = 1; // index into `sorted_fee_rates`
+    let mut fees_index = 0; // index into `sorted_fee_rates`
     let mut values_at_target_percentiles = Vec::new();
     warn!("percentiles {:?}", &percentiles);
     warn!("sorted_fee_rates {:?}", &sorted_fee_rates);
+    warn!("percentiles {:?}", &percentiles);
     for target_percentile in target_percentiles {
         while fees_index < percentiles.len() && percentiles[fees_index] < target_percentile {
             fees_index += 1;
         }
-        // TODO: use an interpolation
-        values_at_target_percentiles.push(&sorted_fee_rates[fees_index - 1]);
+        let v = if fees_index == 0 {
+            warn!("fees_index == 0");
+            sorted_fee_rates[0].fee_rate
+        } else if fees_index == percentiles.len() {
+            warn!("fees_index == percentiles.len()");
+            sorted_fee_rates.last().unwrap().fee_rate
+        } else {
+            warn!("fees_index < percentiles.len()");
+            // Notation mimics https://en.wikipedia.org/wiki/Percentile#Weighted_percentile
+            let vk = sorted_fee_rates[fees_index - 1].fee_rate;
+            let vk1 = sorted_fee_rates[fees_index].fee_rate;
+            let pk = percentiles[fees_index - 1];
+            let pk1 = percentiles[fees_index];
+            vk + (target_percentile - pk) / (pk1 - pk) * (vk1 - vk)
+        };
+        values_at_target_percentiles.push(v);
     }
 
     FeeRateEstimate {
-        high: values_at_target_percentiles[2].fee_rate,
-        middle: values_at_target_percentiles[1].fee_rate,
-        low: values_at_target_percentiles[0].fee_rate,
+        high: values_at_target_percentiles[2],
+        middle: values_at_target_percentiles[1],
+        low: values_at_target_percentiles[0],
     }
 }
+
 fn maybe_add_minimum_fee_rate(working_rates: &mut Vec<FeeRateAndWeight>, full_block_weight: u64) {
     let mut total_weight = 0u64;
     for rate_and_weight in working_rates.into_iter() {
         total_weight += rate_and_weight.weight;
     }
 
+    warn!(
+        "total_weight {} full_block_weight {}",
+        total_weight, full_block_weight
+    );
     if total_weight < full_block_weight {
         let weight_remaining = full_block_weight - total_weight;
         working_rates.push(FeeRateAndWeight {
@@ -281,16 +317,22 @@ fn fee_rate_and_weight_from_receipt(
     block_limit: &ExecutionCost,
 ) -> Option<FeeRateAndWeight> {
     let (payload, fee, tx_size) = match tx_receipt.transaction {
-        TransactionOrigin::Stacks(ref tx) => Some((&tx.payload, tx.get_tx_fee(), tx.tx_len())),
+        TransactionOrigin::Stacks(ref tx) => {
+            let fee = tx.get_tx_fee();
+            warn!("fee_paid: {}", fee);
+            Some((&tx.payload, tx.get_tx_fee(), tx.tx_len()))
+        }
         TransactionOrigin::Burn(_) => None,
     }?;
     let scalar_cost = match payload {
         TransactionPayload::TokenTransfer(_, _, _) => {
             // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
+            warn!("check");
             metric.from_len(tx_size)
         }
         TransactionPayload::Coinbase(_) => {
             // Coinbase txs are "free", so they don't factor into the fee market.
+            warn!("check");
             return None;
         }
         TransactionPayload::PoisonMicroblock(_, _)
@@ -298,15 +340,21 @@ fn fee_rate_and_weight_from_receipt(
         | TransactionPayload::SmartContract(_) => {
             // These transaction payload types all "work" the same: they have associated ExecutionCosts
             // and contibute to the block length limit with their tx_len
+            warn!("check {:?}", &tx_receipt.execution_cost);
             metric.from_cost_and_len(&tx_receipt.execution_cost, &block_limit, tx_size)
         }
     };
+    warn!("scalar_cost {}", scalar_cost);
     let denominator = if scalar_cost >= 1 {
         scalar_cost as f64
     } else {
         1f64
     };
     let fee_rate = fee as f64 / denominator;
+    warn!("fee_rate {}", fee_rate);
+    let part1 = fee_rate >= 1f64;
+    let part2 = fee_rate.is_finite();
+    warn!("part1 {} part2 {}", part1, part2);
     if fee_rate >= 1f64 && fee_rate.is_finite() {
         Some(FeeRateAndWeight {
             fee_rate,

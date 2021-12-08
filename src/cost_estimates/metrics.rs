@@ -29,6 +29,7 @@ impl CostMetric for Box<dyn CostMetric> {
         block_limit: &ExecutionCost,
         tx_len: u64,
     ) -> u64 {
+        warn!("check");
         self.as_ref().from_cost_and_len(cost, block_limit, tx_len)
     }
 
@@ -81,6 +82,10 @@ impl CostMetric for ProportionalDotProduct {
     ) -> u64 {
         let exec_proportion = cost.proportion_dot_product(block_limit, PROPORTION_RESOLUTION);
         let len_proportion = self.calculate_len_proportion(tx_len);
+        warn!(
+            "exec_proportion {} len_proportion {}",
+            exec_proportion, len_proportion
+        );
         exec_proportion + len_proportion
     }
 
@@ -100,6 +105,7 @@ impl CostMetric for UnitMetric {
         _block_limit: &ExecutionCost,
         _tx_len: u64,
     ) -> u64 {
+        warn!("check");
         1
     }
 
