@@ -182,6 +182,80 @@ fn test_empty_block_returns_minimum() {
         }
     );
 }
+
+#[test]
+fn test_simple_contract_call() {
+    let metric = TestCostMetric;
+    let mut estimator = instantiate_test_db(metric);
+
+    let single_tx_receipt = make_block_receipt(vec![
+        StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
+        make_dummy_cc_tx(10),
+    ]);
+
+    let block_limit = ExecutionCost {
+        write_length: 100,
+        write_count: 100,
+        read_length: 100,
+        read_count: 100,
+        runtime: 100,
+    };
+    estimator
+        .notify_block(&single_tx_receipt, &block_limit)
+        .expect("Should be able to process block receipt");
+
+    // The higher fee is 10, because of the contract.
+    // The lower fee is 1 because of the minimum fee rate padding.
+    assert_eq!(
+        estimator
+            .get_rate_estimates()
+            .expect("Should be able to create estimate now"),
+        FeeRateEstimate {
+            high: 10f64,
+            middle: 10f64,
+            low: 1f64
+        }
+    );
+}
+
+#[test]
+fn test_five_contract_calls() {
+    let metric = TestCostMetric;
+    let mut estimator = instantiate_test_db(metric);
+
+    for i in 1..6 {
+        warn!("i {}", i);
+        let single_tx_receipt = make_block_receipt(vec![
+            StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
+            make_dummy_cc_tx(i * 10),
+        ]);
+
+        let block_limit = ExecutionCost {
+            write_length: 100,
+            write_count: 100,
+            read_length: 100,
+            read_count: 100,
+            runtime: 100,
+        };
+        estimator
+            .notify_block(&single_tx_receipt, &block_limit)
+            .expect("Should be able to process block receipt");
+    }
+
+    // The higher fee is 10, because of the contract.
+    // The lower fee is 1 because of the minimum fee rate padding.
+    assert_eq!(
+        estimator
+            .get_rate_estimates()
+            .expect("Should be able to create estimate now"),
+        FeeRateEstimate {
+            high: 10f64,
+            middle: 10f64,
+            low: 1f64
+        }
+    );
+}
+
 //
 //#[test]
 //fn test_fee_estimator() {

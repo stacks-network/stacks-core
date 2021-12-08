@@ -56,6 +56,7 @@ pub struct WeightedMedianFeeRateEstimator<M: CostMetric> {
 }
 
 /// Convenience pair for return values.
+#[derive(Debug)]
 struct FeeRateAndWeight {
     pub fee_rate: f64,
     pub weight: u64,
@@ -242,6 +243,8 @@ fn fee_rate_esimate_from_sorted_weights(
     let target_percentiles = vec![0.05, 0.5, 0.95];
     let mut fees_index = 1; // index into `sorted_fee_rates`
     let mut values_at_target_percentiles = Vec::new();
+    warn!("percentiles {:?}", &percentiles);
+    warn!("sorted_fee_rates {:?}", &sorted_fee_rates);
     for target_percentile in target_percentiles {
         while fees_index < percentiles.len() && percentiles[fees_index] < target_percentile {
             fees_index += 1;
@@ -263,9 +266,10 @@ fn maybe_add_minimum_fee_rate(working_rates: &mut Vec<FeeRateAndWeight>, full_bl
     }
 
     if total_weight < full_block_weight {
+        let weight_remaining = full_block_weight - total_weight;
         working_rates.push(FeeRateAndWeight {
             fee_rate: 1f64,
-            weight: total_weight,
+            weight: weight_remaining,
         })
     }
 }
