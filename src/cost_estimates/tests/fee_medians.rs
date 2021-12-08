@@ -202,6 +202,8 @@ fn test_one_block_partially_filled() {
         .expect("Should be able to process block receipt");
 
     // The higher fee is 10, because that's what we paid.
+    // The middle fee should be near 1, because the block is mostly empty, and dominated by the
+    // minimum fee rate padding.
     // The lower fee is 1 because of the minimum fee rate padding.
     assert!(is_close(
         estimator
@@ -233,6 +235,7 @@ fn test_one_block_mostly_filled() {
         .expect("Should be able to process block receipt");
 
     // The higher fee is 10, because that's what we paid.
+    // The middle fee should be 10, because the block is mostly filled.
     // The lower fee is 1 because of the minimum fee rate padding.
     assert!(is_close(
         estimator
@@ -267,8 +270,7 @@ fn test_five_blocks_mostly_filled() {
             .expect("Should be able to process block receipt");
     }
 
-    // The higher fee is 10, because of the contract.
-    // The lower fee is 1 because of the minimum fee rate padding.
+    // The fee should be 30, because it's the median of [10, 20, .., 50].
     assert!(is_close(
         estimator
             .get_rate_estimates()
@@ -302,8 +304,7 @@ fn test_ten_blocks_mostly_filled() {
             .expect("Should be able to process block receipt");
     }
 
-    // The higher fee is 10, because of the contract.
-    // The lower fee is 1 because of the minimum fee rate padding.
+    // The fee should be 80, because we forgot the first five estimates.
     assert!(is_close(
         estimator
             .get_rate_estimates()
