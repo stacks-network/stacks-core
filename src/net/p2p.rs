@@ -3646,6 +3646,41 @@ impl PeerNetwork {
         }
     }
 
+    /// Do we need a block or microblock stream, given its sortition's consensus hash?
+    fn need_block_or_microblock_stream(
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        consensus_hash: &ConsensusHash,
+        is_microblock: bool,
+    ) -> bool {
+        if let Ok(Some(sn)) =
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)
+        {
+            if let Ok(inv) = chainstate.get_blocks_inventory(&[(
+                consensus_hash.clone(),
+                if sn.sortition {
+                    Some(sn.winning_stacks_block_hash.clone())
+                } else {
+                    None
+                },
+            )]) {
+                if is_microblock {
+                    // checking for microblock absence
+                    inv.microblocks_bitvec[0] == 0
+                } else {
+                    // checking for block absence
+                    inv.block_bitvec[0] == 0
+                }
+            } else {
+                // failed, so assume we don't need it
+                false
+            }
+        } else {
+            // failed, so assume we don't need it
+            false
+        }
+    }
+
     /// Handle unsolicited BlocksAvailable.
     /// Update our inv for this peer.
     /// Mask errors.
@@ -3702,30 +3737,12 @@ impl PeerNetwork {
                 }
             };
 
-            let need_block = {
-                if let Ok(Some(sn)) =
-                    SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)
-                {
-                    if let Ok(inv) = chainstate.get_blocks_inventory(&[(
-                        consensus_hash.clone(),
-                        if sn.sortition {
-                            Some(sn.winning_stacks_block_hash.clone())
-                        } else {
-                            None
-                        },
-                    )]) {
-                        if inv.block_bitvec.len() > 0 {
-                            inv.block_bitvec[0] == 0
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            };
+            let need_block = PeerNetwork::need_block_or_microblock_stream(
+                sortdb,
+                chainstate,
+                &consensus_hash,
+                false,
+            );
 
             debug!(
                 "Need block {}/{}? {}",
@@ -3812,30 +3829,12 @@ impl PeerNetwork {
                 }
             };
 
-            let need_microblock_stream = {
-                if let Ok(Some(sn)) =
-                    SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)
-                {
-                    if let Ok(inv) = chainstate.get_blocks_inventory(&[(
-                        consensus_hash.clone(),
-                        if sn.sortition {
-                            Some(sn.winning_stacks_block_hash.clone())
-                        } else {
-                            None
-                        },
-                    )]) {
-                        if inv.microblocks_bitvec.len() > 0 {
-                            inv.microblocks_bitvec[0] == 0
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            };
+            let need_microblock_stream = PeerNetwork::need_block_or_microblock_stream(
+                sortdb,
+                chainstate,
+                &consensus_hash,
+                true,
+            );
 
             debug!(
                 "Need microblock stream {}/{}? {}",
@@ -3843,7 +3842,7 @@ impl PeerNetwork {
             );
 
             if need_microblock_stream {
-                // have the downloader request this microblock block if it's new to us
+                // have the downloader request this microblock stream if it's new to us
                 match self.block_downloader {
                     Some(ref mut downloader) => {
                         downloader.hint_microblock_sortition_height_available(
