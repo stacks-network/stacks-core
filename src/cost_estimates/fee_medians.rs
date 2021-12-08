@@ -222,8 +222,7 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
                     .unwrap_or(Ordering::Equal)
             });
 
-            let block_estimate =
-                fee_rate_estimate_from_sorted_weighted_fees(&working_fee_rates);
+            let block_estimate = fee_rate_estimate_from_sorted_weighted_fees(&working_fee_rates);
             self.update_estimate(block_estimate);
         }
 

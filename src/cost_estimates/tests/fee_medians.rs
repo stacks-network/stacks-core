@@ -28,6 +28,21 @@ use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
 
+const error_epsilon: f64 = 0.1;
+
+/// Returns `true` iff each value in `left` is within `error_epsilon` of the
+/// corresponding value in `right`.
+fn is_close(left: FeeRateEstimate, right: FeeRateEstimate) -> bool {
+        warn!("Checking ExecutionCost's. {:?} vs {:?}", left, right);
+    let is_ok = (left.high - right.high).abs() < error_epsilon
+        && (left.middle - right.middle).abs() < error_epsilon
+        && (left.low - right.low).abs() < error_epsilon;
+    if !is_ok {
+        warn!("ExecutionCost's are not close. {:?} vs {:?}", left, right);
+    }
+    is_ok
+}
+
 fn instantiate_test_db<CM: CostMetric>(m: CM) -> WeightedMedianFeeRateEstimator<CM> {
     let mut path = env::temp_dir();
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
@@ -163,7 +178,7 @@ fn test_empty_block_returns_minimum() {
         .notify_block(&empty_block_receipt, &block_limit)
         .expect("Should be able to process an empty block");
 
-    assert_eq!(
+    assert!(is_close(
         estimator
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
@@ -172,11 +187,11 @@ fn test_empty_block_returns_minimum() {
             middle: 1f64,
             low: 1f64
         }
-    );
+    ));
 }
 
 #[test]
-fn test_simple_contract_call() {
+fn test_single_contract_call() {
     let metric = ProportionalDotProduct::new(10_000);
     let mut estimator = instantiate_test_db(metric);
 
@@ -191,18 +206,18 @@ fn test_simple_contract_call() {
         .notify_block(&single_tx_receipt, &block_limit)
         .expect("Should be able to process block receipt");
 
-    // The higher fee is 10, because of the contract.
+    // The higher fee is 10, because that's what we paid.
     // The lower fee is 1 because of the minimum fee rate padding.
-    assert_eq!(
+    assert!(is_close(
         estimator
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            high: 10f64,
-            middle: 10f64,
+            high: 9.87f64,
+            middle: 1.77f64,
             low: 1f64
         }
-    );
+    ));
 }
 
 #[test]
@@ -224,7 +239,7 @@ fn test_five_contract_calls() {
 
     // The higher fee is 10, because of the contract.
     // The lower fee is 1 because of the minimum fee rate padding.
-    assert_eq!(
+    assert!(is_close(
         estimator
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
@@ -233,7 +248,7 @@ fn test_five_contract_calls() {
             middle: 10f64,
             low: 1f64
         }
-    );
+    ));
 }
 
 //
