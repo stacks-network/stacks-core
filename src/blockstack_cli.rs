@@ -147,25 +147,25 @@ const DECODE_TRANSACTION_USAGE: &str =
     "blockstack-cli (options) decode-tx [transaction-hex-or-stdin]
 
 The decode-tx command decodes a serialized Stacks transaction and prints it to stdout as JSON.
-The transaction, if given, must be a hex string.  Alternatively, you may pass - instead, and the
+The transaction, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
 raw binary transaction will be read from stdin.";
 
 const DECODE_HEADER_USAGE: &str = "blockstack-cli (options) decode-header [block-path-or-stdin]
 
 The decode-header command decodes a serialized Stacks header and prints it to stdout as JSON.
-The header, if given, must be a hex string.  Alternatively, you may pass - instead, and the
+The header, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
 raw binary header will be read from stdin.";
 
 const DECODE_BLOCK_USAGE: &str = "blockstack-cli (options) decode-block [block-path-or-stdin]
 
 The decode-block command decodes a serialized Stacks block and prints it to stdout as JSON.
-The block, if given, must be a hex string.  Alternatively, you may pass - instead, and the
+The block, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
 raw binary block will be read from stdin.";
 
 const DECODE_MICROBLOCK_USAGE: &str = "blockstack-cli (options) decode-microblock [microblock-path-or-stdin]
 
 The decode-microblock command decodes a serialized Stacks microblock and prints it to stdout as JSON.
-The microblock, if given, must be a hex string.  Alternatively, you may pass - instead, and the
+The microblock, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
 raw binary microblock will be read from stdin.
 
 N.B. Stacks microblocks are not stored as files in the Stacks chainstate -- they are stored in 
