@@ -32,7 +32,9 @@ fn instantiate_test_db<CM: CostMetric>(m: CM) -> WeightedMedianFeeRateEstimator<
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     path.push(&format!("fee_db_{}.sqlite", &to_hex(&random_bytes)[0..8]));
 
-    WeightedMedianFeeRateEstimator::open(&path, m).expect("Test failure: could not open fee rate DB")
+    let window_size = 5;
+    WeightedMedianFeeRateEstimator::open(&path, m, window_size)
+        .expect("Test failure: could not open fee rate DB")
 }
 
 /// This struct implements a simple metric used for unit testing the
@@ -57,18 +59,6 @@ impl CostMetric for TestCostMetric {
     fn change_per_byte(&self) -> f64 {
         0f64
     }
-}
-
-#[test]
-fn test_empty_fee_estimator() {
-    let metric = TestCostMetric;
-    let estimator = instantiate_test_db(metric);
-    assert_eq!(
-        estimator
-            .get_rate_estimates()
-            .expect_err("Empty rate estimator should error."),
-        EstimatorError::NoEstimateAvailable
-    );
 }
 
 fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksEpochReceipt {
@@ -156,56 +146,30 @@ fn make_dummy_cc_tx(fee: u64) -> StacksTransactionReceipt {
 }
 
 #[test]
-fn test_fee_estimator() {
+fn test_empty_fee_estimator() {
     let metric = TestCostMetric;
-    let mut estimator = instantiate_test_db(metric);
-
+    let estimator = instantiate_test_db(metric);
     assert_eq!(
         estimator
             .get_rate_estimates()
             .expect_err("Empty rate estimator should error."),
-        EstimatorError::NoEstimateAvailable,
-        "Empty rate estimator should return no estimate available"
+        EstimatorError::NoEstimateAvailable
     );
+}
+
+/// If we do not have any transactions in a block, we should fill the space
+/// with a transaction with fee rate 1f. This means that, for a totally empty
+/// block, the fee rate should be 1f.
+#[test]
+fn test_empty_block_returns_minimum() {
+    let metric = TestCostMetric;
+    let mut estimator = instantiate_test_db(metric);
 
     let empty_block_receipt = make_block_receipt(vec![]);
     let block_limit = ExecutionCost::max_value();
     estimator
         .notify_block(&empty_block_receipt, &block_limit)
         .expect("Should be able to process an empty block");
-
-    assert_eq!(
-        estimator
-            .get_rate_estimates()
-            .expect_err("Empty rate estimator should error."),
-        EstimatorError::NoEstimateAvailable,
-        "Empty block should not update the estimator"
-    );
-
-    let coinbase_only_receipt = make_block_receipt(vec![StacksTransactionReceipt::from_coinbase(
-        make_dummy_coinbase_tx(),
-    )]);
-
-    estimator
-        .notify_block(&coinbase_only_receipt, &block_limit)
-        .expect("Should be able to process an empty block");
-
-    assert_eq!(
-        estimator
-            .get_rate_estimates()
-            .expect_err("Empty rate estimator should error."),
-        EstimatorError::NoEstimateAvailable,
-        "Coinbase-only block should not update the estimator"
-    );
-
-    let single_tx_receipt = make_block_receipt(vec![
-        StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
-        make_dummy_cc_tx(1),
-    ]);
-
-    estimator
-        .notify_block(&single_tx_receipt, &block_limit)
-        .expect("Should be able to process block receipt");
 
     assert_eq!(
         estimator
@@ -217,116 +181,180 @@ fn test_fee_estimator() {
             low: 1f64
         }
     );
-
-    let double_tx_receipt = make_block_receipt(vec![
-        StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
-        make_dummy_cc_tx(1),
-        make_dummy_transfer_tx(10),
-    ]);
-
-    estimator
-        .notify_block(&double_tx_receipt, &block_limit)
-        .expect("Should be able to process block receipt");
-
-    // estimate should increase for "high" and "middle":
-    // 10 * 1/2 + 1 * 1/2 = 5.5
-    assert_eq!(
-        estimator
-            .get_rate_estimates()
-            .expect("Should be able to create estimate now"),
-        FeeRateEstimate {
-            high: 5.5f64,
-            middle: 5.5f64,
-            low: 1f64
-        }
-    );
-
-    // estimate should increase for "high" and "middle":
-    // new value: 10 * 1/2 + 5.5 * 1/2 = 7.75
-    estimator
-        .notify_block(&double_tx_receipt, &block_limit)
-        .expect("Should be able to process block receipt");
-    assert_eq!(
-        estimator
-            .get_rate_estimates()
-            .expect("Should be able to create estimate now"),
-        FeeRateEstimate {
-            high: 7.75f64,
-            middle: 7.75f64,
-            low: 1f64
-        }
-    );
-
-    // estimate should increase for "high" and "middle":
-    // new value: 10 * 1/2 + 7.75 * 1/2 = 8.875
-    estimator
-        .notify_block(&double_tx_receipt, &block_limit)
-        .expect("Should be able to process block receipt");
-    assert_eq!(
-        estimator
-            .get_rate_estimates()
-            .expect("Should be able to create estimate now"),
-        FeeRateEstimate {
-            high: 8.875f64,
-            middle: 8.875f64,
-            low: 1f64
-        }
-    );
-
-    // estimate should increase for "high" and "middle":
-    // new value: 10 * 1/2 + 8.875 * 1/2 = 9.4375
-    estimator
-        .notify_block(&double_tx_receipt, &block_limit)
-        .expect("Should be able to process block receipt");
-    assert_eq!(
-        estimator
-            .get_rate_estimates()
-            .expect("Should be able to create estimate now"),
-        FeeRateEstimate {
-            high: 9.4375f64,
-            middle: 9.4375f64,
-            low: 1f64
-        }
-    );
-
-    // estimate should increase for "high" and "middle":
-    // new value: 10 * 1/2 + 9.4375 * 1/2 = 9
-    estimator
-        .notify_block(&double_tx_receipt, &block_limit)
-        .expect("Should be able to process block receipt");
-    assert_eq!(
-        estimator
-            .get_rate_estimates()
-            .expect("Should be able to create estimate now"),
-        FeeRateEstimate {
-            high: 9.71875f64,
-            middle: 9.71875f64,
-            low: 1f64
-        }
-    );
-
-    // make a large block receipt, and expect:
-    //  measured high = 950, middle = 500, low = 50
-    //  new high: 950/2 + 9.71875/2 = 479.859375
-    //  new middle: 500/2 + 9.71875/2 = 254.859375
-    //  new low: 50/2 + 1/2 = 25.5
-
-    let mut receipts: Vec<_> = (0..100).map(|i| make_dummy_cc_tx(i * 10)).collect();
-    let mut rng = rand::thread_rng();
-    receipts.shuffle(&mut rng);
-
-    estimator
-        .notify_block(&make_block_receipt(receipts), &block_limit)
-        .expect("Should be able to process block receipt");
-
-    assert_eq!(
-        estimator
-            .get_rate_estimates()
-            .expect("Should be able to create estimate now"),
-        FeeRateEstimate {
-            high: 479.859375f64,
-            middle: 254.859375f64,
-            low: 25.5f64
-        }
-    );
 }
+//
+//#[test]
+//fn test_fee_estimator() {
+//    let metric = TestCostMetric;
+//    let mut estimator = instantiate_test_db(metric);
+//
+//    assert_eq!(
+//        estimator
+//            .get_rate_estimates()
+//            .expect_err("Empty rate estimator should error."),
+//        EstimatorError::NoEstimateAvailable,
+//        "Empty rate estimator should return no estimate available"
+//    );
+//
+//    let empty_block_receipt = make_block_receipt(vec![]);
+//    let block_limit = ExecutionCost::max_value();
+//    estimator
+//        .notify_block(&empty_block_receipt, &block_limit)
+//        .expect("Should be able to process an empty block");
+//
+//    assert_eq!(
+//        estimator
+//            .get_rate_estimates()
+//            .expect_err("Empty rate estimator should error."),
+//        EstimatorError::NoEstimateAvailable,
+//        "Empty block should not update the estimator"
+//    );
+//
+//    let coinbase_only_receipt = make_block_receipt(vec![StacksTransactionReceipt::from_coinbase(
+//        make_dummy_coinbase_tx(),
+//    )]);
+//
+//    estimator
+//        .notify_block(&coinbase_only_receipt, &block_limit)
+//        .expect("Should be able to process an empty block");
+//
+//    assert_eq!(
+//        estimator
+//            .get_rate_estimates()
+//            .expect_err("Empty rate estimator should error."),
+//        EstimatorError::NoEstimateAvailable,
+//        "Coinbase-only block should not update the estimator"
+//    );
+//
+//    let single_tx_receipt = make_block_receipt(vec![
+//        StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
+//        make_dummy_cc_tx(1),
+//    ]);
+//
+//    estimator
+//        .notify_block(&single_tx_receipt, &block_limit)
+//        .expect("Should be able to process block receipt");
+//
+//    assert_eq!(
+//        estimator
+//            .get_rate_estimates()
+//            .expect("Should be able to create estimate now"),
+//        FeeRateEstimate {
+//            high: 1f64,
+//            middle: 1f64,
+//            low: 1f64
+//        }
+//    );
+//
+//    let double_tx_receipt = make_block_receipt(vec![
+//        StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
+//        make_dummy_cc_tx(1),
+//        make_dummy_transfer_tx(10),
+//    ]);
+//
+//    estimator
+//        .notify_block(&double_tx_receipt, &block_limit)
+//        .expect("Should be able to process block receipt");
+//
+//    // estimate should increase for "high" and "middle":
+//    // 10 * 1/2 + 1 * 1/2 = 5.5
+//    assert_eq!(
+//        estimator
+//            .get_rate_estimates()
+//            .expect("Should be able to create estimate now"),
+//        FeeRateEstimate {
+//            high: 5.5f64,
+//            middle: 5.5f64,
+//            low: 1f64
+//        }
+//    );
+//
+//    // estimate should increase for "high" and "middle":
+//    // new value: 10 * 1/2 + 5.5 * 1/2 = 7.75
+//    estimator
+//        .notify_block(&double_tx_receipt, &block_limit)
+//        .expect("Should be able to process block receipt");
+//    assert_eq!(
+//        estimator
+//            .get_rate_estimates()
+//            .expect("Should be able to create estimate now"),
+//        FeeRateEstimate {
+//            high: 7.75f64,
+//            middle: 7.75f64,
+//            low: 1f64
+//        }
+//    );
+//
+//    // estimate should increase for "high" and "middle":
+//    // new value: 10 * 1/2 + 7.75 * 1/2 = 8.875
+//    estimator
+//        .notify_block(&double_tx_receipt, &block_limit)
+//        .expect("Should be able to process block receipt");
+//    assert_eq!(
+//        estimator
+//            .get_rate_estimates()
+//            .expect("Should be able to create estimate now"),
+//        FeeRateEstimate {
+//            high: 8.875f64,
+//            middle: 8.875f64,
+//            low: 1f64
+//        }
+//    );
+//
+//    // estimate should increase for "high" and "middle":
+//    // new value: 10 * 1/2 + 8.875 * 1/2 = 9.4375
+//    estimator
+//        .notify_block(&double_tx_receipt, &block_limit)
+//        .expect("Should be able to process block receipt");
+//    assert_eq!(
+//        estimator
+//            .get_rate_estimates()
+//            .expect("Should be able to create estimate now"),
+//        FeeRateEstimate {
+//            high: 9.4375f64,
+//            middle: 9.4375f64,
+//            low: 1f64
+//        }
+//    );
+//
+//    // estimate should increase for "high" and "middle":
+//    // new value: 10 * 1/2 + 9.4375 * 1/2 = 9
+//    estimator
+//        .notify_block(&double_tx_receipt, &block_limit)
+//        .expect("Should be able to process block receipt");
+//    assert_eq!(
+//        estimator
+//            .get_rate_estimates()
+//            .expect("Should be able to create estimate now"),
+//        FeeRateEstimate {
+//            high: 9.71875f64,
+//            middle: 9.71875f64,
+//            low: 1f64
+//        }
+//    );
+//
+//    // make a large block receipt, and expect:
+//    //  measured high = 950, middle = 500, low = 50
+//    //  new high: 950/2 + 9.71875/2 = 479.859375
+//    //  new middle: 500/2 + 9.71875/2 = 254.859375
+//    //  new low: 50/2 + 1/2 = 25.5
+//
+//    let mut receipts: Vec<_> = (0..100).map(|i| make_dummy_cc_tx(i * 10)).collect();
+//    let mut rng = rand::thread_rng();
+//    receipts.shuffle(&mut rng);
+//
+//    estimator
+//        .notify_block(&make_block_receipt(receipts), &block_limit)
+//        .expect("Should be able to process block receipt");
+//
+//    assert_eq!(
+//        estimator
+//            .get_rate_estimates()
+//            .expect("Should be able to create estimate now"),
+//        FeeRateEstimate {
+//            high: 479.859375f64,
+//            middle: 254.859375f64,
+//            low: 25.5f64
+//        }
+//    );
+//}

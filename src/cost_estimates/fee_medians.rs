@@ -63,7 +63,7 @@ struct FeeRateAndWeight {
 
 impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
     /// Open a fee rate estimator at the given db path. Creates if not existent.
-    pub fn open(p: &Path, metric: M) -> Result<Self, SqliteError> {
+    pub fn open(p: &Path, metric: M, window_size: u32) -> Result<Self, SqliteError> {
         let mut db = sqlite_open(
             p,
             rusqlite::OpenFlags::SQLITE_OPEN_CREATE | rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
@@ -80,7 +80,7 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
         Ok(Self {
             db,
             metric,
-            window_size: 5,
+            window_size,
         })
     }
 
