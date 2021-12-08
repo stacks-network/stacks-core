@@ -3652,32 +3652,22 @@ impl PeerNetwork {
         chainstate: &StacksChainState,
         consensus_hash: &ConsensusHash,
         is_microblock: bool,
-    ) -> bool {
-        if let Ok(Some(sn)) =
-            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)
-        {
-            if let Ok(inv) = chainstate.get_blocks_inventory(&[(
-                consensus_hash.clone(),
-                if sn.sortition {
-                    Some(sn.winning_stacks_block_hash.clone())
-                } else {
-                    None
-                },
-            )]) {
-                if is_microblock {
-                    // checking for microblock absence
-                    inv.microblocks_bitvec[0] == 0
-                } else {
-                    // checking for block absence
-                    inv.block_bitvec[0] == 0
-                }
-            } else {
-                // failed, so assume we don't need it
-                false
-            }
+    ) -> Result<bool, net_error> {
+        let sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)?
+            .ok_or(chainstate_error::NoSuchBlockError)?;
+        let block_hash_opt = if sn.sortition {
+            Some(sn.winning_stacks_block_hash)
         } else {
-            // failed, so assume we don't need it
-            false
+            None
+        };
+
+        let inv = chainstate.get_blocks_inventory(&[(consensus_hash.clone(), block_hash_opt)])?;
+        if is_microblock {
+            // checking for microblock absence
+            Ok(inv.microblocks_bitvec[0] == 0)
+        } else {
+            // checking for block absence
+            Ok(inv.block_bitvec[0] == 0)
         }
     }
 
@@ -3737,12 +3727,21 @@ impl PeerNetwork {
                 }
             };
 
-            let need_block = PeerNetwork::need_block_or_microblock_stream(
+            let need_block = match PeerNetwork::need_block_or_microblock_stream(
                 sortdb,
                 chainstate,
                 &consensus_hash,
                 false,
-            );
+            ) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!(
+                        "Failed to determine if we need block for consensus hash {}: {:?}",
+                        &consensus_hash, &e
+                    );
+                    false
+                }
+            };
 
             debug!(
                 "Need block {}/{}? {}",
@@ -3829,12 +3828,18 @@ impl PeerNetwork {
                 }
             };
 
-            let need_microblock_stream = PeerNetwork::need_block_or_microblock_stream(
+            let need_microblock_stream = match PeerNetwork::need_block_or_microblock_stream(
                 sortdb,
                 chainstate,
                 &consensus_hash,
                 true,
-            );
+            ) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Failed to determine if we need microblock stream for consensus hash {}: {:?}", &consensus_hash, &e);
+                    false
+                }
+            };
 
             debug!(
                 "Need microblock stream {}/{}? {}",
