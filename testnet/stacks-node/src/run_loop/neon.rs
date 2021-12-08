@@ -219,7 +219,7 @@ impl RunLoop {
         };
 
         let burnchain_config = burnchain.get_burnchain();
-        let mut target_burnchain_block_height = 1.max(burnchain_config.first_block_height);
+        let mut target_burnchain_block_height = 1.max(burnchain_config.first_block_height + 1);
 
         info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
         match burnchain.start(Some(target_burnchain_block_height)) {
@@ -374,7 +374,7 @@ impl RunLoop {
 
         // TODO (hack) instantiate the sortdb in the burnchain
         let sortdb = burnchain.sortdb_mut();
-        let mut block_height = {
+        let mut sortition_db_height = {
             let (stacks_ch, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
                 .expect("BUG: failed to load canonical stacks chain tip hash");
 
@@ -396,7 +396,7 @@ impl RunLoop {
         };
 
         // Start the runloop
-        trace!("Begin run loop");
+        debug!("Begin run loop");
         self.bump_blocks_processed();
 
         let prometheus_bind = self.config.node.prometheus_bind.clone();
@@ -409,7 +409,7 @@ impl RunLoop {
                 .unwrap();
         }
 
-        let mut burnchain_height = block_height;
+        let mut burnchain_height = sortition_db_height;
         let mut num_sortitions_in_last_cycle = 1;
         let mut learned_burnchain_height = false;
 
@@ -418,12 +418,11 @@ impl RunLoop {
 
         debug!(
             "Begin main runloop starting a burnchain block {}",
-            block_height
+            sortition_db_height
         );
 
-        let mut last_block_height = 0;
+        let mut last_tenure_sortition_height = 0;
         loop {
-            // Orchestrating graceful termination
             if !should_keep_running.load(Ordering::SeqCst) {
                 // The p2p thread relies on the same atomic_bool, it will
                 // discontinue its execution after completing its ongoing runloop epoch.
@@ -460,90 +459,99 @@ impl RunLoop {
                     continue;
                 }
             };
+
             // will recalculate this
             num_sortitions_in_last_cycle = 0;
 
-            let (next_burnchain_tip, next_burnchain_height) =
-                match burnchain.sync(Some(target_burnchain_block_height)) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        warn!("Burnchain controller stopped: {}", e);
-                        continue;
+            while burnchain_height <= target_burnchain_block_height {
+                if !should_keep_running.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                let (next_burnchain_tip, _next_burnchain_height) =
+                    match burnchain.sync(Some(burnchain_height + 1)) {
+                        Ok(x) => x,
+                        Err(e) => {
+                            warn!("Burnchain controller stopped: {}", e);
+                            continue;
+                        }
+                    };
+
+                // *now* we know the burnchain height
+                learned_burnchain_height = true;
+                burnchain_tip = next_burnchain_tip;
+                burnchain_height += 1;
+
+                let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
+                let next_sortition_height = burnchain_tip.block_snapshot.block_height;
+
+                if next_sortition_height != last_tenure_sortition_height {
+                    info!(
+                        "Downloaded burnchain blocks up to height {}; target height is {}; next_sortition_height = {}, sortition_db_height = {}",
+                        burnchain_height, target_burnchain_block_height, next_sortition_height, sortition_db_height
+                    );
+                }
+
+                if next_sortition_height > sortition_db_height {
+                    debug!(
+                        "New burnchain block height {} > {}",
+                        next_sortition_height, sortition_db_height
+                    );
+
+                    let mut sort_count = 0;
+
+                    // first, let's process all blocks in (sortition_db_height, next_sortition_height]
+                    for block_to_process in (sortition_db_height + 1)..(next_sortition_height + 1) {
+                        let block = {
+                            let ic = burnchain.sortdb_ref().index_conn();
+                            SortitionDB::get_ancestor_snapshot(&ic, block_to_process, sortition_tip)
+                                .unwrap()
+                                .expect(
+                                    "Failed to find block in fork processed by burnchain indexer",
+                                )
+                        };
+                        if block.sortition {
+                            sort_count += 1;
+                        }
+
+                        let sortition_id = &block.sortition_id;
+
+                        // Have the node process the new block, that can include, or not, a sortition.
+                        node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd);
+
+                        // Now, tell the relayer to check if it won a sortition during this block,
+                        //   and, if so, to process and advertize the block
+                        //
+                        // _this will block if the relayer's buffer is full_
+                        if !node.relayer_sortition_notify() {
+                            // relayer hung up, exit.
+                            error!("Block relayer and miner hung up, exiting.");
+                            return;
+                        }
                     }
-                };
+
+                    num_sortitions_in_last_cycle = sort_count;
+                    debug!(
+                        "Synchronized burnchain up to block height {} from {} (chain tip height is {}); {} sortitions",
+                        next_sortition_height, sortition_db_height, burnchain_height, num_sortitions_in_last_cycle;
+                    );
+
+                    sortition_db_height = next_sortition_height;
+                } else if ibd {
+                    // drive block processing after we reach the burnchain tip.
+                    // we may have downloaded all the blocks already,
+                    // so we can't rely on the relayer alone to
+                    // drive it.
+                    coordinator_senders.announce_new_stacks_block();
+                }
+            }
 
             target_burnchain_block_height = cmp::min(
-                next_burnchain_height,
+                burnchain_height,
                 target_burnchain_block_height + pox_constants.reward_cycle_length as u64,
             );
 
-            // *now* we know the burnchain height
-            learned_burnchain_height = true;
-            burnchain_tip = next_burnchain_tip;
-            burnchain_height = next_burnchain_height;
-
-            let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
-            let next_height = burnchain_tip.block_snapshot.block_height;
-
-            if next_height != last_block_height {
-                info!(
-                    "Downloaded burnchain blocks up to height {}; new target height is {}; next_height = {}, block_height = {}",
-                    next_burnchain_height, target_burnchain_block_height, next_height, block_height
-                );
-            }
-
-            if next_height > block_height {
-                debug!(
-                    "New burnchain block height {} > {}",
-                    next_height, block_height
-                );
-
-                let mut sort_count = 0;
-
-                // first, let's process all blocks in (block_height, next_height]
-                for block_to_process in (block_height + 1)..(next_height + 1) {
-                    let block = {
-                        let ic = burnchain.sortdb_ref().index_conn();
-                        SortitionDB::get_ancestor_snapshot(&ic, block_to_process, sortition_tip)
-                            .unwrap()
-                            .expect("Failed to find block in fork processed by burnchain indexer")
-                    };
-                    if block.sortition {
-                        sort_count += 1;
-                    }
-
-                    let sortition_id = &block.sortition_id;
-
-                    // Have the node process the new block, that can include, or not, a sortition.
-                    node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd);
-
-                    // Now, tell the relayer to check if it won a sortition during this block,
-                    //   and, if so, to process and advertize the block
-                    //
-                    // _this will block if the relayer's buffer is full_
-                    if !node.relayer_sortition_notify() {
-                        // relayer hung up, exit.
-                        error!("Block relayer and miner hung up, exiting.");
-                        return;
-                    }
-                }
-
-                num_sortitions_in_last_cycle = sort_count;
-                debug!(
-                    "Synchronized burnchain up to block height {} from {} (chain tip height is {}); {} sortitions",
-                    next_height, block_height, burnchain_height, num_sortitions_in_last_cycle;
-                );
-
-                block_height = next_height;
-            } else if ibd {
-                // drive block processing after we reach the burnchain tip.
-                // we may have downloaded all the blocks already,
-                // so we can't rely on the relayer alone to
-                // drive it.
-                coordinator_senders.announce_new_stacks_block();
-            }
-
-            if block_height >= burnchain_height && !ibd {
+            if sortition_db_height >= burnchain_height && !ibd {
                 let canonical_stacks_tip_height =
                     SortitionDB::get_canonical_burn_chain_tip(burnchain.sortdb_ref().conn())
                         .map(|snapshot| snapshot.canonical_stacks_tip_height)
@@ -560,12 +568,12 @@ impl RunLoop {
                     mine_start = 0;
 
                     // at tip, and not downloading. proceed to mine.
-                    if last_block_height != block_height {
+                    if last_tenure_sortition_height != sortition_db_height {
                         info!(
                             "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
-                            block_height
+                            sortition_db_height
                         );
-                        last_block_height = block_height;
+                        last_tenure_sortition_height = sortition_db_height;
                     }
                     if !node.relayer_issue_tenure() {
                         // relayer hung up, exit.
