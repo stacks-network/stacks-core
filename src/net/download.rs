@@ -1271,7 +1271,7 @@ impl PeerNetwork {
                     &block_hash,
                 )? {
                     // we already have this block stored to disk
-                    debug!(
+                    test_debug!(
                         "{:?}: Already have anchored block {}/{}",
                         &self.local_peer, &consensus_hash, &block_hash
                     );
