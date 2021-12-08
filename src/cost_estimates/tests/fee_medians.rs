@@ -145,13 +145,16 @@ const block_limit: ExecutionCost = ExecutionCost {
     runtime: 100,
 };
 
-const operation_cost: ExecutionCost = ExecutionCost {
+const tenth_operation_cost: ExecutionCost = ExecutionCost {
     write_length: 10,
     write_count: 10,
     read_length: 10,
     read_count: 10,
     runtime: 10,
 };
+
+// The scalar cost of `make_dummy_cc_tx(_, &tenth_operation_cost)`.
+const contract_call_cost_basis:u64 = 5160;
 
 #[test]
 fn test_empty_fee_estimator() {
@@ -195,11 +198,9 @@ fn test_single_contract_call() {
     let metric = ProportionalDotProduct::new(10_000);
     let mut estimator = instantiate_test_db(metric);
 
-    // The scalar cost of `make_dummy_cc_tx(_, &operation_cost)`.
-    let operation_cost_basis = 5160;
     let single_tx_receipt = make_block_receipt(vec![
         StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
-        make_dummy_cc_tx(10 * operation_cost_basis, &operation_cost),
+        make_dummy_cc_tx(10 * contract_call_cost_basis, &tenth_operation_cost),
     ]);
 
     estimator
@@ -229,7 +230,7 @@ fn test_five_contract_calls() {
         warn!("i {}", i);
         let single_tx_receipt = make_block_receipt(vec![
             StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
-            make_dummy_cc_tx(i * 10, &operation_cost),
+            make_dummy_cc_tx(i * 10 * contract_call_cost_basis, &tenth_operation_cost),
         ]);
 
         estimator
