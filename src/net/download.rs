@@ -1230,7 +1230,9 @@ impl PeerNetwork {
         {
             test_debug!(
                 "{:?}: consider availability of {}/{:?}",
-                &self.local_peer, &consensus_hash, &block_hash_opt
+                &self.local_peer,
+                &consensus_hash,
+                &block_hash_opt
             );
 
             if (i as u64) >= scan_batch_size {
