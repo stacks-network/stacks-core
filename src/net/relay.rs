@@ -1185,6 +1185,7 @@ impl Relayer {
         sortdb: &mut SortitionDB,
         chainstate: &mut StacksChainState,
         mempool: &mut MemPoolDB,
+        ibd: bool,
         coord_comms: Option<&CoordinatorChannels>,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<ProcessedNetReceipts, net_error> {
@@ -1206,9 +1207,17 @@ impl Relayer {
                 // have the p2p thread tell our neighbors about newly-discovered blocks
                 let available = Relayer::load_blocks_available_data(sortdb, new_blocks)?;
                 if available.len() > 0 {
-                    debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
-                    if let Err(e) = self.p2p.advertize_blocks(available) {
-                        warn!("Failed to advertize new blocks: {:?}", &e);
+                    if !ibd {
+                        debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
+                        if let Err(e) = self.p2p.advertize_blocks(available) {
+                            warn!("Failed to advertize new blocks: {:?}", &e);
+                        }
+                    } else {
+                        debug!(
+                            "{:?}: Blocks available, but will not advertize since in IBD: {}",
+                            &_local_peer,
+                            available.len()
+                        );
                     }
                 }
 
@@ -1216,13 +1225,21 @@ impl Relayer {
                 let mblocks_available =
                     Relayer::load_blocks_available_data(sortdb, new_confirmed_microblocks)?;
                 if mblocks_available.len() > 0 {
-                    debug!(
-                        "{:?}: Confirmed microblock streams available: {}",
-                        &_local_peer,
-                        mblocks_available.len()
-                    );
-                    if let Err(e) = self.p2p.advertize_microblocks(mblocks_available) {
-                        warn!("Failed to advertize new confirmed microblocks: {:?}", &e);
+                    if !ibd {
+                        debug!(
+                            "{:?}: Confirmed microblock streams available: {}",
+                            &_local_peer,
+                            mblocks_available.len()
+                        );
+                        if let Err(e) = self.p2p.advertize_microblocks(mblocks_available) {
+                            warn!("Failed to advertize new confirmed microblocks: {:?}", &e);
+                        }
+                    } else {
+                        debug!(
+                            "{:?}: Confirmed microblock streams available, but will not advertize since in IBD: {}",
+                            &_local_peer,
+                            mblocks_available.len()
+                        );
                     }
                 }
 
