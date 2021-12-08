@@ -828,6 +828,7 @@ fn spawn_miner_relayer(
     microblocks_processed: BlocksProcessedCounter,
     burnchain: Burnchain,
     coord_comms: CoordinatorChannels,
+    sync_comms: PoxSyncWatchdogComms,
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
 ) -> Result<JoinHandle<()>, NetError> {
     // Note: the chainstate coordinator is *the* block processor, it is responsible for writes to
@@ -873,6 +874,7 @@ fn spawn_miner_relayer(
                             &mut sortdb,
                             &mut chainstate,
                             &mut mem_pool,
+                            sync_comms.get_ibd(),
                             Some(&coord_comms),
                             Some(&event_dispatcher),
                         )
@@ -1357,6 +1359,7 @@ impl InitializedNeonNode {
             microblocks_processed.clone(),
             burnchain,
             coord_comms,
+            sync_comms.clone(),
             shared_unconfirmed_txs.clone(),
         )
         .expect("Failed to initialize mine/relay thread");
