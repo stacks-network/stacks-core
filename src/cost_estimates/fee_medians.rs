@@ -258,21 +258,15 @@ fn fee_rate_estimate_from_sorted_weighted_fees(
     let target_percentiles = vec![0.05, 0.5, 0.95];
     let mut fees_index = 0; // index into `sorted_fee_rates`
     let mut values_at_target_percentiles = Vec::new();
-    warn!("percentiles {:?}", &percentiles);
-    warn!("sorted_fee_rates {:?}", &sorted_fee_rates);
-    warn!("percentiles {:?}", &percentiles);
     for target_percentile in target_percentiles {
         while fees_index < percentiles.len() && percentiles[fees_index] < target_percentile {
             fees_index += 1;
         }
         let v = if fees_index == 0 {
-            warn!("fees_index == 0");
             sorted_fee_rates[0].fee_rate
         } else if fees_index == percentiles.len() {
-            warn!("fees_index == percentiles.len()");
             sorted_fee_rates.last().unwrap().fee_rate
         } else {
-            warn!("fees_index < percentiles.len()");
             // Notation mimics https://en.wikipedia.org/wiki/Percentile#Weighted_percentile
             let vk = sorted_fee_rates[fees_index - 1].fee_rate;
             let vk1 = sorted_fee_rates[fees_index].fee_rate;
@@ -298,10 +292,6 @@ fn maybe_add_minimum_fee_rate(working_rates: &mut Vec<FeeRateAndWeight>, full_bl
         total_weight += rate_and_weight.weight;
     }
 
-    warn!(
-        "total_weight {} full_block_weight {}",
-        total_weight, full_block_weight
-    );
     if total_weight < full_block_weight {
         let weight_remaining = full_block_weight - total_weight;
         working_rates.push(FeeRateAndWeight {
@@ -319,8 +309,6 @@ fn fee_rate_and_weight_from_receipt(
 ) -> Option<FeeRateAndWeight> {
     let (payload, fee, tx_size) = match tx_receipt.transaction {
         TransactionOrigin::Stacks(ref tx) => {
-            let fee = tx.get_tx_fee();
-            warn!("fee_paid: {}", fee);
             Some((&tx.payload, tx.get_tx_fee(), tx.tx_len()))
         }
         TransactionOrigin::Burn(_) => None,
@@ -328,12 +316,10 @@ fn fee_rate_and_weight_from_receipt(
     let scalar_cost = match payload {
         TransactionPayload::TokenTransfer(_, _, _) => {
             // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
-            warn!("check");
             metric.from_len(tx_size)
         }
         TransactionPayload::Coinbase(_) => {
             // Coinbase txs are "free", so they don't factor into the fee market.
-            warn!("check");
             return None;
         }
         TransactionPayload::PoisonMicroblock(_, _)
@@ -341,21 +327,15 @@ fn fee_rate_and_weight_from_receipt(
         | TransactionPayload::SmartContract(_) => {
             // These transaction payload types all "work" the same: they have associated ExecutionCosts
             // and contibute to the block length limit with their tx_len
-            warn!("check {:?}", &tx_receipt.execution_cost);
             metric.from_cost_and_len(&tx_receipt.execution_cost, &block_limit, tx_size)
         }
     };
-    warn!("scalar_cost {}", scalar_cost);
     let denominator = if scalar_cost >= 1 {
         scalar_cost as f64
     } else {
         1f64
     };
     let fee_rate = fee as f64 / denominator;
-    warn!("fee_rate {}", fee_rate);
-    let part1 = fee_rate >= 1f64;
-    let part2 = fee_rate.is_finite();
-    warn!("part1 {} part2 {}", part1, part2);
     if fee_rate >= 1f64 && fee_rate.is_finite() {
         Some(FeeRateAndWeight {
             fee_rate,

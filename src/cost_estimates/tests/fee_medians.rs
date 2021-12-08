@@ -34,7 +34,6 @@ const error_epsilon: f64 = 0.1;
 /// Returns `true` iff each value in `left` is within `error_epsilon` of the
 /// corresponding value in `right`.
 fn is_close(left: FeeRateEstimate, right: FeeRateEstimate) -> bool {
-    warn!("Checking ExecutionCost's. {:?} vs {:?}", left, right);
     let is_ok = (left.high - right.high).abs() < error_epsilon
         && (left.middle - right.middle).abs() < error_epsilon
         && (left.low - right.low).abs() < error_epsilon;
@@ -257,7 +256,6 @@ fn test_five_blocks_mostly_filled() {
     let mut estimator = instantiate_test_db(metric);
 
     for i in 1..6 {
-        warn!("i {}", i);
         let single_tx_receipt = make_block_receipt(vec![
             StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
             make_dummy_cc_tx(i * 10 * half_operation_cost_basis, &half_operation_cost),
@@ -293,7 +291,6 @@ fn test_ten_blocks_mostly_filled() {
     let mut estimator = instantiate_test_db(metric);
 
     for i in 1..11 {
-        warn!("i {}", i);
         let single_tx_receipt = make_block_receipt(vec![
             StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
             make_dummy_cc_tx(i * 10 * half_operation_cost_basis, &half_operation_cost),
