@@ -351,7 +351,11 @@ impl ExitContractConstants {
     }
 
     pub fn mainnet_default() -> ExitContractConstants {
-        ExitContractConstants::new(80, 50, 25, 50, 4, 52)
+        ExitContractConstants::new(80, 50, 50, 50, 4, 52)
+    }
+
+    pub fn testnet_default() -> ExitContractConstants {
+        ExitContractConstants::new(80, 50, 50, 15, 4, 52)
     }
 }
 

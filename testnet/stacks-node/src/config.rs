@@ -807,7 +807,7 @@ impl Config {
             address: PrincipalData::parse_standard_principal(&address)
                 .unwrap()
                 .into(),
-            amount: amount.into(),
+            amount: amount,
         };
         self.initial_balances.push(new_balance);
     }
@@ -1300,15 +1300,14 @@ impl EventKeyType {
     }
 }
 
-// TODO - leave comment about the unit of amount here
 #[derive(Debug, Clone, Deserialize)]
 pub struct InitialBalance {
     pub address: PrincipalData,
-    pub amount: u128,
+    pub amount: u64,
 }
 
 #[derive(Clone, Deserialize, Default)]
 pub struct InitialBalanceFile {
     pub address: String,
-    pub amount: u128,
+    pub amount: u64,
 }

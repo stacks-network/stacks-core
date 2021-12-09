@@ -722,8 +722,8 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                     .initialize_contract(contract_identifier, &contract_content)
                     .unwrap();
             }
-            Err(_) => {
-                panic!("failed to instantiate boot contract");
+            Err(e) => {
+                panic!("failed to instantiate boot contract: {:?}", e);
             }
         };
     }

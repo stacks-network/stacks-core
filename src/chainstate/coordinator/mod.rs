@@ -802,7 +802,6 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                 conn.with_clarity_db_readonly(|db| {
                     // TODO - get contract ID manually
                     let exit_at_rc_contract = boot_code_id("exit-at-rc", false);
-                    let cost_voting_contract = boot_code_id("cost-voting", false);
 
                     for proposed_exit_rc in min_rc..max_rc {
                         // from map rc-proposal-votes, use key pair (proposed_rc, curr_rc) to get the # of vetos
@@ -823,7 +822,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             )
                             .expect("BUG: Failed querying rc-proposal-votes")
                             .expect_optional();
-                        println!("res: {:?}", entry_opt);
+                        println!("cc: vote for {}: {:?}", proposed_exit_rc, entry_opt);
                         match entry_opt {
                             Some(entry) => {
                                 let entry = entry.expect_tuple();
@@ -860,18 +859,29 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
         prev_rc_cycle: u64,
         curr_exit_at_rc_opt: Option<u64>,
     ) -> Result<Option<u64>, Error> {
+        println!("tv: prev rc: {}", prev_rc_cycle);
         // read STX contract state
         let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
         let new_canonical_stacks_block = stacks_tip.get_canonical_stacks_block_id();
-        let is_pox_active = self.chain_state_db.is_pox_active(
-            &self.sortition_db,
-            &new_canonical_stacks_block,
-            prev_rc_cycle as u128,
-        )?;
-        if !is_pox_active {
-            // PoX
-            return Ok(None);
+
+        let is_pox_active = self.sortition_db.is_pox_active_in_reward_cycle(
+            prev_rc_cycle,
+            &self.burnchain,
+            &stacks_tip,
+        );
+        // TODO: remove match & return error with `?`
+        match is_pox_active {
+            Err(e) => println!("tv: err getting pox active: {:?}", e),
+            Ok(active) => {
+                if !active {
+                    // PoX
+                    println!("tv: pox not active");
+                    return Ok(None);
+                }
+            }
         }
+        println!("tv: pox is active");
+
         let stacked_stx = self.chain_state_db.get_total_ustx_stacked(
             &self.sortition_db,
             &new_canonical_stacks_block,
@@ -885,13 +895,22 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                 .percent_stacked_stx_for_valid_vote as u128)
             + 99)
             / 100;
+        println!(
+            "cc: stacked: {}, min for vote: {}, percent: {}",
+            stacked_stx,
+            min_stx_for_valid_vote,
+            self.burnchain
+                .exit_contract_constants
+                .percent_stacked_stx_for_valid_vote as u128
+        );
 
         // map of rc to num votes (equiv to the STX stacked)
         // this map only includes valid votes
         let (vote_map, total_votes) = self.read_vote_state(prev_rc_cycle, curr_exit_at_rc_opt)?;
-
+        println!("tv: total votes: {}", total_votes);
         if total_votes < min_stx_for_valid_vote as u128 {
             // not enough votes for a valid vote
+            println!("tv: not enough votes for a valid vote");
             return Ok(None);
         }
 
@@ -912,9 +931,11 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
             if accrued_votes > min_stx_for_consensus {
                 // If the accrued votes is greater than the minimum needed to achieve consensus,
                 // store this value for the upcoming veto
+                println!("tv: chose proposal: {:?}", curr_rc_proposal);
                 return Ok(Some(*curr_rc_proposal));
             }
         }
+        println!("tv: didnt find majority vote, ret None");
         Ok(None)
     }
 
@@ -1084,7 +1105,6 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         .ok_or_else(|| DBError::NotFoundError)?;
                     let mut current_exit_at_rc = None;
                     let mut current_proposal = None;
-                    let mut parent_exit_at_rc = None;
                     // get parent stacks block id
                     let parent_block_snapshot = SortitionDB::get_block_snapshot(
                         self.sortition_db.conn(),
@@ -1102,8 +1122,11 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         &parent_stacks_block,
                     )?;
                     // TODO: should I add panic if exit_info_opt is None when the parent block is not genesis block
+
                     if let Some(parent_exit_info) = exit_info_opt {
+                        info!("cc: parent block info is non-None");
                         if parent_exit_info.block_reward_cycle < current_reward_cycle {
+                            info!("cc: rc is greater than parent rc");
                             // if reward cycle is diff from parent, first check if there is a veto happening
                             // if veto happening, check veto
                             if let Some(curr_exit_proposal) = parent_exit_info.curr_exit_proposal {
@@ -1117,10 +1140,17 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                 }
                             }
                             // now, tally votes of previous reward cycle; if there is consensus, record it in proposal field
-                            current_proposal =
-                                self.tally_votes(current_reward_cycle - 1, parent_exit_at_rc)?;
+                            current_proposal = self.tally_votes(
+                                current_reward_cycle - 1,
+                                parent_exit_info.curr_exit_at_reward_cycle,
+                            )?;
+                        } else if parent_exit_info.block_reward_cycle == current_reward_cycle {
+                            current_proposal = parent_exit_info.curr_exit_proposal;
                         }
-                        parent_exit_at_rc = parent_exit_info.curr_exit_at_reward_cycle;
+
+                        if current_exit_at_rc == None {
+                            current_exit_at_rc = parent_exit_info.curr_exit_at_reward_cycle;
+                        }
                     }
 
                     let exit_info = BlockExitRewardCycleInfo {
@@ -1129,9 +1159,11 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         curr_exit_proposal: current_proposal,
                         curr_exit_at_reward_cycle: current_exit_at_rc,
                     };
+                    println!("cc: exit proposal is: {:?}", exit_info.curr_exit_proposal);
                     let sortdb_handle = self
                         .sortition_db
                         .tx_handle_begin(&canonical_sortition_tip)?;
+                    println!("cc: storing exit info");
                     sortdb_handle.store_exit_at_reward_cycle_info(exit_info)?;
                     sortdb_handle.commit()?;
 

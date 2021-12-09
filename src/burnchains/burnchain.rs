@@ -435,7 +435,16 @@ impl Burnchain {
                 return Err(burnchain_error::UnsupportedBurnchain);
             }
         };
-        let exit_contract_constants = ExitContractConstants::mainnet_default();
+        let exit_contract_constants = match (chain_name, network_name) {
+            ("bitcoin", "mainnet") => ExitContractConstants::mainnet_default(),
+            ("bitcoin", "testnet") => ExitContractConstants::testnet_default(),
+            ("bitcoin", "regtest") => ExitContractConstants::testnet_default(),
+            (_, _) => {
+                return Err(burnchain_error::UnsupportedBurnchain);
+            }
+        };
+
+        println!("network name: {}", network_name);
 
         Ok(Burnchain {
             peer_version,

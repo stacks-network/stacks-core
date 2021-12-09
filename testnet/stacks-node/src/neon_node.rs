@@ -1586,6 +1586,8 @@ impl InitializedNeonNode {
             }
         };
 
+        info!("miner info: coinbase nonce {}", coinbase_nonce);
+
         // has the tip changed from our previously-mined block for this epoch?
         let attempt = {
             let mut best_attempt = 0;

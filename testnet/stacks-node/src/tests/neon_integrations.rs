@@ -75,7 +75,7 @@ use super::{
     SK_2,
 };
 
-fn neon_integration_test_conf() -> (Config, StacksAddress) {
+fn neon_integration_test_conf() -> (Config, StacksAddress, StacksPrivateKey) {
     let mut conf = super::new_test_conf();
 
     let keychain = Keychain::default(conf.node.seed.clone());
@@ -106,8 +106,9 @@ fn neon_integration_test_conf() -> (Config, StacksAddress) {
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
+    let miner_secret_key = keychain.get_first_priv_key().unwrap();
 
-    (conf, miner_account)
+    (conf, miner_account, miner_secret_key)
 }
 
 mod test_observer {
@@ -420,7 +421,7 @@ fn bitcoind_integration_test() {
         return;
     }
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
 
@@ -493,7 +494,7 @@ fn most_recent_utxo_integration_test() {
         return;
     }
 
-    let (conf, _) = neon_integration_test_conf();
+    let (conf, _, _) = neon_integration_test_conf();
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -690,7 +691,7 @@ fn liquid_ustx_integration() {
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
-    let (mut conf, _miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account, _) = neon_integration_test_conf();
 
     test_observer::spawn();
 
@@ -703,7 +704,7 @@ fn liquid_ustx_integration() {
 
     conf.initial_balances.push(InitialBalance {
         address: spender_princ.clone(),
-        amount: spender_bal.into(),
+        amount: spender_bal,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -818,7 +819,7 @@ fn lockup_integration() {
         return;
     }
 
-    let (mut conf, _miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account, _) = neon_integration_test_conf();
 
     test_observer::spawn();
 
@@ -935,7 +936,7 @@ fn stx_transfer_btc_integration_test() {
     let spender_2_stx_addr: StacksAddress = to_addr(&spender_2_sk);
     let spender_2_addr: PrincipalData = spender_2_stx_addr.clone().into();
 
-    let (mut conf, _miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -1120,7 +1121,7 @@ fn bitcoind_resubmission_test() {
         return;
     }
 
-    let (mut conf, _miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account, _) = neon_integration_test_conf();
 
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
@@ -1248,7 +1249,7 @@ fn bitcoind_forking_test() {
         return;
     }
 
-    let (conf, miner_account) = neon_integration_test_conf();
+    let (conf, miner_account, _) = neon_integration_test_conf();
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1343,7 +1344,7 @@ fn should_fix_2771() {
         return;
     }
 
-    let (conf, _miner_account) = neon_integration_test_conf();
+    let (conf, _miner_account, _) = neon_integration_test_conf();
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1447,7 +1448,7 @@ fn microblock_integration_test() {
     let second_spender_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
     let second_spender_addr: PrincipalData = to_addr(&second_spender_sk).into();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -1951,7 +1952,7 @@ fn filter_low_fee_tx_integration_test() {
         })
         .collect();
 
-    let (mut conf, _) = neon_integration_test_conf();
+    let (mut conf, _, _) = neon_integration_test_conf();
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
             address: spender_addr.clone(),
@@ -2040,7 +2041,7 @@ fn filter_long_runtime_tx_integration_test() {
         })
         .collect();
 
-    let (mut conf, _) = neon_integration_test_conf();
+    let (mut conf, _, _) = neon_integration_test_conf();
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
             address: spender_addr.clone(),
@@ -2140,7 +2141,7 @@ fn mining_transactions_is_fair() {
     let tx = make_stacks_transfer(&spender_sks[1], 0, 1000, &recipient.into(), 1000);
     txs.push(tx);
 
-    let (mut conf, _) = neon_integration_test_conf();
+    let (mut conf, _, _) = neon_integration_test_conf();
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
             address: spender_addr.clone(),
@@ -2281,7 +2282,7 @@ fn size_check_integration_test() {
         })
         .collect();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
 
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
@@ -2457,7 +2458,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         })
         .collect();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
 
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
@@ -2651,7 +2652,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
         })
         .collect();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
 
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
@@ -2841,7 +2842,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
         })
         .collect();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
 
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
@@ -3106,7 +3107,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
         })
         .collect();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
 
     for spender_addr in spender_addrs.iter() {
         conf.initial_balances.push(InitialBalance {
@@ -3278,7 +3279,7 @@ fn block_replay_integration_test() {
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -3415,7 +3416,7 @@ fn cost_voting_integration() {
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
 
     test_observer::spawn();
 
@@ -3428,7 +3429,7 @@ fn cost_voting_integration() {
 
     conf.initial_balances.push(InitialBalance {
         address: spender_princ.clone(),
-        amount: spender_bal.into(),
+        amount: spender_bal,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -3729,7 +3730,7 @@ fn near_full_block_integration_test() {
 
     let tx = make_contract_publish(&spender_sk, 0, 58450, "max", &max_contract_src);
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
 
     // Set block limit
     conf.block_limit = BLOCK_LIMIT_MAINNET;
@@ -3842,7 +3843,7 @@ fn pox_integration_test() {
     )
     .unwrap();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
 
     test_observer::spawn();
 
@@ -3858,17 +3859,17 @@ fn pox_integration_test() {
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
-        amount: first_bal.into(),
+        amount: first_bal,
     });
 
     conf.initial_balances.push(InitialBalance {
         address: spender_2_addr.clone(),
-        amount: second_bal.into(),
+        amount: second_bal,
     });
 
     conf.initial_balances.push(InitialBalance {
         address: spender_3_addr.clone(),
-        amount: third_bal.into(),
+        amount: third_bal,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -4360,11 +4361,11 @@ fn atlas_integration_test() {
     let user_1 = StacksPrivateKey::new();
     let initial_balance_user_1 = InitialBalance {
         address: to_addr(&user_1).into(),
-        amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128),
+        amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64),
     };
 
     // Prepare the config of the bootstrap node
-    let (mut conf_bootstrap_node, _) = neon_integration_test_conf();
+    let (mut conf_bootstrap_node, _, _) = neon_integration_test_conf();
     let bootstrap_node_public_key = {
         let keychain = Keychain::default(conf_bootstrap_node.node.seed.clone());
         let mut pk = keychain.generate_op_signer().get_public_key();
@@ -4376,7 +4377,7 @@ fn atlas_integration_test() {
         .push(initial_balance_user_1.clone());
 
     // Prepare the config of the follower node
-    let (mut conf_follower_node, _) = neon_integration_test_conf();
+    let (mut conf_follower_node, _, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
         "{}@{}",
         bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind
@@ -4882,11 +4883,11 @@ fn antientropy_integration_test() {
     let user_1 = StacksPrivateKey::new();
     let initial_balance_user_1 = InitialBalance {
         address: to_addr(&user_1).into(),
-        amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128),
+        amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64),
     };
 
     // Prepare the config of the bootstrap node
-    let (mut conf_bootstrap_node, _) = neon_integration_test_conf();
+    let (mut conf_bootstrap_node, _, _) = neon_integration_test_conf();
     let bootstrap_node_public_key = {
         let keychain = Keychain::default(conf_bootstrap_node.node.seed.clone());
         let mut pk = keychain.generate_op_signer().get_public_key();
@@ -4902,7 +4903,7 @@ fn antientropy_integration_test() {
     conf_bootstrap_node.connection_options.max_microblock_push = 1000;
 
     // Prepare the config of the follower node
-    let (mut conf_follower_node, _) = neon_integration_test_conf();
+    let (mut conf_follower_node, _, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
         "{}@{}",
         bootstrap_node_public_key, conf_bootstrap_node.node.p2p_bind
@@ -5142,14 +5143,14 @@ fn atlas_stress_integration_test() {
         let user = StacksPrivateKey::new();
         let initial_balance_user = InitialBalance {
             address: to_addr(&user).into(),
-            amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128),
+            amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64),
         };
         users.push(user);
         initial_balances.push(initial_balance_user);
     }
 
     // Prepare the config of the bootstrap node
-    let (mut conf_bootstrap_node, _) = neon_integration_test_conf();
+    let (mut conf_bootstrap_node, _, _) = neon_integration_test_conf();
     conf_bootstrap_node
         .initial_balances
         .append(&mut initial_balances.clone());
@@ -5891,7 +5892,7 @@ fn exit_at_rc_integration_test() {
     )
     .unwrap();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, miner_privk) = neon_integration_test_conf();
 
     test_observer::spawn();
 
@@ -5901,10 +5902,10 @@ fn exit_at_rc_integration_test() {
     });
 
     // 2B for minimum stack threshold to be met
-    let first_bal = 4_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let second_bal = 3_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let third_bal = 3_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
-    let half_stacked_bal = 500_000_000 as u128 * (core::MICROSTACKS_PER_STACKS as u128);
+    let first_bal = 4_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let second_bal = 3_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let third_bal = 3_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let half_stacked_bal = 500_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     // let stacked_bal = third_total_liquid_supply as u128 * (core::MICROSTACKS_PER_STACKS as u128);
 
     conf.initial_balances.push(InitialBalance {
@@ -6003,6 +6004,9 @@ fn exit_at_rc_integration_test() {
         pox_info.total_liquid_supply_ustx, sort_height
     );
 
+    // TODO (hack) instantiate the sortdb in the burnchain
+    let _ = btc_regtest_controller.sortdb_mut();
+
     for sk in [spender_sk, spender_2_sk, spender_3_sk].iter() {
         let tx = make_contract_call(
             sk,
@@ -6012,7 +6016,7 @@ fn exit_at_rc_integration_test() {
             "pox",
             "stack-stx",
             &[
-                Value::UInt(half_stacked_bal),
+                Value::UInt(half_stacked_bal as u128),
                 execute(&format!(
                     "{{ hashbytes: 0x{}, version: 0x00 }}",
                     pox_pubkey_hash
@@ -6036,17 +6040,9 @@ fn exit_at_rc_integration_test() {
     while sort_height < ((17 * pox_constants.reward_cycle_length) + 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
-        eprintln!("Sort height in: {}", sort_height);
     }
 
     let pox_info = get_pox_info(&http_origin);
-
-    println!(
-        "is stack active: {:?}, min stack threshold: {:?}, curr stacked: {:?}",
-        pox_info.current_cycle.is_pox_active,
-        pox_info.current_cycle.min_threshold_ustx,
-        pox_info.current_cycle.stacked_ustx
-    );
 
     let blocks_observed = test_observer::get_blocks();
     assert!(
@@ -6096,9 +6092,8 @@ fn exit_at_rc_integration_test() {
         "Should have observed 3 stack-stx transactions"
     );
 
-    /// vote fail: not enough STX stacked for vote, vote should fail
+    /// vote fail: not enough STX stacked for POX, vote should fail
     test_observer::clear();
-    sort_height = channel.get_sortitions_processed();
     let pox_info = get_pox_info(&http_origin);
     let current_rc = 17;
     assert_eq!(pox_info.current_cycle.id, current_rc);
@@ -6117,16 +6112,21 @@ fn exit_at_rc_integration_test() {
         submit_tx(&http_origin, &vote_tx);
     }
 
+    println!(
+        "2) cycle #: {}, is stack active: {:?}, min stack threshold: {:?}, curr stacked: {:?}",
+        pox_info.current_cycle.id,
+        pox_info.current_cycle.is_pox_active,
+        pox_info.current_cycle.min_threshold_ustx,
+        pox_info.next_cycle.stacked_ustx
+    );
+
     // mine blocks until the start of the next reward cycle
     sort_height = channel.get_sortitions_processed();
-    while sort_height < ((18 * pox_constants.reward_cycle_length) - 1).into() {
+    while sort_height < ((18 * pox_constants.reward_cycle_length) + 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
     }
-    // todo - see if we can delete these lines
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let blocks_observed = test_observer::get_blocks();
     assert!(
@@ -6169,25 +6169,26 @@ fn exit_at_rc_integration_test() {
 
     let pox_info = get_pox_info(&http_origin);
     println!(
-        "2) is stack active: {:?}, min stack threshold: {:?}, curr stacked: {:?}",
+        "3) cycle #: {}, is stack active: {:?}, min stack threshold: {:?}, curr stacked: {:?}",
+        pox_info.current_cycle.id,
         pox_info.current_cycle.is_pox_active,
         pox_info.current_cycle.min_threshold_ustx,
         pox_info.next_cycle.stacked_ustx
     );
 
     // check the sortdb state
-    // let sort_db = SortitionDB::open(&conf.get_burn_db_path(), false).unwrap();
-    //
-    // let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    // let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    // let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-    //     .unwrap()
-    //     .unwrap();
-    // assert_eq!(exit_rc_info.curr_exit_proposal, None);
-    // assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
+    let sort_db = btc_regtest_controller.sortdb_ref();
+
+    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
+    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(exit_rc_info.curr_exit_proposal, None);
+    assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    // VOTE FAIL: enough STX stacked, vote threshold not met
+    /// VOTE FAIL: enough STX stacked, vote threshold not met
     test_observer::clear();
     let pox_info = get_pox_info(&http_origin);
     let current_rc = 18;
@@ -6202,7 +6203,7 @@ fn exit_at_rc_integration_test() {
             "pox",
             "stack-stx",
             &[
-                Value::UInt(half_stacked_bal * 2),
+                Value::UInt((half_stacked_bal * 2) as u128),
                 execute(&format!(
                     "{{ hashbytes: 0x{}, version: 0x00 }}",
                     pox_pubkey_hash
@@ -6210,7 +6211,7 @@ fn exit_at_rc_integration_test() {
                 .unwrap()
                 .unwrap(),
                 Value::UInt(sort_height as u128),
-                Value::UInt(12),
+                Value::UInt(7),
             ],
         );
 
@@ -6219,6 +6220,320 @@ fn exit_at_rc_integration_test() {
     }
 
     while sort_height < ((19 * pox_constants.reward_cycle_length) - 1).into() {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    let blocks_observed = test_observer::get_blocks();
+    assert!(
+        blocks_observed.len() >= 2,
+        "Blocks observed {} should be >= 2",
+        blocks_observed.len()
+    );
+
+    // look up the return value of our stacking operations...
+    let mut tested_stacking = 0;
+    for block in blocks_observed.iter() {
+        if tested_stacking == 3 {
+            break;
+        }
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                if contract_call.function_name.as_str() == "stack-stx" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed =
+                        <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                    // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
+                    // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
+                    // cycle length of 15 blocks, is a burnchain height of 300)
+                    let pattern_str = format!(
+                        r#"\(ok \(tuple \(lock-amount u{}\) \(stacker {}\) \(unlock-burn-height u390\)\)\)"#,
+                        half_stacked_bal * 2,
+                        "[0-9A-Z].*"
+                    );
+                    println!("{:?}", parsed.to_string());
+                    let pattern = Regex::new(&pattern_str).unwrap();
+                    assert!(pattern.is_match(&parsed.to_string()));
+                    tested_stacking += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(
+        tested_stacking, 3,
+        "Should have observed 3 stack-stx transactions"
+    );
+    while sort_height < ((20 * pox_constants.reward_cycle_length) - 1).into() {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+    let pox_info = get_pox_info(&http_origin);
+    assert_eq!(pox_info.current_cycle.is_pox_active, true);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 3000000000000000);
+
+    // do voting
+    test_observer::clear();
+    let pox_info = get_pox_info(&http_origin);
+    let current_rc = 19;
+    assert_eq!(pox_info.current_cycle.id, current_rc);
+    for sk in [spender_sk].iter() {
+        let vote_tx = make_contract_call(
+            sk,
+            3,
+            260,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "exit-at-rc",
+            "vote-for-exit-rc",
+            &[Value::UInt(30)],
+        );
+
+        // let's push the vote transaction
+        submit_tx(&http_origin, &vote_tx);
+    }
+
+    // mine blocks until the start of the next reward cycle
+    sort_height = channel.get_sortitions_processed();
+    while sort_height < ((21 * pox_constants.reward_cycle_length) - 1).into() {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    let blocks_observed = test_observer::get_blocks();
+    assert!(
+        blocks_observed.len() >= 2,
+        "Blocks observed {} should be >= 2",
+        blocks_observed.len()
+    );
+
+    // look up the return value of our voting operations...
+    let mut tested_voting = 0;
+    for block in blocks_observed.iter() {
+        if tested_voting == 1 {
+            break;
+        }
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                if contract_call.function_name.as_str() == "vote-for-exit-rc" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed =
+                        <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+
+                    assert_eq!("(ok true)", parsed.to_string());
+                    tested_voting += 1;
+                }
+            }
+        }
+    }
+
+    assert_eq!(
+        tested_voting, 1,
+        "Should have observed 1 vote-for-exit-rc transaction (from spender 1)"
+    );
+
+    // check sortdb - vote threshold not met (<50% of stacked stx involved in vote)
+    let sort_db = btc_regtest_controller.sortdb_ref();
+
+    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
+    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(exit_rc_info.curr_exit_proposal, None);
+    assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // VOTE PASS: enough STX stacked, unanimous vote
+    // mine blocks until the start of the next reward cycle
+    sort_height = channel.get_sortitions_processed();
+    while sort_height < ((22 * pox_constants.reward_cycle_length) - 1).into() {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    // do voting
+    test_observer::clear();
+    for sk in [spender_2_sk, spender_3_sk].iter() {
+        let vote_tx = make_contract_call(
+            sk,
+            3,
+            260,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "exit-at-rc",
+            "vote-for-exit-rc",
+            &[Value::UInt(30)],
+        );
+
+        // let's push the vote transaction
+        submit_tx(&http_origin, &vote_tx);
+    }
+
+    // mine blocks until the start of the next reward cycle
+    sort_height = channel.get_sortitions_processed();
+    while sort_height < ((23 * pox_constants.reward_cycle_length) - 1).into() {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    let pox_info = get_pox_info(&http_origin);
+    assert_eq!(pox_info.current_cycle.is_pox_active, true);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 3000000000000000);
+
+    let blocks_observed = test_observer::get_blocks();
+    assert!(
+        blocks_observed.len() >= 2,
+        "Blocks observed {} should be >= 2",
+        blocks_observed.len()
+    );
+
+    // look up the return value of our voting operations...
+    let mut tested_voting = 0;
+    for block in blocks_observed.iter() {
+        if tested_voting == 2 {
+            break;
+        }
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                if contract_call.function_name.as_str() == "vote-for-exit-rc" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed =
+                        <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+
+                    assert_eq!("(ok true)", parsed.to_string());
+                    tested_voting += 1;
+                }
+            }
+        }
+    }
+
+    assert_eq!(
+        tested_voting, 2,
+        "Should have observed 2 vote-for-exit-rc transaction (from spender 2 & 3)"
+    );
+
+    while sort_height < ((24 * pox_constants.reward_cycle_length) - 1).into() {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    // check sortdb - vote threshold met (>=50% of stacked stx involved in vote) - curr_exit_proposal should be set
+    let sort_db = btc_regtest_controller.sortdb_ref();
+
+    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
+    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(exit_rc_info.curr_exit_proposal, Some(30));
+    assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
+
+    // veto the proposal with the miner_account for the next reward cycle
+    let mut nonce = 157;
+    while sort_height < ((24 * pox_constants.reward_cycle_length) + 1).into() {
+        info!("miner veto: height: {}, nonce: {}", sort_height, nonce);
+        let veto_tx = make_contract_call(
+            &miner_privk,
+            nonce,
+            260,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "exit-at-rc",
+            "veto-exit-rc",
+            &[Value::UInt(30)],
+        );
+
+        // okay, let's push that stacking transaction!
+        submit_tx(&http_origin, &veto_tx);
+        nonce += 2;
+
+        info!("tx is submitted");
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+    }
+
+    // check sortdb - veto threshold met (>=80% of blocks in rc had veto) - curr_exit_at_reward_cycle should not be set
+    let sort_db = btc_regtest_controller.sortdb_ref();
+
+    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
+    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(exit_rc_info.curr_exit_proposal, None);
+    assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
+
+    // mine blocks until the start of the next reward cycle
+    sort_height = channel.get_sortitions_processed();
+    while sort_height < ((25 * pox_constants.reward_cycle_length) - 1).into() {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    let pox_info = get_pox_info(&http_origin);
+    assert_eq!(pox_info.current_cycle.is_pox_active, false);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////
+    // VOTE FAIL: enough STX stacked, but it is less than the absolute minimum rc
+
+    ////////////////////////////////////////////////////////////////////////////////////////////
+    // VOTE FAIL: enough STX stacked, unanimous vote for rc below minimum buffer
+    test_observer::clear();
+    let pox_info = get_pox_info(&http_origin);
+    let current_rc = 25;
+    assert_eq!(pox_info.current_cycle.id, current_rc);
+    sort_height = channel.get_sortitions_processed();
+    for sk in [spender_sk, spender_2_sk, spender_3_sk].iter() {
+        let stack_tx = make_contract_call(
+            sk,
+            2,
+            260,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "pox",
+            "stack-stx",
+            &[
+                Value::UInt((half_stacked_bal * 2) as u128),
+                execute(&format!(
+                    "{{ hashbytes: 0x{}, version: 0x00 }}",
+                    pox_pubkey_hash
+                ))
+                .unwrap()
+                .unwrap(),
+                Value::UInt(sort_height as u128),
+                Value::UInt(7),
+            ],
+        );
+
+        // okay, let's push that stacking transaction!
+        submit_tx(&http_origin, &stack_tx);
+    }
+
+    while sort_height < ((26 * pox_constants.reward_cycle_length) - 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -6270,7 +6585,7 @@ fn exit_at_rc_integration_test() {
         tested_stacking, 3,
         "Should have observed 3 stack-stx transactions"
     );
-    while sort_height < ((20 * pox_constants.reward_cycle_length) - 1).into() {
+    while sort_height < ((27 * pox_constants.reward_cycle_length) - 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -6283,9 +6598,9 @@ fn exit_at_rc_integration_test() {
     test_observer::clear();
     sort_height = channel.get_sortitions_processed();
     let pox_info = get_pox_info(&http_origin);
-    let current_rc = 19;
+    let current_rc = 27;
     assert_eq!(pox_info.current_cycle.id, current_rc);
-    for sk in [spender_sk].iter() {
+    for sk in [spender_sk, spender_2_sk].iter() {
         let vote_tx = make_contract_call(
             sk,
             3,
@@ -6302,93 +6617,7 @@ fn exit_at_rc_integration_test() {
 
     // mine blocks until the start of the next reward cycle
     sort_height = channel.get_sortitions_processed();
-    while sort_height < ((20 * pox_constants.reward_cycle_length) - 1).into() {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        sort_height = channel.get_sortitions_processed();
-        eprintln!("Sort height: {}", sort_height);
-    }
-
-    let blocks_observed = test_observer::get_blocks();
-    assert!(
-        blocks_observed.len() >= 2,
-        "Blocks observed {} should be >= 2",
-        blocks_observed.len()
-    );
-
-    // look up the return value of our voting operations...
-    let mut tested_voting = 0;
-    for block in blocks_observed.iter() {
-        if tested_voting == 1 {
-            break;
-        }
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        for tx in transactions.iter() {
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            if raw_tx == "0x00" {
-                continue;
-            }
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-                if contract_call.function_name.as_str() == "vote-for-exit-rc" {
-                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                    let parsed =
-                        <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
-
-                    assert_eq!("(ok true)", parsed.to_string());
-                    tested_voting += 1;
-                }
-            }
-        }
-    }
-
-    assert_eq!(
-        tested_voting, 1,
-        "Should have observed 1 vote-for-exit-rc transaction (from spender 1)"
-    );
-
-    // TODO
-    // check sortdb - vote threshold not met (<50% of stacked stx involved in vote)
-    // let sort_db = SortitionDB::open(&conf.get_burn_db_path(), false).unwrap();
-    //
-    // let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    // let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    // let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-    //     .unwrap()
-    //     .unwrap();
-    // assert_eq!(exit_rc_info.curr_exit_proposal, None);
-    // assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    // VOTE PASS: enough STX stacked, unanimous vote
-    // mine blocks until the start of the next reward cycle
-    sort_height = channel.get_sortitions_processed();
-    while sort_height < ((21 * pox_constants.reward_cycle_length) - 1).into() {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        sort_height = channel.get_sortitions_processed();
-        eprintln!("Sort height: {}", sort_height);
-    }
-
-    // do voting
-    test_observer::clear();
-    for sk in [spender_2_sk, spender_3_sk].iter() {
-        let vote_tx = make_contract_call(
-            sk,
-            3,
-            260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
-            "exit-at-rc",
-            "vote-for-exit-rc",
-            &[Value::UInt(30)],
-        );
-
-        // let's push the vote transaction
-        submit_tx(&http_origin, &vote_tx);
-    }
-
-    // mine blocks until the start of the next reward cycle
-    sort_height = channel.get_sortitions_processed();
-    while sort_height < ((22 * pox_constants.reward_cycle_length) - 1).into() {
+    while sort_height < ((28 * pox_constants.reward_cycle_length) - 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
@@ -6421,7 +6650,7 @@ fn exit_at_rc_integration_test() {
                     let parsed =
                         <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
 
-                    assert_eq!("(ok true)", parsed.to_string());
+                    assert_eq!("(err 21)", parsed.to_string());
                     tested_voting += 1;
                 }
             }
@@ -6430,31 +6659,87 @@ fn exit_at_rc_integration_test() {
 
     assert_eq!(
         tested_voting, 2,
-        "Should have observed 2 vote-for-exit-rc transaction (from spender 2 & 3)"
+        "Should have observed 2 vote-for-exit-rc transactions (from spender 1 and 2)"
     );
 
-    // TODO
-    // check sortdb - vote threshold met (>=50% of stacked stx involved in vote) - curr_exit_proposal should be set
-    // let sort_db = SortitionDB::open(&conf.get_burn_db_path(), false).unwrap();
-    //
-    // let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    // let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    // let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-    //     .unwrap()
-    //     .unwrap();
-    // assert_eq!(exit_rc_info.curr_exit_proposal, Some(30));
-    // assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
-
-    // VETO SUCCEEDS: need miner to submit veto tx for whole next rc
-
     ////////////////////////////////////////////////////////////////////////////////////////////
-    // VOTE FAIL: enough STX stacked, but it is less than the absolute minimum rc
+    // VOTE FAIL: enough STX stacked, unanimous vote for rc above maximum buffer
+    while sort_height < ((29 * pox_constants.reward_cycle_length) - 1).into() {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+    let pox_info = get_pox_info(&http_origin);
+    assert_eq!(pox_info.current_cycle.is_pox_active, true);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 3000000000000000);
 
-    ////////////////////////////////////////////////////////////////////////////////////////////
-    // VOTE FAIL: enough STX stacked, unanimous vote for rc below absolute minimum RC
+    // do voting
+    test_observer::clear();
+    sort_height = channel.get_sortitions_processed();
+    let pox_info = get_pox_info(&http_origin);
+    let current_rc = 29;
+    assert_eq!(pox_info.current_cycle.id, current_rc);
+    for sk in [spender_sk, spender_2_sk].iter() {
+        let vote_tx = make_contract_call(
+            sk,
+            3,
+            260,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "exit-at-rc",
+            "vote-for-exit-rc",
+            &[Value::UInt(59)],
+        );
 
-    ////////////////////////////////////////////////////////////////////////////////////////////
-    // VOTE FAIL: enough STX stacked, unanimous vote for rc above minimum buffer
+        // let's push the vote transaction
+        submit_tx(&http_origin, &vote_tx);
+    }
+
+    // mine blocks until the start of the next reward cycle
+    sort_height = channel.get_sortitions_processed();
+    while sort_height < ((30 * pox_constants.reward_cycle_length) - 1).into() {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    let blocks_observed = test_observer::get_blocks();
+    assert!(
+        blocks_observed.len() >= 2,
+        "Blocks observed {} should be >= 2",
+        blocks_observed.len()
+    );
+
+    // look up the return value of our voting operations...
+    let mut tested_voting = 0;
+    for block in blocks_observed.iter() {
+        if tested_voting == 2 {
+            break;
+        }
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                if contract_call.function_name.as_str() == "vote-for-exit-rc" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed =
+                        <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+
+                    assert_eq!("(err 21)", parsed.to_string());
+                    tested_voting += 1;
+                }
+            }
+        }
+    }
+
+    assert_eq!(
+        tested_voting, 2,
+        "Should have observed 2 vote-for-exit-rc transaction (from spender 1 and 2)"
+    );
 
     ////////////////////////////////////////////////////////////////////////////////////////////
     // VOTE PASS: enough STX stacked, non-unanimous vote (higher vote must win)

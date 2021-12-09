@@ -2898,11 +2898,20 @@ impl SortitionDB {
         burnchain: &Burnchain,
         block: &BlockSnapshot,
     ) -> Result<bool, db_error> {
-        let reward_start_height = burnchain.reward_cycle_to_block_height(
-            burnchain
-                .block_height_to_reward_cycle(block.block_height)
-                .ok_or_else(|| db_error::NotFoundError)?,
-        );
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(block.block_height)
+            .ok_or_else(|| db_error::NotFoundError)?;
+
+        self.is_pox_active_in_reward_cycle(reward_cycle, burnchain, block)
+    }
+
+    pub fn is_pox_active_in_reward_cycle(
+        &self,
+        reward_cycle: u64,
+        burnchain: &Burnchain,
+        block: &BlockSnapshot,
+    ) -> Result<bool, db_error> {
+        let reward_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
         let sort_id_of_start =
             get_ancestor_sort_id(&self.index_conn(), reward_start_height, &block.sortition_id)?
                 .ok_or_else(|| db_error::NotFoundError)?;
