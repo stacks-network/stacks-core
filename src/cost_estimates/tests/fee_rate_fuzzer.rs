@@ -26,6 +26,7 @@ use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
+use cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 
 struct MockFeeEstimator {
     pub receipts: Vec<StacksEpochReceipt>,
@@ -54,4 +55,9 @@ impl FeeEstimator for MockFeeEstimator {
 }
 
 #[test]
-fn test_empty_fee_estimator() {}
+fn test_empty_fee_estimator() {
+    let mock_estimator = MockFeeEstimator {
+        receipts: vec![],
+    };
+    let _fuzzed_estimator = FeeRateFuzzer::new(Box::new(mock_estimator));
+}

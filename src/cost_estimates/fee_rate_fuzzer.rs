@@ -35,7 +35,7 @@ fn fuzz_esimate(input: &FeeRateEstimate) -> FeeRateEstimate {
 }
 
 impl FeeRateFuzzer {
-    fn new(underlying: Box<dyn FeeEstimator>) -> FeeRateFuzzer {
+    pub fn new(underlying: Box<dyn FeeEstimator>) -> FeeRateFuzzer {
         Self { underlying }
     }
 }
