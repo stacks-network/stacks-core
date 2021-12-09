@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 
 pub use self::clarity_db::{
-    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    BurnStateDB, ClarityDatabase, HeadersDB, StoreType, NULL_BURN_STATE_DB, NULL_HEADER_DB,
     STORE_CONTRACT_SRC_INTERFACE,
 };
 pub use self::clarity_store::ClarityBackingStore;

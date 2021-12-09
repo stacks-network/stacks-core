@@ -10,6 +10,12 @@ impl_array_hexstring_fmt!(TrieHash);
 impl_byte_array_newtype!(TrieHash, u8, 32);
 impl_byte_array_serde!(TrieHash);
 
+impl Default for TrieHash {
+    fn default() -> TrieHash {
+        TrieHash([0x00; 32])
+    }
+}
+
 pub const TRIEHASH_ENCODED_SIZE: usize = 32;
 
 #[derive(Debug)]
