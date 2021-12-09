@@ -4243,7 +4243,7 @@ impl StacksChainState {
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
-                tx_receipt.tx_index = tx_index as u16;
+                tx_receipt.tx_index = tx_index as u32;
                 fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
                 burns = burns
                     .checked_add(tx_receipt.stx_burned as u128)
@@ -4437,7 +4437,7 @@ impl StacksChainState {
     fn process_block_transactions(
         clarity_tx: &mut ClarityTx,
         block: &StacksBlock,
-        mut tx_index: u16,
+        mut tx_index: u32,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
@@ -4910,7 +4910,7 @@ impl StacksChainState {
                 match StacksChainState::process_block_transactions(
                     &mut clarity_tx,
                     &block,
-                    microblock_txs_receipts.len() as u16,
+                    microblock_txs_receipts.len() as u32,
                 ) {
                     Err(e) => {
                         let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
