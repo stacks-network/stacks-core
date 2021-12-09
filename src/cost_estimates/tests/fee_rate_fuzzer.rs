@@ -27,35 +27,46 @@ use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
 use cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
+use rand::rngs::StdRng;
+use rand::thread_rng;
+use rand::RngCore;
+use rand::SeedableRng;
 
-//struct MockFeeEstimator {
-//    pub receipts: Vec<StacksEpochReceipt>,
-//}
-//
-///// 1) on `notify_block` Inputs are recorded, and not passed anywhere.
-///// 2) on `get_rate_estimates`, a constant `FeeRateEstimate` is returned.
-//impl FeeEstimator for MockFeeEstimator {
-//    /// Just passes the information straight to `underlying`.
-//    fn notify_block(
-//        &mut self,
-//        receipt: &StacksEpochReceipt,
-//        block_limit: &ExecutionCost,
-//    ) -> Result<(), EstimatorError> {
-//        self.receipts.push(receipt.clone());
-//        Ok(())
-//    }
-//
-//    fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
-//        Ok(FeeRateEstimate {
-//            high: 95f64,
-//            middle: 50f64,
-//            low: 5f64,
-//        })
-//    }
-//}
-//
-//#[test]
-//fn test_empty_fee_estimator() {
-//    let mock_estimator = MockFeeEstimator { receipts: vec![] };
-//    let _fuzzed_estimator = FeeRateFuzzer::new(Box::new(mock_estimator), Some([0u8; 32]));
-//}
+struct MockFeeEstimator {
+    pub receipts: Vec<StacksEpochReceipt>,
+}
+
+/// 1) on `notify_block` Inputs are recorded, and not passed anywhere.
+/// 2) on `get_rate_estimates`, a constant `FeeRateEstimate` is returned.
+impl FeeEstimator for MockFeeEstimator {
+    /// Just passes the information straight to `underlying`.
+    fn notify_block(
+        &mut self,
+        receipt: &StacksEpochReceipt,
+        block_limit: &ExecutionCost,
+    ) -> Result<(), EstimatorError> {
+        self.receipts.push(receipt.clone());
+        Ok(())
+    }
+
+    fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
+        Ok(FeeRateEstimate {
+            high: 95f64,
+            middle: 50f64,
+            low: 5f64,
+        })
+    }
+}
+
+#[test]
+fn test_empty_fee_estimator() {
+    let mock_estimator = MockFeeEstimator { receipts: vec![] };
+    let rng_creator = Box::new(|| {
+        let seed = [0u8; 32];
+        let rng: StdRng = SeedableRng::from_seed(seed);
+        let r: Box<dyn RngCore> = Box::new(rng);
+        r
+    });
+    let _fuzzed_estimator =
+        FeeRateFuzzer::new_custom_creator(Box::new(mock_estimator), rng_creator, 0.1);
+}
