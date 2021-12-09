@@ -32,43 +32,61 @@ use rand::RngCore;
 use rand::SeedableRng;
 
 pub struct FeeRateFuzzer {
+    /// We will apply a random "fuzz" on top of the estimates given by this.
     underlying: Box<dyn FeeEstimator>,
-    rng: Box<dyn RngCore>,
-}
-
-fn fuzz_esimate(input: &FeeRateEstimate) -> FeeRateEstimate {
-    input.clone()
+    /// Creator function for a new random generator. For prod, use `thread_rng`. For test,
+    /// pass in a contrived generator.
+    rng_creator: Box<dyn Fn() -> Box<dyn RngCore>>,
 }
 
 impl FeeRateFuzzer {
-    /// To get strong random numbers, pass in None for `seed`.
-    /// To get predictable random numbers for test, pass in a non-empty numeric `seed`.
-    pub fn new(underlying: Box<dyn FeeEstimator>, seed: Option<[u8; 32]>) -> FeeRateFuzzer {
-        let rng: Box<dyn RngCore> = match seed {
-            Some(seed) => {
-                let rng: StdRng = SeedableRng::from_seed(seed);
-                Box::new(rng)
-            }
-            None => Box::new(thread_rng()),
-        };
-        Self { underlying, rng }
+    pub fn new(underlying: Box<dyn FeeEstimator>) -> Box<FeeRateFuzzer> {
+        let rng_creator = Box::new(|| {
+            let r: Box<dyn RngCore> = Box::new(thread_rng());
+            r
+            //            thread_rng()
+        });
+        Box::new(Self {
+            underlying,
+            rng_creator,
+        })
     }
-}
-
-impl FeeEstimator for FeeRateFuzzer {
-    /// Just passes the information straight to `underlying`.
-    fn notify_block(
-        &mut self,
-        receipt: &StacksEpochReceipt,
-        block_limit: &ExecutionCost,
-    ) -> Result<(), EstimatorError> {
-        self.underlying.notify_block(receipt, block_limit)
+    pub fn new_custom_creator(
+        underlying: Box<dyn FeeEstimator>,
+        rng_creator: Box<dyn Fn() -> Box<dyn RngCore>>,
+    ) -> Box<FeeRateFuzzer> {
+        Box::new(Self {
+            underlying,
+            rng_creator,
+        })
     }
 
-    fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
-        match self.underlying.get_rate_estimates() {
-            Ok(underlying_estimate) => Ok(fuzz_esimate(&underlying_estimate)),
-            Err(e) => Err(e),
-        }
-    }
+    //fn fuzz_esimate(&self, input: &FeeRateEstimate) -> FeeRateEstimate {
+    //        let _rng: Box<dyn RngCore> = match self.seed {
+    //            Some(seed) => {
+    //                let rng: StdRng = SeedableRng::from_seed(seed);
+    //                Box::new(rng)
+    //            }
+    //            None => Box::new(thread_rng()),
+    //        };
+    //    input.clone()
+    //}
 }
+//
+//impl FeeEstimator for FeeRateFuzzer {
+//    /// Just passes the information straight to `underlying`.
+//    fn notify_block(
+//        &mut self,
+//        receipt: &StacksEpochReceipt,
+//        block_limit: &ExecutionCost,
+//    ) -> Result<(), EstimatorError> {
+//        self.underlying.notify_block(receipt, block_limit)
+//    }
+//
+//    fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
+//        match self.underlying.get_rate_estimates() {
+//            Ok(underlying_estimate) => Ok(fuzz_esimate(&underlying_estimate)),
+//            Err(e) => Err(e),
+//        }
+//    }
+//}
