@@ -182,24 +182,29 @@ where
         )
         .commit_block();
 
-    let tip = if epoch == StacksEpochId::Epoch2_05 {
+    let mut tip = first_block.clone();
+
+    if epoch >= StacksEpochId::Epoch2_05 {
         let next_block = StacksBlockId([1 as u8; 32]);
-        let mut clarity_conn = clarity_instance.begin_block(
-            &first_block,
-            &next_block,
-            &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
-        );
+        let mut clarity_conn =
+            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
         clarity_conn.initialize_epoch_2_05().unwrap();
         clarity_conn.commit_block();
-        next_block
-    } else {
-        first_block.clone()
-    };
+        tip = next_block.clone();
+    }
+
+    if epoch >= StacksEpochId::Epoch21 {
+        let next_block = StacksBlockId([2 as u8; 32]);
+        let mut clarity_conn =
+            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        clarity_conn.initialize_epoch_2_1().unwrap();
+        clarity_conn.commit_block();
+        tip = next_block.clone();
+    }
 
     let mut marf_kv = clarity_instance.destroy();
 
-    let mut store = marf_kv.begin(&tip, &StacksBlockId([2 as u8; 32]));
+    let mut store = marf_kv.begin(&tip, &StacksBlockId([3 as u8; 32]));
 
     to_do(OwnedEnvironment::new_max_limit(
         store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
@@ -888,12 +893,12 @@ fn epoch_20_test_all(use_mainnet: bool) {
 
 #[test]
 fn epoch_20_test_all_mainnet() {
-    test_all(true)
+    epoch_20_test_all(true)
 }
 
 #[test]
 fn epoch_20_test_all_testnet() {
-    test_all(false)
+    epoch_20_test_all(false)
 }
 
 // test each individual cost function can be correctly invoked as
@@ -919,6 +924,29 @@ fn epoch_205_test_all_mainnet() {
 #[test]
 fn epoch_205_test_all_testnet() {
     epoch_205_test_all(false)
+}
+
+// test each individual cost function can be correctly invoked as
+//  Clarity code executes in Epoch 2.05
+fn epoch_21_test_all(use_mainnet: bool) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch21);
+
+    for f in NativeFunctions::ALL.iter() {
+        // Note: Include Clarity2 functions for Epoch21.
+        let test = get_simple_test(f);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch21);
+        assert!(cost.exceeds(&baseline));
+    }
+}
+
+#[test]
+fn epoch_21_test_all_mainnet() {
+    epoch_21_test_all(true)
+}
+
+#[test]
+fn epoch_21_test_all_testnet() {
+    epoch_21_test_all(false)
 }
 
 fn test_cost_contract_short_circuits(use_mainnet: bool) {
