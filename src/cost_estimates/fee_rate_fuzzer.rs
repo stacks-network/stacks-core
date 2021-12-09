@@ -26,6 +26,8 @@ pub struct FeeRateFuzzer {
 }
 
 impl FeeRateFuzzer {
+    /// Constructor for production. It uses `thread_rng()` as the random number generator,
+    /// to get truly pseudo-random numbers.
     pub fn new(underlying: Box<dyn FeeEstimator>, uniform_bound: f64) -> Box<FeeRateFuzzer> {
         let rng_creator = Box::new(|| {
             let r: Box<dyn RngCore> = Box::new(thread_rng());
@@ -37,6 +39,9 @@ impl FeeRateFuzzer {
             uniform_bound,
         })
     }
+
+    /// Constructor meant for test. The user can pass in a contrived random number generator
+    /// factory function, so that the test is repeatable.
     pub fn new_custom_creator(
         underlying: Box<dyn FeeEstimator>,
         rng_creator: Box<dyn Fn() -> Box<dyn RngCore>>,
