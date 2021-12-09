@@ -58,8 +58,9 @@ impl FeeEstimator for MockFeeEstimator {
     }
 }
 
+/// Test the fuzzer using a fixed random seed.
 #[test]
-fn test_empty_fee_estimator() {
+fn test_fuzzing_seed1() {
     let mock_estimator = MockFeeEstimator { receipts: vec![] };
     let rng_creator = Box::new(|| {
         let seed = [0u8; 32];
@@ -67,6 +68,42 @@ fn test_empty_fee_estimator() {
         let r: Box<dyn RngCore> = Box::new(rng);
         r
     });
-    let _fuzzed_estimator =
+    let fuzzed_estimator =
         FeeRateFuzzer::new_custom_creator(Box::new(mock_estimator), rng_creator, 0.1);
+
+    assert_eq!(
+        fuzzed_estimator
+            .get_rate_estimates()
+            .expect("Estimate should exist."),
+        FeeRateEstimate {
+            high: 95.01268903765265f64,
+            middle: 49.93182838353776f64,
+            low: 4.921037454936614f64
+        }
+    );
+}
+
+/// Test the fuzzer using a fixed random seed. Uses a different seed than test_fuzzing_seed1.
+#[test]
+fn test_fuzzing_seed2() {
+    let mock_estimator = MockFeeEstimator { receipts: vec![] };
+    let rng_creator = Box::new(|| {
+        let seed = [1u8; 32];
+        let rng: StdRng = SeedableRng::from_seed(seed);
+        let r: Box<dyn RngCore> = Box::new(rng);
+        r
+    });
+    let fuzzed_estimator =
+        FeeRateFuzzer::new_custom_creator(Box::new(mock_estimator), rng_creator, 0.1);
+
+    assert_eq!(
+        fuzzed_estimator
+            .get_rate_estimates()
+            .expect("Estimate should exist."),
+        FeeRateEstimate {
+            high: 95.05348553928201f64,
+            middle: 50.031434211372954f64,
+            low: 5.043648532116769f64
+        }
+    );
 }
