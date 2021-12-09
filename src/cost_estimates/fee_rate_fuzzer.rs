@@ -27,11 +27,17 @@ use super::FeeRateEstimate;
 use super::{EstimatorError, FeeEstimator};
 
 pub struct FeeRateFuzzer {
-    underlying: FeeEstimator,
+    underlying: Box<dyn FeeEstimator>,
 }
 
-fn fuzz_esimate(input:&FeeRateEstimate) -> FeeRateEstimate {
+fn fuzz_esimate(input: &FeeRateEstimate) -> FeeRateEstimate {
     input.clone()
+}
+
+impl FeeRateFuzzer {
+    fn new(underlying: Box<dyn FeeEstimator>) -> FeeRateFuzzer {
+        Self { underlying }
+    }
 }
 
 impl FeeEstimator for FeeRateFuzzer {
@@ -46,12 +52,8 @@ impl FeeEstimator for FeeRateFuzzer {
 
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
         match self.underlying.get_rate_estimates() {
-            Ok(underlying_estimate) => {
-                Ok(fuzz_esimate(&underlying_estimate))
-            }
-            Err(e) => {
-                Err(e)
-            }
+            Ok(underlying_estimate) => Ok(fuzz_esimate(&underlying_estimate)),
+            Err(e) => Err(e),
         }
     }
 }

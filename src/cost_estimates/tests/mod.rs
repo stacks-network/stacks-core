@@ -1,6 +1,7 @@
 use cost_estimates::FeeRateEstimate;
 
 pub mod cost_estimators;
+pub mod fee_rate_fuzzer;
 pub mod fee_scalar;
 pub mod metrics;
 
