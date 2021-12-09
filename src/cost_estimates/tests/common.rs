@@ -1,11 +1,11 @@
-use vm::costs::ExecutionCost;
+use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
 use chainstate::stacks::events::StacksTransactionReceipt;
 use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockHeader, StacksWorkScore};
 use types::proof::TrieHash;
 use util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use util::vrf::VRFProof;
-use chainstate::burn::ConsensusHash;
+use vm::costs::ExecutionCost;
 
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,

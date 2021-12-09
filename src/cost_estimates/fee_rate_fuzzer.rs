@@ -1,8 +1,8 @@
 use vm::costs::ExecutionCost;
 
-use chainstate::stacks::db::StacksEpochReceipt;
 use super::FeeRateEstimate;
 use super::{EstimatorError, FeeEstimator};
+use chainstate::stacks::db::StacksEpochReceipt;
 use rand::distributions::{Distribution, Uniform};
 use rand::rngs::StdRng;
 use rand::thread_rng;
