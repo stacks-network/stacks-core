@@ -3973,15 +3973,20 @@ impl StacksChainState {
                     StacksEpochId::Epoch10 => {
                         panic!("Clarity VM believes it was running in 1.0: pre-Clarity.")
                     }
-                    StacksEpochId::Epoch20 => {
-                        assert_eq!(
-                            sortition_epoch.epoch_id,
-                            StacksEpochId::Epoch2_05,
-                            "Should only transition from Epoch20 to Epoch2_05"
-                        );
-                        receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                        applied = true;
-                    }
+                    StacksEpochId::Epoch20 => match sortition_epoch.epoch_id {
+                        StacksEpochId::Epoch2_05 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch21 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            receipts.push(clarity_tx.block.initialize_epoch_2_1()?);
+                            applied = true;
+                        }
+                        _ => {
+                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", ...)
+                        }
+                    },
                     StacksEpochId::Epoch2_05 => {
                         assert_eq!(
                             sortition_epoch.epoch_id,
