@@ -12,6 +12,9 @@ use rand::SeedableRng;
 /// The FeeRateFuzzer wraps an underlying FeeEstimator. It passes `notify_block` calls to the
 /// underlying estimator. On `get_rate_estimates` calls, it adds a random fuzz to the result coming
 /// back from the underlying estimator.
+///
+/// Note: We currently use "uniform" random noise instead of "normal" distributed noise to avoid
+/// importing a new crate just for this.
 pub struct FeeRateFuzzer {
     /// We will apply a random "fuzz" on top of the estimates given by this.
     underlying: Box<dyn FeeEstimator>,
@@ -47,9 +50,6 @@ impl FeeRateFuzzer {
     }
 
     /// Add a uniform fuzz to input.
-    ///
-    /// Note: We use "uniform" instead of "normal" distribution to avoid importing a new crate
-    /// just for this.
     fn fuzz_estimate(&self, input: &FeeRateEstimate) -> FeeRateEstimate {
         let mut rng: Box<dyn RngCore> = (self.rng_creator)();
         let normal = Uniform::new(-self.uniform_bound, self.uniform_bound);
