@@ -26,8 +26,14 @@ use super::metrics::CostMetric;
 use super::FeeRateEstimate;
 use super::{EstimatorError, FeeEstimator};
 
+use rand::rngs::StdRng;
+use rand::thread_rng;
+use rand::RngCore;
+use rand::SeedableRng;
+
 pub struct FeeRateFuzzer {
     underlying: Box<dyn FeeEstimator>,
+    rng: Box<dyn RngCore>,
 }
 
 fn fuzz_esimate(input: &FeeRateEstimate) -> FeeRateEstimate {
@@ -35,8 +41,17 @@ fn fuzz_esimate(input: &FeeRateEstimate) -> FeeRateEstimate {
 }
 
 impl FeeRateFuzzer {
-    pub fn new(underlying: Box<dyn FeeEstimator>) -> FeeRateFuzzer {
-        Self { underlying }
+    /// To get strong random numbers, pass in None for `seed`.
+    /// To get predictable random numbers for test, pass in a non-empty numeric `seed`.
+    pub fn new(underlying: Box<dyn FeeEstimator>, seed: Option<[u8; 32]>) -> FeeRateFuzzer {
+        let rng: Box<dyn RngCore> = match seed {
+            Some(seed) => {
+                let rng: StdRng = SeedableRng::from_seed(seed);
+                Box::new(rng)
+            }
+            None => Box::new(thread_rng()),
+        };
+        Self { underlying, rng }
     }
 }
 

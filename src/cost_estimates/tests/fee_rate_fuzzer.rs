@@ -56,8 +56,6 @@ impl FeeEstimator for MockFeeEstimator {
 
 #[test]
 fn test_empty_fee_estimator() {
-    let mock_estimator = MockFeeEstimator {
-        receipts: vec![],
-    };
-    let _fuzzed_estimator = FeeRateFuzzer::new(Box::new(mock_estimator));
+    let mock_estimator = MockFeeEstimator { receipts: vec![] };
+    let _fuzzed_estimator = FeeRateFuzzer::new(Box::new(mock_estimator), Some([0u8; 32]));
 }
