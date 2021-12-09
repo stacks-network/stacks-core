@@ -1,31 +1,21 @@
-use std::{env, path::PathBuf};
-use time::Instant;
-
-use rand::seq::SliceRandom;
-use rand::Rng;
-
 use cost_estimates::metrics::CostMetric;
 use cost_estimates::{EstimatorError, FeeEstimator};
 use vm::costs::ExecutionCost;
 
-use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
 use chainstate::stacks::events::StacksTransactionReceipt;
 use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockHeader, StacksWorkScore};
 use types::proof::TrieHash;
 use util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use util::vrf::VRFProof;
+use chainstate::burn::ConsensusHash;
 
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::StacksEpochId;
-use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use crate::cost_estimates::FeeRateEstimate;
-use crate::types::chainstate::StacksAddress;
-use crate::vm::types::{PrincipalData, StandardPrincipalData};
-use crate::vm::Value;
 use cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use rand::rngs::StdRng;
 use rand::thread_rng;
