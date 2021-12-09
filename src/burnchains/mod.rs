@@ -1056,9 +1056,7 @@ pub mod test {
             let epoch = SortitionDB::get_stacks_epoch(ic, txop.block_height)
                 .unwrap()
                 .expect(&format!("BUG: no epoch for height {}", &txop.block_height));
-            if epoch.epoch_id == StacksEpochId::Epoch2_05
-                || epoch.epoch_id == StacksEpochId::Epoch21
-            {
+            if epoch.epoch_id >= StacksEpochId::Epoch2_05 {
                 txop.memo = vec![STACKS_EPOCH_2_05_MARKER];
             }
 
