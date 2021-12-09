@@ -2146,15 +2146,15 @@ mod tests {
             }
 
             fn get_pox_prepare_length(&self) -> u32 {
-                panic!("NullBurnStateDB should not return PoX info");
+                panic!("BlockLimitBurnStateDB should not return PoX info");
             }
 
             fn get_pox_reward_cycle_length(&self) -> u32 {
-                panic!("NullBurnStateDB should not return PoX info");
+                panic!("BlockLimitBurnStateDB should not return PoX info");
             }
 
             fn get_pox_rejection_fraction(&self) -> u64 {
-                panic!("NullBurnStateDB should not return PoX info");
+                panic!("BlockLimitBurnStateDB should not return PoX info");
             }
             fn get_burn_start_height(&self) -> u32 {
                 0
