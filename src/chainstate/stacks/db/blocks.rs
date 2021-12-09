@@ -3984,7 +3984,7 @@ impl StacksChainState {
                             applied = true;
                         }
                         _ => {
-                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", ...)
+                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
                     },
                     StacksEpochId::Epoch2_05 => {
