@@ -42,7 +42,12 @@ jobs:
         # Remove .dockerignore file so codecov has access to git info
         run: |
           rm .dockerignore
-          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
+          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
+      - uses: codecov/codecov-action@v2
+        with:
+          files: ./coverage-output/lcov.info
+          name: large_genesis
+          fail_ci_if_error: true
 
   # Run unit tests with code coverage
   unit-tests:
@@ -55,7 +60,12 @@ jobs:
         # Remove .dockerignore file so codecov has access to git info
         run: |
           rm .dockerignore
-          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
+          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
+      - uses: codecov/codecov-action@v2
+        with:
+          files: ./coverage-output/lcov.info
+          name: unit_tests
+          fail_ci_if_error: true
 
   open-api-validation:
     runs-on: ubuntu-latest
