@@ -283,9 +283,9 @@ impl BurnStateDB for NullBurnStateDB {
             network_epoch: PEER_VERSION_EPOCH_2_0,
         })
     }
-     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
-         self.get_stacks_epoch(0)
-     }
+    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        self.get_stacks_epoch(0)
+    }
 
     fn get_v1_unlock_height(&self) -> u32 {
         u32::max_value()
