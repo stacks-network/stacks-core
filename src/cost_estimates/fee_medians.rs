@@ -308,9 +308,7 @@ fn fee_rate_and_weight_from_receipt(
     block_limit: &ExecutionCost,
 ) -> Option<FeeRateAndWeight> {
     let (payload, fee, tx_size) = match tx_receipt.transaction {
-        TransactionOrigin::Stacks(ref tx) => {
-            Some((&tx.payload, tx.get_tx_fee(), tx.tx_len()))
-        }
+        TransactionOrigin::Stacks(ref tx) => Some((&tx.payload, tx.get_tx_fee(), tx.tx_len())),
         TransactionOrigin::Burn(_) => None,
     }?;
     let scalar_cost = match payload {
