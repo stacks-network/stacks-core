@@ -207,7 +207,7 @@ pub enum StacksEpochId {
     Epoch10 = 0x01000,
     Epoch20 = 0x02000,
     Epoch2_05 = 0x02005,
-    Epoch21 = 0x02010,
+    Epoch21 = 0x0200a,
 }
 
 impl std::fmt::Display for StacksEpochId {
