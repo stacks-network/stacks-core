@@ -36,10 +36,10 @@ use vm::types::{
 };
 
 use crate::clarity_vm::clarity::ClarityConnection;
+use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::StacksEpochId;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::proof::ClarityMarfTrieId;
-use crate::{clarity_vm::database::marf::MarfedKV, vm::database::NULL_BURN_STATE_DB_2_1};
 use vm::ClarityVersion;
 
 pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {

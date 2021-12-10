@@ -21,13 +21,14 @@ use types::chainstate::{StacksBlockHeader, StacksBlockId};
 use types::proof::ClarityMarfTrieId;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::ExecutionCost;
-use vm::database::{NULL_BURN_STATE_DB, NULL_BURN_STATE_DB_2_1, NULL_HEADER_DB};
 use vm::tests::execute;
 use vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
 
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
 use core::StacksEpochId;
+
+use crate::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
     helper_execute_epoch(contract, method, None, StacksEpochId::Epoch21, false)
@@ -52,8 +53,8 @@ fn helper_execute_epoch(
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
         ),
-        &NULL_HEADER_DB,
-        &NULL_BURN_STATE_DB,
+        &TEST_HEADER_DB,
+        &TEST_BURN_STATE_DB,
     );
     if epoch > StacksEpochId::Epoch20 {
         genesis.initialize_epoch_2_05().unwrap();
@@ -87,7 +88,7 @@ fn helper_execute_epoch(
     );
 
     let mut owned_env = OwnedEnvironment::new_max_limit(
-        store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB_2_1),
+        store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
         epoch,
         use_mainnet,
     );

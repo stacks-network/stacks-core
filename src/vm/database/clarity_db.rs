@@ -188,9 +188,6 @@ pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
 pub const NULL_BURN_STATE_DB: NullBurnStateDB = NullBurnStateDB {
     epoch: StacksEpochId::Epoch20,
 };
-pub const NULL_BURN_STATE_DB_2_1: NullBurnStateDB = NullBurnStateDB {
-    epoch: StacksEpochId::Epoch21,
-};
 
 impl HeadersDB for NullHeadersDB {
     fn get_burn_header_hash_for_block(
