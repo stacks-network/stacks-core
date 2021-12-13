@@ -39,9 +39,9 @@ use crate::core::StacksEpochId;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::proof::ClarityMarfTrieId;
 
-pub fn test_tracked_costs(prog: &str, epoch: StacksEpochId) -> ExecutionCost {
+pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf);
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf);
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -173,24 +173,42 @@ pub fn test_tracked_costs(prog: &str, epoch: StacksEpochId) -> ExecutionCost {
     }
 }
 
-#[test]
-fn test_all() {
-    let baseline = test_tracked_costs("1", StacksEpochId::Epoch20);
+fn test_all(use_mainnet: bool) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch20);
 
     for f in NativeFunctions::ALL.iter() {
         let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, StacksEpochId::Epoch20);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch20);
         assert!(cost.exceeds(&baseline));
     }
 }
 
 #[test]
-fn epoch_205_test_all() {
-    let baseline = test_tracked_costs("1", StacksEpochId::Epoch2_05);
+fn test_all_mainnet() {
+    test_all(true)
+}
+
+#[test]
+fn test_all_testnet() {
+    test_all(false)
+}
+
+fn epoch_205_test_all(use_mainnet: bool) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch2_05);
 
     for f in NativeFunctions::ALL.iter() {
         let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, StacksEpochId::Epoch2_05);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
         assert!(cost.exceeds(&baseline));
     }
+}
+
+#[test]
+fn epoch_205_test_all_mainnet() {
+    epoch_205_test_all(true)
+}
+
+#[test]
+fn epoch_205_test_all_testnet() {
+    epoch_205_test_all(false)
 }

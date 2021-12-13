@@ -223,7 +223,8 @@ impl CostStateSummary {
 }
 
 #[derive(Clone)]
-pub struct LimitedCostTracker {
+/// This struct holds all of the data required for non-free LimitedCostTracker instances
+pub struct TrackerData {
     cost_function_references: HashMap<&'static ClarityCostFunction, ClarityCostFunctionReference>,
     cost_contracts: HashMap<QualifiedContractIdentifier, ContractContext>,
     contract_call_circuits:
@@ -235,8 +236,14 @@ pub struct LimitedCostTracker {
     /// if the cost tracker is non-free, this holds the StacksEpochId that should be used to evaluate
     ///  the Clarity cost functions. If the tracker *is* free, then those functions do not need to be
     ///  evaluated, so no epoch identifier is necessary.
-    non_free: Option<StacksEpochId>,
+    epoch: StacksEpochId,
     mainnet: bool,
+}
+
+#[derive(Clone)]
+pub enum LimitedCostTracker {
+    Limited(TrackerData),
+    Free,
 }
 
 #[cfg(test)]
@@ -244,33 +251,60 @@ impl LimitedCostTracker {
     pub fn contract_call_circuits(
         &self,
     ) -> HashMap<(QualifiedContractIdentifier, ClarityName), ClarityCostFunctionReference> {
-        self.contract_call_circuits.clone()
+        match self {
+            Self::Free => panic!("Cannot get contract call circuits on free tracker"),
+            Self::Limited(TrackerData {
+                ref contract_call_circuits,
+                ..
+            }) => contract_call_circuits.clone(),
+        }
     }
     pub fn cost_function_references(
         &self,
     ) -> HashMap<&'static ClarityCostFunction, ClarityCostFunctionReference> {
-        self.cost_function_references.clone()
+        match self {
+            Self::Free => panic!("Cannot get cost function references on free tracker"),
+            Self::Limited(TrackerData {
+                ref cost_function_references,
+                ..
+            }) => cost_function_references.clone(),
+        }
     }
 }
 
 impl fmt::Debug for LimitedCostTracker {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LimitedCostTracker")
-            .field("total", &self.total)
-            .field("limit", &self.limit)
-            .field("memory", &self.memory)
-            .field("memory_limit", &self.memory_limit)
-            .field("free", &self.non_free.is_none())
-            .finish()
+        match self {
+            Self::Free => f.debug_struct("LimitedCostTracker::Free").finish(),
+            Self::Limited(TrackerData {
+                total,
+                limit,
+                memory,
+                memory_limit,
+                ..
+            }) => f
+                .debug_struct("LimitedCostTracker")
+                .field("total", total)
+                .field("limit", limit)
+                .field("memory", memory)
+                .field("memory_limit", memory_limit)
+                .finish(),
+        }
     }
 }
+
 impl PartialEq for LimitedCostTracker {
     fn eq(&self, other: &Self) -> bool {
-        self.total == other.total
-            && self.limit == other.limit
-            && self.memory == other.memory
-            && self.memory_limit == other.memory_limit
-            && self.non_free == other.non_free
+        match (self, other) {
+            (Self::Free, Self::Free) => true,
+            (Self::Limited(self_data), Self::Limited(other_data)) => {
+                self_data.total == other_data.total
+                    && other_data.limit == self_data.limit
+                    && self_data.memory == other_data.memory
+                    && self_data.memory_limit == other_data.memory_limit
+            }
+            (_, _) => false,
+        }
     }
 }
 
@@ -584,7 +618,7 @@ impl LimitedCostTracker {
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
     ) -> Result<LimitedCostTracker> {
-        let mut cost_tracker = LimitedCostTracker {
+        let mut cost_tracker = TrackerData {
             cost_function_references: HashMap::new(),
             cost_contracts: HashMap::new(),
             contract_call_circuits: HashMap::new(),
@@ -592,12 +626,12 @@ impl LimitedCostTracker {
             memory_limit: CLARITY_MEMORY_LIMIT,
             total: ExecutionCost::zero(),
             memory: 0,
-            non_free: Some(epoch),
+            epoch,
             mainnet,
         };
         assert!(clarity_db.is_stack_empty());
         cost_tracker.load_costs(clarity_db, true)?;
-        Ok(cost_tracker)
+        Ok(Self::Limited(cost_tracker))
     }
 
     pub fn new_mid_block(
@@ -606,7 +640,7 @@ impl LimitedCostTracker {
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
     ) -> Result<LimitedCostTracker> {
-        let mut cost_tracker = LimitedCostTracker {
+        let mut cost_tracker = TrackerData {
             cost_function_references: HashMap::new(),
             cost_contracts: HashMap::new(),
             contract_call_circuits: HashMap::new(),
@@ -614,34 +648,25 @@ impl LimitedCostTracker {
             memory_limit: CLARITY_MEMORY_LIMIT,
             total: ExecutionCost::zero(),
             memory: 0,
-            non_free: Some(epoch),
+            epoch,
             mainnet,
         };
         cost_tracker.load_costs(clarity_db, false)?;
-        Ok(cost_tracker)
+        Ok(Self::Limited(cost_tracker))
     }
 
     #[cfg(test)]
     pub fn new_max_limit(
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
+        use_mainnet: bool,
     ) -> Result<LimitedCostTracker> {
         assert!(clarity_db.is_stack_empty());
-        LimitedCostTracker::new(false, ExecutionCost::max_value(), clarity_db, epoch)
+        LimitedCostTracker::new(use_mainnet, ExecutionCost::max_value(), clarity_db, epoch)
     }
 
     pub fn new_free() -> LimitedCostTracker {
-        LimitedCostTracker {
-            cost_function_references: HashMap::new(),
-            cost_contracts: HashMap::new(),
-            contract_call_circuits: HashMap::new(),
-            limit: ExecutionCost::max_value(),
-            total: ExecutionCost::zero(),
-            memory: 0,
-            memory_limit: CLARITY_MEMORY_LIMIT,
-            non_free: None,
-            mainnet: false,
-        }
+        Self::Free
     }
 
     fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> String {
@@ -653,7 +678,9 @@ impl LimitedCostTracker {
             StacksEpochId::Epoch2_05 => COSTS_2_NAME.to_string(),
         }
     }
+}
 
+impl TrackerData {
     /// `apply_updates` - tells this function to look for any changes in the cost voting contract
     ///   which would need to be applied. if `false`, just load the last computed cost state in this
     ///   fork.
@@ -726,15 +753,27 @@ impl LimitedCostTracker {
 
         return Ok(());
     }
+}
+
+impl LimitedCostTracker {
     pub fn get_total(&self) -> ExecutionCost {
-        self.total.clone()
+        match self {
+            Self::Limited(TrackerData { total, .. }) => total.clone(),
+            Self::Free => ExecutionCost::zero(),
+        }
     }
     pub fn set_total(&mut self, total: ExecutionCost) -> () {
         // used by the miner to "undo" the cost of a transaction when trying to pack a block.
-        self.total = total;
+        match self {
+            Self::Limited(ref mut data) => data.total = total,
+            Self::Free => panic!("Cannot set total on free tracker"),
+        }
     }
     pub fn get_limit(&self) -> ExecutionCost {
-        self.limit.clone()
+        match self {
+            Self::Limited(TrackerData { limit, .. }) => limit.clone(),
+            Self::Free => ExecutionCost::max_value(),
+        }
     }
 }
 
@@ -785,7 +824,7 @@ fn parse_cost(
 }
 
 fn compute_cost(
-    cost_tracker: &mut LimitedCostTracker,
+    cost_tracker: &mut TrackerData,
     cost_function_reference: ClarityCostFunctionReference,
     input_sizes: &[u64],
     eval_in_epoch: StacksEpochId,
@@ -821,10 +860,7 @@ fn compute_cost(
     parse_cost(&cost_function_reference.to_string(), eval_result)
 }
 
-fn add_cost(
-    s: &mut LimitedCostTracker,
-    cost: ExecutionCost,
-) -> std::result::Result<(), CostErrors> {
+fn add_cost(s: &mut TrackerData, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
     s.total.add(&cost)?;
     if s.total.exceeds(&s.limit) {
         Err(CostErrors::CostBalanceExceeded(
@@ -836,7 +872,7 @@ fn add_cost(
     }
 }
 
-fn add_memory(s: &mut LimitedCostTracker, memory: u64) -> std::result::Result<(), CostErrors> {
+fn add_memory(s: &mut TrackerData, memory: u64) -> std::result::Result<(), CostErrors> {
     s.memory = s.memory.cost_overflow_add(memory)?;
     if s.memory > s.memory_limit {
         Err(CostErrors::MemoryBalanceExceeded(s.memory, s.memory_limit))
@@ -845,7 +881,7 @@ fn add_memory(s: &mut LimitedCostTracker, memory: u64) -> std::result::Result<()
     }
 }
 
-fn drop_memory(s: &mut LimitedCostTracker, memory: u64) {
+fn drop_memory(s: &mut TrackerData, memory: u64) {
     s.memory = s
         .memory
         .checked_sub(memory)
@@ -858,13 +894,13 @@ impl CostTracker for LimitedCostTracker {
         cost_function: ClarityCostFunction,
         input: &[u64],
     ) -> std::result::Result<ExecutionCost, CostErrors> {
-        match self.non_free {
-            None => {
+        match self {
+            Self::Free => {
                 // tracker is free, return zero!
                 return Ok(ExecutionCost::zero());
             }
-            Some(epoch) => {
-                let cost_function_ref = self
+            Self::Limited(ref mut data) => {
+                let cost_function_ref = data
                     .cost_function_references
                     .get(&cost_function)
                     .ok_or(CostErrors::CostComputationFailed(format!(
@@ -873,30 +909,34 @@ impl CostTracker for LimitedCostTracker {
                     )))?
                     .clone();
 
-                compute_cost(self, cost_function_ref, input, epoch)
+                compute_cost(data, cost_function_ref, input, data.epoch)
             }
         }
     }
     fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
-        if self.non_free.is_none() {
-            return Ok(());
+        match self {
+            Self::Free => Ok(()),
+            Self::Limited(ref mut data) => add_cost(data, cost),
         }
-        add_cost(self, cost)
     }
     fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
-        if self.non_free.is_none() {
-            return Ok(());
+        match self {
+            Self::Free => Ok(()),
+            Self::Limited(ref mut data) => add_memory(data, memory),
         }
-        add_memory(self, memory)
     }
     fn drop_memory(&mut self, memory: u64) {
-        if self.non_free.is_some() {
-            drop_memory(self, memory)
+        match self {
+            Self::Free => {}
+            Self::Limited(ref mut data) => drop_memory(data, memory),
         }
     }
     fn reset_memory(&mut self) {
-        if self.non_free.is_some() {
-            self.memory = 0;
+        match self {
+            Self::Free => {}
+            Self::Limited(ref mut data) => {
+                data.memory = 0;
+            }
         }
     }
     fn short_circuit_contract_call(
@@ -905,16 +945,16 @@ impl CostTracker for LimitedCostTracker {
         function: &ClarityName,
         input: &[u64],
     ) -> Result<bool> {
-        match self.non_free {
-            None => {
+        match self {
+            Self::Free => {
                 // if we're already free, no need to worry about short circuiting contract-calls
-                return Ok(false);
+                Ok(false)
             }
-            Some(epoch) => {
+            Self::Limited(data) => {
                 // grr, if HashMap::get didn't require Borrow, we wouldn't need this cloning.
                 let lookup_key = (contract.clone(), function.clone());
-                if let Some(cost_function) = self.contract_call_circuits.get(&lookup_key).cloned() {
-                    compute_cost(self, cost_function, input, epoch)?;
+                if let Some(cost_function) = data.contract_call_circuits.get(&lookup_key).cloned() {
+                    compute_cost(data, cost_function, input, data.epoch)?;
                     Ok(true)
                 } else {
                     Ok(false)

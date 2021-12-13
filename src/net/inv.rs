@@ -1048,9 +1048,11 @@ impl InvState {
         let mut added = 0;
         for peer in peers.iter() {
             if let Some(stats) = self.block_stats.get_mut(peer) {
+                debug!("Already tracking inventories of peer {:?}", &peer);
                 stats.reset_pox_scan(0);
                 stats.is_bootstrap_peer = bootstrap_peers.contains(&peer);
             } else if self.block_stats.len() < max_neighbors {
+                debug!("Will track inventories of new peer {:?}", &peer);
                 self.block_stats.insert(
                     peer.clone(),
                     NeighborBlockStats::new(
@@ -1264,14 +1266,17 @@ impl InvState {
                 // genesis snapshot and doesn't correspond to anything (the 1st snapshot is block 0)
                 let set = if microblocks {
                     debug!(
-                        "Neighbor {:?} now has confirmed microblock stream at {} ({})",
-                        neighbor_key, sn.block_height, consensus_hash
+                        "Neighbor {:?} now has confirmed microblock stream at {} ({}) (sortition {})",
+                        neighbor_key, sn.block_height, consensus_hash, sn.block_height - sortdb.first_block_height
                     );
                     stats.inv.set_microblocks_bit(sn.block_height)
                 } else {
                     debug!(
-                        "Neighbor {:?} now has block at {} ({})",
-                        neighbor_key, sn.block_height, consensus_hash
+                        "Neighbor {:?} now has block at {} ({}) (sortition {})",
+                        neighbor_key,
+                        sn.block_height,
+                        consensus_hash,
+                        sn.block_height - sortdb.first_block_height
                     );
                     stats.inv.set_block_bit(sn.block_height)
                 };
@@ -2464,9 +2469,17 @@ impl PeerNetwork {
 
                 let bad_peers = inv_state.cull_bad_peers();
                 for bad_peer in bad_peers {
+                    info!(
+                        "{:?}: will no longer track inventory of bad peer {:?}",
+                        &network.local_peer, &bad_peer
+                    );
                     new_sync_peers.remove(&bad_peer);
                 }
                 for dead_peer in dead_peers.iter() {
+                    info!(
+                        "{:?}: will no longer track inventory of dead peer {:?}",
+                        &network.local_peer, &dead_peer
+                    );
                     new_sync_peers.remove(dead_peer);
                 }
 
@@ -2482,8 +2495,10 @@ impl PeerNetwork {
                         && good_sync_peers_set.len()
                             < (network.connection_opts.num_neighbors as usize)
                     {
+                        debug!("{:?}: good sync peer {:?}", &network.local_peer, &nk);
                         good_sync_peers_set.insert(nk);
                     } else {
+                        debug!("{:?}: random sync peer {:?}", &network.local_peer, &nk);
                         random_sync_peers_list.push(nk);
                     }
                 }
@@ -2500,8 +2515,9 @@ impl PeerNetwork {
                     }
                 } else {
                     debug!(
-                        "{:?}: in initial block download; only inv-sync with always-allowed peers",
-                        &network.local_peer
+                        "{:?}: in initial block download; only inv-sync with {} always-allowed peers",
+                        &network.local_peer,
+                        good_sync_peers_set.len()
                     );
                 }
 
@@ -3406,7 +3422,9 @@ mod test {
         peer_1
             .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
                 network.refresh_local_peer().unwrap();
-                network.refresh_burnchain_view(sortdb, chainstate).unwrap();
+                network
+                    .refresh_burnchain_view(sortdb, chainstate, false)
+                    .unwrap();
                 network.refresh_sortition_view(sortdb).unwrap();
                 Ok(())
             })
