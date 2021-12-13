@@ -242,14 +242,14 @@ pub fn fee_rate_estimate_from_sorted_weighted_fees(
         panic!("`sorted_fee_rates` cannot be empty.");
     }
 
-    let mut total_weight = 0u64;
+    let mut total_weight = 0f64;
     for rate_and_weight in sorted_fee_rates {
-        total_weight += rate_and_weight.weight;
+        total_weight += rate_and_weight.weight as f64;
     }
-    let mut cumulative_weight = 0u64;
+    let mut cumulative_weight = 0f64;
     let mut percentiles = Vec::new();
     for rate_and_weight in sorted_fee_rates {
-        cumulative_weight += rate_and_weight.weight;
+        cumulative_weight += rate_and_weight.weight as f64;
         let percentile_n: f64 =
             (cumulative_weight as f64 - rate_and_weight.weight as f64 / 2f64) / total_weight as f64;
         percentiles.push(percentile_n);
