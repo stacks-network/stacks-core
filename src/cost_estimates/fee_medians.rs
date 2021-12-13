@@ -61,7 +61,7 @@ pub struct WeightedMedianFeeRateEstimator<M: CostMetric> {
 
 /// Convenience struct for passing around this pair.
 #[derive(Debug)]
-struct FeeRateAndWeight {
+pub struct FeeRateAndWeight {
     pub fee_rate: f64,
     pub weight: u64,
 }
@@ -235,7 +235,7 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
 /// The percentiles computed are [0.05, 0.5, 0.95].
 ///
 /// `sorted_fee_rates` must be non-empty.
-fn fee_rate_estimate_from_sorted_weighted_fees(
+pub fn fee_rate_estimate_from_sorted_weighted_fees(
     sorted_fee_rates: &Vec<FeeRateAndWeight>,
 ) -> FeeRateEstimate {
     if sorted_fee_rates.is_empty() {

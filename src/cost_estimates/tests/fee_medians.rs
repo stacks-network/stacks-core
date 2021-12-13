@@ -27,6 +27,8 @@ use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
+use cost_estimates::fee_medians::fee_rate_estimate_from_sorted_weighted_fees;
+use cost_estimates::fee_medians::FeeRateAndWeight;
 
 /// Tolerance for approximate comparison.
 const error_epsilon: f64 = 0.1;
@@ -315,4 +317,71 @@ fn test_ten_blocks_mostly_filled() {
             low: 1f64
         }
     ));
+}
+
+//pub fn fee_rate_estimate_from_sorted_weighted_fees(
+//    sorted_fee_rates: &Vec<FeeRateAndWeight>,
+//) -> FeeRateEstimate {
+
+#[test]
+fn test_fee_rate_estimate_from_sorted_weighted_fees_5() {
+    assert_eq!(
+        fee_rate_estimate_from_sorted_weighted_fees(&vec![
+            FeeRateAndWeight {
+                fee_rate: 1f64,
+                weight: 5u64,
+            },
+            FeeRateAndWeight {
+                fee_rate: 10f64,
+                weight: 95u64,
+            },
+        ]),
+        FeeRateEstimate {
+            high: 10.0f64,
+            middle: 9.549999999999999f64,
+            low: 1.45f64
+        }
+    );
+}
+
+#[test]
+fn test_fee_rate_estimate_from_sorted_weighted_fees_2() {
+    assert_eq!(
+        fee_rate_estimate_from_sorted_weighted_fees(&vec![
+            FeeRateAndWeight {
+                fee_rate: 1f64,
+                weight: 50u64,
+            },
+            FeeRateAndWeight {
+                fee_rate: 10f64,
+                weight: 50u64,
+            },
+        ]),
+        FeeRateEstimate {
+            high: 10.0f64,
+            middle: 5.5f64,
+            low: 1.0f64
+        }
+    );
+}
+
+#[test]
+fn test_fee_rate_estimate_from_sorted_weighted_fees_3() {
+    assert_eq!(
+        fee_rate_estimate_from_sorted_weighted_fees(&vec![
+            FeeRateAndWeight {
+                fee_rate: 1f64,
+                weight: 95u64,
+            },
+            FeeRateAndWeight {
+                fee_rate: 10f64,
+                weight: 5u64,
+            },
+        ]),
+        FeeRateEstimate {
+            high: 9.549999999999999f64,
+            middle: 1.4500000000000004f64,
+            low: 1.0f64
+        }
+    );
 }
