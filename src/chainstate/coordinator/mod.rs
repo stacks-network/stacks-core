@@ -693,7 +693,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
                 conn.with_clarity_db_readonly(|db| {
                     // TODO - get contract ID manually
-                    let exit_at_rc_contract = boot_code_id("exit-at-rc", true);
+                    let exit_at_rc_contract = boot_code_id("exit-at-rc", false);
 
                     // from map rc-proposal-vetoes, use key pair (proposed_rc, curr_rc) to get the # of vetos
                     let entry = db
@@ -708,16 +708,28 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                 .expect("BUG: failed to construct simple tuple"),
                             ),
                         )
-                        .expect("BUG: Failed querying confirmed-proposals")
-                        .expect_optional()
-                        .expect("BUG: confirmed-proposal-count exceeds stored proposals")
-                        .expect_tuple();
-                    let num_vetos = entry
-                        .get("vetos")
-                        .expect("BUG: malformed cost proposal tuple")
-                        .clone()
-                        .expect_u128();
+                        .expect("BUG: Failed querying rc-proposal-vetoes")
+                        .expect_optional();
+                    info!(
+                        "in veto check, proposed_exit: {}, entry: {:?}",
+                        proposed_exit_rc, entry
+                    );
+                    let num_vetos = match entry {
+                        Some(val) => {
+                            let tuple_data = val.expect_tuple();
+                            tuple_data
+                                .get("vetos")
+                                .expect("BUG: malformed cost proposal tuple")
+                                .clone()
+                                .expect_u128()
+                        }
+                        None => 0,
+                    };
 
+                    info!(
+                        "in veto check, proposed_exit: {}, num vetos: {:?}",
+                        proposed_exit_rc, num_vetos
+                    );
                     // Check if the percent veto crosses the minimum threshold
                     let reward_cycle_length = rc_length;
                     let percent_veto = num_vetos * 100 / (reward_cycle_length as u128);
