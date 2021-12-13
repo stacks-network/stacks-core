@@ -53,7 +53,7 @@ pub struct WeightedMedianFeeRateEstimator<M: CostMetric> {
     /// We only look back `window_size` fee rates when averaging past estimates.
     window_size: u32,
     /// The weight of a "full block" in abstract scalar cost units. This is the weight of
-    /// a block that is filled on each dimension.
+    /// a block that is filled *one single* dimension.
     full_block_weight: u64,
     /// Use this cost metric in fee rate calculations.
     metric: M,
@@ -86,7 +86,7 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
             db,
             metric,
             window_size,
-            full_block_weight: 6 * PROPORTION_RESOLUTION,
+            full_block_weight: PROPORTION_RESOLUTION,
         })
     }
 
