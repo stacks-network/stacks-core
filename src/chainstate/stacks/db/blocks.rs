@@ -154,6 +154,19 @@ pub enum MemPoolRejection {
     Other(String),
 }
 
+pub struct SetupBlockResult<'a> {
+    pub clarity_tx: ClarityTx<'a>,
+    pub tx_receipts: Vec<StacksTransactionReceipt>,
+    pub microblock_execution_cost: ExecutionCost,
+    pub microblock_fees: u128,
+    pub microblock_burns: u128,
+    pub microblock_txs_receipts: Vec<StacksTransactionReceipt>,
+    pub matured_miner_rewards_opt:
+        Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
+    pub evaluated_epoch: StacksEpochId,
+    pub applied_epoch_transition: bool,
+}
+
 impl MemPoolRejection {
     pub fn into_json(self, txid: &Txid) -> serde_json::Value {
         use self::MemPoolRejection::*;
@@ -4592,6 +4605,238 @@ impl StacksChainState {
         Ok(parent_miner)
     }
 
+    /// Called in both follower and miner block assembly paths.
+    /// Returns clarity_tx, list of receipts, microblock execution cost,
+    /// microblock fees, microblock burns, list of microblock tx receipts,
+    /// miner rewards tuples, the stacks epoch id, and a boolean that
+    /// represents whether the epoch transition has been applied.
+    pub fn setup_block<'a>(
+        chainstate_tx: &'a mut ChainstateTx,
+        clarity_instance: &'a mut ClarityInstance,
+        burn_dbconn: &'a dyn BurnStateDB,
+        conn: &Connection,
+        chain_tip: &StacksHeaderInfo,
+        burn_tip: BurnchainHeaderHash,
+        burn_tip_height: u32,
+        parent_consensus_hash: ConsensusHash,
+        parent_header_hash: BlockHeaderHash,
+        parent_microblocks: &Vec<StacksMicroblock>,
+        mainnet: bool,
+        miner_id_opt: Option<usize>,
+    ) -> Result<SetupBlockResult<'a>, Error> {
+        let parent_index_hash =
+            StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
+
+        // find matured miner rewards, so we can grant them within the Clarity DB tx.
+        let (latest_matured_miners, matured_miner_parent) = {
+            let latest_miners = StacksChainState::get_scheduled_block_rewards(
+                chainstate_tx.deref_mut(),
+                chain_tip,
+            )?;
+            let parent_miner = StacksChainState::get_parent_matured_miner(
+                chainstate_tx.deref_mut(),
+                mainnet,
+                &latest_miners,
+            )?;
+            (latest_miners, parent_miner)
+        };
+
+        let stacking_burn_ops = SortitionDB::get_stack_stx_ops(conn, &burn_tip)?;
+        let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(conn, &burn_tip)?;
+
+        // load the execution cost of the parent block if the executor is the follower.
+        // otherwise, if the executor is the miner, only load the parent cost if the parent
+        // microblock stream is non-empty.
+        let parent_block_cost = if miner_id_opt.is_none() || !parent_microblocks.is_empty() {
+            let cost = StacksChainState::get_stacks_block_anchored_cost(
+                &chainstate_tx.deref().deref(),
+                &parent_index_hash,
+            )?
+            .ok_or_else(|| {
+                Error::InvalidStacksBlock(format!(
+                    "Failed to load parent block cost. parent_stacks_block_id = {}",
+                    &parent_index_hash
+                ))
+            })?;
+
+            debug!(
+                "Parent block {}/{} cost {:?}",
+                &parent_consensus_hash, &parent_header_hash, &cost
+            );
+            cost
+        } else {
+            ExecutionCost::zero()
+        };
+
+        let mut clarity_tx = StacksChainState::chainstate_block_begin(
+            chainstate_tx,
+            clarity_instance,
+            burn_dbconn,
+            &parent_consensus_hash,
+            &parent_header_hash,
+            &MINER_BLOCK_CONSENSUS_HASH,
+            &MINER_BLOCK_HEADER_HASH,
+        );
+
+        let evaluated_epoch = clarity_tx.get_epoch();
+        clarity_tx.reset_cost(parent_block_cost.clone());
+
+        let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
+            &mut clarity_tx,
+            &chain_tip,
+            latest_matured_miners,
+            matured_miner_parent,
+        ) {
+            Ok(miner_rewards_opt) => miner_rewards_opt,
+            Err(e) => {
+                if let Some(_) = miner_id_opt {
+                    return Err(e);
+                } else {
+                    let msg = format!("Failed to load miner rewards: {:?}", &e);
+                    warn!("{}", &msg);
+
+                    clarity_tx.rollback_block();
+                    return Err(Error::InvalidStacksBlock(msg));
+                }
+            }
+        };
+
+        if let Some(miner_id) = miner_id_opt {
+            debug!(
+                "Miner {}: Apply {} parent microblocks",
+                miner_id,
+                parent_microblocks.len()
+            );
+        }
+
+        let t1 = get_epoch_time_ms();
+
+        // process microblock stream.
+        // If we go over-budget, then we can't process this block either (which is by design)
+        let (microblock_fees, microblock_burns, microblock_txs_receipts) =
+            match StacksChainState::process_microblocks_transactions(
+                &mut clarity_tx,
+                &parent_microblocks,
+            ) {
+                Ok((fees, burns, events)) => (fees, burns, events),
+                Err((e, mblock_header_hash)) => {
+                    let msg = format!(
+                        "Invalid Stacks microblocks {},{} (offender {}): {:?}",
+                        parent_consensus_hash, parent_header_hash, mblock_header_hash, &e
+                    );
+                    warn!("{}", &msg);
+
+                    if miner_id_opt.is_none() {
+                        clarity_tx.rollback_block();
+                    }
+                    return Err(Error::InvalidStacksMicroblock(msg, mblock_header_hash));
+                }
+            };
+
+        let t2 = get_epoch_time_ms();
+
+        if let Some(miner_id) = miner_id_opt {
+            debug!(
+                "Miner {}: Finished applying {} parent microblocks in {}ms\n",
+                miner_id,
+                parent_microblocks.len(),
+                t2.saturating_sub(t1)
+            );
+        }
+        // find microblock cost
+        let mut microblock_execution_cost = clarity_tx.cost_so_far();
+        microblock_execution_cost
+            .sub(&parent_block_cost)
+            .expect("BUG: block_cost + microblock_cost < block_cost");
+
+        // if we get here, then we need to reset the block-cost back to 0 since this begins the
+        // epoch defined by this miner.
+        clarity_tx.reset_cost(ExecutionCost::zero());
+
+        // is this stacks block the first of a new epoch?
+        let (applied_epoch_transition, mut tx_receipts) =
+            StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
+
+        // process stacking & transfer operations from bitcoin ops
+        tx_receipts.extend(StacksChainState::process_stacking_ops(
+            &mut clarity_tx,
+            stacking_burn_ops,
+        ));
+        tx_receipts.extend(StacksChainState::process_transfer_ops(
+            &mut clarity_tx,
+            transfer_burn_ops,
+        ));
+
+        Ok(SetupBlockResult {
+            clarity_tx,
+            tx_receipts,
+            microblock_execution_cost,
+            microblock_fees,
+            microblock_burns,
+            microblock_txs_receipts,
+            matured_miner_rewards_opt,
+            evaluated_epoch,
+            applied_epoch_transition,
+        })
+    }
+
+    /// This function is called in both `append_block` in blocks.rs (follower) and
+    /// `mine_anchored_block` in miner.rs.
+    /// Processes matured miner rewards, alters liquid supply of ustx, processes
+    /// stx lock events, and marks the microblock public key as used
+    /// Returns stx lockup events.
+    pub fn finish_block(
+        clarity_tx: &mut ClarityTx,
+        miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>,
+        block_height: u32,
+        mblock_pubkey_hash: Hash160,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        // add miner payments
+        if let Some((ref miner_reward, ref user_rewards, ref parent_reward)) =
+            miner_payouts.as_ref()
+        {
+            // grant in order by miner, then users
+            let matured_ustx = StacksChainState::process_matured_miner_rewards(
+                clarity_tx,
+                miner_reward,
+                user_rewards,
+                parent_reward,
+            )?;
+
+            clarity_tx.increment_ustx_liquid_supply(matured_ustx);
+        }
+
+        // process unlocks
+        let (new_unlocked_ustx, lockup_events) = StacksChainState::process_stx_unlocks(clarity_tx)?;
+
+        clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
+
+        // mark microblock public key as used
+        match StacksChainState::insert_microblock_pubkey_hash(
+            clarity_tx,
+            block_height,
+            &mblock_pubkey_hash,
+        ) {
+            Ok(_) => {
+                debug!(
+                    "Added microblock public key {} at height {}",
+                    &mblock_pubkey_hash, block_height
+                );
+            }
+            Err(e) => {
+                let msg = format!(
+                    "Failed to insert microblock pubkey hash {} at height {}: {:?}",
+                    &mblock_pubkey_hash, block_height, &e
+                );
+                warn!("{}", &msg);
+
+                return Err(Error::InvalidStacksBlock(msg));
+            }
+        }
+
+        Ok(lockup_events)
+    }
+
     /// Process the next pre-processed staging block.
     /// We've already processed parent_chain_tip.  chain_tip refers to a block we have _not_
     /// processed yet.
@@ -4625,7 +4870,6 @@ impl StacksChainState {
 
         let mainnet = chainstate_tx.get_config().mainnet;
         let next_block_height = block.header.total_work.work;
-        let applied_epoch_transition;
 
         // NEW in 2.05
         // if the parent marked an epoch transition -- i.e. its children necessarily run in
@@ -4651,43 +4895,89 @@ impl StacksChainState {
             }
         }
 
-        // find matured miner rewards, so we can grant them within the Clarity DB tx.
-        let latest_matured_miners = StacksChainState::get_scheduled_block_rewards(
-            chainstate_tx.deref_mut(),
-            &parent_chain_tip,
-        )?;
+        let (parent_consensus_hash, parent_block_hash) = if block.is_first_mined() {
+            // has to be the sentinal hashes if this block has no parent
+            (
+                FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                FIRST_STACKS_BLOCK_HASH.clone(),
+            )
+        } else {
+            (
+                parent_chain_tip.consensus_hash.clone(),
+                parent_chain_tip.anchored_header.block_hash(),
+            )
+        };
 
-        let matured_miner_parent = StacksChainState::get_parent_matured_miner(
-            chainstate_tx.deref_mut(),
+        let (last_microblock_hash, last_microblock_seq) = if microblocks.len() > 0 {
+            let _first_mblock_hash = microblocks[0].block_hash();
+            let num_mblocks = microblocks.len();
+            let last_microblock_hash = microblocks[num_mblocks - 1].block_hash();
+            let last_microblock_seq = microblocks[num_mblocks - 1].header.sequence;
+
+            debug!(
+                "\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n",
+                num_mblocks,
+                chain_tip_consensus_hash,
+                _first_mblock_hash,
+                last_microblock_hash,
+                parent_consensus_hash,
+                parent_block_hash
+            );
+            (last_microblock_hash, last_microblock_seq)
+        } else {
+            (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0)
+        };
+
+        if last_microblock_hash != block.header.parent_microblock
+            || last_microblock_seq != block.header.parent_microblock_sequence
+        {
+            // the pre-processing step should prevent this from being reached
+            panic!("BUG: received discontiguous headers for processing: {} (seq={}) does not connect to {} (microblock parent is {} (seq {}))",
+                   last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
+        }
+
+        // get the burnchain block that precedes this block's sortition
+        let parent_burn_hash = SortitionDB::get_block_snapshot_consensus(
+            &burn_dbconn.tx(),
+            &chain_tip_consensus_hash,
+        )?
+        .expect("BUG: Failed to load snapshot for block snapshot during Stacks block processing")
+        .parent_burn_header_hash;
+
+        let SetupBlockResult {
+            mut clarity_tx,
+            mut tx_receipts,
+            microblock_execution_cost,
+            microblock_fees,
+            microblock_burns,
+            microblock_txs_receipts,
+            matured_miner_rewards_opt,
+            evaluated_epoch,
+            applied_epoch_transition,
+        } = StacksChainState::setup_block(
+            chainstate_tx,
+            clarity_instance,
+            burn_dbconn,
+            &burn_dbconn.tx(),
+            &parent_chain_tip,
+            parent_burn_hash,
+            chain_tip_burn_header_height,
+            parent_consensus_hash,
+            parent_block_hash,
+            microblocks,
             mainnet,
-            &latest_matured_miners,
+            None,
         )?;
 
         let (
             scheduled_miner_reward,
-            tx_receipts,
-            microblock_execution_cost,
             block_execution_cost,
             matured_rewards,
             matured_rewards_info,
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
-            evaluated_epoch,
         ) = {
-            let (parent_consensus_hash, parent_block_hash) = if block.is_first_mined() {
-                // has to be the sentinal hashes if this block has no parent
-                (
-                    FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                    FIRST_STACKS_BLOCK_HASH.clone(),
-                )
-            } else {
-                (
-                    parent_chain_tip.consensus_hash.clone(),
-                    parent_chain_tip.anchored_header.block_hash(),
-                )
-            };
-
             // get previous burn block stats
             let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
                 if block.is_first_mined() {
@@ -4712,94 +5002,6 @@ impl StacksChainState {
                         }
                     }
                 };
-
-            let (last_microblock_hash, last_microblock_seq) = if microblocks.len() > 0 {
-                let _first_mblock_hash = microblocks[0].block_hash();
-                let num_mblocks = microblocks.len();
-                let last_microblock_hash = microblocks[num_mblocks - 1].block_hash();
-                let last_microblock_seq = microblocks[num_mblocks - 1].header.sequence;
-
-                debug!(
-                    "\n\nAppend {} microblocks {}/{}-{} off of {}/{}\n",
-                    num_mblocks,
-                    chain_tip_consensus_hash,
-                    _first_mblock_hash,
-                    last_microblock_hash,
-                    parent_consensus_hash,
-                    parent_block_hash
-                );
-                (last_microblock_hash, last_microblock_seq)
-            } else {
-                (EMPTY_MICROBLOCK_PARENT_HASH.clone(), 0)
-            };
-
-            if last_microblock_hash != block.header.parent_microblock
-                || last_microblock_seq != block.header.parent_microblock_sequence
-            {
-                // the pre-processing step should prevent this from being reached
-                panic!("BUG: received discontiguous headers for processing: {} (seq={}) does not connect to {} (microblock parent is {} (seq {}))",
-                       last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
-            }
-
-            // get the burnchain block that precedes this block's sortition
-            let parent_burn_hash = SortitionDB::get_block_snapshot_consensus(
-                &burn_dbconn.tx(),
-                &chain_tip_consensus_hash,
-            )?
-            .expect(
-                "BUG: Failed to load snapshot for block snapshot during Stacks block processing",
-            )
-            .parent_burn_header_hash;
-            let stacking_burn_ops =
-                SortitionDB::get_stack_stx_ops(&burn_dbconn.tx(), &parent_burn_hash)?;
-            let transfer_burn_ops =
-                SortitionDB::get_transfer_stx_ops(&burn_dbconn.tx(), &parent_burn_hash)?;
-
-            let parent_block_cost = StacksChainState::get_stacks_block_anchored_cost(
-                &chainstate_tx.deref().deref(),
-                &StacksBlockHeader::make_index_block_hash(
-                    &parent_consensus_hash,
-                    &parent_block_hash,
-                ),
-            )?
-            .expect(&format!(
-                "BUG: no execution cost found for parent block {}/{}",
-                parent_consensus_hash, parent_block_hash
-            ));
-
-            let mut clarity_tx = StacksChainState::chainstate_block_begin(
-                chainstate_tx,
-                clarity_instance,
-                burn_dbconn,
-                &parent_consensus_hash,
-                &parent_block_hash,
-                &MINER_BLOCK_CONSENSUS_HASH,
-                &MINER_BLOCK_HEADER_HASH,
-            );
-
-            let evaluated_epoch = clarity_tx.get_epoch();
-
-            debug!(
-                "Parent block {}/{} cost {:?}",
-                &parent_consensus_hash, &parent_block_hash, &parent_block_cost
-            );
-            clarity_tx.reset_cost(parent_block_cost.clone());
-
-            let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
-                &mut clarity_tx,
-                parent_chain_tip,
-                latest_matured_miners,
-                matured_miner_parent,
-            ) {
-                Ok(miner_rewards_opt) => miner_rewards_opt,
-                Err(e) => {
-                    let msg = format!("Failed to load miner rewards: {:?}", &e);
-                    warn!("{}", &msg);
-
-                    clarity_tx.rollback_block();
-                    return Err(Error::InvalidStacksBlock(msg));
-                }
-            };
 
             // validation check -- is this microblock public key hash new to this fork?  It must
             // be, or this block is invalid.
@@ -4834,42 +5036,6 @@ impl StacksChainState {
                 }
             }
 
-            // process microblock stream.
-            // If we go over-budget, then we can't process this block either (which is by design)
-            let (microblock_fees, microblock_burns, microblock_txs_receipts) =
-                match StacksChainState::process_microblocks_transactions(
-                    &mut clarity_tx,
-                    &microblocks,
-                ) {
-                    Err((e, offending_mblock_header_hash)) => {
-                        let msg = format!(
-                            "Invalid Stacks microblocks {},{} (offender {}): {:?}",
-                            block.header.parent_microblock,
-                            block.header.parent_microblock_sequence,
-                            offending_mblock_header_hash,
-                            &e
-                        );
-                        warn!("{}", &msg);
-
-                        clarity_tx.rollback_block();
-                        return Err(Error::InvalidStacksMicroblock(
-                            msg,
-                            offending_mblock_header_hash,
-                        ));
-                    }
-                    Ok((fees, burns, events)) => (fees, burns, events),
-                };
-
-            // find microblock cost
-            let mut microblock_cost = clarity_tx.cost_so_far();
-            microblock_cost
-                .sub(&parent_block_cost)
-                .expect("BUG: block_cost + microblock_cost < block_cost");
-
-            // if we get here, then we need to reset the block-cost back to 0 since this begins the
-            // epoch defined by this miner.
-            clarity_tx.reset_cost(ExecutionCost::zero());
-
             debug!("Append block";
                    "block" => %format!("{}/{}", chain_tip_consensus_hash, block.block_hash()),
                    "parent_block" => %format!("{}/{}", parent_consensus_hash, parent_block_hash),
@@ -4879,25 +5045,6 @@ impl StacksChainState {
                    "microblock_parent_seq" => %last_microblock_seq,
                    "microblock_parent_count" => %microblocks.len(),
                    "evaluated_epoch" => %evaluated_epoch);
-
-            // is this stacks block the first of a new epoch?
-            let (epoch_transition, mut receipts) = StacksChainState::process_epoch_transition(
-                &mut clarity_tx,
-                chain_tip_burn_header_height,
-            )?;
-
-            applied_epoch_transition = epoch_transition;
-
-            // process stacking operations from bitcoin ops
-            receipts.extend(StacksChainState::process_stacking_ops(
-                &mut clarity_tx,
-                stacking_burn_ops,
-            ));
-
-            receipts.extend(StacksChainState::process_transfer_ops(
-                &mut clarity_tx,
-                transfer_burn_ops,
-            ));
 
             // process anchored block
             let (block_fees, block_burns, txs_receipts) =
@@ -4914,40 +5061,26 @@ impl StacksChainState {
                     }
                 };
 
-            receipts.extend(txs_receipts.into_iter());
+            tx_receipts.extend(txs_receipts.into_iter());
 
             let block_cost = clarity_tx.cost_so_far();
 
-            // grant matured miner rewards
-            let new_liquid_miner_ustx =
-                if let Some((ref miner_reward, ref user_rewards, ref parent_miner_reward, _)) =
-                    matured_miner_rewards_opt.as_ref()
-                {
-                    // grant in order by miner, then users
-                    StacksChainState::process_matured_miner_rewards(
-                        &mut clarity_tx,
-                        miner_reward,
-                        user_rewards,
-                        parent_miner_reward,
-                    )?
-                } else {
-                    0
-                };
-
-            clarity_tx.increment_ustx_liquid_supply(new_liquid_miner_ustx);
-
             // obtain reward info for receipt
-            let (matured_rewards, matured_rewards_info) =
+            let (matured_rewards, matured_rewards_info, miner_payouts_opt) =
                 if let Some((miner_reward, mut user_rewards, parent_reward, reward_ptr)) =
                     matured_miner_rewards_opt
                 {
                     let mut ret = vec![];
-                    ret.push(miner_reward);
+                    ret.push(miner_reward.clone());
                     ret.append(&mut user_rewards);
-                    ret.push(parent_reward);
-                    (ret, Some(reward_ptr))
+                    ret.push(parent_reward.clone());
+                    (
+                        ret,
+                        Some(reward_ptr),
+                        Some((miner_reward, user_rewards, parent_reward)),
+                    )
                 } else {
-                    (vec![], None)
+                    (vec![], None, None)
                 };
 
             // total burns
@@ -4955,48 +5088,32 @@ impl StacksChainState {
                 .checked_add(microblock_burns)
                 .expect("Overflow: Too many STX burnt");
 
-            // unlock any uSTX
-            let (new_unlocked_ustx, mut lockup_events) =
-                StacksChainState::process_stx_unlocks(&mut clarity_tx)?;
+            let mut lockup_events = match StacksChainState::finish_block(
+                &mut clarity_tx,
+                miner_payouts_opt,
+                block.header.total_work.work as u32,
+                block.header.microblock_pubkey_hash,
+            ) {
+                Err(Error::InvalidStacksBlock(e)) => {
+                    clarity_tx.rollback_block();
+                    return Err(Error::InvalidStacksBlock(e));
+                }
+                Err(e) => return Err(e),
+                Ok(lockup_events) => lockup_events,
+            };
 
             // if any, append lockups events to the coinbase receipt
             if lockup_events.len() > 0 {
                 // Receipts are appended in order, so the first receipt should be
                 // the one of the coinbase transaction
-                if let Some(receipt) = receipts.get_mut(0) {
+                if let Some(receipt) = tx_receipts.get_mut(0) {
                     if receipt.is_coinbase_tx() {
                         receipt.events.append(&mut lockup_events);
                     }
                 } else {
-                    warn!("Unable to attach lockups events, first block's transaction is not a coinbase transaction")
+                    warn!("Unable to attach lockups events, block's first transaction is not a coinbase transaction")
                 }
             }
-
-            clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
-
-            // record that this microblock public key hash was used at this height
-            match StacksChainState::insert_microblock_pubkey_hash(
-                &mut clarity_tx,
-                block.header.total_work.work as u32,
-                &block.header.microblock_pubkey_hash,
-            ) {
-                Ok(_) => {
-                    debug!(
-                        "Added microblock public key {} at height {}",
-                        &block.header.microblock_pubkey_hash, block.header.total_work.work
-                    );
-                }
-                Err(e) => {
-                    let msg = format!(
-                        "Failed to insert microblock pubkey hash {} at height {}: {:?}",
-                        &block.header.microblock_pubkey_hash, block.header.total_work.work, &e
-                    );
-                    warn!("{}", &msg);
-
-                    clarity_tx.rollback_block();
-                    return Err(Error::InvalidStacksBlock(msg));
-                }
-            };
 
             let root_hash = clarity_tx.get_root_hash();
             if root_hash != block.header.state_index_root {
@@ -5013,7 +5130,7 @@ impl StacksChainState {
             }
 
             debug!("Reached state root {}", root_hash;
-                   "microblock cost" => %microblock_cost,
+                   "microblock cost" => %microblock_execution_cost,
                    "block cost" => %block_cost);
 
             // good to go!
@@ -5052,19 +5169,16 @@ impl StacksChainState {
             )
             .expect("FATAL: parsed and processed a block without a coinbase");
 
-            receipts.extend(microblock_txs_receipts.into_iter());
+            tx_receipts.extend(microblock_txs_receipts.into_iter());
 
             (
                 scheduled_miner_reward,
-                receipts,
-                microblock_cost,
                 block_cost,
                 matured_rewards,
                 matured_rewards_info,
                 parent_burn_block_hash,
                 parent_burn_block_height,
                 parent_burn_block_timestamp,
-                evaluated_epoch,
             )
         };
 

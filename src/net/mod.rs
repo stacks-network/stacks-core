@@ -3463,8 +3463,12 @@ pub mod test {
                     let (mut miner_chainstate, _) =
                         StacksChainState::open(false, network_id, &chainstate_path).unwrap();
                     let sort_iconn = sortdb.index_conn();
+
+                    let mut miner_epoch_info = builder
+                        .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .unwrap();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(&sort_iconn, &mut miner_epoch_info)
                         .unwrap()
                         .0;
 
