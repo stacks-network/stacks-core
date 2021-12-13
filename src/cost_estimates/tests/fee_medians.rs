@@ -319,12 +319,8 @@ fn test_ten_blocks_mostly_filled() {
     ));
 }
 
-//pub fn fee_rate_estimate_from_sorted_weighted_fees(
-//    sorted_fee_rates: &Vec<FeeRateAndWeight>,
-//) -> FeeRateEstimate {
-
 #[test]
-fn test_fee_rate_estimate_from_sorted_weighted_fees_5() {
+fn test_fee_rate_estimate_5_vs_95() {
     assert_eq!(
         fee_rate_estimate_from_sorted_weighted_fees(&vec![
             FeeRateAndWeight {
@@ -345,7 +341,7 @@ fn test_fee_rate_estimate_from_sorted_weighted_fees_5() {
 }
 
 #[test]
-fn test_fee_rate_estimate_from_sorted_weighted_fees_2() {
+fn test_fee_rate_estimate_50_vs_50() {
     assert_eq!(
         fee_rate_estimate_from_sorted_weighted_fees(&vec![
             FeeRateAndWeight {
@@ -366,7 +362,7 @@ fn test_fee_rate_estimate_from_sorted_weighted_fees_2() {
 }
 
 #[test]
-fn test_fee_rate_estimate_from_sorted_weighted_fees_3() {
+fn test_fee_rate_estimate_95_vs_5() {
     assert_eq!(
         fee_rate_estimate_from_sorted_weighted_fees(&vec![
             FeeRateAndWeight {
@@ -382,6 +378,46 @@ fn test_fee_rate_estimate_from_sorted_weighted_fees_3() {
             high: 9.549999999999999f64,
             middle: 1.4500000000000004f64,
             low: 1.0f64
+        }
+    );
+}
+
+#[test]
+fn test_fee_rate_estimate_20() {
+    let mut pairs = vec![];
+    for i in 1..21 {
+        pairs.push(FeeRateAndWeight {
+            fee_rate: 1f64 * i as f64,
+            weight: 1u64,
+        })
+    }
+
+    assert_eq!(
+        fee_rate_estimate_from_sorted_weighted_fees(&pairs),
+        FeeRateEstimate {
+            high: 19.5f64,
+            middle: 10.5f64,
+            low: 1.5f64
+        }
+    );
+}
+
+#[test]
+fn test_fee_rate_estimate_100() {
+    let mut pairs = vec![];
+    for i in 1..101 {
+        pairs.push(FeeRateAndWeight {
+            fee_rate: 1f64 * i as f64,
+            weight: 1u64,
+        })
+    }
+
+    assert_eq!(
+        fee_rate_estimate_from_sorted_weighted_fees(&pairs),
+        FeeRateEstimate {
+            high: 95.5f64,
+            middle: 50.5f64,
+            low: 5.5f64
         }
     );
 }
