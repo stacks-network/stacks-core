@@ -128,26 +128,26 @@ const block_limit: ExecutionCost = ExecutionCost {
 };
 
 const tenth_operation_cost: ExecutionCost = ExecutionCost {
-    write_length: 10,
-    write_count: 10,
-    read_length: 10,
-    read_count: 10,
+    write_length: 0,
+    write_count: 0,
+    read_length: 0,
+    read_count: 0,
     runtime: 10,
 };
 
 const half_operation_cost: ExecutionCost = ExecutionCost {
-    write_length: 50,
-    write_count: 50,
-    read_length: 50,
-    read_count: 50,
+    write_length: 0,
+    write_count: 0,
+    read_length: 0,
+    read_count: 0,
     runtime: 50,
 };
 
 // The scalar cost of `make_dummy_cc_tx(_, &tenth_operation_cost)`.
-const tenth_operation_cost_basis: u64 = 5160;
+const tenth_operation_cost_basis: u64 = 1164;
 
 // The scalar cost of `make_dummy_cc_tx(_, &half_operation_cost)`.
-const half_operation_cost_basis: u64 = 25160;
+const half_operation_cost_basis: u64 = 5164;
 
 /// Tests that we have no estimate available until we `notify`.
 #[test]
@@ -203,7 +203,7 @@ fn test_one_block_partially_filled() {
         .notify_block(&single_tx_receipt, &block_limit)
         .expect("Should be able to process block receipt");
 
-    // The higher fee is 10, because that's what we paid.
+    // The higher fee is 10, because of the operation paying 10f per cost.
     // The middle fee should be near 1, because the block is mostly empty, and dominated by the
     // minimum fee rate padding.
     // The lower fee is 1 because of the minimum fee rate padding.
@@ -212,8 +212,8 @@ fn test_one_block_partially_filled() {
             .get_rate_estimates()
             .expect("Should be able to create estimate now"),
         FeeRateEstimate {
-            high: 9.87f64,
-            middle: 1.77f64,
+            high: 10.0f64,
+            middle: 2.0475999999999996f64,
             low: 1f64
         }
     ));
@@ -229,7 +229,9 @@ fn test_one_block_mostly_filled() {
     let single_tx_receipt = make_block_receipt(vec![
         StacksTransactionReceipt::from_coinbase(make_dummy_coinbase_tx()),
         make_dummy_cc_tx(10 * half_operation_cost_basis, &half_operation_cost),
-        make_dummy_cc_tx(10 * half_operation_cost_basis, &half_operation_cost),
+        make_dummy_cc_tx(10 * tenth_operation_cost_basis, &tenth_operation_cost),
+        make_dummy_cc_tx(10 * tenth_operation_cost_basis, &tenth_operation_cost),
+        make_dummy_cc_tx(10 * tenth_operation_cost_basis, &tenth_operation_cost),
     ]);
 
     estimator
@@ -256,7 +258,7 @@ fn test_one_block_mostly_filled() {
 ///
 /// We add 5 blocks with window size 5 so none should be forgotten.
 #[test]
-fn test_five_blocks_mostly_filled() {
+fn test_window_size_forget_nothing() {
     let metric = ProportionalDotProduct::new(10_000);
     let mut estimator = instantiate_test_db(metric);
 
@@ -280,7 +282,7 @@ fn test_five_blocks_mostly_filled() {
         FeeRateEstimate {
             high: 30f64,
             middle: 30f64,
-            low: 1f64
+            low: 30f64
         }
     ));
 }
@@ -290,7 +292,7 @@ fn test_five_blocks_mostly_filled() {
 ///
 /// We add 10 blocks with window size 5 so the first 5 should be forgotten.
 #[test]
-fn test_ten_blocks_mostly_filled() {
+fn test_window_size_forget_something() {
     let metric = ProportionalDotProduct::new(10_000);
     let mut estimator = instantiate_test_db(metric);
 
@@ -314,7 +316,7 @@ fn test_ten_blocks_mostly_filled() {
         FeeRateEstimate {
             high: 80f64,
             middle: 80f64,
-            low: 1f64
+            low: 80f64
         }
     ));
 }
