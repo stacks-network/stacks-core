@@ -1209,7 +1209,7 @@ impl FeeEstimationConfig {
         }
     }
 
-    pub fn make_scalar_fee_estimator<CM: CostMetric>(
+    pub fn make_scalar_fee_estimator<CM: 'static + CostMetric>(
         &self,
         mut chainstate_path: PathBuf,
         metric: CM,
@@ -1225,7 +1225,9 @@ impl FeeEstimationConfig {
         }
     }
 
-    pub fn make_fuzzed_weighted_median_fee_estimator<CM: CostMetric>(
+    // Creates a fuzzed WeightedMedianFeeRateEstimator with window_size 5. The fuzz
+    // is uniform with bounds [+/- 0.5].
+    pub fn make_fuzzed_weighted_median_fee_estimator<CM: 'static + CostMetric>(
         &self,
         mut chainstate_path: PathBuf,
         metric: CM,
