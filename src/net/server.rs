@@ -717,7 +717,6 @@ mod test {
     use crate::types::chainstate::BlockHeaderHash;
     use burnchains::*;
     use chainstate::stacks::db::blocks::test::*;
-    use chainstate::stacks::db::BlockStreamData;
     use chainstate::stacks::db::StacksChainState;
     use chainstate::stacks::test::*;
     use chainstate::stacks::Error as chain_error;

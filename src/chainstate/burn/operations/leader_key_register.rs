@@ -45,7 +45,7 @@ use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
 
-struct ParsedData {
+pub struct ParsedData {
     pub consensus_hash: ConsensusHash,
     pub public_key: VRFPublicKey,
     pub memo: Vec<u8>,
