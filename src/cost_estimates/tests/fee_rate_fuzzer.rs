@@ -55,8 +55,7 @@ fn test_fuzzing_seed1() {
         let r: Box<dyn RngCore> = Box::new(rng);
         r
     });
-    let fuzzed_estimator =
-        FeeRateFuzzer::new_custom_creator(Box::new(mock_estimator), rng_creator, 0.1);
+    let fuzzed_estimator = FeeRateFuzzer::new_custom_creator(mock_estimator, rng_creator, 0.1);
 
     assert_eq!(
         fuzzed_estimator
@@ -80,8 +79,7 @@ fn test_fuzzing_seed2() {
         let r: Box<dyn RngCore> = Box::new(rng);
         r
     });
-    let fuzzed_estimator =
-        FeeRateFuzzer::new_custom_creator(Box::new(mock_estimator), rng_creator, 0.1);
+    let fuzzed_estimator = FeeRateFuzzer::new_custom_creator(mock_estimator, rng_creator, 0.1);
 
     assert_eq!(
         fuzzed_estimator
@@ -130,8 +128,7 @@ fn test_notify_pass_through() {
         let r: Box<dyn RngCore> = Box::new(rng);
         r
     });
-    let mut fuzzed_estimator =
-        FeeRateFuzzer::new_custom_creator(Box::new(mock_estimator), rng_creator, 0.1);
+    let mut fuzzed_estimator = FeeRateFuzzer::new_custom_creator(mock_estimator, rng_creator, 0.1);
 
     let receipt = make_block_receipt(vec![]);
     fuzzed_estimator

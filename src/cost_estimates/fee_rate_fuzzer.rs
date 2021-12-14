@@ -15,9 +15,9 @@ use rand::SeedableRng;
 ///
 /// Note: We currently use "uniform" random noise instead of "normal" distributed noise to avoid
 /// importing a new crate just for this.
-pub struct FeeRateFuzzer {
+pub struct FeeRateFuzzer<UnderlyingEstimator: FeeEstimator> {
     /// We will apply a random "fuzz" on top of the estimates given by this.
-    underlying: Box<dyn FeeEstimator>,
+    underlying: UnderlyingEstimator,
     /// Creator function for a new random generator. For prod, use `thread_rng`. For test,
     /// pass in a contrived generator.
     rng_creator: Box<dyn Fn() -> Box<dyn RngCore>>,
@@ -25,33 +25,36 @@ pub struct FeeRateFuzzer {
     uniform_bound: f64,
 }
 
-impl FeeRateFuzzer {
+impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
     /// Constructor for production. It uses `thread_rng()` as the random number generator,
     /// to get truly pseudo-random numbers.
-    pub fn new(underlying: Box<dyn FeeEstimator>, uniform_bound: f64) -> Box<FeeRateFuzzer> {
+    pub fn new(
+        underlying: UnderlyingEstimator,
+        uniform_bound: f64,
+    ) -> FeeRateFuzzer<UnderlyingEstimator> {
         let rng_creator = Box::new(|| {
             let r: Box<dyn RngCore> = Box::new(thread_rng());
             r
         });
-        Box::new(Self {
+        Self {
             underlying,
             rng_creator,
             uniform_bound,
-        })
+        }
     }
 
     /// Constructor meant for test. The user can pass in a contrived random number generator
     /// factory function, so that the test is repeatable.
     pub fn new_custom_creator(
-        underlying: Box<dyn FeeEstimator>,
+        underlying: UnderlyingEstimator,
         rng_creator: Box<dyn Fn() -> Box<dyn RngCore>>,
         uniform_bound: f64,
-    ) -> Box<FeeRateFuzzer> {
-        Box::new(Self {
+    ) -> FeeRateFuzzer<UnderlyingEstimator> {
+        Self {
             underlying,
             rng_creator,
             uniform_bound,
-        })
+        }
     }
 
     /// Add a uniform fuzz to input.
@@ -66,7 +69,7 @@ impl FeeRateFuzzer {
     }
 }
 
-impl FeeEstimator for FeeRateFuzzer {
+impl<T: FeeEstimator> FeeEstimator for FeeRateFuzzer<T> {
     /// Just passes the information straight to `underlying`.
     fn notify_block(
         &mut self,
