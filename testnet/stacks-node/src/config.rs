@@ -14,6 +14,8 @@ use stacks::core::StacksEpoch;
 use stacks::core::{
     CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
+use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
+use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use stacks::cost_estimates::metrics::CostMetric;
 use stacks::cost_estimates::metrics::ProportionalDotProduct;
@@ -1040,6 +1042,7 @@ pub enum CostEstimatorName {
 #[derive(Clone, Debug)]
 pub enum FeeEstimatorName {
     ScalarFeeRate,
+    FuzzedWeightedMedianFeeRate,
 }
 
 #[derive(Clone, Debug)]
@@ -1082,6 +1085,8 @@ impl FeeEstimatorName {
     fn panic_parse(s: String) -> FeeEstimatorName {
         if &s.to_lowercase() == "scalar_fee_rate" {
             FeeEstimatorName::ScalarFeeRate
+        } else if &s.to_lowercase() == "fuzzed_weighted_median_fee_rate" {
+            FeeEstimatorName::FuzzedWeightedMedianFeeRate
         } else {
             panic!(
                 "Bad fee estimator name supplied in configuration file: {}",
@@ -1178,10 +1183,12 @@ impl Config {
     pub fn make_fee_estimator(&self) -> Option<Box<dyn FeeEstimator>> {
         let metric = self.make_cost_metric()?;
         let fee_estimator: Box<dyn FeeEstimator> = match self.estimation.fee_estimator.as_ref()? {
-            FeeEstimatorName::ScalarFeeRate => Box::new(
-                self.estimation
-                    .make_scalar_fee_estimator(self.get_chainstate_path(), metric),
-            ),
+            FeeEstimatorName::ScalarFeeRate => self
+                .estimation
+                .make_scalar_fee_estimator(self.get_chainstate_path(), metric),
+            FeeEstimatorName::FuzzedWeightedMedianFeeRate => self
+                .estimation
+                .make_fuzzed_weighted_median_fee_estimator(self.get_chainstate_path(), metric),
         };
 
         Some(fee_estimator)
@@ -1206,13 +1213,31 @@ impl FeeEstimationConfig {
         &self,
         mut chainstate_path: PathBuf,
         metric: CM,
-    ) -> ScalarFeeRateEstimator<CM> {
+    ) -> Box<dyn FeeEstimator> {
         if let Some(FeeEstimatorName::ScalarFeeRate) = self.fee_estimator.as_ref() {
             chainstate_path.push("fee_estimator_scalar_rate.sqlite");
-            ScalarFeeRateEstimator::open(&chainstate_path, metric)
-                .expect("Error opening fee estimator")
+            Box::new(
+                ScalarFeeRateEstimator::open(&chainstate_path, metric)
+                    .expect("Error opening fee estimator"),
+            )
         } else {
             panic!("BUG: Expected to configure a scalar fee estimator");
+        }
+    }
+
+    pub fn make_fuzzed_weighted_median_fee_estimator<CM: CostMetric>(
+        &self,
+        mut chainstate_path: PathBuf,
+        metric: CM,
+    ) -> Box<dyn FeeEstimator> {
+        if let Some(FeeEstimatorName::FuzzedWeightedMedianFeeRate) = self.fee_estimator.as_ref() {
+            chainstate_path.push("fee_estimator_scalar_rate.sqlite");
+            let underlying_estimator =
+                WeightedMedianFeeRateEstimator::open(&chainstate_path, metric, 5)
+                    .expect("Error opening fee estimator");
+            FeeRateFuzzer::new(Box::new(underlying_estimator), 0.5)
+        } else {
+            panic!("BUG: Expected to configure a weighted median fee estimator");
         }
     }
 }
