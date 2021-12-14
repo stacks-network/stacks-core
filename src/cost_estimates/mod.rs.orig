@@ -13,8 +13,12 @@ use vm::costs::ExecutionCost;
 use burnchains::Txid;
 use chainstate::stacks::db::StacksEpochReceipt;
 
+<<<<<<< HEAD
 pub mod fee_rate_fuzzer;
+||||||| merged common ancestors
+=======
 pub mod fee_medians;
+>>>>>>> feat/fee-rates
 pub mod fee_scalar;
 pub mod metrics;
 pub mod pessimistic;

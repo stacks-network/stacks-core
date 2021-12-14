@@ -2,8 +2,12 @@ use cost_estimates::FeeRateEstimate;
 
 pub mod common;
 pub mod cost_estimators;
+<<<<<<< HEAD
 pub mod fee_rate_fuzzer;
+||||||| merged common ancestors
+=======
 pub mod fee_medians;
+>>>>>>> feat/fee-rates
 pub mod fee_scalar;
 pub mod metrics;
 
