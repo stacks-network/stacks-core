@@ -13,6 +13,9 @@ password = "blockstacksystem"
 rpc_port = 8332
 peer_port = 8333
 
+[fee_estimation]
+fee_estimator = "fuzzed_weighted_median_fee_rate"
+
 # Used for sending events to a local stacks-blockchain-api service
 # [[events_observer]]
 # endpoint = "localhost:3700"

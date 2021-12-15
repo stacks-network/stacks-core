@@ -21,8 +21,8 @@ use stacks::core;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
-    AccountEntryResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
-    PostTransactionRequestBody, RPCPeerInfoData,
+    AccountEntryResponse, FeeRateEstimateRequestBody, GetAttachmentResponse,
+    GetAttachmentsInvResponse, PostTransactionRequestBody, RPCPeerInfoData,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
@@ -71,6 +71,8 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
+
+use crate::config::FeeEstimatorName;
 
 pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -662,6 +664,25 @@ fn get_pox_info(http_origin: &str) -> RPCPoxInfoData {
     let path = format!("{}/v2/pox", http_origin);
     client
         .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCPoxInfoData>()
+        .unwrap()
+}
+
+fn get_fee_rate_info(
+    http_origin: &str,
+    fee_rate_input: &FeeRateEstimateRequestBody,
+) -> RPCPoxInfoData {
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{}/v2/fees/transaction", http_origin);
+
+    let body = { serde_json::to_vec(&json!(fee_rate_input)).unwrap() };
+
+    client
+        .post(&path)
+        .header("Content-Type", "application/json")
+        .body(body)
         .send()
         .unwrap()
         .json::<RPCPoxInfoData>()
@@ -5846,4 +5867,115 @@ fn atlas_stress_integration_test() {
     }
 
     test_observer::clear();
+}
+
+#[test]
+#[ignore]
+fn fuzzed_median_fee_rate_estimation_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // cost = {
+    //   "write_length":350981,
+    //   "write_count":932,
+    //   "read_length":3711941,
+    //   "read_count":3721,
+    //   "runtime":4960871000
+    // }
+    let max_contract_src = format!(
+        "(define-public (f) (begin {} (ok 1))) (begin (f))",
+        (0..310)
+            .map(|_| format!(
+                "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
+                boot_code_id("cost-voting", false),
+                boot_code_id("costs", false),
+                boot_code_id("costs", false),
+            ))
+            .collect::<Vec<String>>()
+            .join(" ")
+    );
+
+    let spender_sk = StacksPrivateKey::new();
+    let addr = to_addr(&spender_sk);
+
+    let tx = make_contract_publish(&spender_sk, 0, 59070, "max", &max_contract_src);
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    conf.estimation.fee_estimator = Some(FeeEstimatorName::FuzzedWeightedMedianFeeRate);
+
+    conf.initial_balances.push(InitialBalance {
+        address: addr.clone().into(),
+        amount: 10000000,
+    });
+
+    conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 30000;
+    conf.node.microblock_frequency = 1000;
+
+    conf.miner.min_tx_fee = 1;
+    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.nonce, 1);
+    assert_eq!(account.balance, 0);
+
+    let account = get_account(&http_origin, &addr);
+    assert_eq!(account.nonce, 0);
+    assert_eq!(account.balance, 10000000);
+
+    submit_tx(&http_origin, &tx);
+    sleep_ms(60_000);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(60_000);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let res = get_account(&http_origin, &addr);
+    assert_eq!(res.nonce, 1);
+
+    let fee_rate_input = FeeRateEstimateRequestBody {
+        estimated_len: Some(1000u64),
+        transaction_payload: "1baf8".to_string(),
+    };
+    let account2 = get_fee_rate_info(&http_origin, &fee_rate_input);
+    assert_eq!(account2.pox_activation_threshold_ustx, 1);
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
 }
