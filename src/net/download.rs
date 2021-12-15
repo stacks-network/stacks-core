@@ -2540,6 +2540,7 @@ pub mod test {
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::*;
     use chainstate::stacks::miner::test::*;
+    use chainstate::stacks::miner::*;
     use chainstate::stacks::*;
     use net::codec::*;
     use net::inv::*;
@@ -3664,7 +3665,7 @@ pub mod test {
                                         Some(microblock_stream[i - 1].header.clone());
 
                                     let mut mempool =
-                                        MemPoolDB::open(false, 0x80000000, &chainstate_path)
+                                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path)
                                             .unwrap();
                                     let coinbase_tx =
                                         make_coinbase_with_nonce(miner, i, (i + 2) as u64);
@@ -3679,7 +3680,7 @@ pub mod test {
                                             vrf_proof,
                                             Hash160([i as u8; 20]),
                                             &coinbase_tx,
-                                            ExecutionCost::max_value(),
+                                            BlockBuilderSettings::max_value(),
                                             None,
                                         )
                                         .unwrap();

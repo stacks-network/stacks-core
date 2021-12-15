@@ -96,7 +96,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -526,7 +526,7 @@ fn test_pox_extend_transition_pox_2() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 
@@ -903,7 +903,7 @@ fn test_delegate_extend_transition_pox_2() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
 
     let observer = TestEventObserver::new();
 

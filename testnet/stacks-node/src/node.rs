@@ -19,6 +19,8 @@ use stacks::chainstate::stacks::{
 };
 use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
 use stacks::core::mempool::MemPoolDB;
+use stacks::cost_estimates::metrics::UnitMetric;
+use stacks::cost_estimates::UnitEstimator;
 use stacks::net::atlas::AttachmentInstance;
 use stacks::net::{
     atlas::{AtlasConfig, AtlasDB},
@@ -55,6 +57,7 @@ use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::vm::database::BurnStateDB;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
@@ -169,12 +172,25 @@ fn spawn_peer(
     genesis_chainstate_hash: Sha256Sum,
     poll_timeout: u64,
     attachments_rx: Receiver<HashSet<AttachmentInstance>>,
+    config: Config,
 ) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
+        // create estimators, metric instances for RPC handler
+        let cost_estimator = config
+            .make_cost_estimator()
+            .unwrap_or_else(|| Box::new(UnitEstimator));
+        let metric = config
+            .make_cost_metric()
+            .unwrap_or_else(|| Box::new(UnitMetric));
+        let fee_estimator = config.make_fee_estimator();
+
         let handler_args = RPCHandlerArgs {
             exit_at_block_height: exit_at_block_height.as_ref(),
-            genesis_chainstate_hash: genesis_chainstate_hash,
+            cost_estimator: Some(cost_estimator.as_ref()),
+            cost_metric: Some(metric.as_ref()),
+            fee_estimator: fee_estimator.as_ref().map(|x| x.as_ref()),
+            genesis_chainstate_hash,
             ..RPCHandlerArgs::default()
         };
 
@@ -197,8 +213,16 @@ fn spawn_peer(
                     }
                 };
 
-            let mut mem_pool = match MemPoolDB::open(is_mainnet, chain_id, &stacks_chainstate_path)
-            {
+            let estimator = Box::new(UnitEstimator);
+            let metric = Box::new(UnitMetric);
+
+            let mut mem_pool = match MemPoolDB::open(
+                is_mainnet,
+                chain_id,
+                &stacks_chainstate_path,
+                estimator,
+                metric,
+            ) {
                 Ok(x) => x,
                 Err(e) => {
                     warn!("Error while connecting to mempool db in peer loop: {}", e);
@@ -302,7 +326,6 @@ impl Node {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
-            config.block_limit.clone(),
         );
 
         let (chain_state, receipts) = match chain_state_result {
@@ -314,11 +337,16 @@ impl Node {
             ),
         };
 
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
+
         // avoid race to create condition on mempool db
         let _mem_pool = MemPoolDB::open(
             config.is_mainnet(),
             config.burnchain.chain_id,
             &chain_state.root_path,
+            estimator,
+            metric,
         )
         .expect("FATAL: failed to initiate mempool");
 
@@ -422,6 +450,9 @@ impl Node {
         )
         .expect("Error while instantiating burnchain db");
 
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
+            .expect("Error while loading stacks epochs");
+
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
                 .expect("Failed to get sortition tip");
@@ -512,6 +543,7 @@ impl Node {
             burnchain.clone(),
             view,
             self.config.connection_options.clone(),
+            epochs,
         );
         let _join_handle = spawn_peer(
             self.config.is_mainnet(),
@@ -527,6 +559,7 @@ impl Node {
             Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
             attachments_rx,
+            self.config.clone(),
         )
         .unwrap();
 
@@ -660,10 +693,21 @@ impl Node {
             },
         };
 
+        let estimator = self
+            .config
+            .make_cost_estimator()
+            .unwrap_or_else(|| Box::new(UnitEstimator));
+        let metric = self
+            .config
+            .make_cost_metric()
+            .unwrap_or_else(|| Box::new(UnitMetric));
+
         let mem_pool = MemPoolDB::open(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.chain_state.root_path,
+            estimator,
+            metric,
         )
         .expect("FATAL: failed to open mempool");
 
@@ -845,6 +889,30 @@ impl Node {
         // we only expect 1 block.
         let processed_block = processed_blocks[0].clone().0.unwrap();
 
+        let mut cost_estimator = self.config.make_cost_estimator();
+        let mut fee_estimator = self.config.make_fee_estimator();
+
+        let stacks_epoch = db
+            .index_conn()
+            .get_stacks_epoch_by_epoch_id(&processed_block.evaluated_epoch)
+            .expect("Could not find a stacks epoch.");
+        if let Some(estimator) = cost_estimator.as_mut() {
+            estimator.notify_block(
+                &processed_block.tx_receipts,
+                &stacks_epoch.block_limit,
+                &stacks_epoch.epoch_id,
+            );
+        }
+
+        if let Some(estimator) = fee_estimator.as_mut() {
+            if let Err(e) = estimator.notify_block(&processed_block, &stacks_epoch.block_limit) {
+                warn!("FeeEstimator failed to process block receipt";
+                      "stacks_block" => %processed_block.header.anchored_header.block_hash(),
+                      "stacks_height" => %processed_block.header.block_height,
+                      "error" => %e);
+            }
+        }
+
         // Handle events
         let receipts = processed_block.tx_receipts;
         let metadata = processed_block.header;
@@ -878,6 +946,8 @@ impl Node {
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
+            &processed_block.anchored_block_cost,
+            &processed_block.parent_microblocks_cost,
         );
 
         self.chain_tip = Some(chain_tip.clone());

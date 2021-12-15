@@ -283,7 +283,7 @@ pub struct BurnchainBlockHeader {
     pub timestamp: u64,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Burnchain {
     pub peer_version: u32,
     pub network_id: u32,
@@ -299,7 +299,7 @@ pub struct Burnchain {
     pub initial_reward_start_block: u64,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PoxConstants {
     /// the length (in burn blocks) of the reward cycle
     pub reward_cycle_length: u32,
@@ -1053,6 +1053,13 @@ pub mod test {
             txop.txid =
                 Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
 
+            let epoch = SortitionDB::get_stacks_epoch(ic, txop.block_height)
+                .unwrap()
+                .expect(&format!("BUG: no epoch for height {}", &txop.block_height));
+            if epoch.epoch_id >= StacksEpochId::Epoch2_05 {
+                txop.memo = vec![STACKS_EPOCH_2_05_MARKER];
+            }
+
             self.txs
                 .push(BlockstackOperationType::LeaderBlockCommit(txop.clone()));
 
@@ -1141,7 +1148,7 @@ pub mod test {
             &self,
             db: &mut SortitionDB,
             burnchain: &Burnchain,
-            coord: &mut ChainsCoordinator<'a, T, N, R>,
+            coord: &mut ChainsCoordinator<'a, T, N, R, (), ()>,
         ) -> BlockSnapshot {
             let block_hash = BurnchainHeaderHash::from_test_data(
                 self.block_height,
@@ -1260,7 +1267,7 @@ pub mod test {
             &mut self,
             db: &mut SortitionDB,
             burnchain: &Burnchain,
-            coord: &mut ChainsCoordinator<'a, T, N, R>,
+            coord: &mut ChainsCoordinator<'a, T, N, R, (), ()>,
         ) -> BlockSnapshot {
             let mut snapshot = {
                 let ic = db.index_conn();

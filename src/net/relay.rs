@@ -1352,7 +1352,7 @@ impl PeerNetwork {
 
         let inbound_recipients =
             if inbound_recipients_unshuffled.len() > MAX_BROADCAST_INBOUND_RECEIVERS {
-                &mut inbound_recipients_unshuffled[..].shuffle(&mut thread_rng());
+                let _ = &mut inbound_recipients_unshuffled[..].shuffle(&mut thread_rng());
                 inbound_recipients_unshuffled[0..MAX_BROADCAST_INBOUND_RECEIVERS].to_vec()
             } else {
                 inbound_recipients_unshuffled

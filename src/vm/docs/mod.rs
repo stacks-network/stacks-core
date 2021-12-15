@@ -16,6 +16,7 @@
 
 use vm::analysis::type_checker::natives::SimpleNativeFunction;
 use vm::analysis::type_checker::TypedNativeFunction;
+use vm::costs::ExecutionCost;
 use vm::functions::define::DefineFunctions;
 use vm::functions::NativeFunctions;
 use vm::types::{FixedFunction, FunctionType, Value};
@@ -2074,7 +2075,8 @@ mod test {
     use super::make_all_api_reference;
     use super::make_json_api_reference;
 
-    use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+    use core::{StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, STACKS_EPOCH_MAX};
+    use vm::costs::ExecutionCost;
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
@@ -2140,9 +2142,10 @@ mod test {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: 0,
                 end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
             })
         }
-
         fn get_burn_start_height(&self) -> u32 {
             0
         }
@@ -2161,6 +2164,9 @@ mod test {
 
         fn get_pox_rejection_fraction(&self) -> u64 {
             panic!("Docs db should not return PoX info")
+        }
+        fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+            self.get_stacks_epoch(0)
         }
     }
 
@@ -2208,7 +2214,12 @@ mod test {
         let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
         let mut contract_context =
             ContractContext::new(contract_id.clone(), crate::vm::ClarityVersion::Clarity2);
-        let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free());
+        let mut global_context = GlobalContext::new(
+            false,
+            conn,
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch2_05,
+        );
 
         global_context
             .execute(|g| {

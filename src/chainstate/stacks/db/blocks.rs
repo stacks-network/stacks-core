@@ -48,6 +48,7 @@ use chainstate::stacks::{
 use clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use core::*;
+use cost_estimates::EstimatorError;
 use net::BlocksInvData;
 use net::Error as net_error;
 use util::db::u64_to_sql;
@@ -67,7 +68,7 @@ use vm::ast::build_ast;
 use vm::contexts::AssetMap;
 use vm::contracts::Contract;
 use vm::costs::LimitedCostTracker;
-use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB};
 use vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
@@ -147,6 +148,7 @@ pub enum MemPoolRejection {
     TransferRecipientIsSender(PrincipalData),
     TransferAmountMustBePositive,
     DBError(db_error),
+    EstimatorError(EstimatorError),
     Other(String),
 }
 
@@ -212,6 +214,7 @@ impl MemPoolRejection {
                     "actual": format!("0x{}", to_hex(&actual.to_be_bytes()))
                 })),
             ),
+            EstimatorError(e) => ("EstimatorError", Some(json!({"message": e.to_string()}))),
             NoSuchContract => ("NoSuchContract", None),
             NoSuchPublicFunction => ("NoSuchPublicFunction", None),
             BadFunctionArgument(e) => (
@@ -3101,12 +3104,36 @@ impl StacksChainState {
         return Some((end, None));
     }
 
-    /// Validate an anchored block against the burn chain state.
+    /// Determine whether or not a block executed an epoch transition.  That is, did this block
+    /// call `initialize_epoch_2_05()` or similar when it was processed.
+    pub fn block_crosses_epoch_boundary(
+        block_conn: &DBConn,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block_hash: &BlockHeaderHash,
+    ) -> Result<bool, db_error> {
+        let sql = "SELECT 1 FROM epoch_transitions WHERE block_id = ?1";
+        let args: &[&dyn ToSql] = &[&StacksBlockHeader::make_index_block_hash(
+            parent_consensus_hash,
+            parent_block_hash,
+        )];
+        let res = block_conn
+            .query_row(sql, args, |_r| Ok(()))
+            .optional()
+            .map(|x| x.is_some())?;
+
+        Ok(res)
+    }
+
+    /// Validate an anchored block against the burn chain state.  Determines if this given Stacks
+    /// block can attach to the chainstate.  Called before inserting the block into the staging
+    /// DB.
+    ///
     /// Returns Some(commit burn, total burn) if valid
     /// Returns None if not valid
     /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
     /// (ostensibly) selected this block for inclusion.
     fn validate_anchored_block_burnchain(
+        blocks_conn: &DBConn,
         db_handle: &SortitionHandleConn,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
@@ -3187,6 +3214,27 @@ impl StacksChainState {
             return Ok(None);
         }
 
+        // NEW in 2.05
+        // if the parent block marks an epoch transition, then its children necessarily run in a
+        // different Clarity epoch.  Its children therefore are not permitted to confirm any of
+        // their parents' microblocks.
+        if StacksChainState::block_crosses_epoch_boundary(
+            blocks_conn,
+            &stacks_chain_tip.consensus_hash,
+            &stacks_chain_tip.winning_stacks_block_hash,
+        )? {
+            if block.has_microblock_parent() {
+                warn!(
+                    "Invalid block {}/{}: its parent {}/{} crossed the epoch boundary but this block confirmed its microblocks",
+                    &consensus_hash,
+                    &block.block_hash(),
+                    &stacks_chain_tip.consensus_hash,
+                    &stacks_chain_tip.winning_stacks_block_hash
+                );
+                return Ok(None);
+            }
+        }
+
         let sortition_burns =
             SortitionDB::get_block_burn_amount(db_handle, &penultimate_sortition_snapshot)
                 .expect("FATAL: have block commit but no total burns in its sortition");
@@ -3201,7 +3249,10 @@ impl StacksChainState {
     /// to the blockchain.  The consensus_hash is the hash of the burnchain block whose sortition
     /// elected the given Stacks block.
     ///
-    /// If we find the same Stacks block in two or more burnchain forks, insert it there too
+    /// If we find the same Stacks block in two or more burnchain forks, insert it there too.
+    ///
+    /// (New in 2.05+) If the anchored block descends from a parent anchored block in a different
+    /// system epoch, then it *must not* have a parent microblock stream.
     ///
     /// sort_ic: an indexed connection to a sortition DB
     /// consensus_hash: this is the consensus hash of the sortition that chose this block
@@ -3271,6 +3322,7 @@ impl StacksChainState {
 
         // does this block match the burnchain state? skip if not
         let validation_res = StacksChainState::validate_anchored_block_burnchain(
+            &block_tx,
             &sort_handle,
             consensus_hash,
             block,
@@ -3893,10 +3945,11 @@ impl StacksChainState {
 
     /// If an epoch transition occurs at this Stacks block,
     ///   apply the transition and return any receipts from the transition.
+    /// Return (applied?, receipts)
     pub fn process_epoch_transition(
         clarity_tx: &mut ClarityTx,
         chain_tip_burn_header_height: u32,
-    ) -> Result<Vec<StacksTransactionReceipt>, Error> {
+    ) -> Result<(bool, Vec<StacksTransactionReceipt>), Error> {
         // is this stacks block the first of a new epoch?
         let (stacks_parent_epoch, sortition_epoch) = clarity_tx.with_clarity_db_readonly(|db| {
             (
@@ -3906,6 +3959,7 @@ impl StacksChainState {
         });
 
         let mut receipts = vec![];
+        let mut applied = false;
 
         if let Some(sortition_epoch) = sortition_epoch {
             // the parent stacks block has a different epoch than what the Sortition DB
@@ -3919,13 +3973,28 @@ impl StacksChainState {
                     StacksEpochId::Epoch10 => {
                         panic!("Clarity VM believes it was running in 1.0: pre-Clarity.")
                     }
-                    StacksEpochId::Epoch20 => {
+                    StacksEpochId::Epoch20 => match sortition_epoch.epoch_id {
+                        StacksEpochId::Epoch2_05 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch21 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            receipts.push(clarity_tx.block.initialize_epoch_2_1()?);
+                            applied = true;
+                        }
+                        _ => {
+                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
+                        }
+                    },
+                    StacksEpochId::Epoch2_05 => {
                         assert_eq!(
                             sortition_epoch.epoch_id,
                             StacksEpochId::Epoch21,
-                            "Should only transition from Epoch20 to Epoch21"
+                            "Should only transition from Epoch2_05 to Epoch21"
                         );
                         receipts.push(clarity_tx.block.initialize_epoch_2_1()?);
+                        applied = true;
                     }
                     StacksEpochId::Epoch21 => {
                         panic!("No defined transition from Epoch21 forward")
@@ -3933,7 +4002,7 @@ impl StacksChainState {
                 }
             }
         }
-        Ok(receipts)
+        Ok((applied, receipts))
     }
 
     /// Process any Stacking-related bitcoin operations
@@ -4267,6 +4336,31 @@ impl StacksChainState {
 
         let mainnet = chainstate_tx.get_config().mainnet;
         let next_block_height = block.header.total_work.work;
+        let applied_epoch_transition;
+
+        // NEW in 2.05
+        // if the parent marked an epoch transition -- i.e. its children necessarily run in
+        // different Clarity epochs -- then this block cannot confirm any of its microblocks.
+        if StacksChainState::block_crosses_epoch_boundary(
+            chainstate_tx.deref(),
+            &parent_chain_tip.consensus_hash,
+            &parent_chain_tip.anchored_header.block_hash(),
+        )? {
+            debug!(
+                "Block {}/{} (mblock parent {}) crosses epoch boundary from parent {}/{}",
+                chain_tip_consensus_hash,
+                &block.block_hash(),
+                &block.header.parent_microblock,
+                &parent_chain_tip.consensus_hash,
+                &parent_chain_tip.anchored_header.block_hash()
+            );
+            if block.has_microblock_parent() {
+                let msg =
+                    "Invalid block, mined in different epoch than parent but confirms microblocks";
+                warn!("{}", &msg);
+                return Err(Error::InvalidStacksBlock(msg.to_string()));
+            }
+        }
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let latest_matured_miners = StacksChainState::get_scheduled_block_rewards(
@@ -4290,6 +4384,7 @@ impl StacksChainState {
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
+            evaluated_epoch,
         ) = {
             let (parent_consensus_hash, parent_block_hash) = if block.is_first_mined() {
                 // has to be the sentinal hashes if this block has no parent
@@ -4393,6 +4488,8 @@ impl StacksChainState {
                 &MINER_BLOCK_HEADER_HASH,
             );
 
+            let evaluated_epoch = clarity_tx.get_epoch();
+
             debug!(
                 "Parent block {}/{} cost {:?}",
                 &parent_consensus_hash, &parent_block_hash, &parent_block_cost
@@ -4491,13 +4588,16 @@ impl StacksChainState {
                    "total_burns" => %block.header.total_work.burn,
                    "microblock_parent" => %last_microblock_hash,
                    "microblock_parent_seq" => %last_microblock_seq,
-                   "microblock_parent_count" => %microblocks.len());
+                   "microblock_parent_count" => %microblocks.len(),
+                   "evaluated_epoch" => %evaluated_epoch);
 
             // is this stacks block the first of a new epoch?
-            let mut receipts = StacksChainState::process_epoch_transition(
+            let (epoch_transition, mut receipts) = StacksChainState::process_epoch_transition(
                 &mut clarity_tx,
                 chain_tip_burn_header_height,
             )?;
+
+            applied_epoch_transition = epoch_transition;
 
             // process stacking operations from bitcoin ops
             receipts.extend(StacksChainState::process_stacking_ops(
@@ -4675,6 +4775,7 @@ impl StacksChainState {
                 parent_burn_block_hash,
                 parent_burn_block_height,
                 parent_burn_block_timestamp,
+                evaluated_epoch,
             )
         };
 
@@ -4697,6 +4798,7 @@ impl StacksChainState {
             user_burns,
             &block_execution_cost,
             block_size,
+            applied_epoch_transition,
         )
         .expect("FATAL: failed to advance chain tip");
 
@@ -4712,6 +4814,7 @@ impl StacksChainState {
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
+            evaluated_epoch,
         };
 
         Ok(epoch_receipt)
@@ -5607,6 +5710,7 @@ pub mod test {
     use chainstate::stacks::db::test::*;
     use chainstate::stacks::db::*;
     use chainstate::stacks::miner::test::*;
+    use chainstate::stacks::miner::*;
     use chainstate::stacks::test::*;
     use chainstate::stacks::Error as chainstate_error;
     use chainstate::stacks::*;
@@ -5617,6 +5721,8 @@ pub mod test {
     use util::hash::*;
     use util::retry::*;
 
+    use crate::cost_estimates::metrics::UnitMetric;
+    use crate::cost_estimates::UnitEstimator;
     use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore};
 
     use super::*;
@@ -9238,7 +9344,8 @@ pub mod test {
                         }
                     };
 
-                    let mut mempool = MemPoolDB::open(false, 0x80000000, &chainstate_path).unwrap();
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
                     let coinbase_tx = make_coinbase(miner, tenure_id);
 
                     let anchored_block = StacksBlockBuilder::build_anchored_block(
@@ -9250,7 +9357,7 @@ pub mod test {
                         vrf_proof,
                         Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
-                        ExecutionCost::max_value(),
+                        BlockBuilderSettings::max_value(),
                         None,
                     )
                     .unwrap();

@@ -42,7 +42,7 @@ use clarity_vm::clarity::ClarityConnection;
 use core;
 use core::*;
 use monitoring::increment_stx_blocks_processed_counter;
-use util::hash::Hash160;
+use util::hash::{to_hex, Hash160};
 use util::vrf::*;
 use vm::{
     costs::{ExecutionCost, LimitedCostTracker},
@@ -57,6 +57,9 @@ use crate::types::chainstate::{
 };
 use crate::types::proof::TrieHash;
 use crate::{types, util};
+use chainstate::stacks::boot::COSTS_2_NAME;
+use rand::RngCore;
+use vm::database::BurnStateDB;
 
 lazy_static! {
     static ref BURN_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
@@ -175,19 +178,20 @@ pub fn setup_states(
     committers: &[StacksPrivateKey],
     pox_consts: Option<PoxConstants>,
     initial_balances: Option<Vec<(PrincipalData, u64)>>,
+    stacks_epoch_id: StacksEpochId,
 ) {
     let mut burn_block = None;
     let mut others = vec![];
 
     for path in paths.iter() {
         let burnchain = get_burnchain(path, pox_consts.clone());
-
+        let epochs = StacksEpoch::unit_test(stacks_epoch_id, burnchain.first_block_height);
         let sortition_db = SortitionDB::connect(
             &burnchain.get_db_path(),
             burnchain.first_block_height,
             &burnchain.first_block_hash,
             burnchain.first_block_timestamp.into(),
-            &StacksEpoch::unit_test(burnchain.first_block_height),
+            &epochs,
             burnchain.pox_constants.clone(),
             true,
         )
@@ -289,7 +293,6 @@ pub fn setup_states(
             0x80000000,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
-            block_limit.clone(),
         )
         .unwrap();
     }
@@ -310,6 +313,8 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _parent_burn_block_hash: BurnchainHeaderHash,
         _parent_burn_block_height: u32,
         _parent_burn_block_timestamp: u64,
+        _anchor_block_cost: &ExecutionCost,
+        _confirmed_mblock_cost: &ExecutionCost,
     ) {
         assert!(
             false,
@@ -333,7 +338,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
 pub fn make_coordinator<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider> {
+) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), ()> {
     let (tx, _) = sync_channel(100000);
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     ChainsCoordinator::test_new(&burnchain, 0x80000000, path, OnChainRewardSetProvider(), tx)
@@ -358,7 +363,7 @@ fn make_reward_set_coordinator<'a>(
     path: &str,
     addrs: Vec<StacksAddress>,
     pox_consts: Option<PoxConstants>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider> {
+) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider, (), ()> {
     let (tx, _) = sync_channel(100000);
     ChainsCoordinator::test_new(
         &get_burnchain(path, pox_consts),
@@ -483,7 +488,7 @@ fn make_genesis_block_with_recipients(
     .unwrap();
 
     let iconn = sort_db.index_conn();
-    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap();
+    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap().0;
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -515,7 +520,7 @@ fn make_genesis_block_with_recipients(
         },
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![],
+        memo: vec![STACKS_EPOCH_2_05_MARKER],
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
@@ -693,7 +698,7 @@ fn make_stacks_block_with_input(
         next_hash160(),
     )
     .unwrap();
-    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap();
+    let mut epoch_tx = builder.epoch_begin(state, &iconn).unwrap().0;
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -729,7 +734,7 @@ fn make_stacks_block_with_input(
         },
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![],
+        memo: vec![STACKS_EPOCH_2_05_MARKER],
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
@@ -779,6 +784,7 @@ fn missed_block_commits() {
         &committers,
         pox_consts.clone(),
         Some(initial_balances),
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -1055,7 +1061,14 @@ fn test_simple_setup() {
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
 
-    setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
+    setup_states(
+        &[path, path_blinded],
+        &vrf_keys,
+        &committers,
+        None,
+        None,
+        StacksEpochId::Epoch20,
+    );
 
     let mut coord = make_coordinator(path, None);
     let mut coord_blind = make_coordinator(path_blinded, None);
@@ -1259,7 +1272,14 @@ fn test_sortition_with_reward_set() {
         .map(|_| p2pkh_from(&StacksPrivateKey::new()))
         .collect();
 
-    setup_states(&[path], &vrf_keys, &committers, None, None);
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        None,
+        None,
+        StacksEpochId::Epoch20,
+    );
 
     let mut coord = make_reward_set_coordinator(path, reward_set, None);
 
@@ -1518,7 +1538,14 @@ fn test_sortition_with_burner_reward_set() {
         .collect();
     reward_set.push(p2pkh_from(&StacksPrivateKey::new()));
 
-    setup_states(&[path], &vrf_keys, &committers, None, None);
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        None,
+        None,
+        StacksEpochId::Epoch20,
+    );
 
     let mut coord = make_reward_set_coordinator(path, reward_set, None);
 
@@ -1770,6 +1797,7 @@ fn test_pox_btc_ops() {
         &committers,
         pox_consts.clone(),
         Some(initial_balances),
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
@@ -2042,6 +2070,7 @@ fn test_stx_transfer_btc_ops() {
         &committers,
         pox_consts.clone(),
         Some(initial_balances),
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
@@ -2352,6 +2381,7 @@ fn test_initial_coinbase_reward_distributions() {
         &committers,
         pox_consts.clone(),
         Some(initial_balances),
+        StacksEpochId::Epoch20,
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -2546,6 +2576,204 @@ fn test_initial_coinbase_reward_distributions() {
     );
 }
 
+// This test ensures the epoch transition is applied at the proper block boundaries, and that the
+// epoch transition is only applied once. If it were to be applied more than once, the test would
+// panic when trying to re-create the costs-2 contract.
+#[test]
+fn test_epoch_switch_cost_contract_instantiation() {
+    let path = "/tmp/stacks-blockchain-epoch-switch-cost-contract-instantiation";
+    let _r = std::fs::remove_dir_all(path);
+
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(
+        6,
+        3,
+        3,
+        25,
+        5,
+        10,
+        sunset_ht,
+        u32::max_value(),
+    ));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        None,
+        StacksEpochId::Epoch2_05,
+    );
+
+    let mut coord = make_coordinator(path, Some(burnchain_conf));
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+
+    for ix in 0..6 {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        // The line going down represents the epoch boundary. Want to ensure that the costs-2
+        // contract DNE for all blocks before the boundary, and does exist for blocks after the
+        // boundary.
+        //        |
+        // G  -> A -> B
+        //        |\
+        //        | \
+        //        |  C -> D
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else if ix == 3 {
+            stacks_blocks[ix - 2].1.header.block_hash()
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let b = get_burnchain(path, pox_consts.clone());
+
+        let (good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        } else {
+            make_stacks_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                1000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        };
+
+        let expected_winner = good_op.txid();
+        let ops = vec![good_op];
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            ops,
+            vec![].iter_mut(),
+        );
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+
+        let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+        let burn_block_height = tip.block_height;
+
+        // check that the expected stacks epoch ID is equal to the actual stacks epoch ID
+        let expected_epoch = match burn_block_height {
+            x if x < 4 => StacksEpochId::Epoch20,
+            _ => StacksEpochId::Epoch2_05,
+        };
+        assert_eq!(
+            chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| conn.with_clarity_db_readonly(|db| db
+                        .get_stacks_epoch(burn_block_height as u32)
+                        .unwrap())
+                )
+                .unwrap()
+                .epoch_id,
+            expected_epoch
+        );
+
+        // These expectations are according to according to hard-coded values in
+        // `StacksEpoch::unit_test_2_05`.
+        let expected_runtime = match burn_block_height {
+            x if x < 4 => u64::MAX,
+            _ => 205205,
+        };
+        assert_eq!(
+            chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_stacks_epoch(burn_block_height as u32).unwrap()
+                        })
+                    },
+                )
+                .unwrap()
+                .block_limit
+                .runtime,
+            expected_runtime
+        );
+
+        // check that costs-2 contract DNE before epoch 2.05, and that it does exist after
+        let does_costs_2_contract_exist = chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| {
+                    conn.with_clarity_db_readonly(|db| {
+                        db.get_contract(&boot_code_id(COSTS_2_NAME, false))
+                    })
+                },
+            )
+            .unwrap();
+        if burn_block_height < 4 {
+            assert!(does_costs_2_contract_exist.is_err())
+        } else {
+            assert!(does_costs_2_contract_exist.is_ok())
+        }
+    }
+}
+
 #[test]
 fn test_sortition_with_sunset() {
     let path = "/tmp/stacks-blockchain-sortition-with-sunset";
@@ -2573,7 +2801,14 @@ fn test_sortition_with_sunset() {
         .map(|_| p2pkh_from(&StacksPrivateKey::new()))
         .collect();
 
-    setup_states(&[path], &vrf_keys, &committers, pox_consts.clone(), None);
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        None,
+        StacksEpochId::Epoch20,
+    );
 
     let mut coord = make_reward_set_coordinator(path, reward_set, pox_consts.clone());
 
@@ -2847,7 +3082,14 @@ fn test_pox_processable_block_in_different_pox_forks() {
     let vrf_keys: Vec<_> = (0..12).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..12).map(|_| StacksPrivateKey::new()).collect();
 
-    setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
+    setup_states(
+        &[path, path_blinded],
+        &vrf_keys,
+        &committers,
+        None,
+        None,
+        StacksEpochId::Epoch20,
+    );
 
     let mut coord = make_coordinator(path, None);
     let mut coord_blind = make_coordinator(path_blinded, None);
@@ -3091,7 +3333,14 @@ fn test_pox_no_anchor_selected() {
     let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
 
-    setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
+    setup_states(
+        &[path, path_blinded],
+        &vrf_keys,
+        &committers,
+        None,
+        None,
+        StacksEpochId::Epoch20,
+    );
 
     let mut coord = make_coordinator(path, None);
     let mut coord_blind = make_coordinator(path_blinded, None);
@@ -3297,7 +3546,14 @@ fn test_pox_fork_out_of_order() {
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
     let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
 
-    setup_states(&[path, path_blinded], &vrf_keys, &committers, None, None);
+    setup_states(
+        &[path, path_blinded],
+        &vrf_keys,
+        &committers,
+        None,
+        None,
+        StacksEpochId::Epoch20,
+    );
 
     let mut coord = make_coordinator(path, None);
     let mut coord_blind = make_coordinator(path_blinded, None);
@@ -3645,7 +3901,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
 fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>(
     chainstate_path: &str,
     sort_db: &SortitionDB,
-    coord: &mut ChainsCoordinator<T, N, U>,
+    coord: &mut ChainsCoordinator<T, N, U, (), ()>,
     my_sortition: &SortitionId,
     block: &StacksBlock,
 ) {
@@ -3682,4 +3938,79 @@ fn preprocess_block(
             5,
         )
         .unwrap();
+}
+
+#[test]
+fn test_check_chainstate_db_versions() {
+    let path = "/tmp/stacks-blockchain-check_chainstate_db_versions";
+    let _ = std::fs::remove_dir_all(path);
+
+    let sortdb_path = format!("{}/sortdb", &path);
+    let chainstate_path = format!("{}/chainstate", &path);
+
+    let epoch_2 = StacksEpoch {
+        epoch_id: StacksEpochId::Epoch20,
+        start_height: 0,
+        end_height: 10000,
+        block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+        network_epoch: PEER_VERSION_EPOCH_2_0,
+    };
+    let epoch_2_05 = StacksEpoch {
+        epoch_id: StacksEpochId::Epoch2_05,
+        start_height: 0,
+        end_height: 10000,
+        block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+        network_epoch: PEER_VERSION_EPOCH_2_05,
+    };
+
+    // should work just fine in epoch 2 if the DBs don't exist
+    assert!(
+        check_chainstate_db_versions(&[epoch_2.clone()], &sortdb_path, &chainstate_path).unwrap()
+    );
+
+    // should work just fine in epoch 2.05 if the DBs don't exist
+    assert!(
+        check_chainstate_db_versions(&[epoch_2_05.clone()], &sortdb_path, &chainstate_path)
+            .unwrap()
+    );
+
+    StacksChainState::make_chainstate_dirs(&chainstate_path).unwrap();
+
+    let sortdb_v1 =
+        SortitionDB::connect_v1(&sortdb_path, 100, &BurnchainHeaderHash([0x00; 32]), 0, true)
+            .unwrap();
+    let chainstate_v1 = StacksChainState::open_db_without_migrations(
+        false,
+        CHAIN_ID_TESTNET,
+        &StacksChainState::header_index_root_path(PathBuf::from(&chainstate_path))
+            .to_str()
+            .unwrap(),
+    )
+    .unwrap();
+
+    assert!(fs::metadata(&chainstate_path).is_ok());
+    assert!(fs::metadata(&sortdb_path).is_ok());
+    assert_eq!(
+        StacksChainState::get_db_config_from_path(&chainstate_path)
+            .unwrap()
+            .version,
+        "1"
+    );
+    assert_eq!(
+        SortitionDB::get_db_version_from_path(&sortdb_path)
+            .unwrap()
+            .unwrap(),
+        "1"
+    );
+
+    // should work just fine in epoch 2
+    assert!(
+        check_chainstate_db_versions(&[epoch_2.clone()], &sortdb_path, &chainstate_path).unwrap()
+    );
+
+    // should fail in epoch 2.05
+    assert!(
+        !check_chainstate_db_versions(&[epoch_2_05.clone()], &sortdb_path, &chainstate_path)
+            .unwrap()
+    );
 }
