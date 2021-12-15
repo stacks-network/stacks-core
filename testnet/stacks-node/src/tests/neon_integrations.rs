@@ -5955,15 +5955,9 @@ fn fuzzed_median_fee_rate_estimation_test() {
     assert_eq!(account.nonce, 1);
     assert_eq!(account.balance, 0);
 
-    let account = get_account(&http_origin, &addr);
-    assert_eq!(account.nonce, 0);
-    assert_eq!(account.balance, 10000000);
-
     submit_tx(&http_origin, &tx);
-    sleep_ms(60_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    sleep_ms(60_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -5989,13 +5983,14 @@ fn fuzzed_median_fee_rate_estimation_test() {
         let body = json!({ "transaction_payload": payload_hex.clone() });
 
         let client = reqwest::blocking::Client::new();
-        let res = client
+        let fee_rate_result = client
             .post(&path)
             .json(&body)
             .send()
             .expect("Should be able to post")
             .json::<serde_json::Value>()
             .expect("Failed to parse result into JSON");
+        warn!("fee_rate_result {:?}", &fee_rate_result);
     }
 
     test_observer::clear();
