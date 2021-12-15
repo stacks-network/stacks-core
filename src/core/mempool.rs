@@ -1864,7 +1864,7 @@ mod tests {
     use chainstate::stacks::db::test::chainstate_path;
     use chainstate::stacks::db::test::instantiate_chainstate;
     use chainstate::stacks::db::test::instantiate_chainstate_with_balances;
-    use chainstate::stacks::db::BlockStreamData;
+    use chainstate::stacks::db::StreamCursor;
     use chainstate::stacks::test::codec_all_transactions;
     use chainstate::stacks::{
         db::blocks::MemPoolRejection, db::StacksChainState, index::MarfTrieId, CoinbasePayload,
@@ -3549,12 +3549,17 @@ mod tests {
         mempool_tx.commit().unwrap();
 
         let mut buf = vec![];
-        let mut stream = BlockStreamData::new_tx_stream(
+        let mut stream = StreamCursor::new_tx_stream(
             MemPoolSyncData::TxTags([0u8; 32], vec![]),
             MAX_BLOOM_COUNTER_TXS.into(),
             block_height,
         );
-        let mut tx_stream_data = stream.take_tx_stream().unwrap();
+        let tx_stream_data = if let StreamCursor::MempoolTxs(stream_data) = stream {
+            stream_data
+        }
+        else {
+            unreachable!();
+        };
 
         loop {
             let nw = mempool

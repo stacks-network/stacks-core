@@ -9,6 +9,11 @@ use util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use util::secp256k1::MessageSignature;
 use util::vrf::VRFProof;
 
+use serde::de::Deserialize;
+use serde::de::Error as de_Error;
+use serde::ser::Error as ser_Error;
+use serde::Serialize;
+
 use types::proof::TrieHash;
 
 #[derive(Serialize, Deserialize)]
