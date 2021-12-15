@@ -74,6 +74,8 @@ use super::{
 };
 
 use crate::config::FeeEstimatorName;
+use stacks::vm::ContractName;
+use std::convert::TryFrom;
 
 pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -301,6 +303,7 @@ pub fn next_block_and_wait(
     btc_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
 ) -> bool {
+    info!("next_block_and_wait");
     let current = blocks_processed.load(Ordering::SeqCst);
     eprintln!(
         "Issuing block at {}, waiting for bump ({})",
@@ -3767,14 +3770,14 @@ fn near_full_block_integration_test() {
     );
 
     let spender_sk = StacksPrivateKey::new();
-    let addr = to_addr(&spender_sk);
+    let spender_addr = to_addr(&spender_sk);
 
     let tx = make_contract_publish(&spender_sk, 0, 58450, "max", &max_contract_src);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
-        address: addr.clone().into(),
+        address: spender_addr.clone().into(),
         amount: 10000000,
     });
 
@@ -3822,7 +3825,7 @@ fn near_full_block_integration_test() {
     assert_eq!(account.nonce, 1);
     assert_eq!(account.balance, 0);
 
-    let account = get_account(&http_origin, &addr);
+    let account = get_account(&http_origin, &spender_addr);
     assert_eq!(account.nonce, 0);
     assert_eq!(account.balance, 10000000);
 
@@ -3834,7 +3837,7 @@ fn near_full_block_integration_test() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let res = get_account(&http_origin, &addr);
+    let res = get_account(&http_origin, &spender_addr);
     assert_eq!(res.nonce, 1);
 
     test_observer::clear();
@@ -4118,7 +4121,7 @@ fn pox_integration_test() {
 
     // let's stack with spender 2 and spender 3...
 
-    // now let's have sender_2 and sender_3 stack to pox addr 2 in
+    // now let's have sender_2 and sender_3 stack to pox spender_addr 2 in
     //  two different txs, and make sure that they sum together in the reward set.
 
     let tx = make_contract_call(
@@ -5870,6 +5873,60 @@ fn atlas_stress_integration_test() {
     test_observer::clear();
 }
 
+/// This function will call `next_block_and_wait` until the burnchain height underlying `BitcoinRegtestController`
+/// reaches *exactly* `target_height`.
+///
+/// Returns `false` if `next_block_and_wait` times out.
+fn run_until_burnchain_height(
+    btc_regtest_controller: &mut BitcoinRegtestController,
+    blocks_processed: &Arc<AtomicU64>,
+    target_height: u64,
+    conf: &Config,
+) -> bool {
+    warn!("run_until_burnchain_height");
+    let tip_info = get_chain_info(&conf);
+    let mut current_height = tip_info.burn_block_height;
+
+    while current_height < target_height {
+        eprintln!(
+            "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({})",
+            get_epoch_time_secs(),
+            current_height
+        );
+        let next_result = next_block_and_wait(btc_regtest_controller, &blocks_processed);
+        if !next_result {
+            return false;
+        }
+        let tip_info = get_chain_info(&conf);
+        current_height = tip_info.burn_block_height;
+    }
+
+    assert_eq!(current_height, target_height);
+    true
+}
+
+/// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
+/// match `test_fn`.
+fn select_transactions_where(
+    blocks: &Vec<serde_json::Value>,
+    test_fn: fn(&StacksTransaction) -> bool,
+) -> Vec<StacksTransaction> {
+    let mut result = vec![];
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if test_fn(&parsed) {
+                result.push(parsed);
+            }
+        }
+    }
+
+    return result;
+}
+
 #[test]
 #[ignore]
 fn fuzzed_median_fee_rate_estimation_test() {
@@ -5877,47 +5934,42 @@ fn fuzzed_median_fee_rate_estimation_test() {
         return;
     }
 
-    // cost = {
-    //   "write_length":350981,
-    //   "write_count":932,
-    //   "read_length":3711941,
-    //   "read_count":3721,
-    //   "runtime":4960871000
-    // }
-    let max_contract_src = format!(
-        "(define-public (f) (begin {} (ok 1))) (begin (f))",
-        (0..310)
-            .map(|_| format!(
-                "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
-                boot_code_id("cost-voting", false),
-                boot_code_id("costs", false),
-                boot_code_id("costs", false),
-            ))
-            .collect::<Vec<String>>()
-            .join(" ")
-    );
+    let max_contract_src = r#"
+;; define counter variable
+(define-data-var counter int 0)
+
+;; increment method
+(define-public (increment)
+  (begin
+    (var-set counter (+ (var-get counter) 1))
+    (ok (var-get counter))))
+
+  (define-public (increment-many)
+    (begin
+      (unwrap! (increment) (err u1))
+      (unwrap! (increment) (err u1))
+      (unwrap! (increment) (err u1))
+      (unwrap! (increment) (err u1))
+      (ok (var-get counter))))
+    "#
+    .to_string();
+
+    warn!("max_contract_src {:?}", &max_contract_src);
 
     let spender_sk = StacksPrivateKey::new();
-    let addr = to_addr(&spender_sk);
+    let spender_addr = to_addr(&spender_sk);
 
-    let tx = make_contract_publish(&spender_sk, 0, 59070, "max", &max_contract_src);
+    // 1) a basic test `Config`
+    // 2) the miner's
+    let (mut conf, _) = neon_integration_test_conf();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
-
+    // Set this estimator as special.
     conf.estimation.fee_estimator = Some(FeeEstimatorName::FuzzedWeightedMedianFeeRate);
 
     conf.initial_balances.push(InitialBalance {
-        address: addr.clone().into(),
+        address: spender_addr.clone().into(),
         amount: 10000000,
     });
-
-    conf.node.mine_microblocks = true;
-    conf.node.wait_time_for_microblocks = 30000;
-    conf.node.microblock_frequency = 1000;
-
-    conf.miner.min_tx_fee = 1;
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -5928,11 +5980,11 @@ fn fuzzed_median_fee_rate_estimation_test() {
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
-    btc_regtest_controller.bootstrap_chain(201);
+    btc_regtest_controller.bootstrap_chain(200);
 
     eprintln!("Chain bootstrapped...");
 
-    let mut run_loop = neon::RunLoop::new(conf);
+    let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
@@ -5941,28 +5993,34 @@ fn fuzzed_median_fee_rate_estimation_test() {
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 210, &conf);
 
-    // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // Publish the contract so we can use it.
+    submit_tx(
+        &http_origin,
+        &make_contract_publish(
+            &spender_sk,
+            0,
+            1100000,
+            "increment-contract",
+            &max_contract_src,
+        ),
+    );
 
-    // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // Wait to make sure the contract is published.
+    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 212, &conf);
 
-    // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let account = get_account(&http_origin, &miner_account);
-    assert_eq!(account.nonce, 1);
-    assert_eq!(account.balance, 0);
-
-    submit_tx(&http_origin, &tx);
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let res = get_account(&http_origin, &addr);
-    assert_eq!(res.nonce, 1);
+    // Check that we have processed the contract successfully, by checking that the contract call
+    // is in the block record.
+    let increment_calls_alice = select_transactions_where(
+        &test_observer::get_blocks(),
+        |transaction| match &transaction.payload {
+            TransactionPayload::ContractCall(contract) => {
+                contract.contract_name == ContractName::try_from("increment-contract").unwrap()
+            }
+            _ => false,
+        },
+    );
 
     {
         // perform some tests of the fee rate interface
@@ -5993,6 +6051,5 @@ fn fuzzed_median_fee_rate_estimation_test() {
         warn!("fee_rate_result {:?}", &fee_rate_result);
     }
 
-    test_observer::clear();
     channel.stop_chains_coordinator();
 }

@@ -32,6 +32,7 @@ impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
         underlying: UnderlyingEstimator,
         uniform_bound: f64,
     ) -> FeeRateFuzzer<UnderlyingEstimator> {
+        warn!("FeeRateFuzzer::new");
         let rng_creator = Box::new(|| {
             let r: Box<dyn RngCore> = Box::new(thread_rng());
             r
@@ -59,6 +60,7 @@ impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
 
     /// Add a uniform fuzz to input.
     fn fuzz_estimate(&self, input: &FeeRateEstimate) -> FeeRateEstimate {
+        warn!("FeeRateFuzzer::fuzz_estimate");
         let mut rng: Box<dyn RngCore> = (self.rng_creator)();
         let normal = Uniform::new(-self.uniform_bound, self.uniform_bound);
         FeeRateEstimate {
@@ -76,11 +78,13 @@ impl<T: FeeEstimator> FeeEstimator for FeeRateFuzzer<T> {
         receipt: &StacksEpochReceipt,
         block_limit: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
+        warn!("FeeRateFuzzer::nofity_block");
         self.underlying.notify_block(receipt, block_limit)
     }
 
     /// Call underlying estimator and add some fuzz.
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
+        warn!("FeeRateFuzzer::get_rate_estimates");
         match self.underlying.get_rate_estimates() {
             Ok(underlying_estimate) => Ok(self.fuzz_estimate(&underlying_estimate)),
             Err(e) => Err(e),
