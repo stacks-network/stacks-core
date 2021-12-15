@@ -15,6 +15,7 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+use stacks::chainstate::stacks::TokenTransferMemo;
 use stacks::clarity::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
@@ -29,7 +30,7 @@ use stacks::types::chainstate::{
     StacksMicroblockHeader,
 };
 use stacks::util::hash::Hash160;
-use stacks::util::hash::{bytes_to_hex, hex_bytes};
+use stacks::util::hash::{bytes_to_hex, hex_bytes, to_hex};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::vm::database::ClarityDeserializable;
@@ -5969,12 +5970,33 @@ fn fuzzed_median_fee_rate_estimation_test() {
     let res = get_account(&http_origin, &addr);
     assert_eq!(res.nonce, 1);
 
-    let fee_rate_input = FeeRateEstimateRequestBody {
-        estimated_len: Some(1000u64),
-        transaction_payload: "1baf8".to_string(),
-    };
-    let account2 = get_fee_rate_info(&http_origin, &fee_rate_input);
-    assert_eq!(account2.pox_activation_threshold_ustx, 1);
+    {
+        // perform some tests of the fee rate interface
+        let path = format!("{}/v2/fees/transaction", &http_origin);
+
+        let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
+        let tx_payload = TransactionPayload::TokenTransfer(
+            contract_addr.clone().into(),
+            10_000_000,
+            TokenTransferMemo([0; 34]),
+        );
+
+        let payload_data = tx_payload.serialize_to_vec();
+        let payload_hex = format!("0x{}", to_hex(&payload_data));
+
+        eprintln!("Test: POST {}", path);
+
+        let body = json!({ "transaction_payload": payload_hex.clone() });
+
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .post(&path)
+            .json(&body)
+            .send()
+            .expect("Should be able to post")
+            .json::<serde_json::Value>()
+            .expect("Failed to parse result into JSON");
+    }
 
     test_observer::clear();
     channel.stop_chains_coordinator();
