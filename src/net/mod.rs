@@ -57,6 +57,7 @@ use chainstate::stacks::{
 use clarity_vm::clarity::Error as clarity_error;
 use codec::Error as codec_error;
 use codec::StacksMessageCodec;
+use codec::{read_next, write_next};
 use core::mempool::*;
 use core::POX_REWARD_CYCLE_LENGTH;
 use net::atlas::{Attachment, AttachmentInstance};
@@ -82,7 +83,9 @@ use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::PoxId;
-use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use crate::types::chainstate::{
+    BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
+};
 use crate::types::StacksPublicKeyBuffer;
 use crate::util::hash::Sha256Sum;
 use crate::vm::costs::ExecutionCost;
@@ -450,6 +453,16 @@ impl<'de> Deserialize<'de> for PeerAddress {
 }
 
 impl PeerAddress {
+    pub fn from_slice(bytes: &[u8]) -> Option<PeerAddress> {
+        if bytes.len() != 16 {
+            return None;
+        }
+
+        let mut bytes16 = [0u8; 16];
+        bytes16.copy_from_slice(&bytes[0..16]);
+        Some(PeerAddress(bytes16))
+    }
+
     /// Is this an IPv4 address?
     pub fn is_ipv4(&self) -> bool {
         self.ipv4_octets().is_some()
@@ -965,6 +978,13 @@ impl PeerHost {
             None => None,
         }
     }
+
+    pub fn to_host_port(&self) -> (String, u16) {
+        match *self {
+            PeerHost::DNS(ref s, ref p) => (s.clone(), *p),
+            PeerHost::IP(ref i, ref p) => (format!("{}", i.to_socketaddr(0).ip()), *p),
+        }
+    }
 }
 
 /// The data we return on GET /v2/info
@@ -1031,6 +1051,57 @@ pub struct RPCPoxInfoData {
     pub next_reward_cycle_in: u64,
 }
 
+/// Headers response payload
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExtendedStacksHeader {
+    pub consensus_hash: ConsensusHash,
+    #[serde(
+        serialize_with = "ExtendedStacksHeader_StacksBlockHeader_serialize",
+        deserialize_with = "ExtendedStacksHeader_StacksBlockHeader_deserialize"
+    )]
+    pub header: StacksBlockHeader,
+    pub parent_block_id: StacksBlockId,
+}
+
+/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
+fn ExtendedStacksHeader_StacksBlockHeader_serialize<S: serde::Serializer>(
+    header: &StacksBlockHeader,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    let bytes = header.serialize_to_vec();
+    let header_hex = to_hex(&bytes);
+    s.serialize_str(&header_hex.as_str())
+}
+
+/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
+fn ExtendedStacksHeader_StacksBlockHeader_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<StacksBlockHeader, D::Error> {
+    let header_hex = String::deserialize(d)?;
+    let header_bytes = hex_bytes(&header_hex).map_err(de_Error::custom)?;
+    StacksBlockHeader::consensus_deserialize(&mut &header_bytes[..]).map_err(de_Error::custom)
+}
+
+impl StacksMessageCodec for ExtendedStacksHeader {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.consensus_hash)?;
+        write_next(fd, &self.header)?;
+        write_next(fd, &self.parent_block_id)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ExtendedStacksHeader, codec_error> {
+        let ch = read_next(fd)?;
+        let bh = read_next(fd)?;
+        let pbid = read_next(fd)?;
+        Ok(ExtendedStacksHeader {
+            consensus_hash: ch,
+            header: bh,
+            parent_block_id: pbid,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCFeeEstimate {
     pub fee_rate: f64,
@@ -1077,6 +1148,15 @@ pub struct HttpRequestMetadata {
     pub version: HttpVersion,
     pub peer: PeerHost,
     pub keep_alive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DataVarResponse {
+    pub data: String,
+    #[serde(rename = "proof")]
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marf_proof: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1274,6 +1354,7 @@ pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
     GetPoxInfo(HttpRequestMetadata, TipRequest),
     GetNeighbors(HttpRequestMetadata),
+    GetHeaders(HttpRequestMetadata, u64, Option<StacksBlockId>),
     GetBlock(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
@@ -1283,6 +1364,14 @@ pub enum HttpRequestType {
     PostBlock(HttpRequestMetadata, ConsensusHash, StacksBlock),
     PostMicroblock(HttpRequestMetadata, StacksMicroblock, TipRequest),
     GetAccount(HttpRequestMetadata, PrincipalData, TipRequest, bool),
+    GetDataVar(
+        HttpRequestMetadata,
+        StacksAddress,
+        ContractName,
+        ClarityName,
+        TipRequest,
+        bool,
+    ),
     GetMapEntry(
         HttpRequestMetadata,
         StacksAddress,
@@ -1398,6 +1487,8 @@ pub enum HttpResponseType {
     PeerInfo(HttpResponseMetadata, RPCPeerInfoData),
     PoxInfo(HttpResponseMetadata, RPCPoxInfoData),
     Neighbors(HttpResponseMetadata, RPCNeighborsInfo),
+    Headers(HttpResponseMetadata, Vec<ExtendedStacksHeader>),
+    HeaderStream(HttpResponseMetadata),
     Block(HttpResponseMetadata, StacksBlock),
     BlockStream(HttpResponseMetadata),
     Microblocks(HttpResponseMetadata, Vec<StacksMicroblock>),
@@ -1406,6 +1497,7 @@ pub enum HttpResponseType {
     StacksBlockAccepted(HttpResponseMetadata, StacksBlockId, bool),
     MicroblockHash(HttpResponseMetadata, BlockHeaderHash),
     TokenTransferCost(HttpResponseMetadata, u64),
+    GetDataVar(HttpResponseMetadata, DataVarResponse),
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
     CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
@@ -1703,6 +1795,9 @@ pub const NUM_NEIGHBORS: usize = 32;
 
 // maximum number of unconfirmed microblocks can get streamed to us
 pub const MAX_MICROBLOCKS_UNCONFIRMED: usize = 1024;
+
+// maximum number of block headers we'll get streamed to us
+pub const MAX_HEADERS: usize = 2100;
 
 // how long a peer will be denied for if it misbehaves
 #[cfg(test)]
@@ -2390,12 +2485,7 @@ pub mod test {
             // manually set fees
             miner.test_with_tx_fees = false;
 
-            let mut burnchain = get_burnchain(&test_path, None);
-            burnchain.first_block_height = config.burnchain.first_block_height;
-            burnchain.first_block_hash = config.burnchain.first_block_hash;
-            burnchain.pox_constants = config.burnchain.pox_constants;
-
-            config.burnchain = burnchain.clone();
+            config.burnchain.working_dir = get_burnchain(&test_path, None).working_dir;
 
             let epochs = config.epochs.clone().unwrap_or_else(|| {
                 StacksEpoch::unit_test_pre_2_05(config.burnchain.first_block_height)
@@ -2434,7 +2524,7 @@ pub mod test {
                 None,
                 config.private_key_expire,
                 PeerAddress::from_ipv4(127, 0, 0, 1),
-                NETWORK_P2P_PORT,
+                config.server_port,
                 config.data_url.clone(),
                 &config.asn4_entries,
                 Some(&config.initial_neighbors),
@@ -2462,8 +2552,9 @@ pub mod test {
 
             let conf = config.clone();
             let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
+                let mut receipts = vec![];
                 if conf.setup_code.len() > 0 {
-                    clarity_tx.connection().as_transaction(|clarity| {
+                    let receipt = clarity_tx.connection().as_transaction(|clarity| {
                         let boot_code_addr = boot_code_test_addr();
                         let boot_code_account = StacksAccount {
                             principal: boot_code_addr.to_account_principal(),
@@ -2498,9 +2589,11 @@ pub mod test {
                             &boot_code_smart_contract,
                             &boot_code_account,
                         )
-                        .unwrap();
+                        .unwrap()
                     });
+                    receipts.push(receipt);
                 }
+                debug!("Bootup receipts: {:?}", &receipts);
             };
 
             let mut boot_data = ChainStateBootData::new(
@@ -2524,8 +2617,9 @@ pub mod test {
             .unwrap();
 
             let (tx, _) = sync_channel(100000);
+
             let mut coord = ChainsCoordinator::test_new_with_observer(
-                &burnchain,
+                &config.burnchain,
                 config.network_id,
                 &test_path,
                 OnChainRewardSetProvider(),
@@ -2537,7 +2631,7 @@ pub mod test {
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
 
             {
-                // pre-populate burnchain
+                // pre-populate burnchain, if running on bitcoin
                 let prev_snapshot = SortitionDB::get_first_block_snapshot(sortdb.conn()).unwrap();
                 let mut fork = TestBurnchainFork::new(
                     prev_snapshot.block_height,
@@ -2660,7 +2754,7 @@ pub mod test {
                 None,
                 false,
                 false,
-                10,
+                100,
                 &RPCHandlerArgs::default(),
                 &mut HashSet::new(),
             );
@@ -2684,7 +2778,7 @@ pub mod test {
                 Some(dns_client),
                 false,
                 false,
-                10,
+                100,
                 &RPCHandlerArgs::default(),
                 &mut HashSet::new(),
             );
@@ -2706,39 +2800,6 @@ pub mod test {
                 ret.push(res);
             }
             ret
-        }
-
-        // this is a fake block -- don't try inserting it
-        pub fn empty_burnchain_block(&self, block_height: u64) -> BurnchainBlock {
-            assert!(block_height + 1 >= self.config.burnchain.first_block_height);
-            let prev_block_height = block_height - 1;
-
-            let block_hash_i = Uint256::from_u64(block_height);
-            let mut block_hash_bytes = [0u8; 32];
-            block_hash_bytes.copy_from_slice(&block_hash_i.to_u8_slice());
-
-            let prev_block_hash_i = Uint256::from_u64(prev_block_height);
-            let mut prev_block_hash_bytes = [0u8; 32];
-            prev_block_hash_bytes.copy_from_slice(&prev_block_hash_i.to_u8_slice());
-
-            BurnchainBlock::Bitcoin(BitcoinBlock {
-                block_height: block_height + 1,
-                block_hash: BurnchainHeaderHash(block_hash_bytes),
-                parent_block_hash: BurnchainHeaderHash(prev_block_hash_bytes),
-                txs: vec![],
-                timestamp: get_epoch_time_secs(),
-            })
-        }
-
-        fn make_empty_burnchain_block(&mut self) -> BurnchainBlock {
-            let empty_block = {
-                let sortdb = self.sortdb.take().unwrap();
-                let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-                let empty_block = self.empty_burnchain_block(sn.block_height);
-                self.sortdb = Some(sortdb);
-                empty_block
-            };
-            empty_block
         }
 
         pub fn next_burnchain_block(
@@ -3399,8 +3460,12 @@ pub mod test {
                     let (mut miner_chainstate, _) =
                         StacksChainState::open(false, network_id, &chainstate_path).unwrap();
                     let sort_iconn = sortdb.index_conn();
+
+                    let mut miner_epoch_info = builder
+                        .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .unwrap();
                     let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+                        .epoch_begin(&sort_iconn, &mut miner_epoch_info)
                         .unwrap()
                         .0;
 
