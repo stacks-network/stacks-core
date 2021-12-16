@@ -141,7 +141,7 @@ pub struct TransactionSuccess {
     pub receipt: StacksTransactionReceipt,
 }
 
-/// Represents a failed transaction. Something concreteley went wrong.
+/// Represents a failed transaction. Something went wrong when processing this transaction.
 #[derive(Debug)]
 pub struct TransactionError {
     pub tx: StacksTransaction,
@@ -152,6 +152,29 @@ pub struct TransactionError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransactionSkipped {
     pub tx: StacksTransaction,
+    pub reason: String,
+}
+
+/// Represents an event for a successful transaction. This transaction should be added to the block.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TransactionSuccessEvent {
+    pub txid: Txid,
+    pub fee: u64,
+    pub execution_cost: ExecutionCost,
+    pub result: Value,
+}
+
+/// Represents an event for a failed transaction. Something went wrong when processing this transaction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionErrorEvent {
+    pub txid: Txid,
+    pub error: String,
+}
+
+/// Represents an event for a transaction that was skipped, but might succeed later.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TransactionSkippedEvent {
+    pub txid: Txid,
     pub reason: String,
 }
 
@@ -172,6 +195,19 @@ pub enum TransactionResult {
     /// Transaction wasn't ready to be be processed, but might succeed later.
     /// The bool represents whether mempool propagation should halt or continue
     Skipped(bool, TransactionSkipped),
+}
+
+/// This struct is used to transmit data about transaction results through either the `mined_block`
+/// or `mined_microblock` event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TransactionEvent {
+    /// Transaction has already succeeded.
+    Success(TransactionSuccessEvent),
+    /// Transaction failed. It may succeed later depending on the error.
+    ProcessingError(TransactionErrorEvent),
+    /// Transaction wasn't ready to be be processed, but might succeed later.
+    /// The bool represents whether mempool propagation should halt or continue
+    Skipped(TransactionSkippedEvent),
 }
 
 impl TransactionResult {
@@ -248,6 +284,31 @@ impl TransactionResult {
                 reason: reason,
             },
         )
+    }
+
+    pub fn convert_to_event(&self) -> TransactionEvent {
+        match &self {
+            TransactionResult::Success(TransactionSuccess { tx, fee, receipt }) => {
+                TransactionEvent::Success(TransactionSuccessEvent {
+                    txid: tx.txid(),
+                    fee: *fee,
+                    execution_cost: receipt.execution_cost.clone(),
+                    result: receipt.result.clone(),
+                })
+            }
+            TransactionResult::ProcessingError(TransactionError { tx, error }) => {
+                TransactionEvent::ProcessingError(TransactionErrorEvent {
+                    txid: tx.txid(),
+                    error: error.to_string(),
+                })
+            }
+            TransactionResult::Skipped(_, TransactionSkipped { tx, reason }) => {
+                TransactionEvent::Skipped(TransactionSkippedEvent {
+                    txid: tx.txid(),
+                    reason: reason.clone(),
+                })
+            }
+        }
     }
 
     /// Returns true iff this enum is backed by `TransactionSuccess`.
@@ -454,6 +515,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
         &mut self,
         txs: Vec<StacksTransaction>,
         miner_key: &Secp256k1PrivateKey,
+        tx_events: Vec<TransactionEvent>,
+        event_dispatcher: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<StacksMicroblock, Error> {
         let miner_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(miner_key));
@@ -483,6 +546,15 @@ impl<'a> StacksMicroblockBuilder<'a> {
             header: next_microblock_header,
             txs: txs,
         };
+
+        if let Some(dispatcher) = event_dispatcher {
+            dispatcher.mined_microblock_event(
+                &microblock,
+                tx_events,
+                self.anchor_block_consensus_hash,
+                self.anchor_block,
+            )
+        }
 
         info!(
             "Miner: Created microblock block {} (seq={}) off of {}/{}: {} transaction(s)",
@@ -598,6 +670,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let mut bytes_so_far = self.runtime.bytes_so_far;
         let mut num_txs = self.runtime.num_mined;
+        let mut tx_events = Vec::new();
 
         let mut result = Ok(());
         for (tx, tx_len) in txs_and_lens.into_iter() {
@@ -608,25 +681,28 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 &mut considered,
                 bytes_so_far,
             ) {
-                Ok(tx_result) => match tx_result {
-                    TransactionResult::Success(..) => {
-                        test_debug!("Include tx {} in microblock", tx.txid());
-                        bytes_so_far += tx_len;
-                        num_txs += 1;
-                        txs_included.push(tx);
-                    }
-                    TransactionResult::Skipped(..) => {
-                        test_debug!("Exclude tx {} from microblock", tx.txid());
-                        continue;
-                    }
-                    TransactionResult::ProcessingError(TransactionError { error, .. }) => {
-                        test_debug!("Exclude tx {} from microblock", tx.txid());
-                        if let Error::BlockTooBigError = error {
-                            info!("Block size budget reached with microblocks");
+                Ok(tx_result) => {
+                    tx_events.push(tx_result.convert_to_event());
+                    match tx_result {
+                        TransactionResult::Success(..) => {
+                            test_debug!("Include tx {} in microblock", tx.txid());
+                            bytes_so_far += tx_len;
+                            num_txs += 1;
+                            txs_included.push(tx);
                         }
-                        continue;
+                        TransactionResult::Skipped(..) => {
+                            test_debug!("Exclude tx {} from microblock", tx.txid());
+                            continue;
+                        }
+                        TransactionResult::ProcessingError(TransactionError { error, .. }) => {
+                            test_debug!("Exclude tx {} from microblock", tx.txid());
+                            if let Error::BlockTooBigError = error {
+                                info!("Block size budget reached with microblocks");
+                            }
+                            continue;
+                        }
                     }
-                },
+                }
                 Err(e) => {
                     result = Err(e);
                     break;
@@ -657,13 +733,14 @@ impl<'a> StacksMicroblockBuilder<'a> {
             _ => {}
         }
 
-        return self.make_next_microblock(txs_included, miner_key);
+        return self.make_next_microblock(txs_included, miner_key, tx_events, None);
     }
 
     pub fn mine_next_microblock(
         &mut self,
         mem_pool: &mut MemPoolDB,
         miner_key: &Secp256k1PrivateKey,
+        event_dispatcher: &dyn MemPoolEventDispatcher,
     ) -> Result<StacksMicroblock, Error> {
         let mut txs_included = vec![];
         let mempool_settings = self.settings.mempool_settings.clone();
@@ -682,6 +759,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let mut bytes_so_far = self.runtime.bytes_so_far;
         let mut num_txs = self.runtime.num_mined;
         let mut num_selected = 0;
+        let mut tx_events = Vec::new();
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
 
         mem_pool.reset_last_known_nonces()?;
@@ -722,41 +800,43 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             &mut considered,
                             bytes_so_far,
                         ) {
-                            Ok(tx_result) => match tx_result {
-                                TransactionResult::Success(TransactionSuccess {
-                                    tx,
-                                    fee,
-                                    receipt,
-                                }) => {
-                                    bytes_so_far += mempool_tx.metadata.len;
+                            Ok(tx_result) => {
+                                tx_events.push(tx_result.convert_to_event());
+                                match tx_result {
+                                    TransactionResult::Success(TransactionSuccess {
+                                        receipt,
+                                        ..
+                                    }) => {
+                                        bytes_so_far += mempool_tx.metadata.len;
 
-                                    if update_estimator {
-                                        if let Err(e) = estimator.notify_event(
-                                            &mempool_tx.tx.payload,
-                                            &receipt.execution_cost,
-                                            &block_limit,
-                                            &stacks_epoch_id,
-                                        ) {
-                                            warn!("Error updating estimator";
+                                        if update_estimator {
+                                            if let Err(e) = estimator.notify_event(
+                                                &mempool_tx.tx.payload,
+                                                &receipt.execution_cost,
+                                                &block_limit,
+                                                &stacks_epoch_id,
+                                            ) {
+                                                warn!("Error updating estimator";
                                               "txid" => %mempool_tx.metadata.txid,
                                               "error" => ?e);
+                                            }
                                         }
-                                    }
 
-                                    debug!(
-                                        "Include tx {} ({}) in microblock",
-                                        mempool_tx.tx.txid(),
-                                        mempool_tx.tx.payload.name()
-                                    );
-                                    txs_included.push(mempool_tx.tx.clone());
-                                    num_txs += 1;
-                                    num_added += 1;
-                                    num_selected += 1;
-                                    Ok(true)
+                                        debug!(
+                                            "Include tx {} ({}) in microblock",
+                                            mempool_tx.tx.txid(),
+                                            mempool_tx.tx.payload.name()
+                                        );
+                                        txs_included.push(mempool_tx.tx.clone());
+                                        num_txs += 1;
+                                        num_added += 1;
+                                        num_selected += 1;
+                                        Ok(true)
+                                    }
+                                    TransactionResult::Skipped(..)
+                                    | TransactionResult::ProcessingError(..) => Ok(true), // keep iterating
                                 }
-                                TransactionResult::Skipped(..)
-                                | TransactionResult::ProcessingError(..) => Ok(true), // keep iterating
-                            },
+                            }
                             Err(e) => Err(e),
                         }
                     },
@@ -803,7 +883,12 @@ impl<'a> StacksMicroblockBuilder<'a> {
             }
         }
 
-        return self.make_next_microblock(txs_included, miner_key);
+        return self.make_next_microblock(
+            txs_included,
+            miner_key,
+            tx_events,
+            Some(event_dispatcher),
+        );
     }
 
     pub fn get_bytes_so_far(&self) -> u64 {
@@ -994,15 +1079,15 @@ impl StacksBlockBuilder {
     }
 
     /// Append a transaction if doing so won't exceed the epoch data size.
-    /// Errors out if we exceed budget, or the transaction is invalid.
+    /// Errors out if we fail to mine the tx (exceed budget, or the transaction is invalid).
     pub fn try_mine_tx(
         &mut self,
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
-    ) -> Result<(), Error> {
+    ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
         match self.try_mine_tx_with_len(clarity_tx, tx, tx_len, &BlockLimitFunction::NO_LIMIT_HIT) {
-            TransactionResult::Success(_) => Ok(()),
+            TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
             TransactionResult::Skipped(_, _) => Err(Error::StacksTransactionSkipped),
             TransactionResult::ProcessingError(TransactionError { tx: _, error }) => Err(error),
         }
@@ -1018,7 +1103,11 @@ impl StacksBlockBuilder {
         limit_behavior: &BlockLimitFunction,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            return TransactionResult::error(&tx, Error::BlockTooBigError);
+            return TransactionResult::skipped(
+                &tx,
+                "Adding this tx would exceed epoch data size".to_string(),
+                true,
+            );
         }
 
         match limit_behavior {
@@ -1061,12 +1150,10 @@ impl StacksBlockBuilder {
             if tx.anchor_mode != TransactionAnchorMode::OnChainOnly
                 && tx.anchor_mode != TransactionAnchorMode::Any
             {
-                return TransactionResult::error(
+                return TransactionResult::skipped(
                     tx,
-                    Error::InvalidStacksTransaction(
-                        "Invalid transaction anchor mode for anchored data".to_string(),
-                        false,
-                    ),
+                    "Invalid transaction anchor mode for anchored data".to_string(),
+                    true,
                 );
             }
 
@@ -1114,12 +1201,10 @@ impl StacksBlockBuilder {
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
                 && tx.anchor_mode != TransactionAnchorMode::Any
             {
-                return TransactionResult::error(
+                return TransactionResult::skipped(
                     tx,
-                    Error::InvalidStacksTransaction(
-                        "Invalid transaction anchor mode for streamed data".to_string(),
-                        false,
-                    ),
+                    "Invalid transaction anchor mode for streamed data".to_string(),
+                    true,
                 );
             }
 
@@ -1731,7 +1816,12 @@ impl StacksBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
-        builder.try_mine_tx(&mut epoch_tx, coinbase_tx)?;
+        let mut tx_events = Vec::new();
+        tx_events.push(
+            builder
+                .try_mine_tx(&mut epoch_tx, coinbase_tx)?
+                .convert_to_event(),
+        );
 
         mempool.reset_last_known_nonces()?;
 
@@ -1794,12 +1884,15 @@ impl StacksBlockBuilder {
                         considered.insert(txinfo.tx.txid());
                         num_considered += 1;
 
-                        match builder.try_mine_tx_with_len(
+                        let tx_result = builder.try_mine_tx_with_len(
                             epoch_tx,
                             &txinfo.tx,
                             txinfo.metadata.len,
                             &block_limit_hit,
-                        ) {
+                        );
+                        tx_events.push(tx_result.convert_to_event());
+
+                        match tx_result {
                             TransactionResult::Success(TransactionSuccess { receipt, .. }) => {
                                 num_txs += 1;
                                 if update_estimator {
@@ -1815,8 +1908,10 @@ impl StacksBlockBuilder {
                                     }
                                 }
                             }
-                            TransactionResult::Skipped(continue_processing, data) => {}
-                            TransactionResult::ProcessingError(TransactionError { tx, error }) => {
+                            TransactionResult::Skipped(..) => {}
+                            TransactionResult::ProcessingError(TransactionError {
+                                error, ..
+                            }) => {
                                 match &error {
                                     Error::BlockTooBigError => {
                                         // done mining -- our execution budget is exceeded.
@@ -1918,6 +2013,7 @@ impl StacksBlockBuilder {
                 size,
                 &consumed,
                 &confirmed_mblock_cost,
+                tx_events,
             );
         }
 

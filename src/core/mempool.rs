@@ -34,11 +34,11 @@ use rusqlite::NO_PARAMS;
 
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
-use chainstate::stacks::TransactionPayload;
 use chainstate::stacks::{
     db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, index::Error as MarfError,
     Error as ChainstateError, StacksTransaction,
 };
+use chainstate::stacks::{StacksMicroblock, TransactionPayload};
 use core::ExecutionCost;
 use core::StacksEpochId;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -73,7 +73,7 @@ use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
 use crate::util::db::table_exists;
-use chainstate::stacks::miner::TransactionResult;
+use chainstate::stacks::miner::TransactionEvent;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
@@ -154,6 +154,14 @@ pub trait MemPoolEventDispatcher {
         block_size_bytes: u64,
         consumed: &ExecutionCost,
         confirmed_microblock_cost: &ExecutionCost,
+        tx_results: Vec<TransactionEvent>,
+    );
+    fn mined_microblock_event(
+        &self,
+        microblock: &StacksMicroblock,
+        tx_results: Vec<TransactionEvent>,
+        anchor_block_consensus_hash: ConsensusHash,
+        anchor_block: BlockHeaderHash,
     );
 }
 
