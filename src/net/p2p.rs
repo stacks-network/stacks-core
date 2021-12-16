@@ -4661,6 +4661,8 @@ impl PeerNetwork {
         handler_args: &RPCHandlerArgs,
         attachment_requests: &mut HashSet<AttachmentInstance>,
     ) -> Result<NetworkResult, net_error> {
+        let bt= backtrace::Backtrace::new();
+        warn!("PeerNetwork::run {:?}", bt);
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
             None => {
