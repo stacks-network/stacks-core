@@ -164,8 +164,9 @@ impl LocalPeer {
         let services = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
 
         info!(
-            "Will be authenticating p2p messages with public key: {}, service: {}",
-            Secp256k1PublicKey::from_private(&pkey).to_hex(), &to_hex(&(services as u16).to_be_bytes());
+            "Will be authenticating p2p messages with the following";
+            "public key" => &Secp256k1PublicKey::from_private(&pkey).to_hex(),
+            "services" => &to_hex(&(services as u16).to_be_bytes())
         );
 
         LocalPeer {
