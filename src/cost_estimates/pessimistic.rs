@@ -283,9 +283,9 @@ impl CostEstimator for PessimisticEstimator {
 
         let sql_tx = tx_begin_immediate_sqlite(&mut self.db)?;
         for field in CostField::ALL.iter() {
-        warn!("PessimisticEstimator::notify_event:field");
+            warn!("PessimisticEstimator::notify_event:field");
             let key = PessimisticEstimator::get_estimate_key(tx, field, evaluated_epoch);
-        warn!("estimate_cost:notify_event {}", &key);
+            warn!("estimate_cost:notify_event {}", &key);
             let field_cost = field.select_key(actual_cost);
             let mut current_sample = Samples::get_sqlite(&sql_tx, &key);
             current_sample.update_with(field_cost);
@@ -300,7 +300,8 @@ impl CostEstimator for PessimisticEstimator {
         tx: &TransactionPayload,
         evaluated_epoch: &StacksEpochId,
     ) -> Result<ExecutionCost, EstimatorError> {
-        let runtime = PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost, evaluated_epoch);
+        let runtime =
+            PessimisticEstimator::get_estimate_key(tx, &CostField::RuntimeCost, evaluated_epoch);
         warn!("estimate_cost:runtime {}", &runtime);
         warn!("PessimisticEstimator::estimate_cost");
         let runtime = Samples::get_estimate_sqlite(

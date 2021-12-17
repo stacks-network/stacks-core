@@ -74,9 +74,10 @@ use super::{
 };
 
 use crate::config::FeeEstimatorName;
-use stacks::vm::ContractName;
 use stacks::vm::ClarityName;
+use stacks::vm::ContractName;
 use std::convert::TryFrom;
+use stacks::net::RPCFeeEstimateResponse;
 
 pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -5916,9 +5917,9 @@ fn select_transactions_where(
     warn!("blocks.len() {:?}", blocks.len());
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
-    warn!("transactions.len() {:?}", transactions.len());
+        warn!("transactions.len() {:?}", transactions.len());
         for tx in transactions.iter() {
-    warn!("tx) {:?}", &tx);
+            // warn!("tx) {:?}", &tx);
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
@@ -5937,7 +5938,6 @@ fn fuzzed_median_fee_rate_estimation_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
-
 
     let max_contract_src = r#"
 ;; define counter variable
@@ -5973,7 +5973,7 @@ fn fuzzed_median_fee_rate_estimation_test() {
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone().into(),
-        amount: 10000000,
+        amount: 10000000000,
     });
     test_observer::spawn();
     conf.events_observers.push(EventObserverConfig {
@@ -6011,133 +6011,107 @@ fn fuzzed_median_fee_rate_estimation_test() {
         &make_contract_publish(
             &spender_sk,
             0,
-            1100000,
+            110000,
             "increment-contract",
             &max_contract_src,
         ),
     );
     run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 212, &conf);
 
-    // Alice calls the contract and should succeed, because we have not lowered the block limit
-    // yet.
-    submit_tx(
-        &http_origin,
-        &make_contract_call(
-            &spender_sk,
-            1,
-            1000,
-            &spender_addr.into(),
-            "increment-contract",
-            "increment-many",
-            &[],
-        ),
-    );
+    let mut response_estimated_costs = vec![];
+    let mut response_top_fee_rates = vec![];
+    for i in 1..11 {
+        submit_tx(
+            &http_origin,
+            &make_contract_call(
+                &spender_sk,
+                i,          // nonce
+                i * 100000, // payment
+                &spender_addr.into(),
+                "increment-contract",
+                "increment-many",
+                &[],
+            ),
+        );
+        run_until_burnchain_height(
+            &mut btc_regtest_controller,
+            &blocks_processed,
+            212 + 2 * i,
+            &conf,
+        );
+        // Check that we have processed the contract successfully, by checking that the contract call
+        // is in the block record.
+        let increment_calls_alice = select_transactions_where(
+            &test_observer::get_blocks(),
+            |transaction| match &transaction.payload {
+                TransactionPayload::ContractCall(contract) => {
+                    contract.contract_name == ContractName::try_from("increment-contract").unwrap()
+                }
+                _ => false,
+            },
+        );
 
-    // Wait to make sure the contract is published.
-    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 215, &conf);
+        warn!(
+            "increment_calls_alice.len() {}",
+            increment_calls_alice.len()
+        );
 
-    // Check that we have processed the contract successfully, by checking that the contract call
-    // is in the block record.
-    let increment_calls_alice = select_transactions_where(
-        &test_observer::get_blocks(),
-        |transaction| match &transaction.payload {
-            TransactionPayload::ContractCall(contract) => {
-                contract.contract_name == ContractName::try_from("increment-contract").unwrap()
-            }
-            _ => false,
-        },
-    );
-    assert_eq!(increment_calls_alice.len(), 1);
+        {
+            // perform some tests of the fee rate interface
+            let path = format!("{}/v2/fees/transaction", &http_origin);
 
-    {
-        // perform some tests of the fee rate interface
-        let path = format!("{}/v2/fees/transaction", &http_origin);
+            let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
+            let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
+                address: contract_addr.clone().into(),
+                contract_name: ContractName::try_from("increment-contract").unwrap(),
+                function_name: ClarityName::try_from("increment-many").unwrap(),
+                function_args: vec![],
+            });
 
-        let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
-        let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone().into(),
-            contract_name: ContractName::try_from("increment-contract").unwrap(),
-            function_name: ClarityName::try_from("increment-many").unwrap(),
-            function_args: vec![],
-        });
+            let payload_data = tx_payload.serialize_to_vec();
+            let payload_hex = format!("0x{}", to_hex(&payload_data));
 
-        let payload_data = tx_payload.serialize_to_vec();
-        let payload_hex = format!("0x{}", to_hex(&payload_data));
+            eprintln!("Test: POST {}", path);
 
-        eprintln!("Test: POST {}", path);
+            let body = json!({ "transaction_payload": payload_hex.clone() });
 
-        let body = json!({ "transaction_payload": payload_hex.clone() });
+            let client = reqwest::blocking::Client::new();
+            let fee_rate_result = client
+                .post(&path)
+                .json(&body)
+                .send()
+                .expect("Should be able to post")
+                // .json::<serde_json::Value>()
+                .json::<RPCFeeEstimateResponse>()
+                .expect("Failed to parse result into JSON");
 
-        let client = reqwest::blocking::Client::new();
-        let fee_rate_result = client
-            .post(&path)
-            .json(&body)
-            .send()
-            .expect("Should be able to post")
-            .json::<serde_json::Value>()
-            .expect("Failed to parse result into JSON");
-        warn!("fee_rate_result1 {:#?}", &fee_rate_result);
+            
+            warn!("fee_rate_result {} {:#?}", i, &fee_rate_result);
+            response_estimated_costs.push(fee_rate_result.estimated_cost_scalar);
+            response_top_fee_rates.push(fee_rate_result.estimations.last().unwrap().fee_rate);
+        }
     }
 
-    {
-        // perform some tests of the fee rate interface
-        let path = format!("{}/v2/fees/transaction", &http_origin);
+    warn!("response_estimated_costs, {:#?}", &response_estimated_costs);
+    warn!("response_top_fee_rates, {:#?}", &response_top_fee_rates);
+    assert_eq!(response_estimated_costs.len(), response_top_fee_rates.len());
 
-        let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
-        let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone().into(),
-            contract_name: ContractName::try_from("increment-contract").unwrap(),
-            function_name: ClarityName::try_from("increment-many").unwrap(),
-            function_args: vec![],
-        });
+    // Check that:
+    // 1) The cost is always the same.
+    // 2) The estimated fee rate only either i) moves up, ii) stays within random noise of where it
+    //    was.
+    for i in 1..response_estimated_costs.len() {
+        let curr_rate = response_top_fee_rates[i] as f64;
+        let last_rate = response_top_fee_rates[i - 1] as f64;
+        // Check that either 1) curr_rate is bigger, or 2) is only smaller by random 11% noise.
+        assert!(curr_rate - last_rate > -1.0 * curr_rate * 0.11);
 
-        let payload_data = tx_payload.serialize_to_vec();
-        let payload_hex = format!("0x{}", to_hex(&payload_data));
-
-        eprintln!("Test: POST {}", path);
-
-        let body = json!({ "transaction_payload": payload_hex.clone() });
-
-        let client = reqwest::blocking::Client::new();
-        let fee_rate_result = client
-            .post(&path)
-            .json(&body)
-            .send()
-            .expect("Should be able to post")
-            .json::<serde_json::Value>()
-            .expect("Failed to parse result into JSON");
-        warn!("fee_rate_result2 {:#?}", &fee_rate_result);
-    }
-
-    {
-        // perform some tests of the fee rate interface
-        let path = format!("{}/v2/fees/transaction", &http_origin);
-
-        let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
-        let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_addr.clone().into(),
-            contract_name: ContractName::try_from("increment-contract").unwrap(),
-            function_name: ClarityName::try_from("increment-many").unwrap(),
-            function_args: vec![],
-        });
-
-        let payload_data = tx_payload.serialize_to_vec();
-        let payload_hex = format!("0x{}", to_hex(&payload_data));
-
-        eprintln!("Test: POST {}", path);
-
-        let body = json!({ "transaction_payload": payload_hex.clone() });
-
-        let client = reqwest::blocking::Client::new();
-        let fee_rate_result = client
-            .post(&path)
-            .json(&body)
-            .send()
-            .expect("Should be able to post")
-            .json::<serde_json::Value>()
-            .expect("Failed to parse result into JSON");
-        warn!("fee_rate_result3 {:#?}", &fee_rate_result);
+        // The cost is always the same.
+        let curr_cost = response_estimated_costs[i];
+        let last_cost = response_estimated_costs[i - 1];
+        assert_eq!(curr_cost, last_cost);
     }
 
     channel.stop_chains_coordinator();
 }
+
