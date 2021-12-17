@@ -14,24 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// alternatives considered:
-//  * https://docs.rs/bloom/0.3.2/bloom/
-//      * Problems:
-//          * buggy -- has higher false-positive rate than expected
-//          * can't serialize/deserialize
-//          * can't induce a bloom filter from the counts
-//
-//  * https://github.com/crepererum/pdatastructs.rs
-//      * Problems:
-//          * No invertable bloom filter
-//          * Brings in lots of other code
-//
-//  * https://github.com/CodeChain-io/rust-iblt
-//      * Problems:
-//          * Can't control serialization/deserialization
-//          * Can't induce a bloom filter from the counts
-//          * Hilariously inefficient
-
 use std::cmp;
 use std::collections::HashMap;
 use std::hash::Hasher;
