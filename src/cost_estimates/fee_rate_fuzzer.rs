@@ -21,8 +21,10 @@ pub struct FeeRateFuzzer<UnderlyingEstimator: FeeEstimator> {
     /// Creator function for a new random generator. For prod, use `thread_rng`. For test,
     /// pass in a contrived generator.
     rng_creator: Box<dyn Fn() -> Box<dyn RngCore>>,
-    /// The bound used for the uniform random fuzz.
-    uniform_bound: f64,
+    /// The fuzzed rate will be `R * (1 + alpha)`, where `R` is the original rate, and `alpha` is a
+    /// random number in `[-uniform_fuzz_bound, uniform_fuzz_bound]`.
+    /// Note: Must be `0 < uniform_fuzz_bound < 1`.
+    uniform_fuzz_bound: f64,
 }
 
 impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
@@ -30,8 +32,9 @@ impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
     /// to get truly pseudo-random numbers.
     pub fn new(
         underlying: UnderlyingEstimator,
-        uniform_bound: f64,
+        uniform_fuzz_bound: f64,
     ) -> FeeRateFuzzer<UnderlyingEstimator> {
+        assert!(0.0 < uniform_fuzz_bound && uniform_fuzz_bound < 1.0);
         let rng_creator = Box::new(|| {
             let r: Box<dyn RngCore> = Box::new(thread_rng());
             r
@@ -39,7 +42,7 @@ impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
         Self {
             underlying,
             rng_creator,
-            uniform_bound,
+            uniform_fuzz_bound,
         }
     }
 
@@ -48,23 +51,32 @@ impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
     pub fn new_custom_creator(
         underlying: UnderlyingEstimator,
         rng_creator: Box<dyn Fn() -> Box<dyn RngCore>>,
-        uniform_bound: f64,
+        uniform_fuzz_bound: f64,
     ) -> FeeRateFuzzer<UnderlyingEstimator> {
+        assert!(0.0 < uniform_fuzz_bound && uniform_fuzz_bound < 1.0);
         Self {
             underlying,
             rng_creator,
-            uniform_bound,
+            uniform_fuzz_bound,
         }
+    }
+
+    /// Fuzzes an individual number.  The fuzzed rate will be `R * (1 + alpha)`, where `R` is the
+    /// original rate, and `alpha` is a random number in `[-uniform_fuzz_bound,
+    /// uniform_fuzz_bound]`.
+    fn fuzz_individual_scalar(&self, original: f64) -> f64 {
+        let mut rng: Box<dyn RngCore> = (self.rng_creator)();
+        let uniform = Uniform::new(-self.uniform_fuzz_bound, self.uniform_fuzz_bound);
+        let fuzz_fraction = uniform.sample(&mut rng);
+        original * (1f64 + fuzz_fraction)
     }
 
     /// Add a uniform fuzz to input.
     fn fuzz_estimate(&self, input: &FeeRateEstimate) -> FeeRateEstimate {
-        let mut rng: Box<dyn RngCore> = (self.rng_creator)();
-        let normal = Uniform::new(-self.uniform_bound, self.uniform_bound);
         FeeRateEstimate {
-            high: input.high + normal.sample(&mut rng),
-            middle: input.middle + normal.sample(&mut rng),
-            low: input.low + normal.sample(&mut rng),
+            high: self.fuzz_individual_scalar(input.high),
+            middle: self.fuzz_individual_scalar(input.middle),
+            low: self.fuzz_individual_scalar(input.low),
         }
     }
 }
