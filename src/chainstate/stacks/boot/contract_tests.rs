@@ -30,9 +30,7 @@ use vm::errors::{
 };
 use vm::eval;
 use vm::representations::SymbolicExpression;
-use vm::tests::{
-    execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
-};
+use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use vm::types::Value::Response;
 use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -58,7 +56,6 @@ use crate::{
 };
 
 use clarity_vm::clarity::Error as ClarityError;
-use core::PEER_VERSION_EPOCH_1_0;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -153,11 +150,11 @@ impl ClarityTestSim {
             );
 
             store
-                .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
+                .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
                 .initialize();
 
             let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+                OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
 
             for user_key in USER_KEYS.iter() {
                 owned_env.stx_faucet(
@@ -275,7 +272,7 @@ impl ClarityTestSim {
             Self::check_and_bump_epoch(&mut store, &headers_db, &NULL_BURN_STATE_DB);
 
             let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
+                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &NULL_BURN_STATE_DB));
 
             f(&mut owned_env)
         };
@@ -330,8 +327,6 @@ impl BurnStateDB for TestSimBurnStateDB {
                         start_height: 0,
                         end_height: self.epoch_bounds[0],
                         epoch_id: StacksEpochId::Epoch10,
-                        block_limit: ExecutionCost::max_value(),
-                        network_epoch: PEER_VERSION_EPOCH_1_0,
                     });
                 } else {
                     index - 1
@@ -353,8 +348,6 @@ impl BurnStateDB for TestSimBurnStateDB {
                 .cloned()
                 .unwrap_or(u64::max_value()),
             epoch_id,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_1_0,
         })
     }
 
@@ -376,9 +369,6 @@ impl BurnStateDB for TestSimBurnStateDB {
 
     fn get_pox_rejection_fraction(&self) -> u64 {
         self.pox_constants.pox_rejection_fraction
-    }
-    fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
-        self.get_stacks_epoch(0)
     }
 }
 

@@ -78,11 +78,8 @@ use util::hash::to_hex;
 use util::log;
 use util::vrf::VRFPublicKey;
 
+use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
-use burnchains::bitcoin::indexer::BitcoinIndexer;
-use chainstate::stacks::boot::POX_2_MAINNET_CODE;
-use chainstate::stacks::boot::POX_2_TESTNET_CODE;
-use core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -635,9 +632,8 @@ impl Burnchain {
         db_path
     }
 
-    pub fn connect_db<I: BurnchainIndexer>(
+    pub fn connect_db(
         &self,
-        indexer: &I,
         readwrite: bool,
         first_block_header_hash: BurnchainHeaderHash,
         first_block_header_timestamp: u64,
@@ -958,7 +954,6 @@ impl Burnchain {
     ) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
         self.setup_chainstate(indexer)?;
         let (mut sortdb, mut burnchain_db) = self.connect_db(
-            indexer,
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
@@ -1181,7 +1176,6 @@ impl Burnchain {
     {
         self.setup_chainstate(indexer)?;
         let (_, mut burnchain_db) = self.connect_db(
-            indexer,
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,

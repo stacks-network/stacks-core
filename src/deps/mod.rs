@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod bitcoin;
-pub mod ctrlc;
 pub mod httparse;
 
 #[cfg(test)]

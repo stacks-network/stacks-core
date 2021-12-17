@@ -94,7 +94,8 @@ impl UnconfirmedState {
     fn new(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
-        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
+        let clarity_instance =
+            ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -126,7 +127,8 @@ impl UnconfirmedState {
     ) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
-        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
+        let clarity_instance =
+            ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -401,9 +403,14 @@ impl StacksChainState {
             "Dropping unconfirmed state off of {} ({})",
             &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
         );
-        unconfirmed
-            .clarity_inst
-            .drop_unconfirmed_state(&unconfirmed.confirmed_chain_tip);
+        let clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
+            self.config(),
+            &NULL_HEADER_DB,
+            &mut unconfirmed.clarity_inst,
+            &NULL_BURN_STATE_DB,
+            &unconfirmed.confirmed_chain_tip,
+        );
+        clarity_tx.rollback_unconfirmed();
         debug!(
             "Dropped unconfirmed state off of {} ({})",
             &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
@@ -692,7 +699,6 @@ mod test {
                         consensus_hash.clone(),
                         peer.chainstate(),
                         &sort_iconn,
-                        BlockBuilderSettings::max_value(),
                     )
                     .unwrap();
 
@@ -921,7 +927,6 @@ mod test {
                     consensus_hash.clone(),
                     peer.chainstate(),
                     &sort_iconn,
-                    BlockBuilderSettings::max_value(),
                 )
                 .unwrap();
                 let mut microblocks = vec![];

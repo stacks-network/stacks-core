@@ -20,12 +20,10 @@ use crate::types::proof::ClarityMarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use vm::analysis::errors::CheckErrors;
 use vm::contexts::OwnedEnvironment;
-use vm::database::ClarityDatabase;
+use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
 use vm::representations::SymbolicExpression;
-use vm::tests::{
-    execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
-};
+use vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use vm::types::Value;
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
 
@@ -266,7 +264,7 @@ where
     {
         let mut store = marf_kv.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
         store
-            .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
+            .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
             .initialize();
         store.test_commit();
     }
@@ -274,7 +272,7 @@ where
     {
         let mut store = marf_kv.begin(&StacksBlockId([0 as u8; 32]), &StacksBlockId([1 as u8; 32]));
         let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+            OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
         f(&mut owned_env);
         store.test_commit();
     }
@@ -284,7 +282,7 @@ where
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
         let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+            OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
         a(&mut owned_env);
         store.test_commit();
     }
@@ -292,7 +290,7 @@ where
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([3 as u8; 32]));
         let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+            OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
         b(&mut owned_env);
         store.test_commit();
     }
@@ -300,7 +298,7 @@ where
     {
         let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([4 as u8; 32]));
         let mut owned_env =
-            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+            OwnedEnvironment::new(store.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB));
         z(&mut owned_env);
         store.test_commit();
     }

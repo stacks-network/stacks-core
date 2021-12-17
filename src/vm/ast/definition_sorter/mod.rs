@@ -57,6 +57,12 @@ impl<'a> DefinitionSorter {
         Ok(())
     }
 
+    pub fn run_pass_free(contract_ast: &mut ContractAST) -> ParseResult<()> {
+        let mut pass = DefinitionSorter::new();
+        pass.run(contract_ast, &mut LimitedCostTracker::new_free())?;
+        Ok(())
+    }
+
     pub fn run<T: CostTracker>(
         &mut self,
         contract_ast: &mut ContractAST,

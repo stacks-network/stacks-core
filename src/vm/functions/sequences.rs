@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core::StacksEpochId;
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
 use vm::costs::cost_functions::ClarityCostFunction;
@@ -212,9 +211,7 @@ pub fn special_append(
     }
 }
 
-switch_on_global_epoch!(special_concat(special_concat_v200, special_concat_v205));
-
-pub fn special_concat_v200(
+pub fn special_concat(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -233,35 +230,6 @@ pub fn special_concat_v200(
     match (&mut wrapped_seq, &mut other_wrapped_seq) {
         (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => seq.append(other_seq),
         _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
-    }?;
-
-    Ok(wrapped_seq)
-}
-
-pub fn special_concat_v205(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(2, args)?;
-
-    let mut wrapped_seq = eval(&args[0], env, context)?;
-    let mut other_wrapped_seq = eval(&args[1], env, context)?;
-
-    match (&mut wrapped_seq, &mut other_wrapped_seq) {
-        (Value::Sequence(ref mut seq), Value::Sequence(ref mut other_seq)) => {
-            runtime_cost(
-                ClarityCostFunction::Concat,
-                env,
-                (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
-            )?;
-
-            seq.append(other_seq)
-        }
-        _ => {
-            runtime_cost(ClarityCostFunction::Concat, env, 1)?;
-            Err(RuntimeErrorType::BadTypeConstruction.into())
-        }
     }?;
 
     Ok(wrapped_seq)

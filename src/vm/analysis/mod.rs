@@ -23,8 +23,6 @@ pub mod trait_checker;
 pub mod type_checker;
 pub mod types;
 
-use crate::core::StacksEpochId;
-
 pub use self::types::{AnalysisPass, ContractAnalysis};
 use vm::costs::LimitedCostTracker;
 use vm::database::STORE_CONTRACT_SRC_INTERFACE;
@@ -41,7 +39,6 @@ use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::TypeChecker;
 
-/// Used by CLI tools like the docs generator. Not used in production
 pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
@@ -52,13 +49,12 @@ pub fn mem_type_check(
     let mut contract = parse(&contract_identifier, snippet, version).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
-    let cost_tracker = LimitedCostTracker::new_free();
     match run_analysis(
         &QualifiedContractIdentifier::transient(),
         &mut contract,
         &mut analysis_db,
         false,
-        cost_tracker,
+        LimitedCostTracker::new_free(),
         version,
     ) {
         Ok(x) => {
@@ -73,29 +69,6 @@ pub fn mem_type_check(
         }
         Err((e, _)) => Err(e),
     }
-}
-
-// Legacy function
-// The analysis is not just checking type.
-#[cfg(test)]
-pub fn type_check(
-    contract_identifier: &QualifiedContractIdentifier,
-    expressions: &mut [SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
-    insert_contract: bool,
-    version: &ClarityVersion,
-) -> CheckResult<ContractAnalysis> {
-    run_analysis(
-        &contract_identifier,
-        expressions,
-        analysis_db,
-        insert_contract,
-        // for the type check tests, the cost tracker's epoch doesn't
-        //  matter: the costs in those tests are all free anyways.
-        LimitedCostTracker::new_free(),
-        version.clone(),
-    )
-    .map_err(|(e, _cost_tracker)| e)
 }
 
 pub fn run_analysis(

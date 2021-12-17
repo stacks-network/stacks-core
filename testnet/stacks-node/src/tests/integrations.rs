@@ -4,20 +4,16 @@ use std::sync::Mutex;
 
 use reqwest;
 
-use stacks::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use stacks::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
 };
-use stacks::chainstate::stacks::{TokenTransferMemo, TransactionContractCall, TransactionPayload};
 use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
-use stacks::core::PEER_VERSION_EPOCH_2_0;
 use stacks::net::GetIsTraitImplementedResponse;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
-use stacks::util::hash::Sha256Sum;
-use stacks::util::hash::{hex_bytes, to_hex};
+use stacks::util::hash::hex_bytes;
 use stacks::vm::{
     analysis::{
         contract_interface_builder::{build_contract_interface, ContractInterface},
@@ -32,9 +28,6 @@ use stacks::{burnchains::Address, vm::ClarityVersion};
 use crate::config::InitialBalance;
 use crate::helium::RunLoop;
 use crate::tests::make_sponsored_stacks_transfer_on_testnet;
-use stacks::core::StacksEpoch;
-use stacks::core::StacksEpochId;
-use stacks::vm::costs::ExecutionCost;
 
 use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
@@ -164,26 +157,13 @@ lazy_static! {
 fn integration_test_get_info() {
     let mut conf = super::new_test_conf();
     let spender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap()).into();
-    let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
-    let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr,
         amount: 100300,
     });
-    conf.initial_balances.push(InitialBalance {
-        address: to_addr(&principal_sk).into(), // contract-publish
-        amount: 1000,
-    });
-    conf.initial_balances.push(InitialBalance {
-        address: to_addr(&contract_sk).into(),
-        amount: 1000,
-    });
 
     conf.burnchain.commit_anchor_block_within = 5000;
-    conf.miner.min_tx_fee = 0;
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     let num_rounds = 5;
 
@@ -210,7 +190,7 @@ fn integration_test_get_info() {
                 // block-height = 2
                 eprintln!("Tenure in 1 started!");
                 let publish_tx =
-                    make_contract_publish(&contract_sk, 0, 10, "get-info", GET_INFO_CONTRACT);
+                    make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -218,12 +198,20 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                    )
+                    .unwrap();
+                let publish_tx = make_contract_publish(&contract_sk, 1, 0, "other", OTHER_CONTRACT);
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &consensus_hash,
+                        &header_hash,
+                        publish_tx,
                     )
                     .unwrap();
                 let publish_tx =
-                    make_contract_publish(&contract_sk, 1, 10, "other", OTHER_CONTRACT);
+                    make_contract_publish(&contract_sk, 2, 0, "main", CALL_READ_CONTRACT);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -231,21 +219,6 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
-                    )
-                    .unwrap();
-                let publish_tx =
-                    make_contract_publish(&contract_sk, 2, 10, "main", CALL_READ_CONTRACT);
-                tenure
-                    .mem_pool
-                    .submit_raw(
-                        &mut chainstate_copy,
-                        &consensus_hash,
-                        &header_hash,
-                        publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -253,7 +226,7 @@ fn integration_test_get_info() {
                 let publish_tx = make_contract_publish(
                     &contract_sk,
                     3,
-                    10,
+                    0,
                     "impl-trait-contract",
                     IMPL_TRAIT_CONTRACT,
                 );
@@ -265,8 +238,6 @@ fn integration_test_get_info() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round >= 3 {
@@ -274,7 +245,7 @@ fn integration_test_get_info() {
                 let tx = make_contract_call(
                     &principal_sk,
                     (round - 3).into(),
-                    10,
+                    0,
                     &to_addr(&contract_sk),
                     "get-info",
                     "update-info",
@@ -283,14 +254,7 @@ fn integration_test_get_info() {
                 eprintln!("update-info submitted");
                 tenure
                     .mem_pool
-                    .submit_raw(
-                        &mut chainstate_copy,
-                        &consensus_hash,
-                        &header_hash,
-                        tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
-                    )
+                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx)
                     .unwrap();
             }
 
@@ -298,20 +262,13 @@ fn integration_test_get_info() {
                 let tx_xfer = make_stacks_transfer(
                     &spender_sk,
                     (round - 1).into(),
-                    10,
+                    0,
                     &StacksAddress::from_string(ADDR_4).unwrap().into(),
                     100,
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(
-                        &mut chainstate_copy,
-                        &consensus_hash,
-                        &header_hash,
-                        tx_xfer,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
-                    )
+                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx_xfer)
                     .unwrap();
             }
 
@@ -336,7 +293,7 @@ fn integration_test_get_info() {
                 assert!(chain_tip.metadata.block_height == 2);
 
                 // Block #1 should have 5 txs
-                assert_eq!(chain_tip.block.txs.len(), 5);
+                assert!(chain_tip.block.txs.len() == 5);
 
                 let parent = chain_tip.block.header.parent_block;
                 let bhh = &chain_tip.metadata.index_block_hash();
@@ -536,7 +493,7 @@ fn integration_test_get_info() {
                                    &http_origin, &sender_addr);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 99860);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 99900);
                 assert_eq!(res.nonce, 4);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
@@ -546,7 +503,7 @@ fn integration_test_get_info() {
                                    &http_origin, &contract_addr);
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<AccountEntryResponse>().unwrap();
-                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 960);
+                assert_eq!(u128::from_str_radix(&res.balance[2..], 16).unwrap(), 0);
                 assert_eq!(res.nonce, 4);
                 assert!(res.nonce_proof.is_some());
                 assert!(res.balance_proof.is_some());
@@ -849,166 +806,6 @@ fn integration_test_get_info() {
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert!(!res.is_implemented);
-
-
-                // perform some tests of the fee rate interface
-                let path = format!("{}/v2/fees/transaction", &http_origin);
-
-                let tx_payload =
-                    TransactionPayload::TokenTransfer(contract_addr.clone().into(), 10_000_000, TokenTransferMemo([0; 34]));
-
-                let payload_data = tx_payload.serialize_to_vec();
-                let payload_hex = format!("0x{}", to_hex(&payload_data));
-
-                eprintln!("Test: POST {}", path);
-
-                let body = json!({ "transaction_payload": payload_hex.clone() });
-
-                let res = client.post(&path)
-                    .json(&body)
-                    .send()
-                    .expect("Should be able to post")
-                    .json::<serde_json::Value>()
-                    .expect("Failed to parse result into JSON");
-
-                eprintln!("{}", res);
-
-                // destruct the json result
-                //  estimated_cost for transfers should be 0 -- their cost is just in their length
-                let estimated_cost = res.get("estimated_cost").expect("Response should have estimated_cost field");
-                assert_eq!(estimated_cost.get("read_count").unwrap().as_u64().unwrap(), 0);
-                assert_eq!(estimated_cost.get("read_length").unwrap().as_u64().unwrap(), 0);
-                assert_eq!(estimated_cost.get("write_count").unwrap().as_u64().unwrap(), 0);
-                assert_eq!(estimated_cost.get("write_length").unwrap().as_u64().unwrap(), 0);
-                assert_eq!(estimated_cost.get("runtime").unwrap().as_u64().unwrap(), 0);
-
-                // the estimated scalar should still be non-zero, because the length of the tx goes into this field.
-                assert!(res.get("estimated_cost_scalar").unwrap().as_u64().unwrap() > 0);
-
-                let estimations = res.get("estimations").expect("Should have an estimations field")
-                    .as_array()
-                    .expect("Fees should be array");
-
-                let estimated_fee_rates: Vec<_> = estimations
-                    .iter()
-                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"))
-                    .collect();
-                let estimated_fees: Vec<_> = estimations
-                    .iter()
-                    .map(|x| x.get("fee").expect("Should have fee field"))
-                    .collect();
-
-                assert!(estimated_fee_rates.len() == 3, "Fee rates should be length 3 array");
-                assert!(estimated_fees.len() == 3, "Fees should be length 3 array");
-
-                let tx_payload = TransactionPayload::from(TransactionContractCall {
-                    address: contract_addr.clone(),
-                    contract_name: "get-info".into(),
-                    function_name: "update-info".into(),
-                    function_args: vec![],
-                });
-
-                let payload_data = tx_payload.serialize_to_vec();
-                let payload_hex = to_hex(&payload_data);
-
-                eprintln!("Test: POST {}", path);
-
-                let body = json!({ "transaction_payload": payload_hex.clone() });
-
-                let res = client.post(&path)
-                    .json(&body)
-                    .send()
-                    .expect("Should be able to post")
-                    .json::<serde_json::Value>()
-                    .expect("Failed to parse result into JSON");
-
-                eprintln!("{}", res);
-
-                // destruct the json result
-                //  estimated_cost for transfers should be non-zero
-                let estimated_cost = res.get("estimated_cost").expect("Response should have estimated_cost field");
-                assert!(estimated_cost.get("read_count").unwrap().as_u64().unwrap() > 0);
-                assert!(estimated_cost.get("read_length").unwrap().as_u64().unwrap() > 0);
-                assert!(estimated_cost.get("write_count").unwrap().as_u64().unwrap() > 0);
-                assert!(estimated_cost.get("write_length").unwrap().as_u64().unwrap() > 0);
-                assert!(estimated_cost.get("runtime").unwrap().as_u64().unwrap() > 0);
-
-                let estimated_cost_scalar = res.get("estimated_cost_scalar").unwrap().as_u64().unwrap();
-                assert!(estimated_cost_scalar > 0);
-
-                let estimations = res.get("estimations").expect("Should have an estimations field")
-                    .as_array()
-                    .expect("Fees should be array");
-
-                let estimated_fee_rates: Vec<_> = estimations
-                    .iter()
-                    .map(|x| x.get("fee_rate").expect("Should have fee_rate field"))
-                    .collect();
-                let estimated_fees: Vec<_> = estimations
-                    .iter()
-                    .map(|x| x.get("fee").expect("Should have fee field"))
-                    .collect();
-
-                assert!(estimated_fee_rates.len() == 3, "Fee rates should be length 3 array");
-                assert!(estimated_fees.len() == 3, "Fees should be length 3 array");
-
-                let tx_payload = TransactionPayload::from(TransactionContractCall {
-                    address: contract_addr.clone(),
-                    contract_name: "get-info".into(),
-                    function_name: "update-info".into(),
-                    function_args: vec![],
-                });
-
-                let payload_data = tx_payload.serialize_to_vec();
-                let payload_hex = to_hex(&payload_data);
-
-                let estimated_len = 1550;
-                let body = json!({ "transaction_payload": payload_hex.clone(), "estimated_len": estimated_len });
-                info!("POST body\n {}", body);
-
-                let res = client.post(&path)
-                    .json(&body)
-                    .send()
-                    .expect("Should be able to post")
-                    .json::<serde_json::Value>()
-                    .expect("Failed to parse result into JSON");
-
-                info!("{}", res);
-
-                // destruct the json result
-                //  estimated_cost for transfers should be non-zero
-                let estimated_cost = res.get("estimated_cost").expect("Response should have estimated_cost field");
-                assert!(estimated_cost.get("read_count").unwrap().as_u64().unwrap() > 0);
-                assert!(estimated_cost.get("read_length").unwrap().as_u64().unwrap() > 0);
-                assert!(estimated_cost.get("write_count").unwrap().as_u64().unwrap() > 0);
-                assert!(estimated_cost.get("write_length").unwrap().as_u64().unwrap() > 0);
-                assert!(estimated_cost.get("runtime").unwrap().as_u64().unwrap() > 0);
-
-                let new_estimated_cost_scalar = res.get("estimated_cost_scalar").unwrap().as_u64().unwrap();
-                assert!(estimated_cost_scalar > 0);
-                assert!(new_estimated_cost_scalar > estimated_cost_scalar, "New scalar estimate should be higher because of the tx length increase");
-
-                let new_estimations = res.get("estimations").expect("Should have an estimations field")
-                    .as_array()
-                    .expect("Fees should be array");
-
-                let new_estimated_fees: Vec<_> = new_estimations
-                    .iter()
-                    .map(|x| x.get("fee").expect("Should have fee field"))
-                    .collect();
-
-                let minimum_relay_fee = estimated_len * MINIMUM_TX_FEE_RATE_PER_BYTE;
-
-                assert!(new_estimated_fees[2].as_u64().unwrap() >= estimated_fees[2].as_u64().unwrap(),
-                        "Supplying an estimated tx length should increase the estimated fees");
-                assert!(new_estimated_fees[0].as_u64().unwrap() >= estimated_fees[0].as_u64().unwrap(),
-                        "Supplying an estimated tx length should increase the estimated fees");
-                assert!(new_estimated_fees[1].as_u64().unwrap() >= estimated_fees[1].as_u64().unwrap(),
-                        "Supplying an estimated tx length should increase the estimated fees");
-                for estimate in new_estimated_fees.iter() {
-                    assert!(estimate.as_u64().unwrap() >= minimum_relay_fee,
-                            "The estimated fees must always be greater than minimum_relay_fee");
-                }
             },
             _ => {},
         }
@@ -1027,17 +824,11 @@ const FAUCET_CONTRACT: &'static str = "
 fn contract_stx_transfer() {
     let mut conf = super::new_test_conf();
 
-    let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
     let addr_3 = to_addr(&sk_3);
 
     conf.burnchain.commit_anchor_block_within = 5000;
     conf.add_initial_balance(addr_3.to_string(), 100000);
-    conf.add_initial_balance(
-        to_addr(&StacksPrivateKey::from_hex(&SK_2).unwrap()).to_string(),
-        1000,
-    );
-    conf.add_initial_balance(to_addr(&contract_sk).to_string(), 1000);
 
     let num_rounds = 5;
 
@@ -1064,7 +855,7 @@ fn contract_stx_transfer() {
             if round == 1 {
                 // block-height = 2
                 let xfer_to_contract =
-                    make_stacks_transfer(&sk_3, 0, 10, &contract_identifier.into(), 1000);
+                    make_stacks_transfer(&sk_3, 0, 0, &contract_identifier.into(), 1000);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1072,14 +863,12 @@ fn contract_stx_transfer() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
                 // block-height > 2
                 let publish_tx =
-                    make_contract_publish(&contract_sk, 0, 10, "faucet", FAUCET_CONTRACT);
+                    make_contract_publish(&contract_sk, 0, 0, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1087,14 +876,12 @@ fn contract_stx_transfer() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 3 {
                 // try to publish again
                 let publish_tx =
-                    make_contract_publish(&contract_sk, 1, 10, "faucet", FAUCET_CONTRACT);
+                    make_contract_publish(&contract_sk, 1, 0, "faucet", FAUCET_CONTRACT);
 
                 let (consensus_hash, block_hash) = (
                     &tenure.parent_block.metadata.consensus_hash,
@@ -1102,35 +889,14 @@ fn contract_stx_transfer() {
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(
-                        &mut chainstate_copy,
-                        consensus_hash,
-                        block_hash,
-                        publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
-                    )
+                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
                     .unwrap();
 
-                let tx = make_contract_call(
-                    &sk_2,
-                    0,
-                    10,
-                    &to_addr(&contract_sk),
-                    "faucet",
-                    "spout",
-                    &[],
-                );
+                let tx =
+                    make_contract_call(&sk_2, 0, 0, &to_addr(&contract_sk), "faucet", "spout", &[]);
                 tenure
                     .mem_pool
-                    .submit_raw(
-                        &mut chainstate_copy,
-                        &consensus_hash,
-                        &header_hash,
-                        tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
-                    )
+                    .submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, tx)
                     .unwrap();
             } else if round == 4 {
                 // let's testing "chaining": submit MAXIMUM_MEMPOOL_TX_CHAINING - 1 txs, which should succeed
@@ -1153,8 +919,6 @@ fn contract_stx_transfer() {
                             &header_hash,
                             &xfer_to_contract,
                             None,
-                            &ExecutionCost::max_value(),
-                            &StacksEpochId::Epoch20,
                         )
                         .unwrap();
                 }
@@ -1171,8 +935,6 @@ fn contract_stx_transfer() {
                         &header_hash,
                         &xfer_to_contract,
                         None,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap_err()
                 {
@@ -1197,7 +959,7 @@ fn contract_stx_transfer() {
                 1 => {
                     assert!(chain_tip.metadata.block_height == 2);
                     // Block #1 should have 2 txs -- coinbase + transfer
-                    assert_eq!(chain_tip.block.txs.len(), 2);
+                    assert!(chain_tip.block.txs.len() == 2);
 
                     let cur_tip = (
                         chain_tip.metadata.consensus_hash.clone(),
@@ -1236,19 +998,19 @@ fn contract_stx_transfer() {
                                 }
                             )
                             .unwrap(),
-                        98990
+                        99000
                     );
                 }
                 2 => {
                     assert!(chain_tip.metadata.block_height == 3);
                     // Block #2 should have 2 txs -- coinbase + publish
-                    assert_eq!(chain_tip.block.txs.len(), 2);
+                    assert!(chain_tip.block.txs.len() == 2);
                 }
                 3 => {
                     assert!(chain_tip.metadata.block_height == 4);
                     // Block #3 should have 2 txs -- coinbase + contract-call,
                     //   the second publish _should have been rejected_
-                    assert_eq!(chain_tip.block.txs.len(), 2);
+                    assert!(chain_tip.block.txs.len() == 2);
 
                     // check that 1 stx was transfered to SK_2 via the contract-call
                     let cur_tip = (
@@ -1270,7 +1032,7 @@ fn contract_stx_transfer() {
                                 }
                             )
                             .unwrap(),
-                        991
+                        1
                     );
 
                     assert_eq!(
@@ -1337,7 +1099,7 @@ fn contract_stx_transfer() {
                                 }
                             )
                             .unwrap(),
-                        68990
+                        69000
                     );
                 }
 
@@ -1380,7 +1142,7 @@ fn mine_transactions_out_of_order() {
             if round == 1 {
                 // block-height = 2
                 let xfer_to_contract =
-                    make_stacks_transfer(&sk, 1, 10, &contract_identifier.into(), 1000);
+                    make_stacks_transfer(&sk, 1, 0, &contract_identifier.into(), 1000);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1388,13 +1150,11 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
                 // block-height > 2
-                let publish_tx = make_contract_publish(&sk, 2, 10, "faucet", FAUCET_CONTRACT);
+                let publish_tx = make_contract_publish(&sk, 2, 0, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1402,13 +1162,11 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 3 {
                 let xfer_to_contract =
-                    make_stacks_transfer(&sk, 3, 10, &contract_identifier.into(), 1000);
+                    make_stacks_transfer(&sk, 3, 0, &contract_identifier.into(), 1000);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1416,13 +1174,11 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 4 {
                 let xfer_to_contract =
-                    make_stacks_transfer(&sk, 0, 10, &contract_identifier.into(), 1000);
+                    make_stacks_transfer(&sk, 0, 0, &contract_identifier.into(), 1000);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1430,8 +1186,6 @@ fn mine_transactions_out_of_order() {
                         &consensus_hash,
                         &header_hash,
                         xfer_to_contract,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }
@@ -1503,10 +1257,8 @@ fn mine_transactions_out_of_order() {
 #[test]
 fn mine_contract_twice() {
     let mut conf = super::new_test_conf();
-    let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
 
     conf.burnchain.commit_anchor_block_within = 1000;
-    conf.add_initial_balance(to_addr(&contract_sk).to_string(), 1000);
 
     let num_rounds = 3;
 
@@ -1516,26 +1268,19 @@ fn mine_contract_twice() {
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
             let mut chainstate_copy = tenure.open_chainstate();
-            let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
 
+            let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             if round == 1 {
                 // block-height = 2
                 let publish_tx =
-                    make_contract_publish(&contract_sk, 0, 10, "faucet", FAUCET_CONTRACT);
+                    make_contract_publish(&contract_sk, 0, 0, "faucet", FAUCET_CONTRACT);
                 let (consensus_hash, block_hash) = (
                     &tenure.parent_block.metadata.consensus_hash,
                     &tenure.parent_block.metadata.anchored_header.block_hash(),
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(
-                        &mut chainstate_copy,
-                        consensus_hash,
-                        block_hash,
-                        publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
-                    )
+                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
                     .unwrap();
 
                 // throw an extra "run" in.
@@ -1583,15 +1328,11 @@ fn mine_contract_twice() {
 fn bad_contract_tx_rollback() {
     let mut conf = super::new_test_conf();
 
-    let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-    let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
     let addr_3 = to_addr(&sk_3);
 
     conf.burnchain.commit_anchor_block_within = 5000;
     conf.add_initial_balance(addr_3.to_string(), 100000);
-    conf.add_initial_balance(to_addr(&contract_sk).to_string(), 1000);
-    conf.add_initial_balance(to_addr(&sk_2).to_string(), 1000);
 
     let num_rounds = 4;
 
@@ -1617,7 +1358,7 @@ fn bad_contract_tx_rollback() {
             if round == 1 {
                 // block-height = 2
                 let xfer_to_contract =
-                    make_stacks_transfer(&sk_3, 0, 10, &contract_identifier.into(), 1000);
+                    make_stacks_transfer(&sk_3, 0, 0, &contract_identifier.into(), 1000);
                 let (consensus_hash, block_hash) = (
                     &tenure.parent_block.metadata.consensus_hash,
                     &tenure.parent_block.metadata.anchored_header.block_hash(),
@@ -1629,13 +1370,11 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             } else if round == 2 {
                 // block-height = 3
-                let xfer_to_contract = make_stacks_transfer(&sk_3, 1, 10, &addr_2.into(), 1000);
+                let xfer_to_contract = make_stacks_transfer(&sk_3, 1, 0, &addr_2.into(), 1000);
                 let (consensus_hash, block_hash) = (
                     &tenure.parent_block.metadata.consensus_hash,
                     &tenure.parent_block.metadata.anchored_header.block_hash(),
@@ -1647,13 +1386,11 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
                 // doesn't consistently get mined by the StacksBlockBuilder, because order matters!
-                let xfer_to_contract = make_stacks_transfer(&sk_3, 2, 10, &addr_2.into(), 3000);
+                let xfer_to_contract = make_stacks_transfer(&sk_3, 2, 0, &addr_2.into(), 3000);
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -1661,37 +1398,21 @@ fn bad_contract_tx_rollback() {
                         consensus_hash,
                         block_hash,
                         xfer_to_contract,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
                 let publish_tx =
-                    make_contract_publish(&contract_sk, 0, 10, "faucet", FAUCET_CONTRACT);
+                    make_contract_publish(&contract_sk, 0, 0, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(
-                        &mut chainstate_copy,
-                        consensus_hash,
-                        block_hash,
-                        publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
-                    )
+                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
                     .unwrap();
 
                 let publish_tx =
-                    make_contract_publish(&contract_sk, 1, 10, "faucet", FAUCET_CONTRACT);
+                    make_contract_publish(&contract_sk, 1, 0, "faucet", FAUCET_CONTRACT);
                 tenure
                     .mem_pool
-                    .submit_raw(
-                        &mut chainstate_copy,
-                        consensus_hash,
-                        block_hash,
-                        publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
-                    )
+                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
                     .unwrap();
             }
 
@@ -1711,7 +1432,7 @@ fn bad_contract_tx_rollback() {
                 1 => {
                     assert!(chain_tip.metadata.block_height == 2);
                     // Block #1 should have 2 txs -- coinbase + transfer
-                    assert_eq!(chain_tip.block.txs.len(), 2);
+                    assert!(chain_tip.block.txs.len() == 2);
 
                     let cur_tip = (
                         chain_tip.metadata.consensus_hash.clone(),
@@ -1750,7 +1471,7 @@ fn bad_contract_tx_rollback() {
                                 }
                             )
                             .unwrap(),
-                        98990
+                        99000
                     );
                 }
                 2 => {
@@ -1812,53 +1533,17 @@ fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
     contract
 }
 
-fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
-    let mut seed = {
-        let secret_state = seed.as_bytes().to_vec();
-        Sha256Sum::from_data(&secret_state)
-    };
-
-    let mut ret = vec![];
-    while (ret.len() as u64) < count {
-        if let Ok(sk) = StacksPrivateKey::from_slice(seed.as_bytes()) {
-            ret.push(sk);
-        }
-        seed = Sha256Sum::from_data(seed.as_bytes());
-    }
-    ret
-}
-
 #[test]
 fn block_limit_runtime_test() {
     let mut conf = super::new_test_conf();
 
-    conf.burnchain.epochs = Some(vec![StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: 0,
-        end_height: 9223372036854775807,
-        block_limit: ExecutionCost {
-            write_length: 150000000,
-            write_count: 50000,
-            read_length: 1000000000,
-            read_count: 50000,
-            // use a shorter runtime limit. the current runtime limit
-            //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
-            runtime: 1_000_000_000,
-        },
-        network_epoch: PEER_VERSION_EPOCH_2_0,
-    }]);
+    // use a shorter runtime limit. the current runtime limit
+    //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+    conf.block_limit.runtime = 1_000_000_000;
     conf.burnchain.commit_anchor_block_within = 5000;
 
-    let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-    conf.add_initial_balance(to_addr(&contract_sk).to_string(), 1000);
-
-    let seed = "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447";
-    let spender_sks = make_keys(seed, 500);
-    for sk in spender_sks.iter() {
-        conf.add_initial_balance(to_addr(&sk).to_string(), 1000);
-    }
-
     let num_rounds = 6;
+
     let mut run_loop = RunLoop::new(conf);
 
     run_loop
@@ -1867,6 +1552,7 @@ fn block_limit_runtime_test() {
             let mut chainstate_copy = tenure.open_chainstate();
 
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+
             let _contract_identifier = QualifiedContractIdentifier::parse(&format!(
                 "{}.{}",
                 to_addr(&contract_sk),
@@ -1882,34 +1568,24 @@ fn block_limit_runtime_test() {
                 let publish_tx = make_contract_publish(
                     &contract_sk,
                     0,
-                    10,
+                    0,
                     "hello-contract",
                     EXPENSIVE_CONTRACT.as_str(),
                 );
                 tenure
                     .mem_pool
-                    .submit_raw(
-                        &mut chainstate_copy,
-                        consensus_hash,
-                        block_hash,
-                        publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
-                    )
+                    .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, publish_tx)
                     .unwrap();
             } else if round > 1 {
                 eprintln!("Begin Round: {}", round);
                 let to_submit = 2 * (round - 1);
 
-                let seed = "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447";
-                let spender_sks = make_keys(seed, 500);
-
-                for i in 0..to_submit {
-                    let sk = &spender_sks[(i + round * round) as usize];
+                for _i in 0..to_submit {
+                    let sk = StacksPrivateKey::new();
                     let tx = make_contract_call(
-                        sk,
+                        &sk,
                         0,
-                        10,
+                        0,
                         &to_addr(&contract_sk),
                         "hello-contract",
                         "do-it",
@@ -1917,14 +1593,7 @@ fn block_limit_runtime_test() {
                     );
                     tenure
                         .mem_pool
-                        .submit_raw(
-                            &mut chainstate_copy,
-                            consensus_hash,
-                            block_hash,
-                            tx,
-                            &ExecutionCost::max_value(),
-                            &StacksEpochId::Epoch20,
-                        )
+                        .submit_raw(&mut chainstate_copy, consensus_hash, block_hash, tx)
                         .unwrap();
                 }
             }
@@ -1973,9 +1642,6 @@ fn mempool_errors() {
         amount: 100300,
     });
 
-    let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-    conf.add_initial_balance(to_addr(&contract_sk).to_string(), 1000);
-
     let num_rounds = 2;
 
     let rpc_bind = conf.node.rpc_bind.clone();
@@ -1990,16 +1656,16 @@ fn mempool_errors() {
     run_loop
         .callbacks
         .on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
-            let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let mut chainstate_copy = tenure.open_chainstate();
 
+            let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let header_hash = chain_tip.block.block_hash();
             let consensus_hash = chain_tip.metadata.consensus_hash;
 
             if round == 1 {
                 // block-height = 2
                 let publish_tx =
-                    make_contract_publish(&contract_sk, 0, 10, "get-info", GET_INFO_CONTRACT);
+                    make_contract_publish(&contract_sk, 0, 0, "get-info", GET_INFO_CONTRACT);
                 eprintln!("Tenure in 1 started!");
                 tenure
                     .mem_pool
@@ -2008,8 +1674,6 @@ fn mempool_errors() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx,
-                        &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }
@@ -2114,7 +1778,7 @@ fn mempool_errors() {
                 let tx_xfer_invalid = make_stacks_transfer(
                     &contract_sk,
                     1,
-                    2000, // not enough funds!
+                    200, // not enough funds!
                     &send_to,
                     456,
                 );
@@ -2146,11 +1810,11 @@ fn mempool_errors() {
                 let data = res.get("reason_data").unwrap();
                 assert_eq!(
                     data.get("expected").unwrap().as_str().unwrap(),
-                    format!("0x{:032x}", 2456)
+                    format!("0x{:032x}", 656)
                 );
                 assert_eq!(
                     data.get("actual").unwrap().as_str().unwrap(),
-                    format!("0x{:032x}", 990)
+                    format!("0x{:032x}", 0)
                 );
 
                 let tx_xfer_invalid = make_sponsored_stacks_transfer_on_testnet(
@@ -2158,7 +1822,7 @@ fn mempool_errors() {
                     &contract_sk,
                     1 + MAXIMUM_MEMPOOL_TX_CHAINING,
                     1,
-                    2000,
+                    350,
                     &send_to,
                     1000,
                 );
@@ -2190,11 +1854,11 @@ fn mempool_errors() {
                 let data = res.get("reason_data").unwrap();
                 assert_eq!(
                     data.get("expected").unwrap().as_str().unwrap(),
-                    format!("0x{:032x}", 2000)
+                    format!("0x{:032x}", 350)
                 );
                 assert_eq!(
                     data.get("actual").unwrap().as_str().unwrap(),
-                    format!("0x{:032x}", 990)
+                    format!("0x{:032x}", 0)
                 );
             }
         },

@@ -45,12 +45,9 @@ use chainstate::stacks::index::node::{
 };
 use chainstate::stacks::index::Error;
 use chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
-use util::db::sql_pragma;
-use util::db::sqlite_open;
 use util::db::tx_begin_immediate;
 use util::db::tx_busy_handler;
 use util::db::Error as db_error;
-use util::db::SQLITE_MMAP_SIZE;
 use util::log;
 
 use crate::types::chainstate::BlockHeaderHash;
@@ -723,16 +720,6 @@ pub struct TrieFileStorage<T: MarfTrieId> {
     pub test_genesis_block: Option<T>,
 }
 
-fn marf_sqlite_open<P: AsRef<Path>>(
-    db_path: P,
-    open_flags: OpenFlags,
-    foreign_keys: bool,
-) -> Result<Connection, db_error> {
-    let db = sqlite_open(db_path, open_flags, foreign_keys)?;
-    sql_pragma(&db, "mmap_size", &SQLITE_MMAP_SIZE)?;
-    Ok(db)
-}
-
 impl<T: MarfTrieId> TrieFileStorage<T> {
     pub fn connection<'a>(&'a mut self) -> TrieStorageConnection<'a, T> {
         TrieStorageConnection {
@@ -808,7 +795,9 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             }
         };
 
-        let mut db = marf_sqlite_open(db_path, open_flags, false)?;
+        let mut db = Connection::open_with_flags(db_path, open_flags)?;
+        db.busy_handler(Some(tx_busy_handler))?;
+
         let db_path = db_path.to_string();
 
         if create_flag {
@@ -877,7 +866,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     }
 
     pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
-        let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
+        let db = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        db.busy_handler(Some(tx_busy_handler))?;
 
         trace!("Make read-only view of TrieFileStorage: {}", &self.db_path);
 
@@ -921,7 +911,8 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     /// reopen this transaction as a read-only marf.
     ///  _does not_ preserve the cur_block/open tip
     pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
-        let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
+        let db = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        db.busy_handler(Some(tx_busy_handler))?;
 
         trace!(
             "Make read-only view of TrieStorageTransaction: {}",
@@ -1295,7 +1286,9 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     /// Recover from partially-written state -- i.e. blow it away.
     /// Doesn't get called automatically.
     pub fn recover(db_path: &String) -> Result<(), Error> {
-        let conn = marf_sqlite_open(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE, false)?;
+        let conn = Connection::open(db_path)?;
+        conn.busy_handler(Some(tx_busy_handler))?;
+
         trie_sql::clear_lock_data(&conn)
     }
 

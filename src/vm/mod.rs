@@ -45,7 +45,6 @@ pub mod coverage;
 pub mod tests;
 
 use crate::clarity_vm::database::MemoryBackingStore;
-use crate::core::StacksEpochId;
 use vm::callables::CallableType;
 use vm::contexts::GlobalContext;
 pub use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
@@ -191,16 +190,6 @@ pub fn apply(
         let mut resp = match function {
             CallableType::NativeFunction(_, function, cost_function) => {
                 runtime_cost(*cost_function, env, evaluated_args.len())
-                    .map_err(Error::from)
-                    .and_then(|_| function.apply(evaluated_args))
-            }
-            CallableType::NativeFunction205(_, function, cost_function, cost_input_handle) => {
-                let cost_input = if env.epoch() >= &StacksEpochId::Epoch2_05 {
-                    cost_input_handle(evaluated_args.as_slice())?
-                } else {
-                    evaluated_args.len() as u64
-                };
-                runtime_cost(*cost_function, env, cost_input)
                     .map_err(Error::from)
                     .and_then(|_| function.apply(evaluated_args))
             }
@@ -377,84 +366,50 @@ pub fn eval_all(
     })
 }
 
-/// Run provided program in a brand new environment, with a transient, empty
-/// database. Only used for testing
-/// This method executes the program in Epoch 2.0 *and* Epoch 2.05 and asserts
-/// that the result is the same before returning the result
-#[cfg(test)]
-pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Value>> {
-    let epoch_200_result = execute_with_parameters(
-        program,
-        ClarityVersion::Clarity2,
-        StacksEpochId::Epoch20,
-        use_mainnet,
-    );
-    let epoch_205_result = execute_with_parameters(
-        program,
-        ClarityVersion::Clarity2,
-        StacksEpochId::Epoch2_05,
-        use_mainnet,
-    );
-    assert_eq!(
-        epoch_200_result, epoch_205_result,
-        "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
-        program
-    );
-    epoch_205_result
-}
-
-/// Runs `program` in a test environment with the provided parameters.
-#[cfg(test)]
-pub fn execute_with_parameters(
+pub fn execute_against_version_and_network(
     program: &str,
-    clarity_version: ClarityVersion,
-    epoch: StacksEpochId,
-    use_mainnet: bool,
+    version: ClarityVersion,
+    as_mainnet: bool,
 ) -> Result<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
+    let mut contract_context = ContractContext::new(contract_id.clone(), version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context =
-        GlobalContext::new(use_mainnet, conn, LimitedCostTracker::new_free(), epoch);
+    let mut global_context = GlobalContext::new(as_mainnet, conn, LimitedCostTracker::new_free());
     global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut (), clarity_version)?.expressions;
+        let parsed = ast::build_ast(&contract_id, program, &mut (), version)?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
-/// Execute for test with `version`, Epoch20, testnet.
-#[cfg(test)]
+/* Run provided program in a brand new environment, with a transient, empty
+ *  database. Only used by CLI and unit tests.
+ */
 pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
-    execute_with_parameters(program, version, StacksEpochId::Epoch20, false)
+    execute_against_version_and_network(program, version, false)
 }
 
-/// Execute for test in Clarity1, Epoch20, testnet.
-#[cfg(test)]
+/* Run provided program in a brand new environment, with a transient, empty
+ *  database. Only used by CLI and unit tests.
+ *
+ * This version of the function assumes that the ClarityVersion is Clarity1.
+ */
 pub fn execute(program: &str) -> Result<Option<Value>> {
-    execute_with_parameters(
-        program,
-        ClarityVersion::Clarity1,
-        StacksEpochId::Epoch20,
-        false,
-    )
+    execute_against_version(program, ClarityVersion::Clarity1)
 }
 
-/// Execute for test in in Clarity2, Epoch21, testnet.
-#[cfg(test)]
+/* Run provided program in a brand new environment, with a transient, empty
+ *  database. Only used by CLI and unit tests.
+ *
+ * This version of the function assumes that the ClarityVersion is Clarity2.
+ */
 pub fn execute_v2(program: &str) -> Result<Option<Value>> {
-    execute_with_parameters(
-        program,
-        ClarityVersion::Clarity2,
-        StacksEpochId::Epoch21,
-        false,
-    )
+    execute_against_version(program, ClarityVersion::Clarity2)
 }
 
 #[cfg(test)]
 mod test {
     use crate::clarity_vm::database::MemoryBackingStore;
-    use crate::core::StacksEpochId;
     use std::collections::HashMap;
     use vm::callables::{DefineType, DefinedFunction};
     use vm::costs::LimitedCostTracker;
@@ -504,12 +459,8 @@ mod test {
         );
 
         let mut marf = MemoryBackingStore::new();
-        let mut global_context = GlobalContext::new(
-            false,
-            marf.as_clarity_db(),
-            LimitedCostTracker::new_free(),
-            StacksEpochId::Epoch2_05,
-        );
+        let mut global_context =
+            GlobalContext::new(false, marf.as_clarity_db(), LimitedCostTracker::new_free());
 
         contract_context
             .variables

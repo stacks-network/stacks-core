@@ -19,7 +19,6 @@ use crate::types::chainstate::{StacksAddress, VRFSeed};
 use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
 
 use core::StacksEpoch;
-use core::StacksEpochId;
 
 pub mod marf;
 
@@ -125,10 +124,6 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     fn get_pox_rejection_fraction(&self) -> u64 {
         self.context.pox_constants.pox_rejection_fraction
     }
-    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
-        SortitionDB::get_stacks_epoch_by_epoch_id(self.tx(), epoch_id)
-            .expect("BUG: failed to get epoch for epoch id")
-    }
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
@@ -174,10 +169,6 @@ impl BurnStateDB for SortitionDBConn<'_> {
 
     fn get_pox_rejection_fraction(&self) -> u64 {
         self.context.pox_constants.pox_rejection_fraction
-    }
-    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
-        SortitionDB::get_stacks_epoch_by_epoch_id(self.conn(), epoch_id)
-            .expect("BUG: failed to get epoch for epoch id")
     }
 }
 

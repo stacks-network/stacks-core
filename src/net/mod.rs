@@ -43,16 +43,13 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use url;
 
-use crate::util::boot::boot_code_tx_auth;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
-use chainstate::coordinator::Error as coordinator_error;
 use chainstate::stacks::db::blocks::MemPoolRejection;
 use chainstate::stacks::index::Error as marf_error;
 use chainstate::stacks::Error as chainstate_error;
 use chainstate::stacks::{
     Error as chain_error, StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
-    TransactionPayload,
 };
 use clarity_vm::clarity::Error as clarity_error;
 use codec::Error as codec_error;
@@ -79,13 +76,11 @@ use vm::{
 };
 
 use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
-use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use crate::types::StacksPublicKeyBuffer;
 use crate::util::hash::Sha256Sum;
-use crate::vm::costs::ExecutionCost;
 
 use self::dns::*;
 pub use self::http::StacksHttp;
@@ -1031,40 +1026,6 @@ pub struct RPCPoxInfoData {
     pub next_reward_cycle_in: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCFeeEstimate {
-    pub fee_rate: f64,
-    pub fee: u64,
-}
-
-impl RPCFeeEstimate {
-    pub fn estimate_fees(scalar: u64, fee_rates: FeeRateEstimate) -> Vec<RPCFeeEstimate> {
-        let estimated_fees_f64 = fee_rates.clone() * (scalar as f64);
-        vec![
-            RPCFeeEstimate {
-                fee: estimated_fees_f64.low as u64,
-                fee_rate: fee_rates.low,
-            },
-            RPCFeeEstimate {
-                fee: estimated_fees_f64.middle as u64,
-                fee_rate: fee_rates.middle,
-            },
-            RPCFeeEstimate {
-                fee: estimated_fees_f64.high as u64,
-                fee_rate: fee_rates.high,
-            },
-        ]
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCFeeEstimateResponse {
-    pub estimated_cost: ExecutionCost,
-    pub estimated_cost_scalar: u64,
-    pub estimations: Vec<RPCFeeEstimate>,
-    pub cost_scalar_change_by_byte: f64,
-}
-
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
 #[repr(u8)]
 pub enum HttpVersion {
@@ -1221,13 +1182,6 @@ pub struct CallReadOnlyRequestBody {
     pub arguments: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct FeeRateEstimateRequestBody {
-    #[serde(default)]
-    pub estimated_len: Option<u64>,
-    pub transaction_payload: String,
-}
-
 /// Items in the NeighborsInfo -- combines NeighborKey and NeighborAddress
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCNeighbor {
@@ -1290,7 +1244,6 @@ pub enum HttpRequestType {
         Option<StacksBlockId>,
         bool,
     ),
-    FeeRateEstimate(HttpRequestMetadata, TransactionPayload, u64),
     CallReadOnlyFunction(
         HttpRequestMetadata,
         StacksAddress,
@@ -1419,7 +1372,6 @@ pub enum HttpResponseType {
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
     OptionsPreflight(HttpResponseMetadata),
-    TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
     // peer-given error responses
     BadRequest(HttpResponseMetadata, String),
     BadRequestJSON(HttpResponseMetadata, serde_json::Value),
@@ -2170,8 +2122,6 @@ pub mod test {
             parent_burn_block_hash: BurnchainHeaderHash,
             parent_burn_block_height: u32,
             parent_burn_block_timestamp: u64,
-            _anchor_block_cost: &ExecutionCost,
-            _confirmed_mblock_cost: &ExecutionCost,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block,
@@ -2367,7 +2317,7 @@ pub mod test {
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
-        pub coord: ChainsCoordinator<'a, TestEventObserver, (), OnChainRewardSetProvider, (), ()>,
+        pub coord: ChainsCoordinator<'a, TestEventObserver, (), OnChainRewardSetProvider>,
     }
 
     impl<'a> TestPeer<'a> {
@@ -2375,18 +2325,14 @@ pub mod test {
             TestPeer::new_with_observer(config, None)
         }
 
-        pub fn test_path(config: &TestPeerConfig) -> String {
-            format!(
-                "/tmp/stacks-node-tests/units-test-peer/{}-{}",
-                &config.test_name, config.server_port
-            )
-        }
-
         pub fn new_with_observer(
             mut config: TestPeerConfig,
             observer: Option<&'a TestEventObserver>,
         ) -> TestPeer<'a> {
-            let test_path = TestPeer::test_path(&config);
+            let test_path = format!(
+                "/tmp/blockstack-test-peer-{}-{}",
+                &config.test_name, config.server_port
+            );
             match fs::metadata(&test_path) {
                 Ok(_) => {
                     fs::remove_dir_all(&test_path).unwrap();
@@ -2410,9 +2356,10 @@ pub mod test {
 
             config.burnchain = burnchain.clone();
 
-            let epochs = config.epochs.clone().unwrap_or_else(|| {
-                StacksEpoch::unit_test_pre_2_05(config.burnchain.first_block_height)
-            });
+            let epochs = config
+                .epochs
+                .clone()
+                .unwrap_or_else(|| StacksEpoch::unit_test(config.burnchain.first_block_height));
 
             let mut sortdb = SortitionDB::connect(
                 &config.burnchain.get_db_path(),
@@ -2485,7 +2432,16 @@ pub mod test {
                             stx_balance: STXBalance::zero(),
                         };
 
-                        let boot_code_auth = boot_code_tx_auth(boot_code_addr);
+                        let boot_code_auth = TransactionAuth::Standard(
+                            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
+                                signer: boot_code_addr.bytes.clone(),
+                                hash_mode: SinglesigHashMode::P2PKH,
+                                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
+                                nonce: 0,
+                                tx_fee: 0,
+                                signature: MessageSignature::empty(),
+                            }),
+                        );
 
                         debug!(
                             "Instantiate test-specific boot code contract '{}.{}' ({} bytes)...",
@@ -2534,6 +2490,7 @@ pub mod test {
                 config.network_id,
                 &chainstate_path,
                 Some(&mut boot_data),
+                ExecutionCost::max_value(),
             )
             .unwrap();
 
@@ -2613,12 +2570,11 @@ pub mod test {
                 config.burnchain.clone(),
                 burnchain_view,
                 config.connection_opts.clone(),
-                epochs.clone(),
             );
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
             let relayer = Relayer::from_p2p(&mut peer_network);
-            let mempool = MemPoolDB::open_test(false, config.network_id, &chainstate_path).unwrap();
+            let mempool = MemPoolDB::open(false, config.network_id, &chainstate_path).unwrap();
 
             TestPeer {
                 config: config,
@@ -3007,50 +2963,6 @@ pub mod test {
             self.stacks_node = Some(node);
         }
 
-        fn inner_process_stacks_epoch_at_tip(
-            &mut self,
-            sortdb: &SortitionDB,
-            node: &mut TestStacksNode,
-            block: &StacksBlock,
-            microblocks: &Vec<StacksMicroblock>,
-        ) -> Result<(), coordinator_error> {
-            {
-                let ic = sortdb.index_conn();
-                let tip = SortitionDB::get_canonical_burn_chain_tip(&ic)?;
-                node.chainstate
-                    .preprocess_stacks_epoch(&ic, &tip, block, microblocks)?;
-            }
-            self.coord.handle_new_stacks_block()?;
-
-            let pox_id = {
-                let ic = sortdb.index_conn();
-                let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id)?;
-                sortdb_reader.get_pox_id()?;
-            };
-            test_debug!(
-                "\n\n{:?}: after stacks block {:?}, tip PoX ID is {:?}\n\n",
-                &self.to_neighbor().addr,
-                &block.block_hash(),
-                &pox_id
-            );
-            Ok(())
-        }
-
-        pub fn process_stacks_epoch_at_tip_checked(
-            &mut self,
-            block: &StacksBlock,
-            microblocks: &Vec<StacksMicroblock>,
-        ) -> Result<(), coordinator_error> {
-            let sortdb = self.sortdb.take().unwrap();
-            let mut node = self.stacks_node.take().unwrap();
-            let res =
-                self.inner_process_stacks_epoch_at_tip(&sortdb, &mut node, block, microblocks);
-            self.sortdb = Some(sortdb);
-            self.stacks_node = Some(node);
-            res
-        }
-
         pub fn process_stacks_epoch(
             &mut self,
             block: &StacksBlock,
@@ -3415,8 +3327,7 @@ pub mod test {
                     let sort_iconn = sortdb.index_conn();
                     let mut epoch = builder
                         .epoch_begin(&mut miner_chainstate, &sort_iconn)
-                        .unwrap()
-                        .0;
+                        .unwrap();
 
                     let (stacks_block, microblocks) =
                         mine_smart_contract_block_contract_call_microblock(

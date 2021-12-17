@@ -31,7 +31,6 @@ use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
 use address::c32::c32_address;
 use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
-use util::db::sqlite_open;
 use util::db::FromColumn;
 use util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 
@@ -47,11 +46,12 @@ use vm::costs::ExecutionCost;
 use vm::costs::LimitedCostTracker;
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
+    NULL_HEADER_DB,
 };
 use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier};
 use vm::ClarityVersion;
-use vm::{SymbolicExpression, SymbolicExpressionType, Value};
+use vm::{execute as vm_execute, SymbolicExpression, SymbolicExpressionType, Value};
 
 use burnchains::PoxConstants;
 use burnchains::Txid;
@@ -59,8 +59,8 @@ use burnchains::Txid;
 use chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET};
 use util::boot::{boot_code_addr, boot_code_id};
 
-use core::BLOCK_LIMIT_MAINNET_20;
-use core::HELIUM_BLOCK_LIMIT_20;
+use core::BLOCK_LIMIT_MAINNET;
+use core::HELIUM_BLOCK_LIMIT;
 
 use serde::Serialize;
 use serde_json::json;
@@ -73,17 +73,12 @@ use std::convert::TryFrom;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::marf::WritableMarfStore;
 use crate::clarity_vm::database::MemoryBackingStore;
-use crate::core::StacksEpochId;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::VRFSeed;
 use crate::types::proof::ClarityMarfTrieId;
-use crate::vm::ast;
-use crate::vm::contexts::GlobalContext;
-use crate::vm::eval_all;
-use crate::vm::ContractContext;
 use std::str::FromStr;
 
 #[cfg(test)]
@@ -137,8 +132,6 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
         panic_test!();
     })
 }
-
-pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
 
 struct EvalInput {
     marf_kv: MarfedKV,
@@ -221,12 +214,11 @@ fn run_analysis<C: ClarityStorage>(
     let cost_track = LimitedCostTracker::new(
         mainnet,
         if mainnet {
-            BLOCK_LIMIT_MAINNET_20.clone()
+            BLOCK_LIMIT_MAINNET.clone()
         } else {
-            HELIUM_BLOCK_LIMIT_20.clone()
+            HELIUM_BLOCK_LIMIT.clone()
         },
         &mut marf_kv.get_clarity_db(header_db, &NULL_BURN_STATE_DB),
-        DEFAULT_CLI_EPOCH,
     )
     .unwrap();
     analysis::run_analysis(
@@ -267,7 +259,7 @@ fn create_or_open_db(path: &String) -> Connection {
     };
 
     let conn = friendly_expect(
-        sqlite_open(path, open_flags, false),
+        Connection::open_with_flags(path, open_flags),
         &format!("FATAL: failed to open '{}'", path),
     );
     conn
@@ -397,37 +389,17 @@ where
     let cost_track = LimitedCostTracker::new(
         mainnet,
         if mainnet {
-            BLOCK_LIMIT_MAINNET_20.clone()
+            BLOCK_LIMIT_MAINNET.clone()
         } else {
-            HELIUM_BLOCK_LIMIT_20.clone()
+            HELIUM_BLOCK_LIMIT.clone()
         },
         &mut db,
-        DEFAULT_CLI_EPOCH,
     )
     .unwrap();
-    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track, DEFAULT_CLI_EPOCH);
+    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track);
     let result = f(&mut vm_env);
     let cost = vm_env.get_cost_total();
     (result, cost)
-}
-
-/// Execute program in a transient environment. To be used only by CLI tools
-///  for program evaluation, not by consensus critical code.
-pub fn vm_execute(program: &str, version: &ClarityVersion) -> Result<Option<Value>, Error> {
-    let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone(), version.clone());
-    let mut marf = MemoryBackingStore::new();
-    let conn = marf.as_clarity_db();
-    let mut global_context = GlobalContext::new(
-        false,
-        conn,
-        LimitedCostTracker::new_free(),
-        DEFAULT_CLI_EPOCH,
-    );
-    global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut (), version.clone())?.expressions;
-        eval_all(&parsed, &mut contract_context, g, None)
-    })
 }
 
 struct CLIHeadersDB {
@@ -755,7 +727,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         match analysis_result {
             Ok(_) => {
                 let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-                let mut vm_env = OwnedEnvironment::new_free(mainnet, db, DEFAULT_CLI_EPOCH);
+                let mut vm_env = OwnedEnvironment::new_free(mainnet, db);
                 vm_env
                     .initialize_contract(contract_identifier, &contract_content, None)
                     .unwrap();
@@ -783,7 +755,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     ];
 
     let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-    let mut vm_env = OwnedEnvironment::new_free(mainnet, db, DEFAULT_CLI_EPOCH);
+    let mut vm_env = OwnedEnvironment::new_free(mainnet, db);
     vm_env
         .execute_transaction(
             sender,
@@ -816,7 +788,6 @@ pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
 }
 
 /// Returns (process-exit-code, Option<json-output>)
-/// Assumes version Clarity1.
 pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_json::Value>) {
     if args.len() < 1 {
         print_usage(invoked_by);
@@ -1080,8 +1051,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 true
             };
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env =
-                OwnedEnvironment::new_free(mainnet, marf.as_clarity_db(), DEFAULT_CLI_EPOCH);
+            let mut vm_env = OwnedEnvironment::new_free(mainnet, marf.as_clarity_db());
             let mut exec_env = vm_env.get_exec_environment(None, None);
             let mut analysis_marf = MemoryBackingStore::new();
 
@@ -1147,8 +1117,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let mut analysis_marf = MemoryBackingStore::new();
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env =
-                OwnedEnvironment::new_free(true, marf.as_clarity_db(), DEFAULT_CLI_EPOCH);
+            let mut vm_env = OwnedEnvironment::new_free(true, marf.as_clarity_db());
 
             let contract_id = QualifiedContractIdentifier::transient();
 
@@ -1532,7 +1501,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 .iter()
                 .map(|argument| {
                     let argument_parsed = friendly_expect(
-                        vm_execute(argument, &ClarityVersion::Clarity1),
+                        vm_execute(argument),
                         &format!("Error parsing argument \"{}\"", argument),
                     );
                     let argument_value = friendly_expect_opt(

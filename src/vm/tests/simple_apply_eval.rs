@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core::StacksEpochId;
 use std::collections::HashMap;
 
 use address::c32;
@@ -35,7 +34,9 @@ use vm::tests::execute;
 use vm::types::signatures::*;
 use vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
 use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
-use vm::{eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters};
+use vm::{
+    eval, execute as vm_execute, execute_against_version_and_network, execute_v2 as vm_execute_v2,
+};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
 use crate::types::chainstate::StacksAddress;
@@ -311,53 +312,33 @@ fn test_principal_of_fix() {
     // Clarity2, mainnet, should have a mainnet principal.
     assert_eq!(
         Value::Principal(mainnet_principal.clone()),
-        execute_with_parameters(
-            principal_of_program,
-            ClarityVersion::Clarity2,
-            StacksEpochId::Epoch20,
-            true
-        )
-        .unwrap()
-        .unwrap()
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity2, true)
+            .unwrap()
+            .unwrap()
     );
 
     // Clarity2, testnet, should have a testnet principal.
     assert_eq!(
         Value::Principal(testnet_principal.clone()),
-        execute_with_parameters(
-            principal_of_program,
-            ClarityVersion::Clarity2,
-            StacksEpochId::Epoch20,
-            false
-        )
-        .unwrap()
-        .unwrap()
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity2, false)
+            .unwrap()
+            .unwrap()
     );
 
     // Clarity1, mainnet, should have a test principal (this is the bug that we need to preserve).
     assert_eq!(
         Value::Principal(testnet_principal.clone()),
-        execute_with_parameters(
-            principal_of_program,
-            ClarityVersion::Clarity1,
-            StacksEpochId::Epoch20,
-            true
-        )
-        .unwrap()
-        .unwrap()
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity1, true)
+            .unwrap()
+            .unwrap()
     );
 
     // Clarity1, testnet, should have a testnet principal.
     assert_eq!(
         Value::Principal(testnet_principal.clone()),
-        execute_with_parameters(
-            principal_of_program,
-            ClarityVersion::Clarity1,
-            StacksEpochId::Epoch20,
-            false
-        )
-        .unwrap()
-        .unwrap()
+        execute_against_version_and_network(principal_of_program, ClarityVersion::Clarity1, false)
+            .unwrap()
+            .unwrap()
     );
 }
 
@@ -485,12 +466,8 @@ fn test_simple_if_functions(#[case] version: ClarityVersion) {
             ClarityVersion::Clarity1,
         );
         let mut marf = MemoryBackingStore::new();
-        let mut global_context = GlobalContext::new(
-            false,
-            marf.as_clarity_db(),
-            LimitedCostTracker::new_free(),
-            StacksEpochId::Epoch20,
-        );
+        let mut global_context =
+            GlobalContext::new(false, marf.as_clarity_db(), LimitedCostTracker::new_free());
 
         contract_context
             .functions
@@ -1040,13 +1017,8 @@ fn test_stx_ops_errors() {
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
         assert_eq!(
             *expectation,
-            execute_with_parameters(
-                program,
-                ClarityVersion::Clarity2,
-                StacksEpochId::Epoch20,
-                false
-            )
-            .unwrap_err()
+            execute_against_version_and_network(program, ClarityVersion::Clarity2, false)
+                .unwrap_err()
         );
     }
 }
@@ -1390,14 +1362,9 @@ fn test_is_mainnet() {
         .for_each(|(program, expectation)| {
             assert_eq!(
                 expectation.clone(),
-                execute_with_parameters(
-                    program,
-                    ClarityVersion::Clarity2,
-                    StacksEpochId::Epoch20,
-                    true
-                )
-                .unwrap()
-                .unwrap()
+                execute_against_version_and_network(program, ClarityVersion::Clarity2, true)
+                    .unwrap()
+                    .unwrap()
             )
         });
 
@@ -1409,14 +1376,9 @@ fn test_is_mainnet() {
         .for_each(|(program, expectation)| {
             assert_eq!(
                 expectation.clone(),
-                execute_with_parameters(
-                    program,
-                    ClarityVersion::Clarity2,
-                    StacksEpochId::Epoch20,
-                    false
-                )
-                .unwrap()
-                .unwrap()
+                execute_against_version_and_network(program, ClarityVersion::Clarity2, false)
+                    .unwrap()
+                    .unwrap()
             )
         });
 }

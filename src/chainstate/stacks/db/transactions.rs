@@ -1193,9 +1193,9 @@ pub mod test {
     use chainstate::*;
     use util::hash::*;
     use vm::contracts::Contract;
+    use vm::database::NULL_BURN_STATE_DB;
     use vm::representations::ClarityName;
     use vm::representations::ContractName;
-    use vm::tests::TEST_BURN_STATE_DB;
     use vm::types::*;
 
     use super::*;
@@ -1236,7 +1236,7 @@ pub mod test {
         let signed_tx = signer.get_tx().unwrap();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -1450,7 +1450,7 @@ pub mod test {
         ];
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -1559,7 +1559,7 @@ pub mod test {
         let signed_tx = signer.get_tx().unwrap();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -1641,7 +1641,7 @@ pub mod test {
         let signed_tx = signer.get_tx().unwrap();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -1699,7 +1699,7 @@ pub mod test {
         let addr = auth.origin().address_testnet();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -1803,7 +1803,7 @@ pub mod test {
         let addr = auth.origin().address_testnet();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -1912,7 +1912,7 @@ pub mod test {
         let signed_tx = signer.get_tx().unwrap();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -2016,7 +2016,7 @@ pub mod test {
 
         // process both
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -2109,7 +2109,7 @@ pub mod test {
         let signed_tx = signer.get_tx().unwrap();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -2221,7 +2221,7 @@ pub mod test {
         let signed_tx = signer.get_tx().unwrap();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -2283,7 +2283,7 @@ pub mod test {
         let signed_tx = signer.get_tx().unwrap();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -2456,7 +2456,7 @@ pub mod test {
 
         // process both
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -2982,7 +2982,7 @@ pub mod test {
         let mut chainstate =
             instantiate_chainstate(false, 0x80000000, "process-post-conditions-tokens");
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -3654,7 +3654,7 @@ pub mod test {
         let mut chainstate =
             instantiate_chainstate(false, 0x80000000, "process-post-conditions-tokens-deny");
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -3997,7 +3997,7 @@ pub mod test {
             "process-post-conditions-tokens-deny-2097",
         );
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -7115,7 +7115,7 @@ pub mod test {
         let signed_contract_call_tx = signer.get_tx().unwrap();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -7227,7 +7227,7 @@ pub mod test {
             .address_testnet();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -7339,7 +7339,7 @@ pub mod test {
             .address_testnet();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),
@@ -7428,7 +7428,7 @@ pub mod test {
             .address_testnet();
 
         let mut conn = chainstate.block_begin(
-            &TEST_BURN_STATE_DB,
+            &NULL_BURN_STATE_DB,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([1u8; 20]),

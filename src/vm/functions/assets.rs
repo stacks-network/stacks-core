@@ -19,7 +19,6 @@ use vm::functions::tuples;
 use std::convert::{TryFrom, TryInto};
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost, CostTracker};
-use vm::database::{ClarityDatabase, ClaritySerializable, STXBalance};
 use vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
@@ -31,7 +30,8 @@ use vm::types::{
 };
 use vm::{eval, Environment, LocalContext};
 
-use crate::core::StacksEpochId;
+use vm::database::ClarityDatabase;
+use vm::database::STXBalance;
 
 use crate::vm::types::TupleData;
 
@@ -73,26 +73,6 @@ macro_rules! clarity_ecode {
         Ok(Value::err_uint($thing as u128))
     };
 }
-
-switch_on_global_epoch!(special_mint_asset(
-    special_mint_asset_v200,
-    special_mint_asset_v205
-));
-
-switch_on_global_epoch!(special_transfer_asset(
-    special_transfer_asset_v200,
-    special_transfer_asset_v205
-));
-
-switch_on_global_epoch!(special_get_owner(
-    special_get_owner_v200,
-    special_get_owner_v205
-));
-
-switch_on_global_epoch!(special_burn_asset(
-    special_burn_asset_v200,
-    special_burn_asset_v205
-));
 
 pub fn special_stx_balance(
     args: &[SymbolicExpression],
@@ -363,7 +343,7 @@ pub fn special_mint_token(
     }
 }
 
-pub fn special_mint_asset_v200(
+pub fn special_mint_asset(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -427,70 +407,7 @@ pub fn special_mint_asset_v200(
     }
 }
 
-/// The Stacks v205 version of mint_asset uses the actual stored size of the
-///  asset as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_mint_asset_v205(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(3, args)?;
-
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let asset = eval(&args[1], env, context)?;
-    let to = eval(&args[2], env, context)?;
-
-    let nft_metadata = env
-        .contract_context
-        .meta_nft
-        .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
-    let expected_asset_type = &nft_metadata.key_type;
-
-    let asset_size = asset.serialized_size() as u64;
-    runtime_cost(ClarityCostFunction::NftMint, env, asset_size)?;
-
-    if !expected_asset_type.admits(&asset) {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
-    }
-
-    if let Value::Principal(ref to_principal) = to {
-        match env.global_context.database.get_nft_owner(
-            &env.contract_context.contract_identifier,
-            asset_name,
-            &asset,
-            expected_asset_type,
-        ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
-            Ok(_owner) => return clarity_ecode!(MintAssetErrorCodes::ALREADY_EXIST),
-            Err(e) => Err(e),
-        }?;
-
-        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(asset_size)?;
-
-        env.global_context.database.set_nft_owner(
-            &env.contract_context.contract_identifier,
-            asset_name,
-            &asset,
-            to_principal,
-            expected_asset_type,
-        )?;
-
-        let asset_identifier = AssetIdentifier {
-            contract_identifier: env.contract_context.contract_identifier.clone(),
-            asset_name: asset_name.clone(),
-        };
-        env.register_nft_mint_event(to_principal.clone(), asset, asset_identifier)?;
-
-        Ok(Value::okay_true())
-    } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, to).into())
-    }
-}
-
-pub fn special_transfer_asset_v200(
+pub fn special_transfer_asset(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -544,92 +461,6 @@ pub fn special_transfer_asset_v200(
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(expected_asset_type.size() as u64)?;
-
-        env.global_context.database.set_nft_owner(
-            &env.contract_context.contract_identifier,
-            asset_name,
-            &asset,
-            to_principal,
-            expected_asset_type,
-        )?;
-
-        env.global_context.log_asset_transfer(
-            from_principal,
-            &env.contract_context.contract_identifier,
-            asset_name,
-            asset.clone(),
-        );
-
-        let asset_identifier = AssetIdentifier {
-            contract_identifier: env.contract_context.contract_identifier.clone(),
-            asset_name: asset_name.clone(),
-        };
-        env.register_nft_transfer_event(
-            from_principal.clone(),
-            to_principal.clone(),
-            asset,
-            asset_identifier,
-        )?;
-
-        Ok(Value::okay_true())
-    } else {
-        Err(CheckErrors::BadTransferNFTArguments.into())
-    }
-}
-
-/// The Stacks v205 version of transfer_asset uses the actual stored size of the
-///  asset as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_transfer_asset_v205(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(4, args)?;
-
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let asset = eval(&args[1], env, context)?;
-    let from = eval(&args[2], env, context)?;
-    let to = eval(&args[3], env, context)?;
-
-    let nft_metadata = env
-        .contract_context
-        .meta_nft
-        .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
-    let expected_asset_type = &nft_metadata.key_type;
-
-    let asset_size = asset.serialized_size() as u64;
-    runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
-
-    if !expected_asset_type.admits(&asset) {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
-    }
-
-    if let (Value::Principal(ref from_principal), Value::Principal(ref to_principal)) = (from, to) {
-        if from_principal == to_principal {
-            return clarity_ecode!(TransferAssetErrorCodes::SENDER_IS_RECIPIENT);
-        }
-
-        let current_owner = match env.global_context.database.get_nft_owner(
-            &env.contract_context.contract_identifier,
-            asset_name,
-            &asset,
-            expected_asset_type,
-        ) {
-            Ok(owner) => Ok(owner),
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
-                return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST)
-            }
-            Err(e) => Err(e),
-        }?;
-
-        if current_owner != *from_principal {
-            return clarity_ecode!(TransferAssetErrorCodes::NOT_OWNED_BY);
-        }
-
-        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(asset_size)?;
 
         env.global_context.database.set_nft_owner(
             &env.contract_context.contract_identifier,
@@ -796,7 +627,7 @@ pub fn special_get_balance(
     }
 }
 
-pub fn special_get_owner_v200(
+pub fn special_get_owner(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -819,48 +650,6 @@ pub fn special_get_owner_v200(
         env,
         expected_asset_type.size(),
     )?;
-
-    if !expected_asset_type.admits(&asset) {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
-    }
-
-    match env.global_context.database.get_nft_owner(
-        &env.contract_context.contract_identifier,
-        asset_name,
-        &asset,
-        expected_asset_type,
-    ) {
-        Ok(owner) => {
-            Ok(Value::some(Value::Principal(owner))
-                .expect("Principal should always fit in optional."))
-        }
-        Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(Value::none()),
-        Err(e) => Err(e),
-    }
-}
-
-/// The Stacks v205 version of get_owner uses the actual stored size of the
-///  asset as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_get_owner_v205(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(2, args)?;
-
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let asset = eval(&args[1], env, context)?;
-
-    let nft_metadata = env
-        .contract_context
-        .meta_nft
-        .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
-    let expected_asset_type = &nft_metadata.key_type;
-
-    let asset_size = asset.serialized_size() as u64;
-    runtime_cost(ClarityCostFunction::NftOwner, env, asset_size)?;
 
     if !expected_asset_type.admits(&asset) {
         return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
@@ -966,7 +755,7 @@ pub fn special_burn_token(
     }
 }
 
-pub fn special_burn_asset_v200(
+pub fn special_burn_asset(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -1017,83 +806,6 @@ pub fn special_burn_asset_v200(
 
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(expected_asset_type.size() as u64)?;
-
-        env.global_context.database.burn_nft(
-            &env.contract_context.contract_identifier,
-            asset_name,
-            &asset,
-            expected_asset_type,
-        )?;
-
-        env.global_context.log_asset_transfer(
-            sender_principal,
-            &env.contract_context.contract_identifier,
-            asset_name,
-            asset.clone(),
-        );
-
-        let asset_identifier = AssetIdentifier {
-            contract_identifier: env.contract_context.contract_identifier.clone(),
-            asset_name: asset_name.clone(),
-        };
-        env.register_nft_burn_event(sender_principal.clone(), asset, asset_identifier)?;
-
-        Ok(Value::okay_true())
-    } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, sender).into())
-    }
-}
-
-/// The Stacks v205 version of burn_asset uses the actual stored size of the
-///  asset as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_burn_asset_v205(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(3, args)?;
-
-    runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;
-
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
-
-    let asset = eval(&args[1], env, context)?;
-    let sender = eval(&args[2], env, context)?;
-
-    let nft_metadata = env
-        .contract_context
-        .meta_nft
-        .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
-    let expected_asset_type = &nft_metadata.key_type;
-
-    let asset_size = asset.serialized_size() as u64;
-    runtime_cost(ClarityCostFunction::NftBurn, env, asset_size)?;
-
-    if !expected_asset_type.admits(&asset) {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
-    }
-
-    if let Value::Principal(ref sender_principal) = sender {
-        let owner = match env.global_context.database.get_nft_owner(
-            &env.contract_context.contract_identifier,
-            asset_name,
-            &asset,
-            expected_asset_type,
-        ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
-                return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
-            }
-            Ok(owner) => Ok(owner),
-            Err(e) => Err(e),
-        }?;
-
-        if &owner != sender_principal {
-            return clarity_ecode!(BurnAssetErrorCodes::NOT_OWNED_BY);
-        }
-
-        env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
-        env.add_memory(asset_size)?;
 
         env.global_context.database.burn_nft(
             &env.contract_context.contract_identifier,

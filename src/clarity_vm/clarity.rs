@@ -17,48 +17,15 @@
 use std::convert::TryFrom;
 use std::error;
 use std::fmt;
-use std::thread;
 
-use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
-use crate::chainstate::stacks::boot::POX_2_NAME;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::TransactionAuth;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::chainstate::stacks::TransactionPublicKeyEncoding;
-use crate::chainstate::stacks::TransactionSmartContract;
-use crate::chainstate::stacks::TransactionSpendingCondition;
-use crate::chainstate::stacks::TransactionVersion;
-use crate::core::StacksEpoch;
-use crate::core::FIRST_STACKS_BLOCK_ID;
-use crate::core::GENESIS_EPOCH;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::SortitionId;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::StacksMicroblockHeader;
-use crate::types::proof::TrieHash;
-use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
-use crate::util::secp256k1::MessageSignature;
-use crate::{
-    burnchains::Burnchain,
-    clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
-};
-use crate::{
-    clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId, vm::ClarityVersion,
-};
-use chainstate::stacks::boot::POX_2_MAINNET_CODE;
-use chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
+    BOOT_CODE_COSTS, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_MAINNET,
+    BOOT_CODE_POX_TESTNET, POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
-use chainstate::stacks::db::StacksAccount;
-use chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
+use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::Error as ChainstateError;
-use chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
-use types::chainstate::BurnchainHeaderHash;
-use util::strings::StacksString;
 use vm::analysis;
 use vm::analysis::AnalysisDatabase;
 use vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
@@ -68,13 +35,43 @@ use vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
-    STXBalance, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::Error as InterpreterError;
 use vm::representations::{ContractName, SymbolicExpression};
 use vm::types::{
     AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
     TypeSignature, Value,
+};
+
+use crate::chainstate::stacks::boot::POX_2_NAME;
+use crate::chainstate::stacks::db::StacksAccount;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::SinglesigHashMode;
+use crate::chainstate::stacks::SinglesigSpendingCondition;
+use crate::chainstate::stacks::StacksTransaction;
+use crate::chainstate::stacks::TransactionAuth;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::chainstate::stacks::TransactionPublicKeyEncoding;
+use crate::chainstate::stacks::TransactionSmartContract;
+use crate::chainstate::stacks::TransactionSpendingCondition;
+use crate::chainstate::stacks::TransactionVersion;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::StacksMicroblockHeader;
+use crate::types::proof::TrieHash;
+use crate::util::boot::boot_code_addr;
+use crate::util::boot::boot_code_id;
+use crate::util::secp256k1::MessageSignature;
+use crate::util::strings::StacksString;
+use crate::vm::database::STXBalance;
+use crate::{
+    burnchains::Burnchain,
+    clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
+};
+use crate::{
+    clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId, vm::ClarityVersion,
 };
 
 ///
@@ -92,6 +89,7 @@ use vm::types::{
 ///
 pub struct ClarityInstance {
     datastore: MarfedKV,
+    block_limit: ExecutionCost,
     mainnet: bool,
 }
 
@@ -104,7 +102,6 @@ pub struct ClarityBlockConnection<'a> {
     burn_state_db: &'a dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
     mainnet: bool,
-    epoch: StacksEpochId,
 }
 
 ///
@@ -119,14 +116,12 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     burn_state_db: &'a dyn BurnStateDB,
     cost_track: &'a mut Option<LimitedCostTracker>,
     mainnet: bool,
-    epoch: StacksEpochId,
 }
 
 pub struct ClarityReadOnlyConnection<'a> {
     datastore: ReadOnlyMarfStore<'a>,
     header_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
-    epoch: StacksEpochId,
 }
 
 #[derive(Debug)]
@@ -251,7 +246,6 @@ impl ClarityBlockConnection<'_> {
             burn_state_db,
             cost_track: Some(LimitedCostTracker::new_free()),
             mainnet: false,
-            epoch: StacksEpochId::Epoch20,
         }
     }
 
@@ -279,19 +273,15 @@ impl ClarityBlockConnection<'_> {
             None => ExecutionCost::zero(),
         }
     }
-
-    /// Returns the block limit for the block being created.
-    pub fn block_limit(&self) -> Option<ExecutionCost> {
-        match self.cost_track {
-            Some(ref track) => Some(track.get_limit()),
-            None => None,
-        }
-    }
 }
 
 impl ClarityInstance {
-    pub fn new(mainnet: bool, datastore: MarfedKV) -> ClarityInstance {
-        ClarityInstance { datastore, mainnet }
+    pub fn new(mainnet: bool, datastore: MarfedKV, block_limit: ExecutionCost) -> ClarityInstance {
+        ClarityInstance {
+            datastore,
+            block_limit,
+            mainnet,
+        }
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -305,32 +295,6 @@ impl ClarityInstance {
         self.mainnet
     }
 
-    /// Returns the Stacks epoch of the burn block that elected `stacks_block`
-    fn get_epoch_of(
-        stacks_block: &StacksBlockId,
-        header_db: &dyn HeadersDB,
-        burn_state_db: &dyn BurnStateDB,
-    ) -> StacksEpoch {
-        // Special case the first Stacks block -- it is not elected in any burn block
-        //  so we specifically set its epoch to GENESIS_EPOCH.
-        if stacks_block == &*FIRST_STACKS_BLOCK_ID {
-            return burn_state_db
-                .get_stacks_epoch_by_epoch_id(&GENESIS_EPOCH)
-                .expect("Failed to obtain the Genesis StacksEpoch");
-        }
-
-        let burn_height = header_db
-            .get_burn_block_height_for_block(stacks_block)
-            .expect(&format!(
-                "Failed to get burn block height of {}",
-                stacks_block
-            ));
-        burn_state_db.get_stacks_epoch(burn_height).expect(&format!(
-            "Failed to get Stacks epoch for height = {}",
-            burn_height
-        ))
-    }
-
     pub fn begin_block<'a>(
         &'a mut self,
         current: &StacksBlockId,
@@ -340,17 +304,11 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin(current, next);
 
-        let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(
-                    self.mainnet,
-                    epoch.block_limit.clone(),
-                    &mut clarity_db,
-                    epoch.epoch_id,
-                )
-                .expect("FAIL: problem instantiating cost tracking"),
+                LimitedCostTracker::new(self.mainnet, self.block_limit.clone(), &mut clarity_db)
+                    .expect("FAIL: problem instantiating cost tracking"),
             )
         };
 
@@ -360,7 +318,6 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
-            epoch: epoch.epoch_id,
         }
     }
 
@@ -373,8 +330,6 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let datastore = self.datastore.begin(current, next);
 
-        let epoch = GENESIS_EPOCH;
-
         let cost_track = Some(LimitedCostTracker::new_free());
 
         ClarityBlockConnection {
@@ -383,7 +338,6 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
-            epoch,
         }
     }
 
@@ -398,8 +352,6 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let writable = self.datastore.begin(current, next);
 
-        let epoch = GENESIS_EPOCH;
-
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
@@ -407,18 +359,16 @@ impl ClarityInstance {
             header_db,
             burn_state_db,
             cost_track,
-            mainnet: self.mainnet,
-            epoch,
+            mainnet: false,
         };
 
-        let use_mainnet = self.mainnet;
         conn.as_transaction(|clarity_db| {
             let (ast, _) = clarity_db
-                .analyze_smart_contract(&boot_code_id("costs", use_mainnet), BOOT_CODE_COSTS)
+                .analyze_smart_contract(&boot_code_id("costs", false), BOOT_CODE_COSTS)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
-                    &boot_code_id("costs", use_mainnet),
+                    &boot_code_id("costs", false),
                     &ast,
                     BOOT_CODE_COSTS,
                     None,
@@ -430,13 +380,13 @@ impl ClarityInstance {
         conn.as_transaction(|clarity_db| {
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
-                    &boot_code_id("cost-voting", use_mainnet),
+                    &boot_code_id("cost-voting", false),
                     &*BOOT_CODE_COST_VOTING,
                 )
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
-                    &boot_code_id("cost-voting", use_mainnet),
+                    &boot_code_id("cost-voting", false),
                     &ast,
                     &*BOOT_CODE_COST_VOTING,
                     None,
@@ -445,17 +395,17 @@ impl ClarityInstance {
                 .unwrap();
 
             clarity_db
-                .save_analysis(&boot_code_id("cost-voting", use_mainnet), &analysis)
+                .save_analysis(&boot_code_id("cost-voting", false), &analysis)
                 .unwrap();
         });
 
         conn.as_transaction(|clarity_db| {
             let (ast, _) = clarity_db
-                .analyze_smart_contract(&boot_code_id("pox", use_mainnet), &*BOOT_CODE_POX_TESTNET)
+                .analyze_smart_contract(&boot_code_id("pox", false), &*BOOT_CODE_POX_TESTNET)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
-                    &boot_code_id("pox", use_mainnet),
+                    &boot_code_id("pox", false),
                     &ast,
                     &*BOOT_CODE_POX_TESTNET,
                     None,
@@ -467,11 +417,6 @@ impl ClarityInstance {
         conn
     }
 
-    pub fn drop_unconfirmed_state(&mut self, block: &StacksBlockId) {
-        let datastore = self.datastore.begin_unconfirmed(block);
-        datastore.rollback_unconfirmed()
-    }
-
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
         current: &StacksBlockId,
@@ -480,18 +425,11 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a> {
         let mut datastore = self.datastore.begin_unconfirmed(current);
 
-        let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
-
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(
-                    self.mainnet,
-                    epoch.block_limit.clone(),
-                    &mut clarity_db,
-                    epoch.epoch_id,
-                )
-                .expect("FAIL: problem instantiating cost tracking"),
+                LimitedCostTracker::new(self.mainnet, self.block_limit.clone(), &mut clarity_db)
+                    .expect("FAIL: problem instantiating cost tracking"),
             )
         };
 
@@ -501,12 +439,9 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
-            epoch: epoch.epoch_id,
         }
     }
 
-    /// Open a read-only connection at `at_block`. This will be evaluated in the Stacks epoch that
-    ///  was active *during* the evaluation of `at_block`
     pub fn read_only_connection<'a>(
         &'a mut self,
         at_block: &StacksBlockId,
@@ -517,33 +452,21 @@ impl ClarityInstance {
             .expect(&format!("BUG: failed to open block {}", at_block))
     }
 
-    /// Open a read-only connection at `at_block`. This will be evaluated in the Stacks epoch that
-    ///  was active *during* the evaluation of `at_block`
     pub fn read_only_connection_checked<'a>(
         &'a mut self,
         at_block: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> Result<ClarityReadOnlyConnection<'a>, Error> {
-        let mut datastore = self.datastore.begin_read_only_checked(Some(at_block))?;
-        let epoch = {
-            let mut db = datastore.as_clarity_db(header_db, burn_state_db);
-            db.begin();
-            let result = db.get_clarity_epoch_version();
-            db.roll_back();
-            result
-        };
+        let datastore = self.datastore.begin_read_only_checked(Some(at_block))?;
 
         Ok(ClarityReadOnlyConnection {
             datastore,
             header_db,
             burn_state_db,
-            epoch,
         })
     }
 
-    /// Evaluate program read-only at `at_block`. This will be evaluated in the Stacks epoch that
-    ///  was active *during* the evaluation of `at_block`
     pub fn eval_read_only(
         &mut self,
         at_block: &StacksBlockId,
@@ -553,15 +476,8 @@ impl ClarityInstance {
         program: &str,
     ) -> Result<Value, Error> {
         let mut read_only_conn = self.datastore.begin_read_only(Some(at_block));
-        let mut clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
-        let epoch_id = {
-            clarity_db.begin();
-            let result = clarity_db.get_clarity_epoch_version();
-            clarity_db.roll_back();
-            result
-        };
-
-        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db, epoch_id);
+        let clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
+        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
@@ -581,8 +497,6 @@ pub trait ClarityConnection {
     where
         F: FnOnce(&mut AnalysisDatabase) -> R;
 
-    fn get_epoch(&self) -> StacksEpochId;
-
     fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(&mut ClarityDatabase) -> R,
@@ -600,10 +514,8 @@ pub trait ClarityConnection {
     where
         F: FnOnce(&mut Environment) -> Result<R, InterpreterError>,
     {
-        let epoch_id = self.get_epoch();
         self.with_clarity_db_readonly_owned(|clarity_db| {
-            let mut vm_env =
-                OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track, epoch_id);
+            let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track);
             let result = vm_env
                 .execute_in_env(sender, None, to_do)
                 .map(|(result, _, _)| result);
@@ -639,10 +551,6 @@ impl ClarityConnection for ClarityBlockConnection<'_> {
         db.roll_back();
         result
     }
-
-    fn get_epoch(&self) -> StacksEpochId {
-        self.epoch
-    }
 }
 
 impl ClarityConnection for ClarityReadOnlyConnection<'_> {
@@ -669,10 +577,6 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
         let result = to_do(&mut db);
         db.roll_back();
         result
-    }
-
-    fn get_epoch(&self) -> StacksEpochId {
-        self.epoch
     }
 }
 
@@ -744,82 +648,6 @@ impl<'a> ClarityBlockConnection<'a> {
         self.datastore.commit_unconfirmed();
 
         self.cost_track.unwrap()
-    }
-    pub fn initialize_epoch_2_05(&mut self) -> Result<StacksTransactionReceipt, Error> {
-        // use the `using!` statement to ensure that the old cost_tracker is placed
-        //  back in all branches after initialization
-        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
-            // epoch initialization is *free*
-            self.cost_track.replace(LimitedCostTracker::new_free());
-
-            let mainnet = self.mainnet;
-
-            // get the boot code account information
-            //  for processing the pox contract initialization
-            let tx_version = if mainnet {
-                TransactionVersion::Mainnet
-            } else {
-                TransactionVersion::Testnet
-            };
-
-            let boot_code_address = boot_code_addr(mainnet);
-
-            let boot_code_auth = boot_code_tx_auth(boot_code_address);
-
-            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
-                db.get_account_nonce(&boot_code_address.clone().into())
-            });
-
-            let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
-
-            // instantiate costs 2 contract...
-            let cost_2_code = if mainnet {
-                &*BOOT_CODE_COSTS_2
-            } else {
-                &*BOOT_CODE_COSTS_2_TESTNET
-            };
-
-            let payload = TransactionPayload::SmartContract(TransactionSmartContract {
-                name: ContractName::try_from(COSTS_2_NAME)
-                    .expect("FATAL: invalid boot-code contract name"),
-                code_body: StacksString::from_str(cost_2_code)
-                    .expect("FATAL: invalid boot code body"),
-            });
-
-            let costs_2_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
-
-            let initialization_receipt = self.as_transaction(|tx_conn| {
-                // bump the epoch in the Clarity DB
-                tx_conn
-                    .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch2_05);
-                        Ok(())
-                    })
-                    .unwrap();
-
-                // initialize with a synthetic transaction
-                let receipt = StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &costs_2_contract_tx,
-                    &boot_code_account,
-                )
-                .expect("FATAL: Failed to process PoX 2 contract initialization");
-
-                receipt
-            });
-
-            if initialization_receipt.result != Value::okay_true()
-                || initialization_receipt.post_condition_aborted
-            {
-                panic!(
-                    "FATAL: Failure processing Costs 2 contract initialization: {:#?}",
-                    &initialization_receipt
-                );
-            }
-
-            (old_cost_tracker, Ok(initialization_receipt))
-        })
     }
 
     pub fn initialize_epoch_2_1(&mut self) -> Result<StacksTransactionReceipt, Error> {
@@ -963,7 +791,6 @@ impl<'a> ClarityBlockConnection<'a> {
             burn_state_db,
             log: Some(log),
             mainnet,
-            epoch: self.epoch,
         }
     }
 
@@ -1018,29 +845,14 @@ impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
             result
         })
     }
-
-    fn get_epoch(&self) -> StacksEpochId {
-        self.epoch
-    }
 }
 
 impl<'a, 'b> Drop for ClarityTransactionConnection<'a, 'b> {
     fn drop(&mut self) {
-        if thread::panicking() {
-            // if the thread is panicking, we've likely lost our cost_tracker handle,
-            //  so don't expect() one, or we'll end up panicking while panicking.
-            match self.cost_track.as_mut() {
-                Some(t) => t.reset_memory(),
-                None => {
-                    error!("Failed to reset the memory of the Clarity transaction's cost_track handle while thread panicking");
-                }
-            }
-        } else {
-            self.cost_track
-                .as_mut()
-                .expect("BUG: Transaction connection lost cost_tracker handle.")
-                .reset_memory();
-        }
+        self.cost_track
+            .as_mut()
+            .expect("BUG: Transaction connection lost cost_tracker handle.")
+            .reset_memory();
     }
 }
 
@@ -1158,8 +970,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
                 // wrap the whole contract-call in a claritydb transaction,
                 //   so we can abort on call_back's boolean retun
                 db.begin();
-                let mut vm_env =
-                    OwnedEnvironment::new_cost_limited(self.mainnet, db, cost_track, self.epoch);
+                let mut vm_env = OwnedEnvironment::new_cost_limited(self.mainnet, db, cost_track);
                 let result = to_do(&mut vm_env);
                 let (mut db, cost_track) = vm_env
                     .destruct()
@@ -1384,11 +1195,8 @@ mod tests {
 
     use chainstate::stacks::index::storage::TrieFileStorage;
     use vm::analysis::errors::CheckErrors;
-    use vm::database::{ClarityBackingStore, STXBalance};
+    use vm::database::{ClarityBackingStore, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB};
     use vm::types::{StandardPrincipalData, Value};
-
-    use core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
-    use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
     use crate::clarity_vm::database::marf::MarfedKV;
     use crate::types::proof::ClarityMarfTrieId;
@@ -1398,7 +1206,7 @@ mod tests {
     #[test]
     pub fn bad_syntax_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1406,8 +1214,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1415,8 +1223,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
@@ -1438,15 +1246,15 @@ mod tests {
     #[test]
     pub fn test_initialize_contract_tx_sender_contract_caller() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1454,8 +1262,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             // S1G2081040G2081040G2081040G208105NK8PE5 is the transient address
@@ -1491,7 +1299,7 @@ mod tests {
     #[test]
     pub fn tx_rollback() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
@@ -1500,8 +1308,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1509,8 +1317,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             {
@@ -1586,7 +1394,7 @@ mod tests {
     #[test]
     pub fn simple_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1594,8 +1402,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1603,8 +1411,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -1650,15 +1458,15 @@ mod tests {
     #[test]
     pub fn test_block_roll_back() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
             let mut conn = clarity_instance.begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
@@ -1708,7 +1516,8 @@ mod tests {
         }
 
         let confirmed_marf = MarfedKV::open(test_name, None).unwrap();
-        let mut confirmed_clarity_instance = ClarityInstance::new(false, confirmed_marf);
+        let mut confirmed_clarity_instance =
+            ClarityInstance::new(false, confirmed_marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         let contract = "
@@ -1722,8 +1531,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1738,14 +1547,14 @@ mod tests {
             )
             .unwrap();
 
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
 
         // make an unconfirmed block off of the confirmed block
         {
             let mut conn = clarity_instance.begin_unconfirmed(
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             conn.as_transaction(|conn| {
@@ -1771,8 +1580,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_unconfirmed(
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             conn.as_transaction(|conn| {
@@ -1790,8 +1599,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_unconfirmed(
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             conn.as_transaction(|conn| {
@@ -1808,8 +1617,8 @@ mod tests {
         {
             let mut conn = clarity_instance.begin_unconfirmed(
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             conn.as_transaction(|conn| {
@@ -1846,7 +1655,7 @@ mod tests {
     #[test]
     pub fn test_tx_roll_backs() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -1854,8 +1663,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -1863,8 +1672,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             let contract = "
@@ -1994,7 +1803,7 @@ mod tests {
         use util::strings::StacksString;
 
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
         let sender = StandardPrincipalData::transient().into();
 
         let spending_cond = TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
@@ -2061,8 +1870,8 @@ mod tests {
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -2070,8 +1879,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             conn.as_transaction(|clarity_tx| {
@@ -2099,75 +1908,16 @@ mod tests {
     #[test]
     pub fn test_block_limit() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, marf, ExecutionCost::max_value());
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
-        pub struct BlockLimitBurnStateDB {}
-        impl BurnStateDB for BlockLimitBurnStateDB {
-            fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
-                None
-            }
-
-            fn get_burn_header_hash(
-                &self,
-                _height: u32,
-                _sortition_id: &SortitionId,
-            ) -> Option<BurnchainHeaderHash> {
-                None
-            }
-
-            fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
-                // Note: We return this StacksEpoch for every input, because this test is not exercising
-                // this method.
-                Some(StacksEpoch {
-                    epoch_id: StacksEpochId::Epoch20,
-                    start_height: 0,
-                    end_height: u64::MAX,
-                    block_limit: ExecutionCost {
-                        write_length: u64::MAX,
-                        write_count: u64::MAX,
-                        read_count: u64::MAX,
-                        read_length: u64::MAX,
-                        runtime: 100,
-                    },
-                    network_epoch: PEER_VERSION_EPOCH_2_0,
-                })
-            }
-
-            fn get_stacks_epoch_by_epoch_id(
-                &self,
-                _epoch_id: &StacksEpochId,
-            ) -> Option<StacksEpoch> {
-                self.get_stacks_epoch(0)
-            }
-            fn get_v1_unlock_height(&self) -> u32 {
-                u32::max_value()
-            }
-
-            fn get_pox_prepare_length(&self) -> u32 {
-                panic!("BlockLimitBurnStateDB should not return PoX info");
-            }
-
-            fn get_pox_reward_cycle_length(&self) -> u32 {
-                panic!("BlockLimitBurnStateDB should not return PoX info");
-            }
-
-            fn get_pox_rejection_fraction(&self) -> u64 {
-                panic!("BlockLimitBurnStateDB should not return PoX info");
-            }
-            fn get_burn_start_height(&self) -> u32 {
-                0
-            }
-        }
-
-        let burn_state_db = BlockLimitBurnStateDB {};
         clarity_instance
             .begin_test_genesis_block(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId([0 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             )
             .commit_block();
 
@@ -2175,8 +1925,8 @@ mod tests {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([0 as u8; 32]),
                 &StacksBlockId([1 as u8; 32]),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
 
             let contract = "
@@ -2207,12 +1957,20 @@ mod tests {
             conn.commit_block();
         }
 
+        clarity_instance.block_limit = ExecutionCost {
+            write_length: u64::MAX,
+            write_count: u64::MAX,
+            read_count: u64::MAX,
+            read_length: u64::MAX,
+            runtime: 100,
+        };
+
         {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([1 as u8; 32]),
                 &StacksBlockId([2 as u8; 32]),
-                &TEST_HEADER_DB,
-                &burn_state_db,
+                &NULL_HEADER_DB,
+                &NULL_BURN_STATE_DB,
             );
             assert!(match conn
                 .as_transaction(|tx| tx.run_contract_call(

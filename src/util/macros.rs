@@ -21,21 +21,6 @@ pub fn is_big_endian() -> bool {
     u32::from_be(0x1Au32) == 0x1Au32
 }
 
-/// Define an iterable enum: an enum where each variant is an atomic
-/// type (i.e., has no paramters), and the variants can be iterated over
-/// with an Enum::ALL const
-macro_rules! iterable_enum {
-    ($Name:ident { $($Variant:ident,)* }) =>
-    {
-        pub enum $Name {
-            $($Variant),*,
-        }
-        impl $Name {
-            pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
-        }
-    }
-}
-
 /// Define a "named" enum, i.e., each variant corresponds
 ///  to a string literal, with a 1-1 mapping. You get EnumType::lookup_by_name
 ///  and EnumType.get_name() for free.

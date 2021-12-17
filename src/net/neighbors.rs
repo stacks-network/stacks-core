@@ -1709,18 +1709,15 @@ impl NeighborWalk {
 }
 
 impl PeerNetwork {
-    /// Get some initial fresh random neighbor(s) to crawl,
-    /// given the number of neighbors and current burn block height
+    /// Get some initial fresh random neighbor(s) to crawl
     pub fn walk_get_random_neighbors(
         &self,
         num_neighbors: u64,
         block_height: u64,
     ) -> Result<Vec<Neighbor>, net_error> {
-        let cur_epoch = self.get_current_epoch();
         let neighbors = PeerDB::get_random_walk_neighbors(
             &self.peerdb.conn(),
             self.local_peer.network_id,
-            cur_epoch.network_epoch,
             num_neighbors as u32,
             block_height,
         )
@@ -3079,10 +3076,6 @@ impl PeerNetwork {
 #[cfg(test)]
 mod test {
     use super::*;
-    use core::{
-        StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
-        STACKS_EPOCH_MAX,
-    };
     use net::asn::*;
     use net::chat::*;
     use net::db::*;
@@ -3385,103 +3378,6 @@ mod test {
                 };
 
                 i += 1;
-            }
-
-            assert!(peer_1.network.public_ip_learned);
-            assert!(!peer_1.network.public_ip_confirmed);
-            assert!(peer_1.network.local_peer.public_ip_address.is_none());
-
-            assert!(peer_2.network.public_ip_learned);
-            assert!(!peer_2.network.public_ip_confirmed);
-            assert!(peer_2.network.local_peer.public_ip_address.is_none());
-        })
-    }
-
-    #[test]
-    #[ignore]
-    fn test_step_walk_1_neighbor_bad_epoch() {
-        with_timeout(600, || {
-            let mut peer_1_config = TestPeerConfig::from_port(31998);
-            let mut peer_2_config = TestPeerConfig::from_port(31990);
-
-            peer_1_config.connection_opts.walk_retry_count = 10;
-            peer_2_config.connection_opts.walk_retry_count = 10;
-            peer_1_config.connection_opts.walk_interval = 1;
-            peer_2_config.connection_opts.walk_interval = 1;
-
-            // peer 1 thinks its always epoch 2.0
-            peer_1_config.peer_version = 0x18000000;
-            peer_1_config.epochs = Some(vec![StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: 0,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
-            }]);
-
-            // peer 2 thinks its always epoch 2.05
-            peer_2_config.peer_version = 0x18000005;
-            peer_2_config.epochs = Some(vec![StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: 0,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_05,
-            }]);
-
-            // peers know about each other, but peer 2 never talks to peer 1 since it believes that
-            // it's in a wholly different epoch
-            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
-
-            let mut peer_1 = TestPeer::new(peer_1_config);
-            let mut peer_2 = TestPeer::new(peer_2_config);
-
-            let mut i = 0;
-            let mut walk_1_count = 0;
-            let mut walk_2_count = 0;
-            let mut walk_1_retries = 0;
-            let mut walk_2_retries = 0;
-            let mut walk_1_total = 0;
-            let mut walk_2_total = 0;
-
-            // walks just don't start.
-            // neither peer learns their public IP addresses.
-            while walk_1_retries < 20 && walk_2_retries < 20 {
-                let _ = peer_1.step();
-                let _ = peer_2.step();
-
-                walk_1_count = peer_1.network.walk_total_step_count;
-                walk_2_count = peer_2.network.walk_total_step_count;
-
-                walk_1_total = peer_1.network.walk_count;
-                walk_2_total = peer_2.network.walk_count;
-
-                assert_eq!(walk_1_total, 0);
-                assert_eq!(walk_2_total, 0);
-
-                walk_1_retries = peer_1.network.walk_attempts;
-                walk_2_retries = peer_2.network.walk_attempts;
-
-                match peer_1.network.walk {
-                    Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
-                    }
-                    None => {}
-                };
-
-                match peer_2.network.walk {
-                    Some(ref w) => {
-                        assert_eq!(w.result.broken_connections.len(), 0);
-                        assert_eq!(w.result.replaced_neighbors.len(), 0);
-                    }
-                    None => {}
-                };
-
-                i += 1;
-
-                debug!("attempts: {},{}", walk_1_retries, walk_2_retries);
             }
 
             assert!(peer_1.network.public_ip_learned);

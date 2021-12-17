@@ -32,20 +32,9 @@ use vm::types::{
 };
 use vm::{eval, Environment, LocalContext, Value};
 
-use super::costs::CostOverflowingMath;
-
 pub enum CallableType {
     UserFunction(DefinedFunction),
     NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
-    /// These native functions have a new method for calculating input size in 2.05
-    /// If the global context's epoch is >= 2.05, the fn field is applied to obtain
-    /// the input to the cost function.
-    NativeFunction205(
-        &'static str,
-        NativeHandle,
-        ClarityCostFunction,
-        &'static dyn Fn(&[Value]) -> Result<u64>,
-    ),
     SpecialFunction(
         &'static str,
         &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>,
@@ -69,9 +58,6 @@ pub struct DefinedFunction {
     body: SymbolicExpression,
 }
 
-/// This enum handles the actual invocation of the method
-/// implementing a native function. Each variant handles
-/// different expected number of arguments.
 pub enum NativeHandle {
     SingleArg(&'static dyn Fn(Value) -> Result<Value>),
     DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value>),
@@ -81,27 +67,19 @@ pub enum NativeHandle {
 impl NativeHandle {
     pub fn apply(&self, mut args: Vec<Value>) -> Result<Value> {
         match self {
-            Self::SingleArg(function) => {
+            NativeHandle::SingleArg(function) => {
                 check_argument_count(1, &args)?;
                 function(args.pop().unwrap())
             }
-            Self::DoubleArg(function) => {
+            NativeHandle::DoubleArg(function) => {
                 check_argument_count(2, &args)?;
                 let second = args.pop().unwrap();
                 let first = args.pop().unwrap();
                 function(first, second)
             }
-            Self::MoreArg(function) => function(args),
+            NativeHandle::MoreArg(function) => function(args),
         }
     }
-}
-
-pub fn cost_input_sized_vararg(args: &[Value]) -> Result<u64> {
-    args.iter()
-        .try_fold(0, |sum, value| {
-            (value.serialized_size() as u64).cost_overflow_add(sum)
-        })
-        .map_err(Error::from)
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
@@ -265,9 +243,6 @@ impl CallableType {
             CallableType::UserFunction(f) => f.get_identifier(),
             CallableType::NativeFunction(s, _, _) => FunctionIdentifier::new_native_function(s),
             CallableType::SpecialFunction(s, _) => FunctionIdentifier::new_native_function(s),
-            CallableType::NativeFunction205(s, _, _, _) => {
-                FunctionIdentifier::new_native_function(s)
-            }
         }
     }
 }

@@ -19,6 +19,7 @@ use burnchains::Error as burnchain_error;
 use burnchains::*;
 
 use crate::types::chainstate::BurnchainHeaderHash;
+
 use core::StacksEpoch;
 
 // IPC messages between threads

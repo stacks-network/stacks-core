@@ -19,8 +19,7 @@ use std::convert::{TryFrom, TryInto};
 
 use vm::functions::tuples;
 
-use core::StacksEpochId;
-use types::chainstate::StacksBlockId;
+use crate::types::chainstate::StacksBlockId;
 use vm::callables::DefineType;
 use vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
@@ -38,31 +37,6 @@ use vm::{eval, Environment, LocalContext};
 
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::functions::special::handle_contract_call_special_cases;
-
-switch_on_global_epoch!(special_fetch_variable(
-    special_fetch_variable_v200,
-    special_fetch_variable_v205
-));
-switch_on_global_epoch!(special_set_variable(
-    special_set_variable_v200,
-    special_set_variable_v205
-));
-switch_on_global_epoch!(special_fetch_entry(
-    special_fetch_entry_v200,
-    special_fetch_entry_v205
-));
-switch_on_global_epoch!(special_set_entry(
-    special_set_entry_v200,
-    special_set_entry_v205
-));
-switch_on_global_epoch!(special_insert_entry(
-    special_insert_entry_v200,
-    special_insert_entry_v205
-));
-switch_on_global_epoch!(special_delete_entry(
-    special_delete_entry_v200,
-    special_delete_entry_v205
-));
 
 pub fn special_contract_call(
     args: &[SymbolicExpression],
@@ -207,7 +181,7 @@ pub fn special_contract_call(
     Ok(result)
 }
 
-pub fn special_fetch_variable_v200(
+pub fn special_fetch_variable(
     args: &[SymbolicExpression],
     env: &mut Environment,
     _context: &LocalContext,
@@ -235,41 +209,7 @@ pub fn special_fetch_variable_v200(
         .lookup_variable(contract, var_name, data_types)
 }
 
-/// The Stacks v205 version of fetch_variable uses the actual stored size of the
-///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_fetch_variable_v205(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    _context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(1, args)?;
-
-    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-
-    let contract = &env.contract_context.contract_identifier;
-
-    let data_types = env
-        .contract_context
-        .meta_data_var
-        .get(var_name)
-        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
-
-    let result = env
-        .global_context
-        .database
-        .lookup_variable_with_size(contract, var_name, data_types);
-
-    let result_size = match &result {
-        Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size() as u64,
-    };
-
-    runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
-
-    result.map(|data| data.value)
-}
-
-pub fn special_set_variable_v200(
+pub fn special_set_variable(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -303,52 +243,9 @@ pub fn special_set_variable_v200(
     env.global_context
         .database
         .set_variable(contract, var_name, value, data_types)
-        .map(|data| data.value)
 }
 
-/// The Stacks v205 version of set_variable uses the actual stored size of the
-///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_set_variable_v205(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
-    }
-
-    check_argument_count(2, args)?;
-
-    let value = eval(&args[1], env, &context)?;
-
-    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-
-    let contract = &env.contract_context.contract_identifier;
-
-    let data_types = env
-        .contract_context
-        .meta_data_var
-        .get(var_name)
-        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
-
-    let result = env
-        .global_context
-        .database
-        .set_variable(contract, var_name, value, data_types);
-
-    let result_size = match &result {
-        Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size() as u64,
-    };
-
-    runtime_cost(ClarityCostFunction::SetVar, env, result_size)?;
-
-    env.add_memory(result_size)?;
-
-    result.map(|data| data.value)
-}
-
-pub fn special_fetch_entry_v200(
+pub fn special_fetch_entry(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -378,42 +275,6 @@ pub fn special_fetch_entry_v200(
         .fetch_entry(contract, map_name, &key, data_types)
 }
 
-/// The Stacks v205 version of fetch_entry uses the actual stored size of the
-///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_fetch_entry_v205(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    check_argument_count(2, args)?;
-
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-
-    let key = eval(&args[1], env, &context)?;
-
-    let contract = &env.contract_context.contract_identifier;
-
-    let data_types = env
-        .contract_context
-        .meta_data_map
-        .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
-
-    let result = env
-        .global_context
-        .database
-        .fetch_entry_with_size(contract, map_name, &key, data_types);
-
-    let result_size = match &result {
-        Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
-    };
-
-    runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
-
-    result.map(|data| data.value)
-}
-
 pub fn special_at_block(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -441,7 +302,7 @@ pub fn special_at_block(
     result
 }
 
-pub fn special_set_entry_v200(
+pub fn special_set_entry(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -478,54 +339,9 @@ pub fn special_set_entry_v200(
     env.global_context
         .database
         .set_entry(contract, map_name, key, value, data_types)
-        .map(|data| data.value)
 }
 
-/// The Stacks v205 version of set_entry uses the actual stored size of the
-///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_set_entry_v205(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
-    }
-
-    check_argument_count(3, args)?;
-
-    let key = eval(&args[1], env, &context)?;
-
-    let value = eval(&args[2], env, &context)?;
-
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-
-    let contract = &env.contract_context.contract_identifier;
-
-    let data_types = env
-        .contract_context
-        .meta_data_map
-        .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
-
-    let result = env
-        .global_context
-        .database
-        .set_entry(contract, map_name, key, value, data_types);
-
-    let result_size = match &result {
-        Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
-    };
-
-    runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
-
-    env.add_memory(result_size)?;
-
-    result.map(|data| data.value)
-}
-
-pub fn special_insert_entry_v200(
+pub fn special_insert_entry(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -562,54 +378,9 @@ pub fn special_insert_entry_v200(
     env.global_context
         .database
         .insert_entry(contract, map_name, key, value, data_types)
-        .map(|data| data.value)
 }
 
-/// The Stacks v205 version of insert_entry uses the actual stored size of the
-///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_insert_entry_v205(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
-    }
-
-    check_argument_count(3, args)?;
-
-    let key = eval(&args[1], env, &context)?;
-
-    let value = eval(&args[2], env, &context)?;
-
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-
-    let contract = &env.contract_context.contract_identifier;
-
-    let data_types = env
-        .contract_context
-        .meta_data_map
-        .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
-
-    let result = env
-        .global_context
-        .database
-        .insert_entry(contract, map_name, key, value, data_types);
-
-    let result_size = match &result {
-        Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
-    };
-
-    runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
-
-    env.add_memory(result_size)?;
-
-    result.map(|data| data.value)
-}
-
-pub fn special_delete_entry_v200(
+pub fn special_delete_entry(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -643,49 +414,6 @@ pub fn special_delete_entry_v200(
     env.global_context
         .database
         .delete_entry(contract, map_name, &key, data_types)
-        .map(|data| data.value)
-}
-
-/// The Stacks v205 version of delete_entry uses the actual stored size of the
-///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_delete_entry_v205(
-    args: &[SymbolicExpression],
-    env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value> {
-    if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
-    }
-
-    check_argument_count(2, args)?;
-
-    let key = eval(&args[1], env, &context)?;
-
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
-
-    let contract = &env.contract_context.contract_identifier;
-
-    let data_types = env
-        .contract_context
-        .meta_data_map
-        .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
-
-    let result = env
-        .global_context
-        .database
-        .delete_entry(contract, map_name, &key, data_types);
-
-    let result_size = match &result {
-        Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.key_type.size() as u64,
-    };
-
-    runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
-
-    env.add_memory(result_size)?;
-
-    result.map(|data| data.value)
 }
 
 pub fn special_get_block_info(

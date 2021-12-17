@@ -51,12 +51,6 @@ extern crate slog_term;
 #[cfg(unix)]
 extern crate libc;
 
-#[cfg(unix)]
-extern crate nix;
-
-#[cfg(windows)]
-extern crate winapi;
-
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -107,7 +101,6 @@ pub mod deps;
 
 pub mod clarity;
 
-pub mod cost_estimates;
 pub mod monitoring;
 pub mod types;
 

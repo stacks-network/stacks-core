@@ -117,6 +117,7 @@ clarity_serializable!(PrincipalData);
 clarity_serializable!(i128);
 clarity_serializable!(u128);
 clarity_serializable!(u64);
+clarity_serializable!(u32);
 clarity_serializable!(Contract);
 clarity_serializable!(ContractAnalysis);
 

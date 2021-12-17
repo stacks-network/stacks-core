@@ -18,15 +18,14 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
 use core::{
-    StacksEpoch, StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
-    BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
+    StacksEpoch, BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+    POX_REWARD_CYCLE_LENGTH,
 };
 use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use vm::contracts::Contract;
 use vm::costs::CostOverflowingMath;
-use vm::costs::ExecutionCost;
 use vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
     DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
@@ -40,22 +39,19 @@ use vm::errors::{
 };
 use vm::representations::ClarityName;
 use vm::types::{
-    serialization::NONE_SERIALIZATION_LEN, OptionalData, PrincipalData,
-    QualifiedContractIdentifier, StandardPrincipalData, TupleData, TupleTypeSignature,
-    TypeSignature, Value, NONE,
+    OptionalData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
+    TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
-    StacksBlockId, VRFSeed,
+use crate::{
+    core::StacksEpochId,
+    types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
+        StacksBlockId, VRFSeed,
+    },
 };
 
 use crate::types::proof::TrieMerkleProof;
-use crate::vm::types::byte_len_of_serialization;
-
-use core::PEER_VERSION_EPOCH_2_0;
-
-use super::key_value_wrapper::ValueResult;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
@@ -111,7 +107,6 @@ pub trait BurnStateDB {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
-    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch>;
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -174,9 +169,6 @@ impl BurnStateDB for &dyn BurnStateDB {
     fn get_pox_rejection_fraction(&self) -> u64 {
         (*self).get_pox_rejection_fraction()
     }
-    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
-        (*self).get_stacks_epoch_by_epoch_id(epoch_id)
-    }
 }
 
 pub struct NullHeadersDB {}
@@ -187,6 +179,9 @@ pub struct NullBurnStateDB {
 pub const NULL_HEADER_DB: NullHeadersDB = NullHeadersDB {};
 pub const NULL_BURN_STATE_DB: NullBurnStateDB = NullBurnStateDB {
     epoch: StacksEpochId::Epoch20,
+};
+pub const NULL_BURN_STATE_DB_2_1: NullBurnStateDB = NullBurnStateDB {
+    epoch: StacksEpochId::Epoch21,
 };
 
 impl HeadersDB for NullHeadersDB {
@@ -275,13 +270,8 @@ impl BurnStateDB for NullBurnStateDB {
         Some(StacksEpoch {
             epoch_id: self.epoch.clone(),
             start_height: 0,
-            end_height: u64::MAX,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_0,
+            end_height: u64::max_value(),
         })
-    }
-    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
-        self.get_stacks_epoch(0)
     }
 
     fn get_v1_unlock_height(&self) -> u32 {
@@ -359,13 +349,6 @@ impl<'a> ClarityDatabase<'a> {
         self.store.put(&key, &value.serialize());
     }
 
-    /// Like `put()`, but returns the serialized byte size of the stored value
-    pub fn put_with_size<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> u64 {
-        let serialized = value.serialize();
-        self.store.put(&key, &serialized);
-        byte_len_of_serialization(&serialized)
-    }
-
     pub fn get<T>(&mut self, key: &str) -> Option<T>
     where
         T: ClarityDeserializable<T>,
@@ -373,7 +356,7 @@ impl<'a> ClarityDatabase<'a> {
         self.store.get::<T>(key)
     }
 
-    pub fn get_value(&mut self, key: &str, expected: &TypeSignature) -> Option<ValueResult> {
+    pub fn get_value(&mut self, key: &str, expected: &TypeSignature) -> Option<Value> {
         self.store.get_value(key, expected)
     }
 
@@ -404,7 +387,7 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         data: StoreType,
         var_name: &str,
-        key_value: &str,
+        key_value: String,
     ) -> String {
         format!(
             "vm::{}::{}::{}::{}",
@@ -574,10 +557,7 @@ impl<'a> ClarityDatabase<'a> {
         "_stx-data::ustx_liquid_supply"
     }
 
-    /// Returns the epoch version currently applied in the stored Clarity state.
-    /// Since Clarity did not exist in stacks 1.0, the lowest valid epoch ID is stacks 2.0.
-    /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
-    /// Clarity is updated in that epoch.
+    /// Returns the epoch version currently applied in the stored Clarity state
     pub fn get_clarity_epoch_version(&mut self) -> StacksEpochId {
         match self.get(Self::clarity_state_epoch_key()) {
             Some(x) => u32::try_into(x).expect("Bad Clarity epoch version in stored Clarity state"),
@@ -596,7 +576,7 @@ impl<'a> ClarityDatabase<'a> {
             ClarityDatabase::ustx_liquid_supply_key(),
             &TypeSignature::UIntType,
         )
-        .map(|v| v.value.expect_u128())
+        .map(|v| v.expect_u128())
         .unwrap_or(0)
     }
 
@@ -857,7 +837,6 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or(CheckErrors::NoSuchDataVariable(variable_name.to_string()).into())
     }
 
-    #[cfg(test)]
     pub fn set_variable_unknown_descriptor(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -866,7 +845,6 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Result<Value> {
         let descriptor = self.load_variable(contract_identifier, variable_name)?;
         self.set_variable(contract_identifier, variable_name, value, &descriptor)
-            .map(|data| data.value)
     }
 
     pub fn set_variable(
@@ -875,7 +853,7 @@ impl<'a> ClarityDatabase<'a> {
         variable_name: &str,
         value: Value,
         variable_descriptor: &DataVariableMetadata,
-    ) -> Result<ValueResult> {
+    ) -> Result<Value> {
         if !variable_descriptor.value_type.admits(&value) {
             return Err(
                 CheckErrors::TypeValueError(variable_descriptor.value_type.clone(), value).into(),
@@ -888,12 +866,9 @@ impl<'a> ClarityDatabase<'a> {
             variable_name,
         );
 
-        let size = self.put_with_size(&key, &value);
+        self.put(&key, &value);
 
-        Ok(ValueResult {
-            value: Value::Bool(true),
-            serialized_byte_len: size,
-        })
+        return Ok(Value::Bool(true));
     }
 
     pub fn lookup_variable_unknown_descriptor(
@@ -921,31 +896,6 @@ impl<'a> ClarityDatabase<'a> {
 
         match result {
             None => Ok(Value::none()),
-            Some(data) => Ok(data.value),
-        }
-    }
-
-    /// Same as lookup_variable, but returns the byte-size of the looked up
-    ///  Clarity value as well as the value.
-    pub fn lookup_variable_with_size(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        variable_name: &str,
-        variable_descriptor: &DataVariableMetadata,
-    ) -> Result<ValueResult> {
-        let key = ClarityDatabase::make_key_for_trip(
-            contract_identifier,
-            StoreType::Variable,
-            variable_name,
-        );
-
-        let result = self.get_value(&key, &variable_descriptor.value_type);
-
-        match result {
-            None => Ok(ValueResult {
-                value: Value::none(),
-                serialized_byte_len: *NONE_SERIALIZATION_LEN,
-            }),
             Some(data) => Ok(data),
         }
     }
@@ -987,23 +937,11 @@ impl<'a> ClarityDatabase<'a> {
         map_name: &str,
         key_value: &Value,
     ) -> String {
-        ClarityDatabase::make_key_for_data_map_entry_serialized(
-            contract_identifier,
-            map_name,
-            &key_value.serialize(),
-        )
-    }
-
-    fn make_key_for_data_map_entry_serialized(
-        contract_identifier: &QualifiedContractIdentifier,
-        map_name: &str,
-        key_value_serialized: &str,
-    ) -> String {
         ClarityDatabase::make_key_for_quad(
             contract_identifier,
             StoreType::DataMap,
             map_name,
-            key_value_serialized,
+            key_value.serialize(),
         )
     }
 
@@ -1040,49 +978,7 @@ impl<'a> ClarityDatabase<'a> {
 
         match result {
             None => Ok(Value::none()),
-            Some(data) => Ok(data.value),
-        }
-    }
-
-    pub fn fetch_entry_with_size(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        map_name: &str,
-        key_value: &Value,
-        map_descriptor: &DataMapMetadata,
-    ) -> Result<ValueResult> {
-        if !map_descriptor.key_type.admits(key_value) {
-            return Err(CheckErrors::TypeValueError(
-                map_descriptor.key_type.clone(),
-                (*key_value).clone(),
-            )
-            .into());
-        }
-
-        let key_serialized = key_value.serialize();
-        let key = ClarityDatabase::make_key_for_data_map_entry_serialized(
-            contract_identifier,
-            map_name,
-            &key_serialized,
-        );
-
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
-        let result = self.get_value(&key, &stored_type);
-
-        match result {
-            None => Ok(ValueResult {
-                value: Value::none(),
-                serialized_byte_len: byte_len_of_serialization(&key_serialized),
-            }),
-            Some(ValueResult {
-                value,
-                serialized_byte_len,
-            }) => Ok(ValueResult {
-                value,
-                serialized_byte_len: serialized_byte_len
-                    .checked_add(byte_len_of_serialization(&key_serialized))
-                    .expect("Overflowed Clarity key/value size"),
-            }),
+            Some(data) => Ok(data),
         }
     }
 
@@ -1093,7 +989,7 @@ impl<'a> ClarityDatabase<'a> {
         key: Value,
         value: Value,
         map_descriptor: &DataMapMetadata,
-    ) -> Result<ValueResult> {
+    ) -> Result<Value> {
         self.inner_set_entry(
             contract_identifier,
             map_name,
@@ -1113,7 +1009,6 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Result<Value> {
         let descriptor = self.load_map(contract_identifier, map_name)?;
         self.set_entry(contract_identifier, map_name, key, value, &descriptor)
-            .map(|data| data.value)
     }
 
     pub fn insert_entry_unknown_descriptor(
@@ -1125,7 +1020,6 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Result<Value> {
         let descriptor = self.load_map(contract_identifier, map_name)?;
         self.insert_entry(contract_identifier, map_name, key, value, &descriptor)
-            .map(|data| data.value)
     }
 
     pub fn insert_entry(
@@ -1135,7 +1029,7 @@ impl<'a> ClarityDatabase<'a> {
         key: Value,
         value: Value,
         map_descriptor: &DataMapMetadata,
-    ) -> Result<ValueResult> {
+    ) -> Result<Value> {
         self.inner_set_entry(
             contract_identifier,
             map_name,
@@ -1149,7 +1043,7 @@ impl<'a> ClarityDatabase<'a> {
     fn data_map_entry_exists(&mut self, key: &str, expected_value: &TypeSignature) -> Result<bool> {
         match self.get_value(key, expected_value) {
             None => Ok(false),
-            Some(value) => Ok(value.value != Value::none()),
+            Some(value) => Ok(value != Value::none()),
         }
     }
 
@@ -1161,7 +1055,7 @@ impl<'a> ClarityDatabase<'a> {
         value: Value,
         return_if_exists: bool,
         map_descriptor: &DataMapMetadata,
-    ) -> Result<ValueResult> {
+    ) -> Result<Value> {
         if !map_descriptor.key_type.admits(&key_value) {
             return Err(
                 CheckErrors::TypeValueError(map_descriptor.key_type.clone(), key_value).into(),
@@ -1173,32 +1067,22 @@ impl<'a> ClarityDatabase<'a> {
             );
         }
 
-        let key_serialized = key_value.serialize();
-        let key_serialized_byte_len = byte_len_of_serialization(&key_serialized);
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
             StoreType::DataMap,
             map_name,
-            &key_serialized,
+            key_value.serialize(),
         );
         let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
 
         if return_if_exists && self.data_map_entry_exists(&key, &stored_type)? {
-            return Ok(ValueResult {
-                value: Value::Bool(false),
-                serialized_byte_len: key_serialized_byte_len,
-            });
+            return Ok(Value::Bool(false));
         }
 
         let placed_value = Value::some(value)?;
-        let placed_size = self.put_with_size(&key, &placed_value);
+        self.put(&key, &placed_value);
 
-        Ok(ValueResult {
-            value: Value::Bool(true),
-            serialized_byte_len: key_serialized_byte_len
-                .checked_add(placed_size)
-                .expect("Overflowed Clarity key/value size"),
-        })
+        return Ok(Value::Bool(true));
     }
 
     pub fn delete_entry(
@@ -1207,7 +1091,7 @@ impl<'a> ClarityDatabase<'a> {
         map_name: &str,
         key_value: &Value,
         map_descriptor: &DataMapMetadata,
-    ) -> Result<ValueResult> {
+    ) -> Result<Value> {
         if !map_descriptor.key_type.admits(key_value) {
             return Err(CheckErrors::TypeValueError(
                 map_descriptor.key_type.clone(),
@@ -1216,30 +1100,20 @@ impl<'a> ClarityDatabase<'a> {
             .into());
         }
 
-        let key_serialized = key_value.serialize();
-        let key_serialized_byte_len = byte_len_of_serialization(&key_serialized);
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
             StoreType::DataMap,
             map_name,
-            &key_serialized,
+            key_value.serialize(),
         );
         let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
         if !self.data_map_entry_exists(&key, &stored_type)? {
-            return Ok(ValueResult {
-                value: Value::Bool(false),
-                serialized_byte_len: key_serialized_byte_len,
-            });
+            return Ok(Value::Bool(false));
         }
 
         self.put(&key, &(Value::none()));
 
-        Ok(ValueResult {
-            value: Value::Bool(true),
-            serialized_byte_len: key_serialized_byte_len
-                .checked_add(*NONE_SERIALIZATION_LEN)
-                .expect("Overflowed Clarity key/value size"),
-        })
+        return Ok(Value::Bool(true));
     }
 }
 
@@ -1377,7 +1251,7 @@ impl<'a> ClarityDatabase<'a> {
             contract_identifier,
             StoreType::FungibleToken,
             token_name,
-            &principal.serialize(),
+            principal.serialize(),
         );
 
         let result = self.get(&key);
@@ -1398,7 +1272,7 @@ impl<'a> ClarityDatabase<'a> {
             contract_identifier,
             StoreType::FungibleToken,
             token_name,
-            &principal.serialize(),
+            principal.serialize(),
         );
         self.put(&key, &balance);
 
@@ -1436,7 +1310,7 @@ impl<'a> ClarityDatabase<'a> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize(),
+            asset.serialize(),
         );
 
         let value: Option<Value> = self.get(&key);
@@ -1478,7 +1352,7 @@ impl<'a> ClarityDatabase<'a> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize(),
+            asset.serialize(),
         );
 
         let value = Value::some(Value::Principal(principal.clone()))?;
@@ -1502,7 +1376,7 @@ impl<'a> ClarityDatabase<'a> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize(),
+            asset.serialize(),
         );
 
         self.put(&key, &(Value::none()));
@@ -1610,8 +1484,6 @@ impl<'a> ClarityDatabase<'a> {
             .get_burn_header_hash(height, sortition_id)
     }
 
-    /// This function obtains the stacks epoch version, which is based on the burn block height.
-    /// Valid epochs include stacks 1.0, 2.0, 2.05, and so on.
     pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         self.burn_state_db.get_stacks_epoch(height)
     }

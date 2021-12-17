@@ -99,13 +99,6 @@ where
     edits
 }
 
-/// Result structure for fetched values from the
-///  underlying store.
-pub struct ValueResult {
-    pub value: Value,
-    pub serialized_byte_len: u64,
-}
-
 pub struct RollbackContext {
     edits: Vec<(String, RollbackValueCheck)>,
     metadata_edits: Vec<((QualifiedContractIdentifier, String), RollbackValueCheck)>,
@@ -361,9 +354,7 @@ impl<'a> RollbackWrapper<'a> {
         lookup_result.or_else(|| self.store.get(key).map(|x| T::deserialize(&x)))
     }
 
-    /// Get a Clarity value from the underlying Clarity KV store.
-    /// Returns Some if found, with the Clarity Value and the serialized byte length of the value.
-    pub fn get_value(&mut self, key: &str, expected: &TypeSignature) -> Option<ValueResult> {
+    pub fn get_value(&mut self, key: &str, expected: &TypeSignature) -> Option<Value> {
         self.stack
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
@@ -372,19 +363,15 @@ impl<'a> RollbackWrapper<'a> {
             self.lookup_map
                 .get(key)
                 .and_then(|x| x.last())
-                .map(|x| ValueResult {
-                    value: Value::deserialize(x, expected),
-                    serialized_byte_len: x.len() as u64 / 2,
-                })
+                .map(|x| Value::deserialize(x, expected))
         } else {
             None
         };
 
         lookup_result.or_else(|| {
-            self.store.get(key).map(|x| ValueResult {
-                value: Value::deserialize(&x, expected),
-                serialized_byte_len: x.len() as u64 / 2,
-            })
+            self.store
+                .get(key)
+                .map(|x| Value::deserialize(&x, expected))
         })
     }
 
