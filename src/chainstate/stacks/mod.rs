@@ -880,6 +880,8 @@ pub struct StacksBlockBuilder {
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
     miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>,
+    parent_consensus_hash: ConsensusHash,
+    parent_header_hash: BlockHeaderHash,
     parent_microblock_hash: Option<BlockHeaderHash>,
     miner_id: usize,
 }
