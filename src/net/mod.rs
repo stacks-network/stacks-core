@@ -1354,7 +1354,7 @@ pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
     GetPoxInfo(HttpRequestMetadata, TipRequest),
     GetNeighbors(HttpRequestMetadata),
-    GetHeaders(HttpRequestMetadata, u64, Option<StacksBlockId>),
+    GetHeaders(HttpRequestMetadata, u64, TipRequest),
     GetBlock(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),

@@ -1652,6 +1652,13 @@ impl ConversationHttp {
     /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
     /// will return different values here.
     ///
+    /// # Warn
+    /// - There is a potential race condition. If this function is loading the latest unconfirmed
+    /// tip, that tip may get invalidated by the time it is used in `maybe_read_only_clarity_tx`,
+    /// which is used to load clarity state at a particular tip (which would lead to a 404 error).
+    /// If this race condition occurs frequently, we can modify `maybe_read_only_clarity_tx` to
+    /// re-load the unconfirmed chain tip. Refer to issue #2997.
+    ///
     /// # Inputs
     /// - `tip_req` is given by the HTTP request as the optional query parameter for the chain tip
     /// hash.  It will be UseLatestAnchoredTip if there was no parameter given. If it is set to
@@ -2130,12 +2137,12 @@ impl ConversationHttp {
                 )?;
                 None
             }
-            HttpRequestType::GetHeaders(ref _md, ref quantity, ref tip_opt) => {
+            HttpRequestType::GetHeaders(ref _md, ref quantity, ref tip_req) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
                 )? {
@@ -2228,14 +2235,14 @@ impl ConversationHttp {
                 ref contract_addr,
                 ref contract_name,
                 ref var_name,
-                ref tip_opt,
+                ref tip_req,
                 ref with_proof,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
                 )? {
@@ -2954,11 +2961,11 @@ impl ConversationHttp {
     }
 
     /// Make a new getheaders request to this endpoint
-    pub fn new_getheaders(&self, quantity: u64, tip_opt: Option<StacksBlockId>) -> HttpRequestType {
+    pub fn new_getheaders(&self, quantity: u64, tip_req: TipRequest) -> HttpRequestType {
         HttpRequestType::GetHeaders(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             quantity,
-            tip_opt,
+            tip_req,
         )
     }
 
@@ -3065,7 +3072,7 @@ impl ConversationHttp {
         contract_addr: StacksAddress,
         contract_name: ContractName,
         var_name: ClarityName,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
         with_proof: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetDataVar(
@@ -3073,7 +3080,7 @@ impl ConversationHttp {
             contract_addr,
             contract_name,
             var_name,
-            tip_opt,
+            tip_req,
             with_proof,
         )
     }
@@ -3857,6 +3864,7 @@ mod test {
             40013,
             50012,
             50013,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3907,7 +3915,7 @@ mod test {
                 *server_blocks_cell.borrow_mut() = Some((rev_blocks, rev_ibhs));
 
                 // now ask for it
-                convo_client.new_getheaders(25, Some(tip))
+                convo_client.new_getheaders(25, TipRequest::SpecificTip(tip))
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
@@ -4943,6 +4951,7 @@ mod test {
             40123,
             50122,
             50123,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4952,7 +4961,7 @@ mod test {
                         .unwrap(),
                     "hello-world".try_into().unwrap(),
                     "bar".try_into().unwrap(),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },
@@ -4984,6 +4993,7 @@ mod test {
             40125,
             50124,
             50125,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -5000,7 +5010,7 @@ mod test {
                         .unwrap(),
                     "hello-world".try_into().unwrap(),
                     "bar".try_into().unwrap(),
-                    Some(unconfirmed_tip),
+                    TipRequest::SpecificTip(unconfirmed_tip),
                     false,
                 )
             },
@@ -5032,6 +5042,7 @@ mod test {
             40126,
             50125,
             50126,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -5041,7 +5052,7 @@ mod test {
                         .unwrap(),
                     "hello-world".try_into().unwrap(),
                     "bar-nonexistant".try_into().unwrap(),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },

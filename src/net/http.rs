@@ -2643,14 +2643,10 @@ impl HttpRequestType {
                 HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::GetNeighbors(_md) => "/v2/neighbors".to_string(),
-            HttpRequestType::GetHeaders(_md, quantity, tip_opt) => format!(
+            HttpRequestType::GetHeaders(_md, quantity, tip_req) => format!(
                 "/v2/headers/{}{}",
                 quantity,
-                if let Some(ref tip) = tip_opt {
-                    format!("?tip={}", tip)
-                } else {
-                    "".to_string()
-                }
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::GetBlock(_md, block_hash) => {
                 format!("/v2/blocks/{}", block_hash.to_hex())
