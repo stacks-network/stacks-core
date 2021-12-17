@@ -53,8 +53,8 @@ use core::*;
 use cost_estimates::EstimatorError;
 use net::BlocksInvData;
 use net::Error as net_error;
-use net::MemPoolSyncData;
 use net::ExtendedStacksHeader;
+use net::MemPoolSyncData;
 use util::db::u64_to_sql;
 use util::db::Error as db_error;
 use util::db::{
@@ -533,12 +533,12 @@ impl StreamCursor {
     pub fn new_tx_stream(tx_query: MemPoolSyncData, max_txs: u64, height: u64) -> StreamCursor {
         StreamCursor::MempoolTxs(TxStreamData {
             tx_query,
-            last_txid: Txid([0u8; 32]),
+            last_randomized_txid: Txid([0u8; 32]),
             tx_buf: vec![],
             tx_buf_ptr: 0,
             num_txs: 0,
             max_txs: max_txs,
-            height: height
+            height: height,
         })
     }
 
@@ -575,7 +575,7 @@ impl StreamCursor {
             StreamCursor::Microblocks(ref stream) => stream.offset(),
             StreamCursor::Headers(ref stream) => stream.offset(),
             // no-op for mempool txs
-            StreamCursor::MempoolTxs(..) => 0
+            StreamCursor::MempoolTxs(..) => 0,
         }
     }
 
@@ -585,7 +585,7 @@ impl StreamCursor {
             StreamCursor::Microblocks(ref mut stream) => stream.add_bytes(nw),
             StreamCursor::Headers(ref mut stream) => stream.add_bytes(nw),
             // no-op fo mempool txs
-            StreamCursor::MempoolTxs(..) => ()
+            StreamCursor::MempoolTxs(..) => (),
         }
     }
 
@@ -610,10 +610,8 @@ impl StreamCursor {
                     StacksChainState::stream_microblocks_unconfirmed(&chainstate, fd, stream, count)
                         .and_then(|bytes_sent| Ok(bytes_sent + num_written))
                 }
-            },
-            StreamCursor::MempoolTxs(ref mut tx_stream) => {
-                mempool.stream_txs(fd, tx_stream, count)
             }
+            StreamCursor::MempoolTxs(ref mut tx_stream) => mempool.stream_txs(fd, tx_stream, count),
             StreamCursor::Headers(ref mut stream) => {
                 let mut num_written = 0;
                 if stream.total_bytes == 0 {
@@ -9169,10 +9167,12 @@ pub mod test {
         )
         .unwrap();
         let mut bytes = vec![];
-        stream.stream_to(&mempool, chainstate, &mut bytes, count).map(|nr| {
-            assert_eq!(bytes.len(), nr as usize);
-            bytes
-        })
+        stream
+            .stream_to(&mempool, chainstate, &mut bytes, count)
+            .map(|nr| {
+                assert_eq!(bytes.len(), nr as usize);
+                bytes
+            })
     }
 
     fn stream_unconfirmed_microblocks_to_vec(
