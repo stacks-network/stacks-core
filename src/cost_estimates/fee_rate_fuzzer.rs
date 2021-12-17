@@ -11,7 +11,7 @@ use rand::SeedableRng;
 
 /// The FeeRateFuzzer wraps an underlying FeeEstimator. It passes `notify_block` calls to the
 /// underlying estimator. On `get_rate_estimates` calls, it adds a random fuzz to the result coming
-/// back from the underlying estimator.
+/// back from the underlying estimator. The fuzz applied is as a random fraction of the base value.
 ///
 /// Note: We currently use "uniform" random noise instead of "normal" distributed noise to avoid
 /// importing a new crate just for this.
