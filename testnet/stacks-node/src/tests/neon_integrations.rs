@@ -5978,11 +5978,9 @@ fn fuzzed_median_fee_rate_estimation_test() {
 
     thread::spawn(move || run_loop.start(None, 0));
 
-    // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
     run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 210, &conf);
 
-    // Publish the contract so we can use it.
     submit_tx(
         &http_origin,
         &make_contract_publish(
@@ -5995,6 +5993,8 @@ fn fuzzed_median_fee_rate_estimation_test() {
     );
     run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 212, &conf);
 
+    // Loop 10 times. Each time, execute the same transaction, but increase the amount *paid*.
+    // We will then check that the fee rates always go up, but the cost stays the same.
     let mut response_estimated_costs = vec![];
     let mut response_top_fee_rates = vec![];
     for i in 1..11 {
