@@ -486,7 +486,7 @@ pub enum StreamCursor {
     Block(BlockStreamData),
     Microblocks(MicroblockStreamData),
     Headers(HeaderStreamData),
-    MempoolTxs(TxStreamData)
+    MempoolTxs(TxStreamData),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -545,7 +545,7 @@ pub struct TxStreamData {
     /// Mempool sync data requested
     pub tx_query: MemPoolSyncData,
     /// last txid loaded
-    pub last_txid: Txid,
+    pub last_randomized_txid: Txid,
     /// serialized transaction buffer that's being sent
     pub tx_buf: Vec<u8>,
     pub tx_buf_ptr: usize,
