@@ -1726,7 +1726,6 @@ impl ConversationHttp {
         tx: &TransactionPayload,
         estimated_len: u64,
     ) -> Result<(), net_error> {
-        warn!("handle_post_fee_rate_estimate");
         let response_metadata = HttpResponseMetadata::from(req);
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let stacks_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), tip.block_height)?
@@ -1738,14 +1737,9 @@ impl ConversationHttp {
                     net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
                 })?;
         if let Some((cost_estimator, fee_estimator, metric)) = handler_args.get_estimators_ref() {
-            warn!("handle_post_fee_rate_estimate");
             let estimated_cost = match cost_estimator.estimate_cost(tx, &stacks_epoch.epoch_id) {
-                Ok(x) => {
-                    warn!("handle_post_fee_rate_estimate");
-                    x
-                }
+                Ok(x) => x,
                 Err(e) => {
-                    warn!("handle_post_fee_rate_estimate"); // fail here
                     debug!(
                         "Estimator RPC endpoint failed to estimate tx: {}",
                         tx.name()
@@ -1755,16 +1749,11 @@ impl ConversationHttp {
                 }
             };
 
-            warn!("handle_post_fee_rate_estimate");
             let scalar_cost =
                 metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
             let fee_rates = match fee_estimator.get_rate_estimates() {
-                Ok(x) => {
-                    warn!("handle_post_fee_rate_estimate");
-                    x
-                }
+                Ok(x) => x,
                 Err(e) => {
-                    warn!("handle_post_fee_rate_estimate");
                     debug!(
                         "Estimator RPC endpoint failed to estimate fees for tx: {}",
                         tx.name()

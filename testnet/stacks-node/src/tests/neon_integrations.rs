@@ -305,7 +305,6 @@ pub fn next_block_and_wait(
     btc_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
 ) -> bool {
-    info!("next_block_and_wait");
     let current = blocks_processed.load(Ordering::SeqCst);
     eprintln!(
         "Issuing block at {}, waiting for bump ({})",
@@ -5885,7 +5884,6 @@ fn run_until_burnchain_height(
     target_height: u64,
     conf: &Config,
 ) -> bool {
-    warn!("run_until_burnchain_height");
     let tip_info = get_chain_info(&conf);
     let mut current_height = tip_info.burn_block_height;
 
@@ -5905,31 +5903,6 @@ fn run_until_burnchain_height(
 
     assert_eq!(current_height, target_height);
     true
-}
-
-/// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
-/// match `test_fn`.
-fn select_transactions_where(
-    blocks: &Vec<serde_json::Value>,
-    test_fn: fn(&StacksTransaction) -> bool,
-) -> Vec<StacksTransaction> {
-    let mut result = vec![];
-    warn!("blocks.len() {:?}", blocks.len());
-    for block in blocks {
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        warn!("transactions.len() {:?}", transactions.len());
-        for tx in transactions.iter() {
-            // warn!("tx) {:?}", &tx);
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if test_fn(&parsed) {
-                result.push(parsed);
-            }
-        }
-    }
-
-    return result;
 }
 
 #[test]
@@ -5958,8 +5931,6 @@ fn fuzzed_median_fee_rate_estimation_test() {
       (ok (var-get counter))))
     "#
     .to_string();
-
-    warn!("max_contract_src {:?}", &max_contract_src);
 
     let spender_sk = StacksPrivateKey::new();
     let spender_addr = to_addr(&spender_sk);
@@ -6039,25 +6010,9 @@ fn fuzzed_median_fee_rate_estimation_test() {
             212 + 2 * i,
             &conf,
         );
-        // Check that we have processed the contract successfully, by checking that the contract call
-        // is in the block record.
-        let increment_calls_alice = select_transactions_where(
-            &test_observer::get_blocks(),
-            |transaction| match &transaction.payload {
-                TransactionPayload::ContractCall(contract) => {
-                    contract.contract_name == ContractName::try_from("increment-contract").unwrap()
-                }
-                _ => false,
-            },
-        );
-
-        warn!(
-            "increment_calls_alice.len() {}",
-            increment_calls_alice.len()
-        );
 
         {
-            // perform some tests of the fee rate interface
+            // Read from the fee estimation endpoin.
             let path = format!("{}/v2/fees/transaction", &http_origin);
 
             let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
@@ -6070,8 +6025,6 @@ fn fuzzed_median_fee_rate_estimation_test() {
 
             let payload_data = tx_payload.serialize_to_vec();
             let payload_hex = format!("0x{}", to_hex(&payload_data));
-
-            eprintln!("Test: POST {}", path);
 
             let body = json!({ "transaction_payload": payload_hex.clone() });
 
@@ -6086,14 +6039,11 @@ fn fuzzed_median_fee_rate_estimation_test() {
                 .expect("Failed to parse result into JSON");
 
             
-            warn!("fee_rate_result {} {:#?}", i, &fee_rate_result);
             response_estimated_costs.push(fee_rate_result.estimated_cost_scalar);
             response_top_fee_rates.push(fee_rate_result.estimations.last().unwrap().fee_rate);
         }
     }
 
-    warn!("response_estimated_costs, {:#?}", &response_estimated_costs);
-    warn!("response_top_fee_rates, {:#?}", &response_top_fee_rates);
     assert_eq!(response_estimated_costs.len(), response_top_fee_rates.len());
 
     // Check that:

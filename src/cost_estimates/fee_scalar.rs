@@ -225,7 +225,6 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
     }
 
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
-        warn!("ScalarFeeRateEstimator::get_rate_estimates");
         let sql = "SELECT high, middle, low FROM scalar_fee_estimator WHERE estimate_key = ?";
         self.db
             .query_row(sql, &[SINGLETON_ROW_ID], |row| {

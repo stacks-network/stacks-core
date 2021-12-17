@@ -69,7 +69,6 @@ pub struct FeeRateAndWeight {
 impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
     /// Open a fee rate estimator at the given db path. Creates if not existent.
     pub fn open(p: &Path, metric: M, window_size: u32) -> Result<Self, SqliteError> {
-        warn!("WeightedMedianFeeRateEstimator::open");
         let mut db = sqlite_open(
             p,
             rusqlite::OpenFlags::SQLITE_OPEN_CREATE | rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
@@ -196,7 +195,6 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
         receipt: &StacksEpochReceipt,
         block_limit: &ExecutionCost,
     ) -> Result<(), EstimatorError> {
-        warn!("WeightedMedianFeeRateEstimator::nofity_block");
         // Calculate sorted fee rate for each transaction in the block.
         let mut working_fee_rates: Vec<FeeRateAndWeight> = receipt
             .tx_receipts
@@ -227,7 +225,6 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
     }
 
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
-        warn!("WeightedMedianFeeRateEstimator::get_rate_estimates");
         Self::get_rate_estimates_from_sql(&self.db, self.window_size)
     }
 }
