@@ -5905,6 +5905,12 @@ fn run_until_burnchain_height(
     true
 }
 
+/// This is an integration test for the "fuzzed_weighted_median_fee_rate" estimation.  It tests that
+/// 1) We can load up the "fuzzed_weighted_median_fee_rate" fee estimator.
+/// 2) We get results that look "somewhat right", but we can't expect exact values due to
+///    pseudo-random fuzz.
+/// We test that, if fees are increasing every block round for the same transaction, that we
+/// expect to see the fee rate estimates rise on every round, modulo the random noise.
 #[test]
 #[ignore]
 fn fuzzed_median_fee_rate_estimation_test() {
@@ -6064,4 +6070,3 @@ fn fuzzed_median_fee_rate_estimation_test() {
 
     channel.stop_chains_coordinator();
 }
-
