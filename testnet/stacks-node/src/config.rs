@@ -1184,14 +1184,12 @@ impl Config {
     pub fn make_fee_estimator(&self) -> Option<Box<dyn FeeEstimator>> {
         let metric = self.make_cost_metric()?;
         let fee_estimator: Box<dyn FeeEstimator> = match self.estimation.fee_estimator.as_ref()? {
-            FeeEstimatorName::ScalarFeeRate => {
-                self.estimation
-                    .make_scalar_fee_estimator(self.get_chainstate_path(), metric)
-            }
-            FeeEstimatorName::FuzzedWeightedMedianFeeRate => {
-                self.estimation
-                    .make_fuzzed_weighted_median_fee_estimator(self.get_chainstate_path(), metric)
-            }
+            FeeEstimatorName::ScalarFeeRate => self
+                .estimation
+                .make_scalar_fee_estimator(self.get_chainstate_path(), metric),
+            FeeEstimatorName::FuzzedWeightedMedianFeeRate => self
+                .estimation
+                .make_fuzzed_weighted_median_fee_estimator(self.get_chainstate_path(), metric),
         };
 
         Some(fee_estimator)

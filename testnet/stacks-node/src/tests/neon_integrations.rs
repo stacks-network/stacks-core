@@ -74,10 +74,10 @@ use super::{
 };
 
 use crate::config::FeeEstimatorName;
+use stacks::net::RPCFeeEstimateResponse;
 use stacks::vm::ClarityName;
 use stacks::vm::ContractName;
 use std::convert::TryFrom;
-use stacks::net::RPCFeeEstimateResponse;
 
 pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -6044,7 +6044,6 @@ fn fuzzed_median_fee_rate_estimation_test() {
                 .json::<RPCFeeEstimateResponse>()
                 .expect("Failed to parse result into JSON");
 
-            
             response_estimated_costs.push(fee_rate_result.estimated_cost_scalar);
             response_top_fee_rates.push(fee_rate_result.estimations.last().unwrap().fee_rate);
         }
