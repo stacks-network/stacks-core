@@ -852,12 +852,10 @@ pub struct NatPunchData {
     pub nonce: u32,
 }
 
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq)]
-pub enum MemPoolSyncDataID {
+define_u8_enum!(MemPoolSyncDataID {
     BloomFilter = 0x01,
-    TxTags = 0x02,
-}
+    TxTags = 0x02
+});
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MemPoolSyncData {
