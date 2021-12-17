@@ -375,8 +375,11 @@ pub struct ConnectionOptions {
     pub max_buffered_microblocks_available: u64,
     pub max_buffered_blocks: u64,
     pub max_buffered_microblocks: u64,
+    /// how often to query a remote peer for its mempool, in seconds
     pub mempool_sync_interval: u64,
+    /// how many transactions to ask for in a mempool query
     pub mempool_max_tx_query: u64,
+    /// how long a mempool sync is allowed to take, in total, before timing out
     pub mempool_sync_timeout: u64,
 
     // fault injection
