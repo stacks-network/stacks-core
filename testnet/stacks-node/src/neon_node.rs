@@ -1518,6 +1518,7 @@ impl InitializedNeonNode {
                 ));
             account.nonce
         };
+        println!("nn: coinbase nonce is: {}", coinbase_nonce);
 
         Ok(MiningTenureInformation {
             stacks_parent_header: stacks_tip_header,

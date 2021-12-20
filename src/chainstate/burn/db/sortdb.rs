@@ -609,6 +609,18 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(block_id)
     );"#,
+    r#"
+    CREATE TABLE exit_at_reward_cycle_veto_info(
+        vetoed_exit_at_reward_cycle INTEGER NOT NULL,
+        
+        PRIMARY KEY(vetoed_exit_at_reward_cycle)
+    );"#,
+    r#"
+    CREATE TABLE exit_at_reward_cycle_proposal_info(
+        proposed_exit_at_reward_cycle INTEGER NOT NULL,
+        
+        PRIMARY KEY(proposed_exit_at_reward_cycle)
+    );"#,
 ];
 
 pub struct SortitionDB {
@@ -3245,6 +3257,24 @@ impl SortitionDB {
         })?;
         Ok(result)
     }
+
+    pub fn get_vetoed_reward_cycles(
+        conn: &Connection,
+        minimum_reward_cycle: u64,
+    ) -> Result<Vec<u64>, db_error> {
+        let qry =
+            "SELECT * FROM exit_at_reward_cycle_veto_info WHERE vetoed_exit_at_reward_cycle > ?";
+        query_rows(conn, qry, &[&u64_to_sql(minimum_reward_cycle)?])
+    }
+
+    pub fn get_proposed_reward_cycles(
+        conn: &Connection,
+        minimum_reward_cycle: u64,
+    ) -> Result<Vec<u64>, db_error> {
+        let qry =
+            "SELECT * FROM exit_at_reward_cycle_proposal_info WHERE proposed_exit_at_reward_cycle > ?";
+        query_rows(conn, qry, &[&u64_to_sql(minimum_reward_cycle)?])
+    }
 }
 
 impl<'a> SortitionHandleTx<'a> {
@@ -3363,6 +3393,7 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
+    // TODO - maybe can just directly store the option type in database?
     pub fn store_exit_at_reward_cycle_info(
         &self,
         exit_at_reward_cycle_info: BlockExitRewardCycleInfo,
@@ -3391,6 +3422,22 @@ impl<'a> SortitionHandleTx<'a> {
             ];
             self.execute(sql, args)?;
         }
+        Ok(())
+    }
+
+    pub fn store_new_veto(&self, new_vetoed_reward_cycle: u64) -> Result<(), db_error> {
+        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_veto_info (vetoed_exit_at_reward_cycle) VALUES (?)";
+        let args = &[&u64_to_sql(new_vetoed_reward_cycle)?];
+        self.execute(sql, args)?;
+
+        Ok(())
+    }
+
+    pub fn store_new_proposal(&self, new_proposal_reward_cycle: u64) -> Result<(), db_error> {
+        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_proposal_info (proposed_exit_at_reward_cycle) VALUES (?)";
+        let args = &[&u64_to_sql(new_proposal_reward_cycle)?];
+        self.execute(sql, args)?;
+
         Ok(())
     }
 

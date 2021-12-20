@@ -66,6 +66,7 @@ use core::{
     BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     POX_REWARD_CYCLE_LENGTH,
 };
+use std::iter::FromIterator;
 use util;
 use util::db::Error::NotFoundError;
 use vm::costs::LimitedCostTracker;
@@ -710,15 +711,12 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         )
                         .expect("BUG: Failed querying rc-proposal-vetoes")
                         .expect_optional();
-                    info!(
-                        "in veto check, proposed_exit: {}, entry: {:?}",
-                        proposed_exit_rc, entry
-                    );
+
                     let num_vetos = match entry {
                         Some(val) => {
                             let tuple_data = val.expect_tuple();
                             tuple_data
-                                .get("vetos")
+                                .get("vetoes")
                                 .expect("BUG: malformed cost proposal tuple")
                                 .clone()
                                 .expect_u128()
@@ -726,7 +724,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         None => 0,
                     };
 
-                    info!(
+                    println!(
                         "in veto check, proposed_exit: {}, num vetos: {:?}",
                         proposed_exit_rc, num_vetos
                     );
@@ -776,6 +774,15 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
         }
         let mut total_votes = 0;
 
+        let mut invalid_reward_cycles =
+            SortitionDB::get_vetoed_reward_cycles(self.sortition_db.conn(), min_rc)?;
+        invalid_reward_cycles.extend(SortitionDB::get_proposed_reward_cycles(
+            self.sortition_db.conn(),
+            min_rc,
+        )?);
+        let invalid_reward_cycles: HashSet<u64> =
+            HashSet::from_iter(invalid_reward_cycles.into_iter());
+
         // let ic = self.sortition_db.index_conn();
         // let mut clarity_db = self.get_clarity_db(&ic)?;
 
@@ -793,29 +800,14 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
 
         self.chain_state_db
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
-                // let function = "get-rc-proposal-votes";
-                // let sender = PrincipalData::Standard(StandardPrincipalData::transient());
-                // let cost_track = LimitedCostTracker::new_free();
-                // let exit_at_rc_contract = boot_code_id("exit-at-rc", false);
-                // conn.with_readonly_clarity_env(false, sender, cost_track, |env| {
-                //     let res = env.execute_contract(
-                //         &exit_at_rc_contract,
-                //         function,
-                //         &vec![
-                //             SymbolicExpression::atom_value(Value::UInt(min_rc as u128)),
-                //             SymbolicExpression::atom_value(Value::UInt(rc_cycle_of_vote as u128)),
-                //         ],
-                //         true,
-                //     );
-                //     println!("fn exec: {:?}", res);
-                //     res
-                // });
-
                 conn.with_clarity_db_readonly(|db| {
                     // TODO - get contract ID manually
                     let exit_at_rc_contract = boot_code_id("exit-at-rc", false);
 
                     for proposed_exit_rc in min_rc..max_rc {
+                        if invalid_reward_cycles.contains(&proposed_exit_rc) {
+                            continue;
+                        }
                         // from map rc-proposal-votes, use key pair (proposed_rc, curr_rc) to get the # of vetos
                         let entry_opt = db
                             .fetch_entry_unknown_descriptor(
@@ -936,6 +928,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                 .vote_confirmation_percent as u128
             + 99)
             / 100;
+        println!("tv: min stx for consensus: {}", min_stx_for_consensus);
         let mut accrued_votes = 0;
         // Since vote map is a BTreeMap, iteration over keys will occur in a sorted order
         for (curr_rc_proposal, curr_votes) in vote_map.iter() {
@@ -1148,14 +1141,33 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                 )?;
                                 // if veto fails, record exit block height
                                 if !veto_passed {
+                                    println!("cc: veto did not pass for {}", curr_exit_proposal);
                                     current_exit_at_rc = Some(curr_exit_proposal);
+                                } else {
+                                    println!("cc: storing veto info for {}", curr_exit_proposal);
+                                    // record the veto in the table `exit_at_reward_cycle_veto_info`
+                                    let sortdb_handle = self
+                                        .sortition_db
+                                        .tx_handle_begin(&canonical_sortition_tip)?;
+                                    sortdb_handle.store_new_veto(curr_exit_proposal)?;
+                                    sortdb_handle.commit()?;
+                                }
+                            } else {
+                                // tally votes of previous reward cycle if there is no veto; if there is consensus, record it in proposal field
+                                current_proposal = self.tally_votes(
+                                    current_reward_cycle - 1,
+                                    parent_exit_info.curr_exit_at_reward_cycle,
+                                )?;
+                                if let Some(exit_proposal) = current_proposal {
+                                    println!("cc: storing proposal info for {:?}", exit_proposal);
+                                    // record the veto in the table `exit_at_reward_cycle_veto_info`
+                                    let sortdb_handle = self
+                                        .sortition_db
+                                        .tx_handle_begin(&canonical_sortition_tip)?;
+                                    sortdb_handle.store_new_proposal(exit_proposal)?;
+                                    sortdb_handle.commit()?;
                                 }
                             }
-                            // now, tally votes of previous reward cycle; if there is consensus, record it in proposal field
-                            current_proposal = self.tally_votes(
-                                current_reward_cycle - 1,
-                                parent_exit_info.curr_exit_at_reward_cycle,
-                            )?;
                         } else if parent_exit_info.block_reward_cycle == current_reward_cycle {
                             current_proposal = parent_exit_info.curr_exit_proposal;
                         }
@@ -1171,7 +1183,10 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                         curr_exit_proposal: current_proposal,
                         curr_exit_at_reward_cycle: current_exit_at_rc,
                     };
-                    println!("cc: exit proposal is: {:?}", exit_info.curr_exit_proposal);
+                    println!(
+                        "cc: exit proposal is: {:?}, exit is: {:?}",
+                        exit_info.curr_exit_proposal, exit_info.curr_exit_at_reward_cycle
+                    );
                     let sortdb_handle = self
                         .sortition_db
                         .tx_handle_begin(&canonical_sortition_tip)?;

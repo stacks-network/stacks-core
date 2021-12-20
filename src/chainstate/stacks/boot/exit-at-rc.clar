@@ -139,15 +139,11 @@
         (asserts! (is-eq tx-sender contract-caller) (err ERR_UNAUTHORIZED_CALLER))
 
         ;; Modify the voter-state map
-        (map-insert voter-state { address: tx-sender }
-            { proposed-rc: proposed-exit-rc, amount: amount-stacked, expiration-reward-cycle: stacking-expiration})
+        (map-set voter-state { address: tx-sender }
+            { proposed-rc: proposed-exit-rc, amount: amount-stacked, expiration-reward-cycle: stacking-expiration })
 
         ;; Modify the rc-proposal-votes map - need to loop from curr rc to expiration rc
         (map add-to-rc-proposal-map voting-reward-cycles proposed-rc-list amount-stacked-list)
-
-        ;; Modify the voter-state map
-        (map-insert voter-state { address: tx-sender }
-            { proposed-rc: proposed-exit-rc, amount: amount-stacked, expiration-reward-cycle: stacking-expiration })
 
         (ok true)
     )
