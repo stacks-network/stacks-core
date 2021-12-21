@@ -29,7 +29,7 @@ use chainstate::stacks::*;
 use clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
 use core::*;
 use net::Error as net_error;
-use util::db::Error as db_error;
+use util_lib::db::Error as db_error;
 use vm::costs::ExecutionCost;
 use vm::database::BurnStateDB;
 use vm::database::HeadersDB;
@@ -173,7 +173,7 @@ impl UnconfirmedState {
             mblocks.len()
         );
 
-        let headers_db = chainstate.db();
+        let headers_db = HeadersDBConn(chainstate.db());
         let burn_block_hash = headers_db
             .get_burn_header_hash_for_block(&self.confirmed_chain_tip)
             .expect("BUG: unable to get burn block hash based on chain tip");
@@ -198,9 +198,10 @@ impl UnconfirmedState {
 
         if mblocks.len() > 0 {
             let cur_cost = self.cost_so_far.clone();
+            let headers_db_conn = HeadersDBConn(chainstate.db());
             let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
                 db_config,
-                chainstate.db(),
+                &headers_db_conn,
                 &mut self.clarity_inst,
                 burn_dbconn,
                 &self.confirmed_chain_tip,

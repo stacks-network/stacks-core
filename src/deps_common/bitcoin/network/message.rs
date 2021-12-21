@@ -22,14 +22,14 @@
 use std::io::Cursor;
 use std::iter;
 
-use deps::bitcoin::blockdata::block;
-use deps::bitcoin::blockdata::transaction;
-use deps::bitcoin::network::address::Address;
-use deps::bitcoin::network::encodable::CheckedData;
-use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps::bitcoin::network::message_blockdata;
-use deps::bitcoin::network::message_network;
-use deps::bitcoin::network::serialize::{
+use deps_common::bitcoin::blockdata::block;
+use deps_common::bitcoin::blockdata::transaction;
+use deps_common::bitcoin::network::address::Address;
+use deps_common::bitcoin::network::encodable::CheckedData;
+use deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use deps_common::bitcoin::network::message_blockdata;
+use deps_common::bitcoin::network::message_network;
+use deps_common::bitcoin::network::serialize::{
     self, serialize, RawDecoder, SimpleDecoder, SimpleEncoder,
 };
 
@@ -212,7 +212,7 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for RawNetworkMessage {
 mod test {
     use super::{CommandString, NetworkMessage, RawNetworkMessage};
 
-    use deps::bitcoin::network::serialize::{deserialize, serialize};
+    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]
     fn serialize_commandstring_test() {

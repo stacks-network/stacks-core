@@ -26,7 +26,7 @@ use burnchains::Txid;
 use burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
 use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::stacks::index::MarfTrieId;
-use util::db::{
+use util_lib::db::{
     query_row, query_rows, sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler,
     u64_to_sql, Error as DBError, FromColumn, FromRow,
 };

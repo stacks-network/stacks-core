@@ -239,6 +239,7 @@ version = "0.0.1"
 dependencies = [
  "assert-json-diff",
  "chrono",
+ "clarity",
  "curve25519-dalek",
  "ed25519-dalek",
  "integer-sqrt",
@@ -266,6 +267,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
+ "stacks-common",
  "stx-genesis",
  "time 0.2.23",
  "url",
@@ -394,6 +396,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
+ "stacks-common",
  "stx-genesis",
  "time 0.2.23",
  "tini",
@@ -2341,6 +2344,43 @@ dependencies = [
  "libc",
  "psm",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "stacks-common"
+version = "0.0.1"
+dependencies = [
+ "assert-json-diff",
+ "chrono",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "integer-sqrt",
+ "lazy_static",
+ "libc",
+ "mio",
+ "percent-encoding",
+ "prometheus",
+ "rand 0.7.2",
+ "rand_chacha 0.2.2",
+ "regex",
+ "ripemd160",
+ "rstest",
+ "rstest_reuse",
+ "rusqlite",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "sha2 0.8.2",
+ "sha2-asm",
+ "sha3",
+ "slog",
+ "slog-json",
+ "slog-term",
+ "time 0.2.23",
+ "tini",
+ "url",
 ]
 
 [[package]]

@@ -22,6 +22,7 @@
 
 #[macro_use]
 extern crate blockstack_lib;
+extern crate clarity;
 extern crate rusqlite;
 
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
@@ -65,15 +66,15 @@ use blockstack_lib::{
         stacks::db::{StacksChainState, StacksHeaderInfo},
     },
     core::MemPoolDB,
-    util::db::sqlite_open,
     util::{hash::Hash160, vrf::VRFProof},
+    util_lib::db::sqlite_open,
     vm::costs::ExecutionCost,
 };
 use blockstack_lib::{
     net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
     vm::representations::UrlString,
 };
-use vm::ClarityVersion;
+use clarity::vm::ClarityVersion;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();

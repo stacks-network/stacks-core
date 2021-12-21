@@ -25,8 +25,8 @@ use secp256k1::Secp256k1;
 use secp256k1::SecretKey as LibSecp256k1PrivateKey;
 use secp256k1::Signature as LibSecp256k1Signature;
 
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
+use types::PrivateKey;
+use types::PublicKey;
 use util::hash::{hex_bytes, to_hex};
 
 use serde::de::Deserialize;
@@ -34,15 +34,8 @@ use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
 
-use util::db::Error as db_error;
-use util::db::FromColumn;
-
-use rusqlite::Row;
-
 use rand::thread_rng;
 use rand::RngCore;
-
-use chainstate::stacks::StacksPublicKey;
 
 // per-thread Secp256k1 context
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
@@ -257,16 +250,6 @@ impl PublicKey for Secp256k1PublicKey {
     }
 }
 
-/// Make public keys loadable from a sqlite database
-impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PublicKey, db_error> {
-        let pubkey_hex: String = row.get_unwrap(column_name);
-        let pubkey =
-            Secp256k1PublicKey::from_hex(&pubkey_hex).map_err(|_e| db_error::ParseError)?;
-        Ok(pubkey)
-    }
-}
-
 impl Secp256k1PrivateKey {
     pub fn new() -> Secp256k1PrivateKey {
         let mut rng = rand::thread_rng();
@@ -354,16 +337,6 @@ impl PrivateKey for Secp256k1PrivateKey {
             let sig = ctx.sign_recoverable(&msg, &self.key);
             Ok(MessageSignature::from_secp256k1_recoverable(&sig))
         })
-    }
-}
-
-/// Make private keys loadable from a sqlite database
-impl FromColumn<Secp256k1PrivateKey> for Secp256k1PrivateKey {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PrivateKey, db_error> {
-        let privkey_hex: String = row.get_unwrap(column_name);
-        let privkey =
-            Secp256k1PrivateKey::from_hex(&privkey_hex).map_err(|_e| db_error::ParseError)?;
-        Ok(privkey)
     }
 }
 

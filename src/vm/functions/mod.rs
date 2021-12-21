@@ -26,7 +26,6 @@ use vm::errors::{
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
 };
 pub use vm::functions::assets::stx_transfer_consolidated;
-pub use vm::functions::special::handle_contract_call_special_cases;
 use vm::is_reserved;
 use vm::representations::SymbolicExpressionType::{Atom, List};
 use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
@@ -71,7 +70,6 @@ pub mod define;
 mod options;
 mod principals;
 mod sequences;
-mod special;
 pub mod tuples;
 
 define_versioned_named_enum!(NativeFunctions(ClarityVersion) {

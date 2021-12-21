@@ -22,15 +22,15 @@
 
 use util::uint::Uint256;
 
-use deps;
-use deps::bitcoin::blockdata::constants::max_target;
-use deps::bitcoin::blockdata::transaction::Transaction;
-use deps::bitcoin::network::constants::Network;
-use deps::bitcoin::network::encodable::VarInt;
-use deps::bitcoin::network::serialize::BitcoinHash;
-use deps::bitcoin::util;
-use deps::bitcoin::util::hash::Sha256dHash;
-use deps::bitcoin::util::Error::{SpvBadProofOfWork, SpvBadTarget};
+use deps_common::bitcoin::blockdata::constants::max_target;
+use deps_common::bitcoin::blockdata::transaction::Transaction;
+use deps_common::bitcoin::network::constants::Network;
+use deps_common::bitcoin::network::encodable::VarInt;
+use deps_common::bitcoin::network::serialize::BitcoinHash;
+use deps_common::bitcoin::util;
+use deps_common::bitcoin::util::hash::Sha256dHash;
+use deps_common::bitcoin::util::Error;
+use deps_common::bitcoin::util::Error::{SpvBadProofOfWork, SpvBadTarget};
 
 /// A block header, which contains all the block's information except
 /// the actual transactions
@@ -125,10 +125,7 @@ impl BlockHeader {
     /// Performs an SPV validation of a block, which confirms that the proof-of-work
     /// is correct, but does not verify that the transactions are valid or encoded
     /// correctly.
-    pub fn spv_validate(
-        &self,
-        required_target: &Uint256,
-    ) -> Result<(), deps::bitcoin::util::Error> {
+    pub fn spv_validate(&self, required_target: &Uint256) -> Result<(), Error> {
         let target = &self.target();
         if target != required_target {
             return Err(SpvBadTarget);
@@ -155,7 +152,7 @@ impl BlockHeader {
 
 impl BitcoinHash for BlockHeader {
     fn bitcoin_hash(&self) -> Sha256dHash {
-        use deps::bitcoin::network::serialize::serialize;
+        use deps_common::bitcoin::network::serialize::serialize;
         Sha256dHash::from_data(&serialize(self).unwrap())
     }
 }
@@ -182,8 +179,8 @@ impl_consensus_encoding!(LoneBlockHeader, header, tx_count);
 mod tests {
     use util::hash::hex_bytes as hex_decode;
 
-    use deps::bitcoin::blockdata::block::{Block, BlockHeader};
-    use deps::bitcoin::network::serialize::{deserialize, serialize};
+    use deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
+    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]
     fn block_test() {

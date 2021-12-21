@@ -31,8 +31,8 @@ use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
 use address::c32::c32_address;
 use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
-use util::db::sqlite_open;
-use util::db::FromColumn;
+use util_lib::db::sqlite_open;
+use util_lib::db::FromColumn;
 use util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 
 use util::log;

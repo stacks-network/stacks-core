@@ -14,13 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::core::StacksEpochId;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::proof::ClarityMarfTrieId;
+use crate::types::StacksEpochId;
 use crate::util::boot::boot_code_id;
-use chainstate::stacks::events::StacksTransactionEvent;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use clarity_vm::clarity::ClarityInstance;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -34,6 +33,7 @@ use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
 use vm::database::ClarityDatabase;
 use vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use vm::events::StacksTransactionEvent;
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
 use vm::tests::{

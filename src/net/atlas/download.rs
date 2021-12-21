@@ -35,8 +35,8 @@ use net::{GetAttachmentResponse, GetAttachmentsInvResponse};
 use net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
 use util::hash::{Hash160, MerkleHashFunc};
 use util::strings;
+use util::strings::UrlString;
 use util::{get_epoch_time_ms, get_epoch_time_secs};
-use vm::representations::UrlString;
 use vm::types::QualifiedContractIdentifier;
 
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};

@@ -29,8 +29,8 @@ use ripemd160::Ripemd160;
 use sha2::Digest;
 use sha2::Sha256;
 
-use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps::bitcoin::network::serialize::{self, BitcoinHash, RawEncoder, SimpleEncoder};
+use deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use deps_common::bitcoin::network::serialize::{self, BitcoinHash, RawEncoder, SimpleEncoder};
 use util::uint::Uint256;
 use util::HexError;
 
@@ -421,8 +421,8 @@ impl<T: BitcoinHash> MerkleRoot for Vec<T> {
 mod tests {
 
     use super::*;
-    use deps::bitcoin::network::encodable::{ConsensusEncodable, VarInt};
-    use deps::bitcoin::network::serialize::{deserialize, serialize};
+    use deps_common::bitcoin::network::encodable::{ConsensusEncodable, VarInt};
+    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
     use util::uint::Uint256;
 
     #[test]

@@ -45,18 +45,18 @@ use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use monitoring::increment_stx_mempool_gc;
 use std::time::Instant;
-use util::db::query_row_columns;
-use util::db::query_rows;
-use util::db::sqlite_open;
-use util::db::tx_begin_immediate;
-use util::db::tx_busy_handler;
-use util::db::u64_to_sql;
-use util::db::Error as db_error;
-use util::db::FromColumn;
-use util::db::{query_row, Error};
-use util::db::{sql_pragma, DBConn, DBTx, FromRow};
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
+use util_lib::db::query_row_columns;
+use util_lib::db::query_rows;
+use util_lib::db::sqlite_open;
+use util_lib::db::tx_begin_immediate;
+use util_lib::db::tx_busy_handler;
+use util_lib::db::u64_to_sql;
+use util_lib::db::Error as db_error;
+use util_lib::db::FromColumn;
+use util_lib::db::{query_row, Error};
+use util_lib::db::{sql_pragma, DBConn, DBTx, FromRow};
 use vm::types::PrincipalData;
 
 use clarity_vm::clarity::ClarityConnection;
@@ -72,7 +72,7 @@ use crate::cost_estimates::EstimatorError;
 use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
-use crate::util::db::table_exists;
+use crate::util_lib::db::table_exists;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
@@ -1386,10 +1386,10 @@ mod tests {
     use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
     use core::FIRST_STACKS_BLOCK_HASH;
     use net::Error as NetError;
-    use util::db::{DBConn, FromRow};
     use util::hash::Hash160;
     use util::secp256k1::MessageSignature;
     use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*, strings::StacksString};
+    use util_lib::db::{DBConn, FromRow};
     use vm::{
         database::HeadersDB,
         errors::Error as ClarityError,

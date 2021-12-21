@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::{no_type, FunctionType, TypeChecker, TypeResult, TypingContext};
-use chainstate::stacks::TOKEN_TRANSFER_MEMO_LENGTH;
+use stacks_common::consts::TOKEN_TRANSFER_MEMO_LENGTH;
 use std::convert::TryFrom;
 use vm::analysis::errors::{check_argument_count, CheckError, CheckErrors, CheckResult};
 use vm::costs::cost_functions::ClarityCostFunction;

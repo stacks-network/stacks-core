@@ -88,11 +88,11 @@ use net::{
 use net::{BlocksData, GetIsTraitImplementedResponse};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
-use util::db::DBConn;
-use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::hash::Hash160;
 use util::hash::{hex_bytes, to_hex};
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
 use vm::database::clarity_store::make_contract_hash_key;
 use vm::types::TraitIdentifier;
 use vm::{

@@ -78,17 +78,22 @@ extern crate rstest_reuse;
 pub extern crate prometheus;
 
 #[macro_use]
+extern crate stacks_common;
+
+#[macro_use]
 pub mod codec;
 
 #[macro_use]
-pub mod util;
+pub mod util_lib;
 
 #[macro_use]
 pub mod net;
 
 #[macro_use]
-/// The Clarity virtual machine
-pub mod vm;
+extern crate clarity;
+
+pub use clarity::vm;
+pub use stacks_common::types;
 
 #[macro_use]
 pub mod chainstate;
@@ -104,10 +109,7 @@ pub mod clarity_vm;
 pub mod core;
 pub mod deps;
 
-pub mod clarity;
-
 pub mod monitoring;
-pub mod types;
 
 pub mod cost_estimates;
 

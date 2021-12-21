@@ -1719,9 +1719,9 @@ pub mod test {
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
     use net::test::*;
-    use util::db::Error as db_error;
     use util::sleep_ms;
     use util::vrf::VRFProof;
+    use util_lib::db::Error as db_error;
     use vm::types::*;
 
     use crate::cost_estimates::metrics::UnitMetric;

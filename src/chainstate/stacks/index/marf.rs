@@ -36,9 +36,9 @@ use chainstate::stacks::index::storage::{
 use chainstate::stacks::index::trie::Trie;
 use chainstate::stacks::index::Error;
 use chainstate::stacks::index::MarfTrieId;
-use util::db::Error as db_error;
 use util::hash::Sha512Trunc256Sum;
 use util::log;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::{BlockHeaderHash, MARFValue};
 use crate::types::proof::{

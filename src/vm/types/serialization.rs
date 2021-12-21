@@ -724,6 +724,28 @@ impl ClarityDeserializable<u32> for u32 {
     }
 }
 
+impl StacksMessageCodec for Value {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        self.serialize_write(fd).map_err(codec_error::WriteError)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Value, codec_error> {
+        Value::deserialize_read(fd, None).map_err(|e| match e {
+            SerializationError::IOError(e) => codec_error::ReadError(e.err),
+            _ => codec_error::DeserializeError(format!("Failed to decode clarity value: {:?}", &e)),
+        })
+    }
+}
+
+impl std::hash::Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let mut s = vec![];
+        self.consensus_serialize(&mut s)
+            .expect("FATAL: failed to serialize to vec");
+        s.hash(state);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;

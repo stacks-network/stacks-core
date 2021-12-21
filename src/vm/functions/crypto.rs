@@ -15,9 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use address::AddressHashMode;
-use chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
+use types::{C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use util::hash;
 use util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
 use vm::callables::{CallableType, NativeHandle};
@@ -31,6 +29,7 @@ use vm::errors::{
 };
 use vm::representations::SymbolicExpressionType::{Atom, List};
 use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use vm::types::StacksAddressExtensions;
 use vm::types::{
     BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
     BUFF_33, BUFF_65,

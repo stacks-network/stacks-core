@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
 use chainstate::stacks::index::{Error, MarfTrieId};
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use util::db::IndexDBConn;
+use util_lib::db::IndexDBConn;
 use vm::analysis::AnalysisDatabase;
 use vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
@@ -272,6 +272,10 @@ impl<'a> ReadOnlyMarfStore<'a> {
 impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
     fn get_side_store(&mut self) -> &Connection {
         self.marf.sqlite_conn()
+    }
+
+    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        None
     }
 
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {

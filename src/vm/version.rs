@@ -1,6 +1,6 @@
-use core::StacksEpochId;
 use std::fmt;
 use std::str::FromStr;
+use types::StacksEpochId;
 use vm::errors::{Error, RuntimeErrorType};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, PartialOrd)]

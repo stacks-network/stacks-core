@@ -53,17 +53,17 @@ use cost_estimates::EstimatorError;
 use net::BlocksInvData;
 use net::Error as net_error;
 use net::ExtendedStacksHeader;
-use util::db::u64_to_sql;
-use util::db::Error as db_error;
-use util::db::{
-    query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
-    tx_busy_handler, DBConn, FromColumn, FromRow,
-};
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::retry::BoundReader;
 use util::strings::StacksString;
+use util_lib::db::u64_to_sql;
+use util_lib::db::Error as db_error;
+use util_lib::db::{
+    query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
+    tx_busy_handler, DBConn, FromColumn, FromRow,
+};
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
@@ -6143,10 +6143,10 @@ pub mod test {
     use core::mempool::*;
     use net::test::*;
     use net::ExtendedStacksHeader;
-    use util::db::Error as db_error;
-    use util::db::*;
     use util::hash::*;
     use util::retry::*;
+    use util_lib::db::Error as db_error;
+    use util_lib::db::*;
 
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;

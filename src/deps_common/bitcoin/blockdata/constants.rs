@@ -21,12 +21,12 @@
 
 use std::default::Default;
 
-use deps::bitcoin::blockdata::block::{Block, BlockHeader};
-use deps::bitcoin::blockdata::opcodes;
-use deps::bitcoin::blockdata::script;
-use deps::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
-use deps::bitcoin::network::constants::Network;
-use deps::bitcoin::util::hash::MerkleRoot;
+use deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
+use deps_common::bitcoin::blockdata::opcodes;
+use deps_common::bitcoin::blockdata::script;
+use deps_common::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
+use deps_common::bitcoin::network::constants::Network;
+use deps_common::bitcoin::util::hash::MerkleRoot;
 use util::hash::hex_bytes;
 use util::uint::Uint256;
 
@@ -143,10 +143,10 @@ mod test {
     use std::default::Default;
     use util::hash::hex_bytes as hex_decode;
 
-    use deps::bitcoin::blockdata::constants::{bitcoin_genesis_tx, genesis_block};
-    use deps::bitcoin::blockdata::constants::{COIN_VALUE, MAX_SEQUENCE};
-    use deps::bitcoin::network::constants::Network;
-    use deps::bitcoin::network::serialize::{serialize, BitcoinHash};
+    use deps_common::bitcoin::blockdata::constants::{bitcoin_genesis_tx, genesis_block};
+    use deps_common::bitcoin::blockdata::constants::{COIN_VALUE, MAX_SEQUENCE};
+    use deps_common::bitcoin::network::constants::Network;
+    use deps_common::bitcoin::network::serialize::{serialize, BitcoinHash};
 
     #[test]
     fn bitcoin_genesis_first_transaction() {

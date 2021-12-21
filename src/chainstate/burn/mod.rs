@@ -32,16 +32,18 @@ use burnchains::PublicKey;
 use burnchains::Txid;
 use chainstate::burn::db::sortdb::SortitionHandleTx;
 use core::SYSTEM_FORK_SET_VERSION;
-use util::db::Error as db_error;
 use util::hash::Hash32;
 use util::hash::Sha512Trunc256Sum;
 use util::hash::{to_hex, Hash160};
 use util::log;
 use util::uint::Uint256;
 use util::vrf::VRFProof;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
 use crate::types::proof::TrieHash;
+
+pub use types::chainstate::ConsensusHash;
 
 /// This module contains the code for processing the burn chain state database
 pub mod db;
@@ -50,12 +52,6 @@ pub mod operations;
 pub mod sortition;
 
 pub const CONSENSUS_HASH_LIFETIME: u32 = 24;
-
-pub struct ConsensusHash(pub [u8; 20]);
-impl_array_newtype!(ConsensusHash, u8, 20);
-impl_array_hexstring_fmt!(ConsensusHash);
-impl_byte_array_newtype!(ConsensusHash, u8, 20);
-pub const CONSENSUS_HASH_ENCODED_SIZE: u32 = 20;
 
 // operations hash -- the sha256 hash of a sequence of transaction IDs
 pub struct OpsHash(pub [u8; 32]);
@@ -384,10 +380,10 @@ mod tests {
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use chainstate::burn::db::sortdb::*;
-    use util::db::Error as db_error;
     use util::get_epoch_time_secs;
     use util::hash::{hex_bytes, Hash160};
     use util::log;
+    use util_lib::db::Error as db_error;
 
     use crate::types::chainstate::BurnchainHeaderHash;
 

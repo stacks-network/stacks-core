@@ -38,8 +38,6 @@ use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::stacks::index::Error as marf_error;
 use clarity_vm::clarity::Error as clarity_error;
 use net::Error as net_error;
-use util::db::DBConn;
-use util::db::Error as db_error;
 use util::hash::Hash160;
 use util::hash::Sha512Trunc256Sum;
 use util::hash::HASH160_ENCODED_SIZE;
@@ -47,6 +45,8 @@ use util::secp256k1;
 use util::secp256k1::MessageSignature;
 use util::strings::StacksString;
 use util::vrf::VRFProof;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
 use vm::contexts::GlobalContext;
 use vm::costs::CostErrors;
 use vm::costs::ExecutionCost;
@@ -71,8 +71,7 @@ pub mod index;
 pub mod miner;
 pub mod transaction;
 
-pub type StacksPublicKey = secp256k1::Secp256k1PublicKey;
-pub type StacksPrivateKey = secp256k1::Secp256k1PrivateKey;
+pub use types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
 impl_byte_array_message_codec!(TrieHash, TRIEHASH_ENCODED_SIZE as u32);
 impl_byte_array_message_codec!(Sha512Trunc256Sum, 32);
@@ -87,32 +86,6 @@ pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
-
-impl StacksBlockId {
-    pub fn new(
-        sortition_consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-    ) -> StacksBlockId {
-        let mut hasher = Sha512Trunc256::new();
-        hasher.input(block_hash);
-        hasher.input(sortition_consensus_hash);
-
-        let h = Sha512Trunc256Sum::from_hasher(hasher);
-        StacksBlockId(h.0)
-    }
-}
-
-impl From<StacksAddress> for StandardPrincipalData {
-    fn from(addr: StacksAddress) -> StandardPrincipalData {
-        StandardPrincipalData(addr.version, addr.bytes.0)
-    }
-}
-
-impl From<StacksAddress> for PrincipalData {
-    fn from(addr: StacksAddress) -> PrincipalData {
-        PrincipalData::from(StandardPrincipalData::from(addr))
-    }
-}
 
 impl AddressHashMode {
     pub fn to_version_mainnet(&self) -> u8 {

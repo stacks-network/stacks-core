@@ -34,11 +34,11 @@ use chainstate::burn::operations::{
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 use net::Error as net_error;
-use util::db::DBConn;
-use util::db::DBTx;
 use util::hash::Hash160;
 use util::log;
 use util::vrf::{VRFPublicKey, VRF};
+use util_lib::db::DBConn;
+use util_lib::db::DBTx;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;

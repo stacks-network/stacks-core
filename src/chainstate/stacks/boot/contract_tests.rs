@@ -18,9 +18,9 @@ use core::{
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     POX_REWARD_CYCLE_LENGTH,
 };
-use util::db::{DBConn, FromRow};
 use util::hash::to_hex;
 use util::hash::{Sha256Sum, Sha512Trunc256Sum};
+use util_lib::db::{DBConn, FromRow};
 use vm::contexts::OwnedEnvironment;
 use vm::contracts::Contract;
 use vm::costs::CostOverflowingMath;

@@ -22,7 +22,7 @@ use rusqlite::{
 
 use crate::types::chainstate::StacksBlockId;
 
-use util::db::{sql_pragma, tx_busy_handler};
+use util::db_common::tx_busy_handler;
 
 use vm::contracts::Contract;
 use vm::errors::{

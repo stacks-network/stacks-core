@@ -24,79 +24,27 @@ use vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
 
 pub const MAX_STRING_LEN: u8 = 128;
 
-macro_rules! guarded_string {
-    ($Name:ident, $Label:literal, $Regex:expr) => {
-        #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-        pub struct $Name(String);
-        impl TryFrom<String> for $Name {
-            type Error = RuntimeErrorType;
-            fn try_from(value: String) -> Result<Self, Self::Error> {
-                if value.len() > (MAX_STRING_LEN as usize) {
-                    return Err(RuntimeErrorType::BadNameValue($Label, value));
-                }
-                if $Regex.is_match(&value) {
-                    Ok(Self(value))
-                } else {
-                    Err(RuntimeErrorType::BadNameValue($Label, value))
-                }
-            }
-        }
-
-        impl $Name {
-            pub fn as_str(&self) -> &str {
-                &self.0
-            }
-
-            pub fn len(&self) -> u8 {
-                u8::try_from(self.as_str().len()).unwrap()
-            }
-        }
-
-        impl Deref for $Name {
-            type Target = str;
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
-        }
-
-        impl Borrow<str> for $Name {
-            fn borrow(&self) -> &str {
-                self.as_str()
-            }
-        }
-
-        impl Into<String> for $Name {
-            fn into(self) -> String {
-                self.0
-            }
-        }
-
-        impl From<&'_ str> for $Name {
-            fn from(value: &str) -> Self {
-                Self::try_from(value.to_string()).unwrap()
-            }
-        }
-
-        impl fmt::Display for $Name {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                self.0.fmt(f)
-            }
-        }
-    };
-}
-
 lazy_static! {
     pub static ref CLARITY_NAME_REGEX: Regex =
         Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$").unwrap();
     pub static ref CONTRACT_NAME_REGEX: Regex =
         Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_])*$|^__transient$").unwrap();
-    pub static ref URL_STRING_REGEX: Regex =
-        Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#).unwrap();
 }
 
-guarded_string!(ClarityName, "ClarityName", CLARITY_NAME_REGEX);
-guarded_string!(ContractName, "ContractName", CONTRACT_NAME_REGEX);
-guarded_string!(UrlString, "UrlString", URL_STRING_REGEX);
+guarded_string!(
+    ClarityName,
+    "ClarityName",
+    CLARITY_NAME_REGEX,
+    RuntimeErrorType,
+    RuntimeErrorType::BadNameValue
+);
+guarded_string!(
+    ContractName,
+    "ContractName",
+    CONTRACT_NAME_REGEX,
+    RuntimeErrorType,
+    RuntimeErrorType::BadNameValue
+);
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum PreSymbolicExpressionType {

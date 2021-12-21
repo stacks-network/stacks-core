@@ -33,8 +33,9 @@ use crate::chainstate::stacks::boot::POX_2_NAME;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::util::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use chainstate::stacks::Error as ChainstateError;
+
+use vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 
 use util::hash::Hash160;
 

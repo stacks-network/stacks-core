@@ -18,8 +18,8 @@
 //! capabilities
 //!
 
-use deps::bitcoin::network::address::Address;
-use deps::bitcoin::network::constants;
+use deps_common::bitcoin::network::address::Address;
+use deps_common::bitcoin::network::constants;
 use util;
 
 /// Some simple messages
@@ -68,7 +68,7 @@ mod tests {
 
     use util::hash::hex_bytes as hex_decode;
 
-    use deps::bitcoin::network::serialize::{deserialize, serialize};
+    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]
     fn version_message_test() {

@@ -79,37 +79,44 @@ extern crate rstest_reuse;
 pub extern crate prometheus;
 
 #[macro_use]
+extern crate stacks_common;
+
+pub use stacks_common::types;
+pub use stacks_common::util;
+
+#[macro_use]
 pub mod codec;
 
-#[macro_use]
-pub mod util;
-
-#[macro_use]
-pub mod net;
+// #[macro_use]
+// pub mod util_lib;
 
 #[macro_use]
 /// The Clarity virtual machine
 pub mod vm;
 
-#[macro_use]
-pub mod chainstate;
-
-#[cfg(test)]
-extern crate stx_genesis;
-
-pub mod address;
-pub mod burnchains;
+pub use stacks_common::address;
 
 /// A high level library for interacting with the Clarity vm
-pub mod clarity_vm;
-pub mod core;
-pub mod deps;
+// pub mod core;
 
-pub mod clarity;
+pub mod boot_util {
+    use crate::vm::representations::ContractName;
+    use crate::vm::types::QualifiedContractIdentifier;
+    use std::convert::TryFrom;
+    use types::chainstate::StacksAddress;
 
-pub mod cost_estimates;
-pub mod monitoring;
-pub mod types;
+    pub fn boot_code_id(name: &str, mainnet: bool) -> QualifiedContractIdentifier {
+        let addr = boot_code_addr(mainnet);
+        QualifiedContractIdentifier::new(
+            addr.into(),
+            ContractName::try_from(name.to_string()).unwrap(),
+        )
+    }
+
+    pub fn boot_code_addr(mainnet: bool) -> StacksAddress {
+        StacksAddress::burn_address(mainnet)
+    }
+}
 
 // set via _compile-time_ envars
 const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");

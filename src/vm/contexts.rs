@@ -32,7 +32,7 @@ use vm::database::{
     NonFungibleTokenMetadata,
 };
 use vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
-use vm::functions::handle_contract_call_special_cases;
+use vm::events::*;
 use vm::representations::{ClarityName, ContractName, SymbolicExpression};
 use vm::stx_transfer_consolidated;
 use vm::types::signatures::FunctionSignature;
@@ -42,12 +42,8 @@ use vm::types::{
 };
 use vm::{eval, is_reserved};
 
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::events::*;
-use chainstate::stacks::Error as ChainstateError;
-
 use crate::types::chainstate::StacksMicroblockHeader;
-use crate::{core::StacksEpochId, types::chainstate::StacksBlockId};
+use crate::{types::chainstate::StacksBlockId, types::StacksEpochId};
 
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
@@ -719,16 +715,16 @@ impl<'a> OwnedEnvironment<'a> {
         })
     }
 
-    pub fn handle_poison_microblock(
-        &mut self,
-        sender: &PrincipalData,
-        mblock_hdr_1: &StacksMicroblockHeader,
-        mblock_hdr_2: &StacksMicroblockHeader,
-    ) -> std::result::Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ChainstateError> {
-        self.execute_in_env(sender.clone(), None, |exec_env| {
-            exec_env.handle_poison_microblock(mblock_hdr_1, mblock_hdr_2)
-        })
-    }
+    // pub fn handle_poison_microblock(
+    //     &mut self,
+    //     sender: &PrincipalData,
+    //     mblock_hdr_1: &StacksMicroblockHeader,
+    //     mblock_hdr_2: &StacksMicroblockHeader,
+    // ) -> std::result::Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ChainstateError> {
+    //     self.execute_in_env(sender.clone(), None, |exec_env| {
+    //         exec_env.handle_poison_microblock(mblock_hdr_1, mblock_hdr_2)
+    //     })
+    // }
 
     #[cfg(test)]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
@@ -1042,7 +1038,9 @@ impl<'a, 'b> Environment<'a, 'b> {
 
             match res {
                 Ok(value) => {
-                    handle_contract_call_special_cases(&mut self.global_context, self.sender.as_ref(), self.sponsor.as_ref(), contract_identifier, tx_name, &value)?;
+                    if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
+                        handler(&mut self.global_context, self.sender.as_ref(), self.sponsor.as_ref(), contract_identifier, tx_name, &value)?;
+                    }
                     Ok(value)
                 },
                 Err(e) => Err(e)
@@ -1233,26 +1231,26 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
     }
 
-    /// Top-level poison-microblock handler
-    pub fn handle_poison_microblock(
-        &mut self,
-        mblock_header_1: &StacksMicroblockHeader,
-        mblock_header_2: &StacksMicroblockHeader,
-    ) -> std::result::Result<Value, ChainstateError> {
-        self.global_context.begin();
-        let result =
-            StacksChainState::handle_poison_microblock(self, mblock_header_1, mblock_header_2);
-        match result {
-            Ok(ret) => {
-                self.global_context.commit()?;
-                Ok(ret)
-            }
-            Err(e) => {
-                self.global_context.roll_back();
-                Err(e)
-            }
-        }
-    }
+    // /// Top-level poison-microblock handler
+    // pub fn handle_poison_microblock(
+    //     &mut self,
+    //     mblock_header_1: &StacksMicroblockHeader,
+    //     mblock_header_2: &StacksMicroblockHeader,
+    // ) -> std::result::Result<Value, ChainstateError> {
+    //     self.global_context.begin();
+    //     let result =
+    //         StacksChainState::handle_poison_microblock(self, mblock_header_1, mblock_header_2);
+    //     match result {
+    //         Ok(ret) => {
+    //             self.global_context.commit()?;
+    //             Ok(ret)
+    //         }
+    //         Err(e) => {
+    //             self.global_context.roll_back();
+    //             Err(e)
+    //         }
+    //     }
+    // }
 
     pub fn register_print_event(&mut self, value: Value) -> Result<()> {
         let print_event = SmartContractEventData {

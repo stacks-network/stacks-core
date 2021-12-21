@@ -41,11 +41,12 @@ pub mod version;
 
 pub mod coverage;
 
+pub mod events;
+
 #[cfg(test)]
 pub mod tests;
 
-use crate::clarity_vm::database::MemoryBackingStore;
-use crate::core::StacksEpochId;
+use crate::types::StacksEpochId;
 use vm::callables::CallableType;
 use vm::contexts::GlobalContext;
 pub use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
@@ -411,6 +412,8 @@ pub fn execute_with_parameters(
     epoch: StacksEpochId,
     use_mainnet: bool,
 ) -> Result<Option<Value>> {
+    use vm::database::clarity_store::NullBackingStore as MemoryBackingStore;
+
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
@@ -454,7 +457,7 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
 #[cfg(test)]
 mod test {
     use crate::clarity_vm::database::MemoryBackingStore;
-    use crate::core::StacksEpochId;
+    use crate::types::StacksEpochId;
     use std::collections::HashMap;
     use vm::callables::{DefineType, DefinedFunction};
     use vm::costs::LimitedCostTracker;

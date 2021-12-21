@@ -23,7 +23,7 @@ pub mod trait_checker;
 pub mod type_checker;
 pub mod types;
 
-use crate::core::StacksEpochId;
+use crate::types::StacksEpochId;
 
 pub use self::types::{AnalysisPass, ContractAnalysis};
 use vm::costs::LimitedCostTracker;
@@ -46,8 +46,8 @@ pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
 ) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
-    use crate::clarity_vm::database::MemoryBackingStore;
     use vm::ast::parse;
+    use vm::database::clarity_store::NullBackingStore as MemoryBackingStore;
     let contract_identifier = QualifiedContractIdentifier::transient();
     let mut contract = parse(&contract_identifier, snippet, version).unwrap();
     let mut marf = MemoryBackingStore::new();

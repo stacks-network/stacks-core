@@ -33,7 +33,7 @@ use chainstate::stacks::index::{
     marf::MARF, storage::TrieFileStorage, Error as MARFError, MarfTrieId,
 };
 use core::INITIAL_MINING_BONUS_WINDOW;
-use util::db::Error as DBError;
+use util_lib::db::Error as DBError;
 
 use crate::types::chainstate::{BurnchainHeaderHash, MARFValue, PoxId, SortitionId};
 use crate::types::proof::TrieHash;

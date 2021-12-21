@@ -14,19 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::stacks::events::*;
 use clarity_vm::clarity::ClarityInstance;
 use clarity_vm::database::marf::MarfedKV;
 use types::chainstate::{StacksBlockHeader, StacksBlockId};
 use types::proof::ClarityMarfTrieId;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::ExecutionCost;
+use vm::events::*;
 use vm::tests::execute;
 use vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
 
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
-use core::StacksEpochId;
+use types::StacksEpochId;
 
 use crate::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 

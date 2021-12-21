@@ -41,13 +41,13 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
-use util::db::{
-    query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn,
-    DBTx, Error as db_error, FromColumn, FromRow,
-};
 use util::get_epoch_time_secs;
 use util::hash::{hex_bytes, to_hex};
 use util::log;
+use util_lib::db::{
+    query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn,
+    DBTx, Error as db_error, FromColumn, FromRow,
+};
 
 const BLOCK_HEADER_SIZE: u64 = 81;
 

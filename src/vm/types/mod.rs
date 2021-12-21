@@ -27,6 +27,8 @@ use regex::Regex;
 use address::c32;
 use util::hash;
 
+use types::chainstate::StacksAddress;
+
 use vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
@@ -153,6 +155,19 @@ pub struct ResponseData {
 pub struct TraitIdentifier {
     pub name: ClarityName,
     pub contract_identifier: QualifiedContractIdentifier,
+}
+
+pub trait StacksAddressExtensions {
+    fn to_account_principal(&self) -> PrincipalData;
+}
+
+impl StacksAddressExtensions for StacksAddress {
+    fn to_account_principal(&self) -> PrincipalData {
+        PrincipalData::Standard(StandardPrincipalData(
+            self.version,
+            self.bytes.as_bytes().clone(),
+        ))
+    }
 }
 
 impl TraitIdentifier {
@@ -399,7 +414,7 @@ impl SequenceData {
     }
 
     pub fn slice(self, left_position: usize, right_position: usize) -> Result<Value> {
-        let empty_seq = (left_position == right_position);
+        let empty_seq = left_position == right_position;
 
         let result = match self {
             SequenceData::Buffer(data) => {
@@ -1195,6 +1210,18 @@ impl fmt::Display for PrincipalData {
 impl fmt::Display for TraitIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}.{}", self.contract_identifier, self.name.to_string())
+    }
+}
+
+impl From<StacksAddress> for StandardPrincipalData {
+    fn from(addr: StacksAddress) -> StandardPrincipalData {
+        StandardPrincipalData(addr.version, addr.bytes.0)
+    }
+}
+
+impl From<StacksAddress> for PrincipalData {
+    fn from(addr: StacksAddress) -> PrincipalData {
+        PrincipalData::from(StandardPrincipalData::from(addr))
     }
 }
 

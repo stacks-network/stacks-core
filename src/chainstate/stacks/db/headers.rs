@@ -29,8 +29,8 @@ use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
-use util::db::Error as db_error;
-use util::db::{
+use util_lib::db::Error as db_error;
+use util_lib::db::{
     query_count, query_row, query_row_columns, query_row_panic, query_rows, DBConn, FromColumn,
     FromRow,
 };

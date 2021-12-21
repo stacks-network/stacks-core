@@ -22,9 +22,8 @@ use regex::internal::Exec;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
-use crate::util::boot::boot_code_id;
-use chainstate::stacks::boot::{COSTS_1_NAME, COSTS_2_NAME};
-use core::StacksEpochId;
+use crate::boot_util::boot_code_id;
+use types::StacksEpochId;
 use vm::ast::ContractAST;
 use vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
 use vm::costs::cost_functions::ClarityCostFunction;
@@ -45,6 +44,10 @@ pub mod cost_functions;
 type Result<T> = std::result::Result<T, CostErrors>;
 
 pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
+
+// TODO: factor out into a boot lib?
+pub const COSTS_1_NAME: &'static str = "costs";
+pub const COSTS_2_NAME: &'static str = "costs-2";
 
 lazy_static! {
     static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = TypeSignature::TupleType(

@@ -7,7 +7,7 @@ use vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
 use vm::ClarityVersion;
 
 use crate::clarity_vm::database::MemoryBackingStore;
-use crate::core::StacksEpochId;
+use crate::types::StacksEpochId;
 use std::collections::HashMap;
 use vm::callables::{DefineType, DefinedFunction};
 use vm::costs::LimitedCostTracker;

@@ -17,10 +17,10 @@
 use std::error;
 use std::fmt;
 
-use burnchains::PublicKey;
+use types::PublicKey;
 
-use deps::bitcoin::blockdata::opcodes::All as btc_opcodes;
-use deps::bitcoin::blockdata::script::{Builder, Instruction, Script};
+use deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
+use deps_common::bitcoin::blockdata::script::{Builder, Instruction, Script};
 
 use util::hash::Hash160;
 

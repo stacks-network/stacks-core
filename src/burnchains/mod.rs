@@ -34,9 +34,9 @@ use chainstate::burn::ConsensusHash;
 use chainstate::stacks::StacksPublicKey;
 use core::*;
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use util::db::Error as db_error;
 use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
+use util_lib::db::Error as db_error;
 
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME};
 use crate::types::chainstate::BurnchainHeaderHash;
@@ -53,6 +53,8 @@ use self::bitcoin::Error as btc_error;
 use self::bitcoin::{
     BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
 };
+
+pub use types::{Address, PrivateKey, PublicKey};
 
 /// This module contains drivers and types for all burn chains we support.
 pub mod bitcoin;
@@ -154,24 +156,6 @@ impl BurnchainParameters {
             _ => false,
         }
     }
-}
-
-pub trait PublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
-    fn to_bytes(&self) -> Vec<u8>;
-    fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str>;
-}
-
-pub trait PrivateKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
-    fn to_bytes(&self) -> Vec<u8>;
-    fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str>;
-}
-
-pub trait Address: Clone + fmt::Debug + fmt::Display {
-    fn to_bytes(&self) -> Vec<u8>;
-    fn from_string(from: &str) -> Option<Self>
-    where
-        Self: Sized;
-    fn is_burn(&self) -> bool;
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -596,11 +580,11 @@ pub mod test {
     use chainstate::coordinator::comm::*;
     use chainstate::coordinator::*;
     use chainstate::stacks::*;
-    use util::db::*;
     use util::get_epoch_time_secs;
     use util::hash::*;
     use util::secp256k1::*;
     use util::vrf::*;
+    use util_lib::db::*;
 
     use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 
