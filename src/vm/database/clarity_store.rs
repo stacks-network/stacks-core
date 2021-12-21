@@ -19,8 +19,6 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use util::db::IndexDBConn;
 use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use vm::analysis::AnalysisDatabase;
 use vm::database::{
@@ -36,8 +34,26 @@ use vm::types::QualifiedContractIdentifier;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader, StacksBlockId, VRFSeed};
 use crate::types::proof::TrieHash;
 use crate::types::proof::TrieMerkleProof;
+use crate::vm::contexts::GlobalContext;
+use crate::vm::types::PrincipalData;
+use crate::vm::Value;
 
 pub struct NullBackingStore {}
+
+pub type SpecialCaseHandler = &'static dyn Fn(
+    // the current Clarity global context
+    &mut GlobalContext,
+    // the current sender
+    Option<&PrincipalData>,
+    // the current sponsor
+    Option<&PrincipalData>,
+    // the invoked contract
+    &QualifiedContractIdentifier,
+    // the invoked function name
+    &str,
+    // the result of the function call
+    &Value,
+) -> Result<()>;
 
 // These functions generally _do not_ return errors, rather, any errors in the underlying storage
 //    will _panic_. The rationale for this is that under no condition should the interpreter
@@ -67,6 +83,10 @@ pub trait ClarityBackingStore {
     fn get_open_chain_tip_height(&mut self) -> u32;
     fn get_open_chain_tip(&mut self) -> StacksBlockId;
     fn get_side_store(&mut self) -> &Connection;
+
+    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        None
+    }
 
     /// The contract commitment is the hash of the contract, plus the block height in
     ///   which the contract was initialized.

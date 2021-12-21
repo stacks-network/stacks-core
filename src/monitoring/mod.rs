@@ -31,9 +31,9 @@ use burnchains::BurnchainSigner;
 use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-use util::db::sqlite_open;
-use util::db::Error as DatabaseError;
 use util::uint::{Uint256, Uint512};
+use util_lib::db::sqlite_open;
+use util_lib::db::Error as DatabaseError;
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;

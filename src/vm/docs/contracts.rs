@@ -1,4 +1,4 @@
-use chainstate::stacks::boot::STACKS_BOOT_CODE_MAINNET;
+//use chainstate::stacks::boot::STACKS_BOOT_CODE_MAINNET;
 use vm::analysis::{mem_type_check, ContractAnalysis};
 use vm::docs::{get_input_type_string, get_output_type_string, get_signature};
 use vm::types::{FunctionType, Value};
@@ -6,8 +6,8 @@ use vm::types::{FunctionType, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::FromIterator;
 
-use crate::clarity_vm::database::MemoryBackingStore;
-use crate::core::StacksEpochId;
+//use crate::clarity_vm::database::MemoryBackingStore;
+use crate::types::StacksEpochId;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::types::QualifiedContractIdentifier;
@@ -43,6 +43,8 @@ struct ContractSupportDocs {
     descriptions: HashMap<&'static str, &'static str>,
     skip_func_display: HashSet<&'static str>,
 }
+
+const STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 0] = [];
 
 fn make_contract_support_docs() -> HashMap<&'static str, ContractSupportDocs> {
     let pox_descriptions = vec![
@@ -200,6 +202,8 @@ fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
 }
 
 fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
+    use vm::database::clarity_store::NullBackingStore as MemoryBackingStore;
+
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();

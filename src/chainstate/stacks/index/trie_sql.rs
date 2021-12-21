@@ -49,9 +49,9 @@ use chainstate::stacks::index::node::{
 use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use chainstate::stacks::index::Error;
 use chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
-use util::db::sql_pragma;
-use util::db::tx_begin_immediate;
 use util::log;
+use util_lib::db::sql_pragma;
+use util_lib::db::tx_begin_immediate;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;

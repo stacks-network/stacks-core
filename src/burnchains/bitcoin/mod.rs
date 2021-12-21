@@ -28,8 +28,8 @@ use burnchains::Txid;
 use chainstate::burn::operations::BlockstackOperationType;
 use deps;
 use deps::bitcoin::network::serialize::Error as btc_serialize_error;
-use util::db::Error as db_error;
 use util::HexError as btc_hex_error;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 

@@ -31,13 +31,26 @@ use codec::Error as codec_error;
 use crate::codec::MAX_MESSAGE_LEN;
 use util::retry::BoundReader;
 use vm::ast::parser::{lex, LexItem, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
-pub use vm::representations::UrlString;
+use vm::errors::RuntimeErrorType;
 use vm::representations::{
     ClarityName, ContractName, SymbolicExpression, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
 };
 use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 
 use crate::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
+
+lazy_static! {
+    static ref URL_STRING_REGEX: Regex =
+        Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#).unwrap();
+}
+
+guarded_string!(
+    UrlString,
+    "UrlString",
+    URL_STRING_REGEX,
+    RuntimeErrorType,
+    RuntimeErrorType::BadNameValue
+);
 
 /// printable-ASCII-only string, but encodable.
 /// Note that it cannot be longer than ARRAY_MAX_LEN (4.1 billion bytes)

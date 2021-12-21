@@ -39,6 +39,7 @@ macro_rules! iterable_enum {
 /// Define a "named" enum, i.e., each variant corresponds
 ///  to a string literal, with a 1-1 mapping. You get EnumType::lookup_by_name
 ///  and EnumType.get_name() for free.
+#[macro_export]
 macro_rules! define_named_enum {
     ($Name:ident { $($Variant:ident($VarName:literal),)* }) =>
     {
@@ -83,8 +84,127 @@ macro_rules! define_named_enum {
     }
 }
 
+/// Define a "named" enum, i.e., each variant corresponds
+///  to a string literal, with a 1-1 mapping. You get EnumType::lookup_by_name
+///  and EnumType.get_name() for free.
+#[macro_export]
+macro_rules! define_versioned_named_enum {
+    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $Version:expr),)* }) =>
+    {
+        #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Copy, Clone)]
+        pub enum $Name {
+            $($Variant),*,
+        }
+        impl $Name {
+            pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
+            pub const ALL_NAMES: &'static [&'static str] = &[$($VarName),*];
+
+            fn lookup_by_name(name: &str) -> Option<Self> {
+                match name {
+                    $(
+                        $VarName => Some($Name::$Variant),
+                    )*
+                    _ => None
+                }
+            }
+
+            pub fn get_version(&self) -> $VerType {
+                match self {
+                    $(
+                        $Name::$Variant => $Version,
+                    )*
+                }
+            }
+
+            pub fn get_name(&self) -> String {
+                match self {
+                    $(
+                        $Name::$Variant => $VarName.to_string(),
+                    )*
+                }
+            }
+
+            pub fn get_name_str(&self) -> &'static str {
+                match self {
+                    $(
+                        $Name::$Variant => $VarName,
+                    )*
+                }
+            }
+        }
+        impl ::std::fmt::Display for $Name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                write!(f, "{}", self.get_name_str())
+            }
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! guarded_string {
+    ($Name:ident, $Label:literal, $Regex:expr, $ErrorType:ty, $ErrorVariant:path) => {
+        #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct $Name(String);
+        impl TryFrom<String> for $Name {
+            type Error = $ErrorType;
+            fn try_from(value: String) -> Result<Self, Self::Error> {
+                if value.len() > (::vm::representations::MAX_STRING_LEN as usize) {
+                    return Err($ErrorVariant($Label, value));
+                }
+                if $Regex.is_match(&value) {
+                    Ok(Self(value))
+                } else {
+                    Err($ErrorVariant($Label, value))
+                }
+            }
+        }
+
+        impl $Name {
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+
+            pub fn len(&self) -> u8 {
+                u8::try_from(self.as_str().len()).unwrap()
+            }
+        }
+
+        impl Deref for $Name {
+            type Target = str;
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl Borrow<str> for $Name {
+            fn borrow(&self) -> &str {
+                self.as_str()
+            }
+        }
+
+        impl Into<String> for $Name {
+            fn into(self) -> String {
+                self.0
+            }
+        }
+
+        impl From<&'_ str> for $Name {
+            fn from(value: &str) -> Self {
+                Self::try_from(value.to_string()).unwrap()
+            }
+        }
+
+        impl fmt::Display for $Name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.0.fmt(f)
+            }
+        }
+    };
+}
+
 /// Define a "u8" enum
 ///  gives you a try_from(u8) -> Option<Self> function
+#[macro_export]
 macro_rules! define_u8_enum {
     ($Name:ident { $($Variant:ident = $Val:literal),+ }) =>
     {
@@ -116,7 +236,46 @@ macro_rules! define_u8_enum {
     }
 }
 
+#[macro_export]
+macro_rules! impl_clarity_marf_trie_id {
+    ($thing:ident) => {
+        impl crate::types::proof::ClarityMarfTrieId for $thing {
+            fn as_bytes(&self) -> &[u8] {
+                self.as_ref()
+            }
+            fn to_bytes(self) -> [u8; 32] {
+                self.0
+            }
+            fn sentinel() -> Self {
+                Self(crate::types::proof::SENTINEL_ARRAY.clone())
+            }
+            fn from_bytes(bytes: [u8; 32]) -> Self {
+                Self(bytes)
+            }
+        }
+
+        impl From<crate::types::chainstate::MARFValue> for $thing {
+            fn from(m: crate::types::chainstate::MARFValue) -> Self {
+                let h = m.0;
+                let mut d = [0u8; 32];
+                for i in 0..32 {
+                    d[i] = h[i];
+                }
+                for i in 32..h.len() {
+                    if h[i] != 0 {
+                        panic!(
+                            "Failed to convert MARF value into BHH: data stored after 32nd byte"
+                        );
+                    }
+                }
+                Self(d)
+            }
+        }
+    };
+}
+
 /// Borrowed from Andrew Poelstra's rust-bitcoin
+#[macro_export]
 macro_rules! impl_array_newtype {
     ($thing:ident, $ty:ty, $len:expr) => {
         impl $thing {
@@ -259,6 +418,7 @@ macro_rules! impl_array_newtype {
     };
 }
 
+#[macro_export]
 macro_rules! impl_index_newtype {
     ($thing:ident, $ty:ty) => {
         impl ::std::ops::Index<::std::ops::Range<usize>> for $thing {
@@ -431,6 +591,7 @@ macro_rules! impl_byte_array_serde {
 
 // print debug statements while testing
 #[allow(unused_macros)]
+#[macro_export]
 macro_rules! test_debug {
     ($($arg:tt)*) => (
         #[cfg(test)]
@@ -484,4 +645,28 @@ macro_rules! fmax {
             y
         }
     }}
+}
+
+macro_rules! impl_byte_array_rusqlite_only {
+    ($thing:ident) => {
+        impl rusqlite::types::FromSql for $thing {
+            fn column_result(
+                value: rusqlite::types::ValueRef,
+            ) -> rusqlite::types::FromSqlResult<Self> {
+                let hex_str = value.as_str()?;
+                let byte_str = ::util::hash::hex_bytes(hex_str)
+                    .map_err(|_e| rusqlite::types::FromSqlError::InvalidType)?;
+                let inst = $thing::from_bytes(&byte_str)
+                    .ok_or(rusqlite::types::FromSqlError::InvalidType)?;
+                Ok(inst)
+            }
+        }
+
+        impl rusqlite::types::ToSql for $thing {
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput> {
+                let hex_str = self.to_hex();
+                Ok(hex_str.into())
+            }
+        }
+    };
 }

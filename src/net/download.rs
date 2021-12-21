@@ -70,14 +70,14 @@ use net::PeerAddress;
 use net::StacksMessage;
 use net::StacksP2P;
 use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 

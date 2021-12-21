@@ -35,9 +35,9 @@ use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, Res
 
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::core::StacksEpochId;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::proof::ClarityMarfTrieId;
+use crate::types::StacksEpochId;
 
 pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
     let marf = MarfedKV::temporary();

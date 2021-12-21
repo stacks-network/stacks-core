@@ -21,7 +21,7 @@ use chainstate::burn::db::sortdb::{
 };
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
-use util::db::{DBConn, FromRow};
+use util_lib::db::{DBConn, FromRow};
 use vm::analysis::AnalysisDatabase;
 use vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,

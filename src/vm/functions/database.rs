@@ -19,8 +19,8 @@ use std::convert::{TryFrom, TryInto};
 
 use vm::functions::tuples;
 
-use core::StacksEpochId;
 use types::chainstate::StacksBlockId;
+use types::StacksEpochId;
 use vm::callables::DefineType;
 use vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
@@ -37,7 +37,6 @@ use vm::types::{
 use vm::{eval, Environment, LocalContext};
 
 use vm::costs::cost_functions::ClarityCostFunction;
-use vm::functions::special::handle_contract_call_special_cases;
 
 switch_on_global_epoch!(special_fetch_variable(
     special_fetch_variable_v200,

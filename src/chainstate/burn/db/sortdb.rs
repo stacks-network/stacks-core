@@ -62,19 +62,18 @@ use core::FIRST_STACKS_BLOCK_HASH;
 use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use net::{Error as NetError, Error};
-use util::db::tx_begin_immediate;
-use util::db::tx_busy_handler;
-use util::db::Error as db_error;
-use util::db::{
-    db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
-    u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
-};
 use util::get_epoch_time_secs;
 use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use util::log;
 use util::secp256k1::MessageSignature;
-use util::strings::StacksString;
 use util::vrf::*;
+use util_lib::db::tx_begin_immediate;
+use util_lib::db::tx_busy_handler;
+use util_lib::db::Error as db_error;
+use util_lib::db::{
+    db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
+    u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+};
 use vm::representations::{ClarityName, ContractName};
 use vm::types::Value;
 
@@ -4296,10 +4295,10 @@ pub mod tests {
     use chainstate::burn::ConsensusHash;
     use chainstate::stacks::StacksPublicKey;
     use core::*;
-    use util::db::Error as db_error;
     use util::get_epoch_time_secs;
     use util::hash::{hex_bytes, Hash160};
     use util::vrf::*;
+    use util_lib::db::Error as db_error;
 
     use crate::types::chainstate::StacksAddress;
     use crate::types::chainstate::{BlockHeaderHash, VRFSeed};

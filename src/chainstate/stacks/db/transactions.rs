@@ -31,8 +31,6 @@ use clarity_vm::clarity::{
     Error as clarity_error,
 };
 use net::Error as net_error;
-use util::db::Error as db_error;
-use util::db::{query_count, query_rows, DBConn};
 use util::hash::to_hex;
 use util::strings::{StacksString, VecDisplay};
 pub use vm::analysis::errors::CheckErrors;
@@ -56,16 +54,6 @@ use vm::types::{
 };
 
 use crate::types::chainstate::StacksMicroblockHeader;
-
-// make it possible to have a set of Values
-impl std::hash::Hash for Value {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let mut s = vec![];
-        self.consensus_serialize(&mut s)
-            .expect("FATAL: failed to serialize to vec");
-        s.hash(state);
-    }
-}
 
 impl StacksTransactionReceipt {
     pub fn from_stx_transfer(

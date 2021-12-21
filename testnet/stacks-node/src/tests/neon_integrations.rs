@@ -49,9 +49,9 @@ use stacks::{
         TransactionPayload,
     },
     net::RPCPoxInfoData,
-    util::db::query_row_columns,
-    util::db::query_rows,
-    util::db::u64_to_sql,
+    util_lib::db::query_row_columns,
+    util_lib::db::query_rows,
+    util_lib::db::u64_to_sql,
 };
 
 use crate::{

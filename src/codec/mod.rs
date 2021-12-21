@@ -1,6 +1,8 @@
 use std::io::{Read, Write};
 use std::{error, fmt, io, mem};
 
+use types::chainstate::MARFValue;
+use types::chainstate::SortitionId;
 use util::hash::HASH160_ENCODED_SIZE;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
@@ -75,6 +77,15 @@ pub trait StacksMessageCodec {
         bytes
     }
 }
+
+impl_byte_array_message_codec!(MARFValue, 40);
+impl_byte_array_message_codec!(SortitionId, 32);
+
+impl_stacks_message_codec_for_int!(u8; [0; 1]);
+impl_stacks_message_codec_for_int!(u16; [0; 2]);
+impl_stacks_message_codec_for_int!(u32; [0; 4]);
+impl_stacks_message_codec_for_int!(u64; [0; 8]);
+impl_stacks_message_codec_for_int!(i64; [0; 8]);
 
 pub fn write_next<T: StacksMessageCodec, W: Write>(fd: &mut W, item: &T) -> Result<(), Error> {
     item.consensus_serialize(fd)

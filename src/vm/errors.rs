@@ -15,12 +15,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::types::chainstate::BlockHeaderHash;
-use chainstate::stacks::index::Error as MarfError;
+// use chainstate::stacks::index::Error as MarfError;
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use std::error;
 use std::fmt;
-use util::db::Error as DatabaseError;
+// use util_lib::db::Error as DatabaseError;
 pub use vm::analysis::errors::CheckErrors;
 pub use vm::analysis::errors::{check_argument_count, check_arguments_at_least};
 use vm::ast::errors::ParseError;
@@ -57,12 +57,12 @@ pub enum InterpreterError {
     SqliteError(IncomparableError<SqliteError>),
     BadFileName,
     FailedToCreateDataDirectory,
-    MarfFailure(IncomparableError<MarfError>),
+    //    MarfFailure(IncomparableError<MarfError>),
     FailureConstructingTupleWithType,
     FailureConstructingListWithType,
     InsufficientBalance,
     CostContractLoadFailure,
-    DBError(IncomparableError<DatabaseError>),
+    //    DBError(IncomparableError<DatabaseError>),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected

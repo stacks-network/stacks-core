@@ -24,9 +24,9 @@ use std::ptr;
 use sha2::Digest;
 use sha2::Sha512Trunc256 as TrieHasher;
 
-use util::db::Error as db_error;
 use util::hash::to_hex;
 use util::log;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::SortitionId;
@@ -50,51 +50,6 @@ pub trait MarfTrieId:
     + std::convert::From<MARFValue>
 {
 }
-
-pub const SENTINEL_ARRAY: [u8; 32] = [255u8; 32];
-
-macro_rules! impl_clarity_marf_trie_id {
-    ($thing:ident) => {
-        impl ClarityMarfTrieId for $thing {
-            fn as_bytes(&self) -> &[u8] {
-                self.as_ref()
-            }
-            fn to_bytes(self) -> [u8; 32] {
-                self.0
-            }
-            fn sentinel() -> Self {
-                Self(SENTINEL_ARRAY.clone())
-            }
-            fn from_bytes(bytes: [u8; 32]) -> Self {
-                Self(bytes)
-            }
-        }
-
-        impl From<MARFValue> for $thing {
-            fn from(m: MARFValue) -> Self {
-                let h = m.0;
-                let mut d = [0u8; 32];
-                for i in 0..32 {
-                    d[i] = h[i];
-                }
-                for i in 32..h.len() {
-                    if h[i] != 0 {
-                        panic!(
-                            "Failed to convert MARF value into BHH: data stored after 32nd byte"
-                        );
-                    }
-                }
-                Self(d)
-            }
-        }
-    };
-}
-
-impl_clarity_marf_trie_id!(BurnchainHeaderHash);
-impl_clarity_marf_trie_id!(StacksBlockId);
-impl_clarity_marf_trie_id!(SortitionId);
-#[cfg(test)]
-impl_clarity_marf_trie_id!(BlockHeaderHash);
 
 impl MarfTrieId for SortitionId {}
 impl MarfTrieId for StacksBlockId {}

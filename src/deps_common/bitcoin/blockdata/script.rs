@@ -29,12 +29,12 @@ use std::{error, fmt};
 
 use serde;
 
-use deps::bitcoin::blockdata::opcodes;
-use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
+use deps_common::bitcoin::blockdata::opcodes;
+use deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 
 // careful...
-use deps::bitcoin::util::hash::Hash160;
+use deps_common::bitcoin::util::hash::Hash160;
 
 use sha2::Digest;
 use sha2::Sha256;
@@ -707,8 +707,8 @@ mod test {
     use super::build_scriptint;
     use super::*;
 
-    use deps::bitcoin::blockdata::opcodes;
-    use deps::bitcoin::network::serialize::{deserialize, serialize};
+    use deps_common::bitcoin::blockdata::opcodes;
+    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]
     fn script() {

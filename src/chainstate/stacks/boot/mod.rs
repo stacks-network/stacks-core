@@ -43,6 +43,7 @@ use vm::types::{
     TypeSignature, Value,
 };
 
+use crate::clarity_vm::database::HeadersDBConn;
 use crate::types;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockHeader;
@@ -159,7 +160,7 @@ impl StacksChainState {
         self.clarity_state
             .eval_read_only(
                 &stacks_block_id,
-                dbconn,
+                &HeadersDBConn(dbconn),
                 &iconn,
                 &boot::boot_code_id(boot_contract_name, self.mainnet),
                 code,

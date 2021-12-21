@@ -16,6 +16,12 @@ use serde::Serialize;
 
 use types::proof::TrieHash;
 
+use util::secp256k1::Secp256k1PrivateKey;
+use util::secp256k1::Secp256k1PublicKey;
+
+pub type StacksPublicKey = Secp256k1PublicKey;
+pub type StacksPrivateKey = Secp256k1PrivateKey;
+
 #[derive(Serialize, Deserialize)]
 pub struct BurnchainHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
@@ -38,8 +44,7 @@ pub struct SortitionId(pub [u8; 32]);
 impl_array_newtype!(SortitionId, u8, 32);
 impl_array_hexstring_fmt!(SortitionId);
 impl_byte_array_newtype!(SortitionId, u8, 32);
-impl_byte_array_from_column!(SortitionId);
-impl_byte_array_message_codec!(SortitionId, 32);
+impl_byte_array_rusqlite_only!(SortitionId);
 
 pub struct VRFSeed(pub [u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
@@ -162,8 +167,28 @@ pub struct StacksBlockId(pub [u8; 32]);
 impl_array_newtype!(StacksBlockId, u8, 32);
 impl_array_hexstring_fmt!(StacksBlockId);
 impl_byte_array_newtype!(StacksBlockId, u8, 32);
-impl_byte_array_from_column!(StacksBlockId);
+impl_byte_array_rusqlite_only!(StacksBlockId);
 impl_byte_array_serde!(StacksBlockId);
+
+pub struct ConsensusHash(pub [u8; 20]);
+impl_array_newtype!(ConsensusHash, u8, 20);
+impl_array_hexstring_fmt!(ConsensusHash);
+impl_byte_array_newtype!(ConsensusHash, u8, 20);
+pub const CONSENSUS_HASH_ENCODED_SIZE: u32 = 20;
+
+impl StacksBlockId {
+    pub fn new(
+        sortition_consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
+    ) -> StacksBlockId {
+        let mut hasher = Sha512Trunc256::new();
+        hasher.input(block_hash);
+        hasher.input(sortition_consensus_hash);
+
+        let h = Sha512Trunc256Sum::from_hasher(hasher);
+        StacksBlockId(h.0)
+    }
+}
 
 /// Header structure for a microblock
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -182,7 +207,6 @@ pub struct MARFValue(pub [u8; 40]);
 impl_array_newtype!(MARFValue, u8, 40);
 impl_array_hexstring_fmt!(MARFValue);
 impl_byte_array_newtype!(MARFValue, u8, 40);
-impl_byte_array_message_codec!(MARFValue, 40);
 pub const MARF_VALUE_ENCODED_SIZE: u32 = 40;
 
 impl From<u32> for MARFValue {

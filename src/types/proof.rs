@@ -1,7 +1,7 @@
 use std::fmt;
-
 use types::chainstate::MARFValue;
 use util::hash::to_hex;
+use util::macros;
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
 pub struct TrieHash(pub [u8; 32]);
@@ -17,6 +17,8 @@ impl Default for TrieHash {
 }
 
 pub const TRIEHASH_ENCODED_SIZE: usize = 32;
+
+pub const SENTINEL_ARRAY: [u8; 32] = [255u8; 32];
 
 #[derive(Debug)]
 pub struct TrieMerkleProof<T: ClarityMarfTrieId>(pub Vec<TrieMerkleProofType<T>>);
@@ -136,7 +138,7 @@ impl fmt::Debug for TrieLeaf {
             f,
             "TrieLeaf(path={} data={})",
             &to_hex(&self.path),
-            &to_hex(&self.data.to_vec())
+            &self.data.to_hex()
         )
     }
 }

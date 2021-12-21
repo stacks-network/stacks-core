@@ -30,7 +30,7 @@ use vm::types::{
 };
 use vm::{eval, Environment, LocalContext};
 
-use crate::core::StacksEpochId;
+use crate::types::StacksEpochId;
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,

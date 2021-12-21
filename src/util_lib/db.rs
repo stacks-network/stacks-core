@@ -224,12 +224,48 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
     }
 }
 
+/// Make public keys loadable from a sqlite database
+impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PublicKey, db_error> {
+        let pubkey_hex: String = row.get_unwrap(column_name);
+        let pubkey =
+            Secp256k1PublicKey::from_hex(&pubkey_hex).map_err(|_e| db_error::ParseError)?;
+        Ok(pubkey)
+    }
+}
+
+/// Make private keys loadable from a sqlite database
+impl FromColumn<Secp256k1PrivateKey> for Secp256k1PrivateKey {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PrivateKey, db_error> {
+        let privkey_hex: String = row.get_unwrap(column_name);
+        let privkey =
+            Secp256k1PrivateKey::from_hex(&privkey_hex).map_err(|_e| db_error::ParseError)?;
+        Ok(privkey)
+    }
+}
+
 pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
     if x > (i64::MAX as u64) {
         return Err(Error::ParseError);
     }
     Ok(x as i64)
 }
+
+macro_rules! impl_byte_array_from_column_only {
+    ($thing:ident) => {
+        impl ::util_lib::db::FromColumn<$thing> for $thing {
+            fn from_column(
+                row: &rusqlite::Row,
+                column_name: &str,
+            ) -> Result<Self, ::util_lib::db::Error> {
+                Ok(row.get_unwrap::<_, Self>(column_name))
+            }
+        }
+    };
+}
+
+impl_byte_array_from_column_only!(SortitionId);
+impl_byte_array_from_column_only!(StacksBlockId);
 
 macro_rules! impl_byte_array_from_column {
     ($thing:ident) => {
@@ -246,11 +282,11 @@ macro_rules! impl_byte_array_from_column {
             }
         }
 
-        impl ::util::db::FromColumn<$thing> for $thing {
+        impl ::util_lib::db::FromColumn<$thing> for $thing {
             fn from_column(
                 row: &rusqlite::Row,
                 column_name: &str,
-            ) -> Result<Self, ::util::db::Error> {
+            ) -> Result<Self, ::util_lib::db::Error> {
                 Ok(row.get_unwrap::<_, Self>(column_name))
             }
         }

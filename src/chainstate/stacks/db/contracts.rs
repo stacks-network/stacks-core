@@ -26,8 +26,8 @@ use chainstate::stacks::*;
 
 use std::path::{Path, PathBuf};
 
-use util::db::Error as db_error;
-use util::db::{query_count, query_rows, DBConn};
+use util_lib::db::Error as db_error;
+use util_lib::db::{query_count, query_rows, DBConn};
 
 use util::strings::StacksString;
 

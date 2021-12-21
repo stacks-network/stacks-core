@@ -17,11 +17,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
-use core::{
-    StacksEpoch, StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
-    BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
-};
+// use core::{
+//     StacksEpoch, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
+//     BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
+//     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
+// };
 use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use vm::contracts::Contract;
@@ -52,11 +52,19 @@ use crate::types::chainstate::{
 use crate::types::proof::TrieMerkleProof;
 use crate::vm::types::byte_len_of_serialization;
 
-use core::PEER_VERSION_EPOCH_2_0;
+use crate::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0};
 
+use stacks_common::consts::{
+    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+};
+
+use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
+
+pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
 #[repr(u8)]
 pub enum StoreType {
@@ -165,11 +173,7 @@ impl HeadersDB for NullHeadersDB {
         &self,
         id_bhh: &StacksBlockId,
     ) -> Option<BurnchainHeaderHash> {
-        if *id_bhh
-            == StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            )
+        if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
             let first_block_hash =
                 BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
@@ -185,11 +189,7 @@ impl HeadersDB for NullHeadersDB {
         &self,
         id_bhh: &StacksBlockId,
     ) -> Option<BlockHeaderHash> {
-        if *id_bhh
-            == StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            )
+        if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
             Some(FIRST_STACKS_BLOCK_HASH)
         } else {
@@ -197,11 +197,7 @@ impl HeadersDB for NullHeadersDB {
         }
     }
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
-        if *id_bhh
-            == StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            )
+        if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64)
         } else {
@@ -209,11 +205,7 @@ impl HeadersDB for NullHeadersDB {
         }
     }
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
-        if *id_bhh
-            == StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            )
+        if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32)
         } else {
@@ -698,6 +690,10 @@ impl<'a> ClarityDatabase<'a> {
         let value = format!("{}", &height);
         self.put(&key, &value);
         Ok(())
+    }
+
+    pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        self.store.get_cc_special_cases_handler()
     }
 
     pub fn insert_microblock_poison(

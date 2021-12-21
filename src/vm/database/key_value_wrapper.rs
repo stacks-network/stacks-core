@@ -25,6 +25,7 @@ use vm::Value;
 
 use crate::types::chainstate::StacksBlockId;
 
+use super::clarity_store::SpecialCaseHandler;
 use super::{ClarityBackingStore, ClarityDeserializable};
 use crate::types::proof::TrieMerkleProof;
 
@@ -212,6 +213,10 @@ impl<'a> RollbackWrapper<'a> {
             stack: log.stack,
             query_pending_data: true,
         }
+    }
+
+    pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        self.store.get_cc_special_cases_handler()
     }
 
     pub fn nest(&mut self) {

@@ -24,11 +24,13 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::fs;
 
-use util::db::sqlite_open;
-use util::db::tx_begin_immediate;
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::db::{query_count, query_int, query_row, query_rows, u64_to_sql, FromColumn, FromRow};
+use util_lib::db::sqlite_open;
+use util_lib::db::tx_begin_immediate;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
+use util_lib::db::{
+    query_count, query_int, query_row, query_rows, u64_to_sql, FromColumn, FromRow,
+};
 
 use util;
 use util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160};

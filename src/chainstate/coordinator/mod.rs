@@ -47,7 +47,7 @@ use monitoring::{
     update_stacks_tip_height,
 };
 use net::atlas::{AtlasConfig, AttachmentInstance};
-use util::db::Error as DBError;
+use util_lib::db::Error as DBError;
 use vm::{
     costs::ExecutionCost,
     types::{PrincipalData, QualifiedContractIdentifier},

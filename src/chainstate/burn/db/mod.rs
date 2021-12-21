@@ -26,12 +26,12 @@ use crate::types::proof::TrieHash;
 use burnchains::{Address, Txid};
 use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash};
 use chainstate::stacks::StacksPublicKey;
-use util::db;
-use util::db::Error as db_error;
-use util::db::FromColumn;
 use util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
 use util::secp256k1::MessageSignature;
 use util::vrf::*;
+use util_lib::db;
+use util_lib::db::Error as db_error;
+use util_lib::db::FromColumn;
 
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 

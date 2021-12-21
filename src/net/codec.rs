@@ -66,12 +66,6 @@ macro_rules! BITVEC_LEN {
     };
 }
 
-impl_stacks_message_codec_for_int!(u8; [0; 1]);
-impl_stacks_message_codec_for_int!(u16; [0; 2]);
-impl_stacks_message_codec_for_int!(u32; [0; 4]);
-impl_stacks_message_codec_for_int!(u64; [0; 8]);
-impl_stacks_message_codec_for_int!(i64; [0; 8]);
-
 impl StacksPublicKeyBuffer {
     pub fn from_public_key(pubkey: &Secp256k1PublicKey) -> StacksPublicKeyBuffer {
         let pubkey_bytes_vec = pubkey.to_bytes_compressed();

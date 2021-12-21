@@ -36,11 +36,11 @@ use chainstate::burn::Opcodes;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
 use net::Error as net_error;
-use util::db::DBConn;
-use util::db::DBTx;
 use util::hash::DoubleSha256;
 use util::log;
 use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+use util_lib::db::DBConn;
+use util_lib::db::DBTx;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;

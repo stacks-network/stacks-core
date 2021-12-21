@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core::StacksEpochId;
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
+use types::StacksEpochId;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use vm::errors::{
