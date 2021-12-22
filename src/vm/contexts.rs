@@ -714,17 +714,6 @@ impl<'a> OwnedEnvironment<'a> {
         })
     }
 
-    // pub fn handle_poison_microblock(
-    //     &mut self,
-    //     sender: &PrincipalData,
-    //     mblock_hdr_1: &StacksMicroblockHeader,
-    //     mblock_hdr_2: &StacksMicroblockHeader,
-    // ) -> std::result::Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ChainstateError> {
-    //     self.execute_in_env(sender.clone(), None, |exec_env| {
-    //         exec_env.handle_poison_microblock(mblock_hdr_1, mblock_hdr_2)
-    //     })
-    // }
-
     #[cfg(any(test, feature = "testing"))]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
         self.execute_in_env::<_, _, ::vm::errors::Error>(recipient.clone(), None, |env| {
@@ -1230,26 +1219,24 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
     }
 
-    // /// Top-level poison-microblock handler
-    // pub fn handle_poison_microblock(
-    //     &mut self,
-    //     mblock_header_1: &StacksMicroblockHeader,
-    //     mblock_header_2: &StacksMicroblockHeader,
-    // ) -> std::result::Result<Value, ChainstateError> {
-    //     self.global_context.begin();
-    //     let result =
-    //         StacksChainState::handle_poison_microblock(self, mblock_header_1, mblock_header_2);
-    //     match result {
-    //         Ok(ret) => {
-    //             self.global_context.commit()?;
-    //             Ok(ret)
-    //         }
-    //         Err(e) => {
-    //             self.global_context.roll_back();
-    //             Err(e)
-    //         }
-    //     }
-    // }
+    pub fn run_as_transaction<F, O, E>(&mut self, f: F) -> std::result::Result<O, E>
+    where
+        F: FnOnce(&mut Self) -> std::result::Result<O, E>,
+        E: From<::vm::errors::Error>,
+    {
+        self.global_context.begin();
+        let result = f(self);
+        match result {
+            Ok(ret) => {
+                self.global_context.commit()?;
+                Ok(ret)
+            }
+            Err(e) => {
+                self.global_context.roll_back();
+                Err(e)
+            }
+        }
+    }
 
     pub fn register_print_event(&mut self, value: Value) -> Result<()> {
         let print_event = SmartContractEventData {

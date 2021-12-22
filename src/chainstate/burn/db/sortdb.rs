@@ -2108,7 +2108,10 @@ impl SortitionDB {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         SortitionDB::connect(
             &db_path_dir,
@@ -4308,7 +4311,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let first_block_height = 123;
         let first_burn_hash = BurnchainHeaderHash::from_hex(
@@ -7059,7 +7065,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let mut db = SortitionDB::connect(
             &db_path_dir,
@@ -7120,7 +7129,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let mut db = SortitionDB::connect(
             &db_path_dir,
@@ -7190,7 +7202,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let db = SortitionDB::connect(
             &db_path_dir,
@@ -7232,7 +7247,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let db = SortitionDB::connect(
             &db_path_dir,
@@ -7274,7 +7292,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let db = SortitionDB::connect(
             &db_path_dir,
@@ -7316,7 +7337,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let db = SortitionDB::connect(
             &db_path_dir,
@@ -7358,7 +7382,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let db = SortitionDB::connect(
             &db_path_dir,

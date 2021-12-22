@@ -21,14 +21,7 @@
 #![allow(non_upper_case_globals)]
 
 extern crate blockstack_lib;
-extern crate clarity as libclarity;
-extern crate rand;
 extern crate rusqlite;
-#[macro_use]
-extern crate serde;
-#[macro_use]
-extern crate serde_json;
-
 #[macro_use]
 extern crate stacks_common;
 
@@ -43,6 +36,7 @@ use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
 
 use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
+use blockstack_lib::clarity_cli;
 use blockstack_lib::cost_estimates::UnitEstimator;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
@@ -64,11 +58,15 @@ use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
 use blockstack_lib::chainstate::stacks::miner::*;
 use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::stacks::*;
+use blockstack_lib::clarity::vm::costs::ExecutionCost;
+use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
+use blockstack_lib::clarity::vm::ClarityVersion;
 use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::core::*;
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
 use blockstack_lib::net::relay::Relayer;
 use blockstack_lib::net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress};
+use blockstack_lib::types::chainstate::StacksAddress;
 use blockstack_lib::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksBlockId,
 };
@@ -76,6 +74,7 @@ use blockstack_lib::util::get_epoch_time_ms;
 use blockstack_lib::util::hash::{hex_bytes, to_hex};
 use blockstack_lib::util::log;
 use blockstack_lib::util::retry::LogReader;
+use blockstack_lib::util::sleep_ms;
 use blockstack_lib::util_lib::strings::UrlString;
 use blockstack_lib::{
     burnchains::{db::BurnchainBlockData, PoxConstants},
@@ -87,14 +86,7 @@ use blockstack_lib::{
     util::{hash::Hash160, vrf::VRFProof},
     util_lib::db::sqlite_open,
 };
-use libclarity::vm::costs::ExecutionCost;
-use libclarity::vm::types::StacksAddressExtensions;
-use libclarity::vm::ClarityVersion;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::util::sleep_ms;
 use std::collections::HashSet;
-
-mod clarity;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -664,7 +656,7 @@ simulating a miner.
         }
         let program: String =
             fs::read_to_string(&argv[2]).expect(&format!("Error reading file: {}", argv[2]));
-        match clarity::vm_execute(&program, &ClarityVersion::Clarity2) {
+        match clarity_cli::vm_execute(&program, &ClarityVersion::Clarity2) {
             Ok(Some(result)) => println!("{}", result),
             Ok(None) => println!(""),
             Err(error) => {
@@ -720,20 +712,23 @@ simulating a miner.
     }
 
     if argv[1] == "docgen" {
-        println!("{}", libclarity::vm::docs::make_json_api_reference());
+        println!(
+            "{}",
+            blockstack_lib::clarity::vm::docs::make_json_api_reference()
+        );
         return;
     }
 
     if argv[1] == "docgen_boot" {
         println!(
             "{}",
-            libclarity::vm::docs::contracts::make_json_boot_contracts_reference()
+            blockstack_lib::clarity::vm::docs::contracts::make_json_boot_contracts_reference()
         );
         return;
     }
 
     if argv[1] == "local" {
-        clarity::invoke_command(&format!("{} {}", argv[0], argv[1]), &argv[2..]);
+        clarity_cli::invoke_command(&format!("{} {}", argv[0], argv[1]), &argv[2..]);
         return;
     }
 
