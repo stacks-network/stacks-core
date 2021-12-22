@@ -3089,7 +3089,7 @@ mod test {
     use net::test::*;
     use util::hash::*;
     use util::sleep_ms;
-    use util::test::*;
+    use util_lib::test::*;
 
     const TEST_IN_OUT_DEGREES: u64 = 0x1;
 

@@ -20,10 +20,17 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-#[macro_use]
 extern crate blockstack_lib;
-extern crate clarity;
+extern crate clarity as libclarity;
+extern crate rand;
 extern crate rusqlite;
+#[macro_use]
+extern crate serde;
+#[macro_use]
+extern crate serde_json;
+
+#[macro_use]
+extern crate stacks_common;
 
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
@@ -31,34 +38,45 @@ extern crate slog;
 use std::io;
 use std::io::prelude::*;
 use std::process;
+use std::thread;
 use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
 
 use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use blockstack_lib::cost_estimates::UnitEstimator;
-use cost_estimates::metrics::UnitMetric;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 
+use blockstack_lib::burnchains::bitcoin::indexer::BitcoinIndexer;
 use blockstack_lib::burnchains::bitcoin::indexer::{BitcoinIndexerConfig, BitcoinIndexerRuntime};
 use blockstack_lib::burnchains::bitcoin::spv;
 use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
+use blockstack_lib::burnchains::db::BurnchainDB;
+use blockstack_lib::burnchains::Address;
+use blockstack_lib::burnchains::Burnchain;
 use blockstack_lib::chainstate::burn::ConsensusHash;
+use blockstack_lib::chainstate::stacks::db::blocks::StagingBlock;
 use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
+use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
 use blockstack_lib::chainstate::stacks::miner::*;
+use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::codec::StacksMessageCodec;
-use blockstack_lib::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId};
-use blockstack_lib::types::chainstate::{StacksBlockHeader, StacksBlockId};
-use blockstack_lib::types::proof::ClarityMarfTrieId;
+use blockstack_lib::core::*;
+use blockstack_lib::cost_estimates::metrics::UnitMetric;
+use blockstack_lib::net::relay::Relayer;
+use blockstack_lib::net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress};
+use blockstack_lib::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksBlockId,
+};
 use blockstack_lib::util::get_epoch_time_ms;
 use blockstack_lib::util::hash::{hex_bytes, to_hex};
 use blockstack_lib::util::log;
 use blockstack_lib::util::retry::LogReader;
-use blockstack_lib::*;
+use blockstack_lib::util_lib::strings::UrlString;
 use blockstack_lib::{
     burnchains::{db::BurnchainBlockData, PoxConstants},
     chainstate::{
@@ -68,12 +86,15 @@ use blockstack_lib::{
     core::MemPoolDB,
     util::{hash::Hash160, vrf::VRFProof},
     util_lib::db::sqlite_open,
-    vm::costs::ExecutionCost,
 };
-use blockstack_lib::{
-    net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
-    vm::representations::UrlString,
-};
+use libclarity::vm::costs::ExecutionCost;
+use libclarity::vm::types::StacksAddressExtensions;
+use libclarity::vm::ClarityVersion;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::sleep_ms;
+use std::collections::HashSet;
+
+mod clarity;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -226,7 +247,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
-        let chain_id = core::CHAIN_ID_MAINNET;
+        let chain_id = CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
@@ -273,7 +294,7 @@ check if the associated microblocks can be downloaded
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
-        let chain_id = core::CHAIN_ID_MAINNET;
+        let chain_id = CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
@@ -454,7 +475,7 @@ simulating a miner.
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
-        let chain_id = core::CHAIN_ID_MAINNET;
+        let chain_id = CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
@@ -699,14 +720,14 @@ simulating a miner.
     }
 
     if argv[1] == "docgen" {
-        println!("{}", vm::docs::make_json_api_reference());
+        println!("{}", libclarity::vm::docs::make_json_api_reference());
         return;
     }
 
     if argv[1] == "docgen_boot" {
         println!(
             "{}",
-            vm::docs::contracts::make_json_boot_contracts_reference()
+            libclarity::vm::docs::contracts::make_json_boot_contracts_reference()
         );
         return;
     }
@@ -717,8 +738,6 @@ simulating a miner.
     }
 
     if argv[1] == "process-block" {
-        use chainstate::burn::db::sortdb::SortitionDB;
-        use chainstate::stacks::db::StacksChainState;
         let path = &argv[2];
         let sort_path = &argv[3];
         let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, path).unwrap();
@@ -732,25 +751,6 @@ simulating a miner.
     }
 
     if argv[1] == "replay-chainstate" {
-        use blockstack_lib::types::chainstate::StacksAddress;
-        use blockstack_lib::types::chainstate::StacksBlockHeader;
-        use burnchains::bitcoin::indexer::BitcoinIndexer;
-        use burnchains::db::BurnchainDB;
-        use burnchains::Address;
-        use burnchains::Burnchain;
-        use chainstate::burn::db::sortdb::SortitionDB;
-        use chainstate::burn::BlockSnapshot;
-        use chainstate::stacks::db::blocks::StagingBlock;
-        use chainstate::stacks::db::StacksChainState;
-        use chainstate::stacks::index::MarfTrieId;
-        use core::*;
-        use net::relay::Relayer;
-        use std::collections::HashMap;
-        use std::collections::HashSet;
-        use std::thread;
-        use util::sleep_ms;
-        use vm::costs::ExecutionCost;
-
         if argv.len() < 7 {
             eprintln!("Usage: {} OLD_CHAINSTATE_PATH OLD_SORTITION_DB_PATH OLD_BURNCHAIN_DB_PATH NEW_CHAINSTATE_PATH NEW_BURNCHAIN_DB_PATH", &argv[0]);
             process::exit(1);

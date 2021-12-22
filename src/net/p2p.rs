@@ -4754,19 +4754,19 @@ mod test {
     use rand;
     use rand::RngCore;
 
+    use crate::types::chainstate::BurnchainHeaderHash;
     use burnchains::burnchain::*;
     use burnchains::*;
     use chainstate::stacks::test::*;
     use chainstate::stacks::*;
+    use core::StacksEpochExtension;
     use net::atlas::*;
     use net::codec::*;
     use net::db::*;
     use net::*;
     use util::log;
     use util::sleep_ms;
-    use util::test::*;
-
-    use crate::types::chainstate::BurnchainHeaderHash;
+    use util_lib::test::*;
 
     use super::*;
 

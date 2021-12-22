@@ -591,22 +591,20 @@ pub mod test {
         }
     }
 
-    impl BurnchainHeaderHash {
-        pub fn from_test_data(
-            block_height: u64,
-            index_root: &TrieHash,
-            noise: u64,
-        ) -> BurnchainHeaderHash {
-            let mut bytes = vec![];
-            bytes.extend_from_slice(&block_height.to_be_bytes());
-            bytes.extend_from_slice(index_root.as_bytes());
-            bytes.extend_from_slice(&noise.to_be_bytes());
-            let h = DoubleSha256::from_data(&bytes[..]);
-            let mut hb = [0u8; 32];
-            hb.copy_from_slice(h.as_bytes());
+    pub fn BurnchainHeaderHash_from_test_data(
+        block_height: u64,
+        index_root: &TrieHash,
+        noise: u64,
+    ) -> BurnchainHeaderHash {
+        let mut bytes = vec![];
+        bytes.extend_from_slice(&block_height.to_be_bytes());
+        bytes.extend_from_slice(index_root.as_bytes());
+        bytes.extend_from_slice(&noise.to_be_bytes());
+        let h = DoubleSha256::from_data(&bytes[..]);
+        let mut hb = [0u8; 32];
+        hb.copy_from_slice(h.as_bytes());
 
-            BurnchainHeaderHash(hb)
-        }
+        BurnchainHeaderHash(hb)
     }
 
     impl BurnchainBlockHeader {
@@ -915,7 +913,7 @@ pub mod test {
 
             txop.vtxindex = self.txs.len() as u32;
             txop.block_height = self.block_height;
-            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(
+            txop.burn_header_hash = BurnchainHeaderHash_from_test_data(
                 txop.block_height,
                 &self.parent_snapshot.index_root,
                 self.fork_id,
@@ -1010,7 +1008,7 @@ pub mod test {
 
             txop.set_burn_height(self.block_height);
             txop.vtxindex = self.txs.len() as u32;
-            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(
+            txop.burn_header_hash = BurnchainHeaderHash_from_test_data(
                 txop.block_height,
                 &self.parent_snapshot.index_root,
                 self.fork_id,
@@ -1054,7 +1052,7 @@ pub mod test {
         }
 
         pub fn mine(&self, db: &mut SortitionDB, burnchain: &Burnchain) -> BlockSnapshot {
-            let block_hash = BurnchainHeaderHash::from_test_data(
+            let block_hash = BurnchainHeaderHash_from_test_data(
                 self.block_height,
                 &self.parent_snapshot.index_root,
                 self.fork_id,
@@ -1115,7 +1113,7 @@ pub mod test {
             burnchain: &Burnchain,
             coord: &mut ChainsCoordinator<'a, T, N, R, (), ()>,
         ) -> BlockSnapshot {
-            let block_hash = BurnchainHeaderHash::from_test_data(
+            let block_hash = BurnchainHeaderHash_from_test_data(
                 self.block_height,
                 &self.parent_snapshot.index_root,
                 self.fork_id,

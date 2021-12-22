@@ -882,8 +882,6 @@ impl StacksMicroblock {
 
 #[cfg(test)]
 mod test {
-    use std::error::Error;
-
     use address::*;
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
@@ -893,12 +891,14 @@ mod test {
     use burnchains::BurnchainSigner;
     use burnchains::Txid;
     use chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+    use chainstate::stacks::address::StacksAddressExtensions;
     use chainstate::stacks::test::make_codec_test_block;
     use chainstate::stacks::test::*;
     use chainstate::stacks::*;
     use net::codec::test::*;
     use net::codec::*;
     use net::*;
+    use std::error::Error;
     use util::hash::*;
 
     use crate::types::chainstate::StacksAddress;

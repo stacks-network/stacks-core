@@ -871,6 +871,8 @@ mod tests {
     use chainstate::burn::operations::*;
     use chainstate::burn::ConsensusHash;
     use chainstate::burn::*;
+    use chainstate::stacks::address::StacksAddressExtensions;
+    use chainstate::stacks::index::TrieHashExtension;
     use chainstate::stacks::StacksPublicKey;
     use core::{
         StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,

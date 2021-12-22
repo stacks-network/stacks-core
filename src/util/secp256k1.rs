@@ -75,7 +75,7 @@ impl MessageSignature {
         MessageSignature([0u8; 65])
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     // test method for generating place-holder data
     pub fn from_raw(sig: &Vec<u8>) -> MessageSignature {
         let mut buf = [0u8; 65];
@@ -118,7 +118,7 @@ impl MessageSignature {
 }
 
 impl Secp256k1PublicKey {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new() -> Secp256k1PublicKey {
         Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new())
     }
@@ -416,8 +416,6 @@ mod tests {
     use secp256k1;
     use secp256k1::PublicKey as LibSecp256k1PublicKey;
     use secp256k1::Secp256k1;
-
-    use burnchains::PublicKey;
 
     use util::get_epoch_time_ms;
     use util::log;

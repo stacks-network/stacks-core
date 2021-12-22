@@ -45,7 +45,13 @@ pub mod events;
 #[cfg(test)]
 pub mod tests;
 
+#[cfg(any(test, feature = "testing"))]
+pub mod test_util;
+
+// publish the non-generic StacksEpoch form for use throughout module
 use crate::types::StacksEpochId;
+pub use vm::database::clarity_db::StacksEpoch;
+
 use vm::callables::CallableType;
 use vm::contexts::GlobalContext;
 pub use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
@@ -378,6 +384,7 @@ pub fn eval_all(
 /// This method executes the program in Epoch 2.0 *and* Epoch 2.05 and asserts
 /// that the result is the same before returning the result
 #[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Value>> {
     let epoch_200_result = execute_in_epoch(program, StacksEpochId::Epoch20, use_mainnet);
     let epoch_205_result = execute_in_epoch(program, StacksEpochId::Epoch2_05, use_mainnet);
@@ -391,6 +398,7 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
 
 /// Execute `program` on the `Testnet`.
 #[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn execute(program: &str) -> Result<Option<Value>> {
     execute_on_network(program, false)
 }
@@ -401,7 +409,7 @@ pub fn execute_in_epoch(
     epoch: StacksEpochId,
     use_mainnet: bool,
 ) -> Result<Option<Value>> {
-    use vm::database::clarity_store::NullBackingStore as MemoryBackingStore;
+    use vm::database::MemoryBackingStore;
 
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone());
@@ -416,11 +424,11 @@ pub fn execute_in_epoch(
 
 #[cfg(test)]
 mod test {
-    use crate::clarity_vm::database::MemoryBackingStore;
     use crate::types::StacksEpochId;
     use std::collections::HashMap;
     use vm::callables::{DefineType, DefinedFunction};
     use vm::costs::LimitedCostTracker;
+    use vm::database::MemoryBackingStore;
     use vm::errors::RuntimeErrorType;
     use vm::eval;
     use vm::execute;

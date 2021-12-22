@@ -1442,6 +1442,9 @@ impl Burnchain {
 
 #[cfg(test)]
 pub mod tests {
+    use chainstate::burn::ConsensusHashExtensions;
+    use chainstate::stacks::address::StacksAddressExtensions;
+    use chainstate::stacks::index::TrieHashExtension;
     use ed25519_dalek::Keypair as VRFKeypair;
     use rand::rngs::ThreadRng;
     use rand::thread_rng;

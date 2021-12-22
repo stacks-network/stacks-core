@@ -29,60 +29,67 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
-use address::c32::c32_address;
-use chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
-use util_lib::db::sqlite_open;
-use util_lib::db::FromColumn;
-use util::hash::{bytes_to_hex, Sha512Trunc256Sum};
+use blockstack_lib::chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
+use blockstack_lib::util_lib::db::sqlite_open;
+use blockstack_lib::util_lib::db::FromColumn;
+use stacks_common::address::c32::c32_address;
+use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 
-use util::log;
-use vm::ContractName;
-
-use vm::analysis;
-use vm::analysis::contract_interface_builder::build_contract_interface;
-use vm::analysis::{errors::CheckError, errors::CheckResult, AnalysisDatabase, ContractAnalysis};
-use vm::ast::build_ast;
-use vm::contexts::{AssetMap, OwnedEnvironment};
-use vm::costs::ExecutionCost;
-use vm::costs::LimitedCostTracker;
-use vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
+use libclarity::{
+    vm::analysis,
+    vm::analysis::contract_interface_builder::build_contract_interface,
+    vm::analysis::{errors::CheckError, errors::CheckResult, AnalysisDatabase, ContractAnalysis},
+    vm::ast::build_ast,
+    vm::contexts::{AssetMap, OwnedEnvironment},
+    vm::costs::ExecutionCost,
+    vm::costs::LimitedCostTracker,
+    vm::database::{
+        BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
+    },
+    vm::errors::{Error, InterpreterResult, RuntimeErrorType},
+    vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier},
+    vm::ClarityVersion,
+    vm::ContractName,
+    vm::{SymbolicExpression, SymbolicExpressionType, Value},
 };
-use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
-use vm::types::{PrincipalData, QualifiedContractIdentifier};
-use vm::{SymbolicExpression, SymbolicExpressionType, Value};
+use stacks_common::util::log;
 
-use burnchains::PoxConstants;
-use burnchains::Txid;
+use blockstack_lib::burnchains::PoxConstants;
+use blockstack_lib::burnchains::Txid;
+use stacks_common::types::chainstate::*;
 
-use chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET};
-use util::boot::{boot_code_addr, boot_code_id};
+use blockstack_lib::chainstate::stacks::boot::{
+    STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET,
+};
+use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 
-use core::BLOCK_LIMIT_MAINNET_20;
-use core::HELIUM_BLOCK_LIMIT_20;
+use blockstack_lib::burnchains::Address;
+use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
+use blockstack_lib::core::BLOCK_LIMIT_MAINNET_20;
+use blockstack_lib::core::HELIUM_BLOCK_LIMIT_20;
 
+use blockstack_lib::util_lib::strings::StacksString;
 use serde::Serialize;
 use serde_json::json;
-use util_lib::strings::StacksString;
 
-use codec::StacksMessageCodec;
+use stacks_common::codec::StacksMessageCodec;
 
 use std::convert::TryFrom;
 
-use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::database::marf::WritableMarfStore;
-use crate::clarity_vm::database::MemoryBackingStore;
-use crate::core::StacksEpochId;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::VRFSeed;
-use crate::types::proof::ClarityMarfTrieId;
-use crate::vm::ast;
-use crate::vm::contexts::GlobalContext;
-use crate::vm::eval_all;
-use crate::vm::ContractContext;
+use blockstack_lib::clarity_vm::database::marf::MarfedKV;
+use blockstack_lib::clarity_vm::database::marf::WritableMarfStore;
+use blockstack_lib::clarity_vm::database::MemoryBackingStore;
+use blockstack_lib::core::StacksEpochId;
+use libclarity::vm::ast;
+use libclarity::vm::contexts::GlobalContext;
+use libclarity::vm::eval_all;
+use libclarity::vm::ContractContext;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::VRFSeed;
+use std::str::FromStr;
 
 #[cfg(test)]
 macro_rules! panic_test {

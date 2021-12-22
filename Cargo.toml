@@ -105,6 +105,8 @@ assert-json-diff = "1.0.0"
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
 # criterion = "0.3"
 stx_genesis = { package = "stx-genesis", path = "./stx-genesis/."}
+clarity = { package = "clarity", features = ["default", "testing"], path = "./clarity/." }
+stacks_common = { package = "stacks-common", features = ["default", "testing"], path = "./stacks-common/." }
 
 [features]
 default = ["developer-mode"]

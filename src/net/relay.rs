@@ -1603,12 +1603,13 @@ mod test {
     use net::test::*;
     use net::*;
     use util::sleep_ms;
-    use util::test::*;
+    use util_lib::test::*;
     use vm::costs::LimitedCostTracker;
     use vm::database::ClarityDatabase;
 
     use super::*;
     use clarity_vm::clarity::ClarityConnection;
+    use core::StacksEpochExtension;
     use types::chainstate::BlockHeaderHash;
 
     #[test]
@@ -2290,7 +2291,7 @@ mod test {
         let consensus_hash = sn.consensus_hash;
 
         let msg = StacksMessageType::Blocks(BlocksData {
-            blocks: vec![(consensus_hash, block)],
+            blocks: vec![BlocksDatum(consensus_hash, block)],
         });
         push_message(peer, dest, relay_hints, msg)
     }
@@ -2317,7 +2318,7 @@ mod test {
         let consensus_hash = sn.consensus_hash;
 
         let msg = StacksMessageType::Blocks(BlocksData {
-            blocks: vec![(consensus_hash, block)],
+            blocks: vec![BlocksDatum(consensus_hash, block)],
         });
         broadcast_message(peer, relay_hints, msg)
     }

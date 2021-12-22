@@ -19,6 +19,35 @@ use std::error;
 use std::fmt;
 use std::thread;
 
+use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
+use crate::chainstate::stacks::boot::POX_2_NAME;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::chainstate::stacks::TransactionAuth;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::chainstate::stacks::TransactionPublicKeyEncoding;
+use crate::chainstate::stacks::TransactionSmartContract;
+use crate::chainstate::stacks::TransactionSpendingCondition;
+use crate::chainstate::stacks::TransactionVersion;
+use crate::core::StacksEpoch;
+use crate::core::FIRST_STACKS_BLOCK_ID;
+use crate::core::GENESIS_EPOCH;
+use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::SortitionId;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::TrieHash;
+use crate::util::secp256k1::MessageSignature;
+use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::{
+    burnchains::Burnchain,
+    clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
+};
+use crate::{
+    clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId, vm::ClarityVersion,
+};
+use chainstate::stacks::boot::POX_2_MAINNET_CODE;
+use chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
     BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
@@ -1217,10 +1246,10 @@ mod tests {
     use vm::types::{StandardPrincipalData, Value};
 
     use core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
-    use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+    use vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
     use crate::clarity_vm::database::marf::MarfedKV;
-    use crate::types::proof::ClarityMarfTrieId;
+    use chainstate::stacks::index::ClarityMarfTrieId;
 
     use super::*;
 

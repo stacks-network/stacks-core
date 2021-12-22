@@ -43,7 +43,7 @@ use vm::tests::{
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::database::MemoryBackingStore;
+use vm::database::MemoryBackingStore;
 
 lazy_static! {
     static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =

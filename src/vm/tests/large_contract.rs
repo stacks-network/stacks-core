@@ -38,7 +38,7 @@ use vm::types::{
 };
 
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::database::MemoryBackingStore;
+use vm::database::MemoryBackingStore;
 
 /*
  * This test exhibits memory inflation --

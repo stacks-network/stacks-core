@@ -2087,6 +2087,8 @@ impl SortitionDB {
         first_block_height: u64,
         first_burn_hash: &BurnchainHeaderHash,
     ) -> Result<SortitionDB, db_error> {
+        use core::StacksEpochExtension;
+
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
@@ -4246,6 +4248,8 @@ impl ChainstateDB for SortitionDB {
 
 #[cfg(test)]
 pub mod tests {
+    use chainstate::stacks::index::TrieHashExtension;
+    use core::StacksEpochExtension;
     use std::sync::mpsc::sync_channel;
     use std::thread;
 

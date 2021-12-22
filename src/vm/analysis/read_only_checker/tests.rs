@@ -14,9 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::clarity_vm::database::MemoryBackingStore;
-use vm::analysis::{mem_type_check, type_check, AnalysisDatabase, CheckError, CheckErrors};
+use vm::analysis::type_checker::tests::{contracts::type_check, mem_type_check};
+use vm::analysis::{CheckError, CheckErrors};
 use vm::ast::parse;
+use vm::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
 
 #[test]

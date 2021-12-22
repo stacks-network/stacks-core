@@ -2016,16 +2016,14 @@ pub mod test {
     use vm::database::STXBalance;
     use vm::types::*;
 
-    use crate::chainstate::stacks::boot::test::get_parent_tip;
-    use crate::codec::StacksMessageCodec;
-    use crate::types::chainstate::StacksMicroblockHeader;
-    use crate::types::chainstate::TrieHash;
-    use crate::util::boot::boot_code_test_addr;
-
     use super::*;
-    use chainstate::stacks::db::accounts::MinerReward;
-    use chainstate::stacks::events::StacksTransactionReceipt;
-    use std::sync::Mutex;
+    use chainstate::stacks::boot::test::get_parent_tip;
+    use chainstate::stacks::StacksMicroblockHeader;
+    use chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt};
+    use core::StacksEpochExtension;
+    use stacks_common::codec::StacksMessageCodec;
+    use stacks_common::types::chainstate::TrieHash;
+    use util_lib::boot::boot_code_test_addr;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

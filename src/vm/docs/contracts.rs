@@ -6,7 +6,7 @@ use vm::types::{FunctionType, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::FromIterator;
 
-//use crate::clarity_vm::database::MemoryBackingStore;
+//use vm::database::MemoryBackingStore;
 use crate::types::StacksEpochId;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;

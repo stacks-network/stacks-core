@@ -62,8 +62,8 @@ impl OutPoint {
     /// # Examples
     ///
     /// ```rust
-    /// use blockstack_lib::deps_common::bitcoin::blockdata::constants::genesis_block;
-    /// use blockstack_lib::deps_common::bitcoin::network::constants::Network;
+    /// use stacks_common::deps_common::bitcoin::blockdata::constants::genesis_block;
+    /// use stacks_common::deps_common::bitcoin::network::constants::Network;
     ///
     /// let block = genesis_block(Network::Bitcoin);
     /// let tx = &block.txdata[0];
@@ -510,7 +510,7 @@ impl SigHashType {
 mod tests {
     use super::{Transaction, TxIn};
 
-    use deps;
+    use deps_common;
     use deps_common::bitcoin::blockdata::script::Script;
     use deps_common::bitcoin::network::serialize::deserialize;
     use deps_common::bitcoin::network::serialize::BitcoinHash;

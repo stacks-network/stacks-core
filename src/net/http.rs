@@ -4676,8 +4676,7 @@ mod test {
     use util::hash::MerkleTree;
     use util::hash::Sha512Trunc256Sum;
 
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::StacksBlockHeader;
+    use stacks_common::types::chainstate::StacksAddress;
 
     use super::*;
 

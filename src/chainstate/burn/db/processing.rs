@@ -372,6 +372,8 @@ mod tests {
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use chainstate::burn::*;
+    use chainstate::stacks::address::StacksAddressExtensions;
+    use chainstate::stacks::index::TrieHashExtension;
     use chainstate::stacks::StacksPublicKey;
     use core::MICROSTACKS_PER_STACKS;
     use util::{hash::hex_bytes, vrf::VRFPublicKey};

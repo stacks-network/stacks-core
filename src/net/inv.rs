@@ -2697,7 +2697,7 @@ mod test {
     use chainstate::stacks::*;
     use net::test::*;
     use net::*;
-    use util::test::*;
+    use util_lib::test::*;
 
     use super::*;
 

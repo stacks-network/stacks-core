@@ -366,38 +366,21 @@ name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff",
- "chrono",
- "curve25519-dalek",
- "ed25519-dalek",
  "integer-sqrt",
  "lazy_static",
- "libc",
- "mio",
- "nix",
- "percent-encoding",
- "prometheus",
  "rand 0.7.2",
  "rand_chacha 0.2.2",
  "regex",
- "ripemd160",
  "rusqlite",
- "secp256k1",
  "serde",
  "serde_derive",
  "serde_json",
  "serde_stacker",
- "sha2 0.8.2",
  "sha2-asm",
- "sha3",
  "slog",
- "slog-json",
- "slog-term",
  "stacks-common",
  "stx-genesis",
  "time 0.2.23",
- "tini",
- "url",
- "winapi 0.3.9",
 ]
 
 [[package]]
@@ -2593,12 +2576,6 @@ dependencies = [
  "standback",
  "syn",
 ]
-
-[[package]]
-name = "tini"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11eeaa68267376df2aacbaaed9b0092544ebbc897cd59f61e81a1105fbaf102e"
 
 [[package]]
 name = "tinyvec"

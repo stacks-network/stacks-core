@@ -21,41 +21,18 @@
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 
-extern crate curve25519_dalek;
-extern crate ed25519_dalek;
 extern crate rand;
 extern crate rand_chacha;
 extern crate rusqlite;
-extern crate secp256k1;
 extern crate serde;
-extern crate tini;
 #[macro_use]
 extern crate lazy_static;
 extern crate integer_sqrt;
-extern crate mio;
-extern crate percent_encoding;
 extern crate regex;
-extern crate ripemd160;
-extern crate sha2;
-extern crate sha3;
 extern crate time;
-extern crate url;
 
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
-extern crate chrono;
-#[cfg(feature = "slog_json")]
-extern crate slog_json;
-extern crate slog_term;
-
-#[cfg(unix)]
-extern crate libc;
-
-#[cfg(unix)]
-extern crate nix;
-
-#[cfg(windows)]
-extern crate winapi;
 
 #[macro_use]
 extern crate serde_derive;
@@ -66,9 +43,13 @@ extern crate serde_json;
 #[macro_use]
 extern crate assert_json_diff;
 
-#[cfg(feature = "monitoring_prom")]
+#[cfg(test)]
 #[macro_use]
-pub extern crate prometheus;
+extern crate rstest;
+
+#[cfg(test)]
+#[macro_use]
+extern crate rstest_reuse;
 
 #[macro_use]
 extern crate stacks_common;
@@ -77,12 +58,6 @@ pub use stacks_common::types;
 pub use stacks_common::util;
 
 pub use stacks_common::codec;
-
-//#[macro_use]
-//pub mod codec;
-
-// #[macro_use]
-// pub mod util_lib;
 
 #[macro_use]
 /// The Clarity virtual machine

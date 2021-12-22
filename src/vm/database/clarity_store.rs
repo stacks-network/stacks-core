@@ -248,3 +248,75 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore cannot put")
     }
 }
+
+pub struct MemoryBackingStore {
+    side_store: Connection,
+}
+
+impl MemoryBackingStore {
+    pub fn new() -> MemoryBackingStore {
+        let side_store = SqliteConnection::memory().unwrap();
+
+        let mut memory_marf = MemoryBackingStore { side_store };
+
+        memory_marf.as_clarity_db().initialize();
+
+        memory_marf
+    }
+
+    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+    }
+
+    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+        AnalysisDatabase::new(self)
+    }
+}
+
+impl ClarityBackingStore for MemoryBackingStore {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
+        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+    }
+
+    fn get(&mut self, key: &str) -> Option<String> {
+        SqliteConnection::get(self.get_side_store(), key)
+    }
+
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)> {
+        SqliteConnection::get(self.get_side_store(), key).map(|x| (x, vec![]))
+    }
+
+    fn get_side_store(&mut self) -> &Connection {
+        &self.side_store
+    }
+
+    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
+        if height == 0 {
+            Some(StacksBlockId([255; 32]))
+        } else {
+            None
+        }
+    }
+
+    fn get_open_chain_tip(&mut self) -> StacksBlockId {
+        StacksBlockId([255; 32])
+    }
+
+    fn get_open_chain_tip_height(&mut self) -> u32 {
+        0
+    }
+
+    fn get_current_block_height(&mut self) -> u32 {
+        0
+    }
+
+    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        None
+    }
+
+    fn put_all(&mut self, items: Vec<(String, String)>) {
+        for (key, value) in items.into_iter() {
+            SqliteConnection::put(self.get_side_store(), &key, &value);
+        }
+    }
+}

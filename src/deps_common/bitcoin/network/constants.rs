@@ -28,8 +28,8 @@
 //! # Example: encoding a network's magic bytes
 //!
 //! ```rust
-//! use blockstack_lib::deps_common::bitcoin::network::constants::Network;
-//! use blockstack_lib::deps_common::bitcoin::network::serialize::serialize;
+//! use stacks_common::deps_common::bitcoin::network::constants::Network;
+//! use stacks_common::deps_common::bitcoin::network::serialize::serialize;
 //!
 //! let network = Network::Bitcoin;
 //! let bytes = serialize(&network).unwrap();
@@ -66,7 +66,7 @@ impl Network {
     /// # Examples
     ///
     /// ```rust
-    /// use blockstack_lib::deps_common::bitcoin::network::constants::Network;
+    /// use stacks_common::deps_common::bitcoin::network::constants::Network;
     ///
     /// assert_eq!(Some(Network::Bitcoin), Network::from_magic(0xD9B4BEF9));
     /// assert_eq!(None, Network::from_magic(0xFFFFFFFF));
@@ -87,7 +87,7 @@ impl Network {
     /// # Examples
     ///
     /// ```rust
-    /// use blockstack_lib::deps_common::bitcoin::network::constants::Network;
+    /// use stacks_common::deps_common::bitcoin::network::constants::Network;
     ///
     /// let network = Network::Bitcoin;
     /// assert_eq!(network.magic(), 0xD9B4BEF9);

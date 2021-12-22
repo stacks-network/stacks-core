@@ -441,8 +441,6 @@ mod test {
     use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::trie::*;
 
-    use crate::types::proof::{TrieLeaf, TrieMerkleProof};
-
     use super::*;
 
     /// Print out a trie to stderr
