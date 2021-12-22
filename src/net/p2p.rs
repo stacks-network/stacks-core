@@ -78,7 +78,8 @@ use util_lib::db::DBConn;
 use util_lib::db::Error as db_error;
 use vm::database::BurnStateDB;
 
-use crate::types::chainstate::{PoxId, SortitionId, StacksBlockHeader};
+use crate::types::chainstate::{PoxId, SortitionId};
+use chainstate::stacks::StacksBlockHeader;
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -1010,7 +1011,7 @@ impl PeerNetwork {
                     StacksMessageType::Blocks(ref data) => {
                         // send to each neighbor that needs one
                         let mut all_neighbors = HashSet::new();
-                        for (_, block) in data.blocks.iter() {
+                        for BlocksDatum(_, block) in data.blocks.iter() {
                             let mut neighbors = self.sample_broadcast_peers(&relay_hints, block)?;
                             for nk in neighbors.drain(..) {
                                 all_neighbors.insert(nk);
@@ -2858,7 +2859,7 @@ impl PeerNetwork {
                                         network.antientropy_blocks.insert(nk.clone(), pushed);
                                     }
 
-                                    local_blocks.push((consensus_hash, block));
+                                    local_blocks.push(BlocksDatum(consensus_hash, block));
 
                                     if !lowest_reward_cycle_with_missing_block.contains_key(nk) {
                                         lowest_reward_cycle_with_missing_block
@@ -2971,7 +2972,7 @@ impl PeerNetwork {
                     );
                 }
 
-                let blocks_data = BlocksData { blocks: blocks };
+                let blocks_data = BlocksData { blocks };
 
                 self.broadcast_message(
                     vec![nk.clone()],
@@ -3917,7 +3918,7 @@ impl PeerNetwork {
 
         let mut to_buffer = false;
 
-        for (consensus_hash, block) in new_blocks.blocks.iter() {
+        for BlocksDatum(consensus_hash, block) in new_blocks.blocks.iter() {
             let sn = match SortitionDB::get_block_snapshot_consensus(
                 &sortdb.conn(),
                 &consensus_hash,

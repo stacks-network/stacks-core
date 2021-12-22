@@ -30,8 +30,8 @@ use vm::types::{
 
 use crate::chainstate::stacks::boot::POX_1_NAME;
 use crate::chainstate::stacks::boot::POX_2_NAME;
-use crate::types::chainstate::StacksMicroblockHeader;
-use crate::util::boot::boot_code_id;
+use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::util_lib::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::Error as ChainstateError;
 

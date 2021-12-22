@@ -32,13 +32,13 @@ use burnchains::indexer::{
 use burnchains::Error as burnchain_error;
 use burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid, MAGIC_BYTES_LENGTH};
 use deps;
-use deps::bitcoin::blockdata::block::{Block, LoneBlockHeader};
-use deps::bitcoin::blockdata::opcodes::All as btc_opcodes;
-use deps::bitcoin::blockdata::script::{Instruction, Script};
-use deps::bitcoin::blockdata::transaction::Transaction;
-use deps::bitcoin::network::message as btc_message;
-use deps::bitcoin::network::serialize::BitcoinHash;
-use deps::bitcoin::util::hash::bitcoin_merkle_root;
+use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
+use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
+use stacks_common::deps_common::bitcoin::blockdata::script::{Instruction, Script};
+use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+use stacks_common::deps_common::bitcoin::network::message as btc_message;
+use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+use stacks_common::deps_common::bitcoin::util::hash::bitcoin_merkle_root;
 use util::hash::to_hex;
 use util::log;
 
@@ -475,10 +475,10 @@ mod tests {
         BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
     };
     use burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid};
-    use deps::bitcoin::blockdata::block::{Block, LoneBlockHeader};
-    use deps::bitcoin::blockdata::transaction::Transaction;
-    use deps::bitcoin::network::encodable::VarInt;
-    use deps::bitcoin::network::serialize::deserialize;
+    use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
     use util::hash::hex_bytes;
     use util::log;
 

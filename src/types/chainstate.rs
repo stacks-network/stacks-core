@@ -1,4 +1,5 @@
 use std::fmt;
+use std::io::Read;
 use std::io::Write;
 use std::str::FromStr;
 
@@ -14,13 +15,32 @@ use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
 
-use types::proof::TrieHash;
-
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
+use util::vrf::VRF_PROOF_ENCODED_SIZE;
+
+use codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
+
+use crate::deps_common::bitcoin::util::hash::Sha256dHash;
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
+
+/// Hash of a Trie node.  This is a SHA2-512/256.
+pub struct TrieHash(pub [u8; 32]);
+impl_array_newtype!(TrieHash, u8, 32);
+impl_array_hexstring_fmt!(TrieHash);
+impl_byte_array_newtype!(TrieHash, u8, 32);
+impl_byte_array_serde!(TrieHash);
+
+impl Default for TrieHash {
+    fn default() -> TrieHash {
+        TrieHash([0x00; 32])
+    }
+}
+
+pub const TRIEHASH_ENCODED_SIZE: usize = 32;
 
 #[derive(Serialize, Deserialize)]
 pub struct BurnchainHeaderHash(pub [u8; 32]);
@@ -62,6 +82,24 @@ pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
 //       replace with a real bitvec
 #[derive(Clone, Debug, PartialEq)]
 pub struct PoxId(Vec<bool>);
+
+impl SortitionId {
+    pub fn stubbed(from: &BurnchainHeaderHash) -> SortitionId {
+        SortitionId::new(from, &PoxId::stubbed())
+    }
+
+    pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxId) -> SortitionId {
+        if pox == &PoxId::stubbed() {
+            SortitionId(bhh.0.clone())
+        } else {
+            let mut hasher = Sha512Trunc256::new();
+            hasher.input(bhh);
+            write!(hasher, "{}", pox).expect("Failed to deserialize PoX ID into the hasher");
+            let h = Sha512Trunc256Sum::from_hasher(hasher);
+            SortitionId(h.0)
+        }
+    }
+}
 
 impl PoxId {
     pub fn new(contents: Vec<bool>) -> Self {
@@ -125,6 +163,23 @@ impl PoxId {
     }
 }
 
+impl FromStr for PoxId {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut result = vec![];
+        for i in s.chars() {
+            if i == '1' {
+                result.push(true);
+            } else if i == '0' {
+                result.push(false);
+            } else {
+                return Err("Unexpected character in PoX ID serialization");
+            }
+        }
+        Ok(PoxId::new(result))
+    }
+}
+
 impl fmt::Display for PoxId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for val in self.0.iter() {
@@ -140,6 +195,23 @@ pub struct StacksAddress {
     pub bytes: Hash160,
 }
 
+impl StacksMessageCodec for StacksAddress {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.version)?;
+        fd.write_all(self.bytes.as_bytes())
+            .map_err(CodecError::WriteError)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksAddress, CodecError> {
+        let version: u8 = read_next(fd)?;
+        let hash160: Hash160 = read_next(fd)?;
+        Ok(StacksAddress {
+            version: version,
+            bytes: hash160,
+        })
+    }
+}
+
 pub const STACKS_ADDRESS_ENCODED_SIZE: u32 = 1 + HASH160_ENCODED_SIZE;
 
 /// How much work has gone into this chain so far?
@@ -147,20 +219,6 @@ pub const STACKS_ADDRESS_ENCODED_SIZE: u32 = 1 + HASH160_ENCODED_SIZE;
 pub struct StacksWorkScore {
     pub burn: u64, // number of burn tokens destroyed
     pub work: u64, // in Stacks, "work" == the length of the fork
-}
-
-/// The header for an on-chain-anchored Stacks block
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct StacksBlockHeader {
-    pub version: u8,
-    pub total_work: StacksWorkScore, // NOTE: this is the work done on the chain tip this block builds on (i.e. take this from the parent)
-    pub proof: VRFProof,
-    pub parent_block: BlockHeaderHash, // NOTE: even though this is also present in the burn chain, we need this here for super-light clients that don't even have burn chain headers
-    pub parent_microblock: BlockHeaderHash,
-    pub parent_microblock_sequence: u16,
-    pub tx_merkle_root: Sha512Trunc256Sum,
-    pub state_index_root: TrieHash,
-    pub microblock_pubkey_hash: Hash160, // we'll get the public key back from the first signature (note that this is the Hash160 of the _compressed_ public key)
 }
 
 pub struct StacksBlockId(pub [u8; 32]);
@@ -190,35 +248,146 @@ impl StacksBlockId {
     }
 }
 
-/// Header structure for a microblock
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StacksMicroblockHeader {
-    pub version: u8,
-    pub sequence: u16,
-    pub prev_block: BlockHeaderHash,
-    pub tx_merkle_root: Sha512Trunc256Sum,
-    pub signature: MessageSignature,
+impl StacksWorkScore {
+    /// Stacks work score for the first-mined block
+    pub fn initial() -> StacksWorkScore {
+        StacksWorkScore {
+            burn: 0,
+            work: 1, // block 0 is the boot code
+        }
+    }
+
+    /// Stacks work score for the boot code block
+    pub fn genesis() -> StacksWorkScore {
+        StacksWorkScore { burn: 0, work: 0 }
+    }
 }
 
-/// Structure that holds the actual data in a MARF leaf node.
-/// It only stores the hash of some value string, but we add 8 extra bytes for future extensions.
-/// If not used (the rule today), then they should all be 0.
-pub struct MARFValue(pub [u8; 40]);
-impl_array_newtype!(MARFValue, u8, 40);
-impl_array_hexstring_fmt!(MARFValue);
-impl_byte_array_newtype!(MARFValue, u8, 40);
-pub const MARF_VALUE_ENCODED_SIZE: u32 = 40;
+impl StacksMessageCodec for VRFProof {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        fd.write_all(&self.to_bytes())
+            .map_err(CodecError::WriteError)
+    }
 
-impl From<u32> for MARFValue {
-    fn from(value: u32) -> MARFValue {
-        let h = value.to_le_bytes();
-        let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
-        if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
-            panic!("Cannot convert a u32 into a MARF Value.");
-        }
-        for i in 0..h.len() {
-            d[i] = h[i];
-        }
-        MARFValue(d)
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<VRFProof, CodecError> {
+        let mut bytes = [0u8; VRF_PROOF_ENCODED_SIZE as usize];
+        fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
+        let res = VRFProof::from_slice(&bytes).ok_or(CodecError::DeserializeError(
+            "Failed to parse VRF proof".to_string(),
+        ))?;
+
+        Ok(res)
+    }
+}
+
+impl StacksMessageCodec for StacksWorkScore {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.burn)?;
+        write_next(fd, &self.work)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksWorkScore, CodecError> {
+        let burn = read_next(fd)?;
+        let work = read_next(fd)?;
+
+        Ok(StacksWorkScore { burn, work })
+    }
+}
+
+// Implement rusqlite traits for a bunch of structs that used to be defined
+//  in the chainstate code
+impl_byte_array_rusqlite_only!(ConsensusHash);
+impl_byte_array_rusqlite_only!(Hash160);
+impl_byte_array_rusqlite_only!(BlockHeaderHash);
+impl_byte_array_rusqlite_only!(VRFSeed);
+impl_byte_array_rusqlite_only!(BurnchainHeaderHash);
+impl_byte_array_rusqlite_only!(VRFProof);
+impl_byte_array_rusqlite_only!(TrieHash);
+impl_byte_array_rusqlite_only!(Sha512Trunc256Sum);
+impl_byte_array_rusqlite_only!(MessageSignature);
+
+impl_byte_array_message_codec!(TrieHash, TRIEHASH_ENCODED_SIZE as u32);
+impl_byte_array_message_codec!(Sha512Trunc256Sum, 32);
+
+impl_byte_array_message_codec!(ConsensusHash, 20);
+impl_byte_array_message_codec!(Hash160, 20);
+impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
+impl_byte_array_message_codec!(BlockHeaderHash, 32);
+impl_byte_array_message_codec!(StacksBlockId, 32);
+impl_byte_array_message_codec!(MessageSignature, 65);
+
+impl BlockHeaderHash {
+    pub fn to_hash160(&self) -> Hash160 {
+        Hash160::from_sha256(&self.0)
+    }
+
+    pub fn from_serialized_header(buf: &[u8]) -> BlockHeaderHash {
+        let h = Sha512Trunc256Sum::from_data(buf);
+        let mut b = [0u8; 32];
+        b.copy_from_slice(h.as_bytes());
+        BlockHeaderHash(b)
+    }
+}
+
+impl BurnchainHeaderHash {
+    /// Instantiate a burnchain block hash from a Bitcoin block header
+    pub fn from_bitcoin_hash(bitcoin_hash: &Sha256dHash) -> BurnchainHeaderHash {
+        // NOTE: Sha256dhash is the same size as BurnchainHeaderHash, so this should never panic
+        BurnchainHeaderHash::from_bytes_be(bitcoin_hash.as_bytes()).unwrap()
+    }
+
+    pub fn zero() -> BurnchainHeaderHash {
+        BurnchainHeaderHash([0x00; 32])
+    }
+}
+
+impl FromSql for Sha256dHash {
+    fn column_result(value: ValueRef) -> FromSqlResult<Sha256dHash> {
+        let hex_str = value.as_str()?;
+        let hash = Sha256dHash::from_hex(hex_str).map_err(|_e| FromSqlError::InvalidType)?;
+        Ok(hash)
+    }
+}
+
+impl ToSql for Sha256dHash {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        let hex_str = self.be_hex_string();
+        Ok(hex_str.into())
+    }
+}
+
+impl_byte_array_serde!(ConsensusHash);
+
+impl VRFSeed {
+    /// First-ever VRF seed from the genesis block.  It's all 0's
+    pub fn initial() -> VRFSeed {
+        VRFSeed::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+            .unwrap()
+    }
+
+    pub fn from_proof(proof: &VRFProof) -> VRFSeed {
+        let h = Sha512Trunc256Sum::from_data(&proof.to_bytes());
+        VRFSeed(h.0)
+    }
+
+    pub fn is_from_proof(&self, proof: &VRFProof) -> bool {
+        self.as_bytes().to_vec() == VRFSeed::from_proof(proof).as_bytes().to_vec()
+    }
+}
+
+impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.0)?;
+        write_next(fd, &self.1)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(
+        fd: &mut R,
+    ) -> Result<(ConsensusHash, BurnchainHeaderHash), CodecError> {
+        let consensus_hash: ConsensusHash = read_next(fd)?;
+        let burn_header_hash: BurnchainHeaderHash = read_next(fd)?;
+        Ok((consensus_hash, burn_header_hash))
     }
 }

@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::{error, fmt, io, mem};
 
-use types::chainstate::MARFValue;
+// use types::chainstate::MARFValue;
 use types::chainstate::SortitionId;
 use util::hash::HASH160_ENCODED_SIZE;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
@@ -78,7 +78,7 @@ pub trait StacksMessageCodec {
     }
 }
 
-impl_byte_array_message_codec!(MARFValue, 40);
+// impl_byte_array_message_codec!(MARFValue, 40);
 impl_byte_array_message_codec!(SortitionId, 32);
 
 impl_stacks_message_codec_for_int!(u8; [0; 1]);

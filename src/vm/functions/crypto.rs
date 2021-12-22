@@ -15,7 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use address::AddressHashMode;
-use types::{C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::address::{
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 use util::hash;
 use util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
 use vm::callables::{CallableType, NativeHandle};

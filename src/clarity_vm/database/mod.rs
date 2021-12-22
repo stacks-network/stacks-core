@@ -18,11 +18,14 @@ use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
-use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
+use chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 
 use core::StacksEpoch;
 use core::StacksEpochId;
 use std::ops::{Deref, DerefMut};
+
+use clarity_vm::special::handle_contract_call_special_cases;
+use vm::database::SpecialCaseHandler;
 
 pub mod marf;
 
@@ -286,8 +289,8 @@ impl ClarityBackingStore for MemoryBackingStore {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
-        SqliteConnection::get(self.get_side_store(), key).map(|x| (x, TrieMerkleProof(vec![])))
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)> {
+        SqliteConnection::get(self.get_side_store(), key).map(|x| (x, vec![]))
     }
 
     fn get_side_store(&mut self) -> &Connection {
@@ -312,6 +315,10 @@ impl ClarityBackingStore for MemoryBackingStore {
 
     fn get_current_block_height(&mut self) -> u32 {
         0
+    }
+
+    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        Some(&handle_contract_call_special_cases)
     }
 
     fn put_all(&mut self, items: Vec<(String, String)>) {

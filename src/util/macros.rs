@@ -24,6 +24,7 @@ pub fn is_big_endian() -> bool {
 /// Define an iterable enum: an enum where each variant is an atomic
 /// type (i.e., has no paramters), and the variants can be iterated over
 /// with an Enum::ALL const
+#[macro_export]
 macro_rules! iterable_enum {
     ($Name:ident { $($Variant:ident,)* }) =>
     {
@@ -236,44 +237,6 @@ macro_rules! define_u8_enum {
     }
 }
 
-#[macro_export]
-macro_rules! impl_clarity_marf_trie_id {
-    ($thing:ident) => {
-        impl crate::types::proof::ClarityMarfTrieId for $thing {
-            fn as_bytes(&self) -> &[u8] {
-                self.as_ref()
-            }
-            fn to_bytes(self) -> [u8; 32] {
-                self.0
-            }
-            fn sentinel() -> Self {
-                Self(crate::types::proof::SENTINEL_ARRAY.clone())
-            }
-            fn from_bytes(bytes: [u8; 32]) -> Self {
-                Self(bytes)
-            }
-        }
-
-        impl From<crate::types::chainstate::MARFValue> for $thing {
-            fn from(m: crate::types::chainstate::MARFValue) -> Self {
-                let h = m.0;
-                let mut d = [0u8; 32];
-                for i in 0..32 {
-                    d[i] = h[i];
-                }
-                for i in 32..h.len() {
-                    if h[i] != 0 {
-                        panic!(
-                            "Failed to convert MARF value into BHH: data stored after 32nd byte"
-                        );
-                    }
-                }
-                Self(d)
-            }
-        }
-    };
-}
-
 /// Borrowed from Andrew Poelstra's rust-bitcoin
 #[macro_export]
 macro_rules! impl_array_newtype {
@@ -459,6 +422,7 @@ macro_rules! impl_index_newtype {
     };
 }
 
+#[macro_export]
 macro_rules! impl_array_hexstring_fmt {
     ($thing:ident) => {
         impl ::std::fmt::Debug for $thing {
@@ -474,6 +438,7 @@ macro_rules! impl_array_hexstring_fmt {
 }
 
 #[allow(unused_macros)]
+#[macro_export]
 macro_rules! impl_byte_array_newtype {
     ($thing:ident, $ty:ty, $len:expr) => {
         impl $thing {
@@ -571,6 +536,7 @@ macro_rules! impl_byte_array_newtype {
 }
 
 #[allow(unused_macros)]
+#[macro_export]
 macro_rules! impl_byte_array_serde {
     ($thing:ident) => {
         impl serde::Serialize for $thing {
@@ -623,6 +589,7 @@ macro_rules! trace {
     )
 }
 
+#[macro_export]
 macro_rules! fmin {
     ($x: expr) => ($x);
     ($x: expr, $($z: expr),+) => {{
@@ -635,6 +602,7 @@ macro_rules! fmin {
     }}
 }
 
+#[macro_export]
 macro_rules! fmax {
     ($x: expr) => ($x);
     ($x: expr, $($z: expr),+) => {{

@@ -17,8 +17,8 @@
 use std::io::{Read, Write};
 
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
-use crate::types::proof::TrieHash;
 use address::AddressHashMode;
 use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::Address;
@@ -877,8 +877,8 @@ mod tests {
         StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
         PEER_VERSION_EPOCH_2_05, STACKS_EPOCH_MAX,
     };
-    use deps::bitcoin::blockdata::transaction::Transaction;
-    use deps::bitcoin::network::serialize::{deserialize, serialize_hex};
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
     use util::get_epoch_time_secs;
     use util::hash::*;
     use util::vrf::VRFPublicKey;

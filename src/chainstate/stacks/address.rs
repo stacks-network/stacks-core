@@ -34,10 +34,11 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use deps::bitcoin::blockdata::opcodes::All as BtcOp;
-use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
-use deps::bitcoin::blockdata::transaction::TxOut;
+use clarity::vm::types::{TupleData, Value};
 use net::Error as net_error;
+use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as BtcOp;
+use stacks_common::deps_common::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
+use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
 use util::hash::Hash160;
 use util::hash::HASH160_ENCODED_SIZE;
 use vm::types::{PrincipalData, StandardPrincipalData};
@@ -45,30 +46,23 @@ use vm::types::{PrincipalData, StandardPrincipalData};
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
-use crate::util::boot::boot_code_addr;
-
-impl StacksMessageCodec for StacksAddress {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.version)?;
-        fd.write_all(self.bytes.as_bytes())
-            .map_err(codec_error::WriteError)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksAddress, codec_error> {
-        let version: u8 = read_next(fd)?;
-        let hash160: Hash160 = read_next(fd)?;
-        Ok(StacksAddress {
-            version: version,
-            bytes: hash160,
-        })
-    }
-}
+use crate::util_lib::boot::boot_code_addr;
 
 pub trait StacksAddressExtensions {
     fn to_bitcoin_tx_out(&self, value: u64) -> TxOut;
+    fn as_clarity_tuple(&self) -> TupleData;
+    fn to_b58(self) -> String;
+    fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress;
+    fn is_boot_code_addr(&self) -> bool;
 }
 
 impl StacksAddressExtensions for StacksAddress {
+    /// is this a boot code address, if the supplied address is mainnet or testnet,
+    ///  it checks against the appropriate the boot code addr
+    fn is_boot_code_addr(&self) -> bool {
+        self == &boot_code_addr(self.is_mainnet())
+    }
+
     fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
         let btc_version = to_b52_version_byte(self.version)
             .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
@@ -82,14 +76,39 @@ impl StacksAddressExtensions for StacksAddress {
             BitcoinAddressType::ScriptHash => BitcoinAddress::to_p2sh_tx_out(&self.bytes, value),
         }
     }
-}
 
-impl From<StandardPrincipalData> for StacksAddress {
-    fn from(o: StandardPrincipalData) -> StacksAddress {
+    fn as_clarity_tuple(&self) -> TupleData {
+        let version = Value::buff_from_byte(AddressHashMode::from_version(self.version) as u8);
+        let hashbytes = Value::buff_from(Vec::from(self.bytes.0.clone()))
+            .expect("BUG: hash160 bytes do not fit in Clarity Value");
+        TupleData::from_data(vec![
+            ("version".into(), version),
+            ("hashbytes".into(), hashbytes),
+        ])
+        .expect("BUG: StacksAddress byte representation does not fit in Clarity Value")
+    }
+
+    /// Convert from a Bitcoin address
+    fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress {
+        let btc_version = address_type_to_version_byte(addr.addrtype, addr.network_id);
+
+        // should not fail by construction
+        let version = to_c32_version_byte(btc_version)
+            .expect("Failed to decode Bitcoin version byte to Stacks version byte");
         StacksAddress {
-            version: o.0,
-            bytes: Hash160(o.1),
+            version: version,
+            bytes: addr.bytes.clone(),
         }
+    }
+
+    fn to_b58(self) -> String {
+        let StacksAddress { version, bytes } = self;
+        let btc_version = to_b52_version_byte(version)
+            // fallback to version
+            .unwrap_or(version);
+        let mut all_bytes = vec![btc_version];
+        all_bytes.extend(bytes.0.iter());
+        b58::check_encode_slice(&all_bytes)
     }
 }
 

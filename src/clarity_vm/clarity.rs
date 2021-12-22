@@ -22,6 +22,7 @@ use std::thread;
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::boot::POX_2_NAME;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::chainstate::stacks::TransactionAuth;
 use crate::chainstate::stacks::TransactionPayload;
 use crate::chainstate::stacks::TransactionPublicKeyEncoding;
@@ -34,10 +35,9 @@ use crate::core::GENESIS_EPOCH;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::SortitionId;
 use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::StacksMicroblockHeader;
-use crate::types::proof::TrieHash;
-use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::types::chainstate::TrieHash;
 use crate::util::secp256k1::MessageSignature;
+use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::{
     burnchains::Burnchain,
     clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
@@ -58,7 +58,7 @@ use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::Error as ChainstateError;
 use chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
 use types::chainstate::BurnchainHeaderHash;
-use util::strings::StacksString;
+use util_lib::strings::StacksString;
 use vm::analysis;
 use vm::analysis::AnalysisDatabase;
 use vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
@@ -1313,21 +1313,23 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
     }
 
     /// Evaluate a poison-microblock transaction
+    #[allow(unused_variables)]
     pub fn run_poison_microblock(
         &mut self,
         sender: &PrincipalData,
         mblock_header_1: &StacksMicroblockHeader,
         mblock_header_2: &StacksMicroblockHeader,
     ) -> Result<Value, Error> {
-        self.with_abort_callback(
-            |vm_env| {
-                vm_env
-                    .handle_poison_microblock(sender, mblock_header_1, mblock_header_2)
-                    .map_err(Error::from)
-            },
-            |_, _| false,
-        )
-        .and_then(|(value, ..)| Ok(value))
+        panic!("Handle poison microblock not implemented yet");
+        // self.with_abort_callback(
+        //     |vm_env| {
+        //         vm_env
+        //             .handle_poison_microblock(sender, mblock_header_1, mblock_header_2)
+        //             .map_err(Error::from)
+        //     },
+        //     |_, _| false,
+        // )
+        // .and_then(|(value, ..)| Ok(value))
     }
 
     /// Commit the changes from the edit log.
@@ -1991,7 +1993,7 @@ mod tests {
         use chainstate::stacks::*;
         use util::hash::Hash160;
         use util::secp256k1::MessageSignature;
-        use util::strings::StacksString;
+        use util_lib::strings::StacksString;
 
         let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(false, marf);

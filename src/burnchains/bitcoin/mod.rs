@@ -27,7 +27,7 @@ use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::Txid;
 use chainstate::burn::operations::BlockstackOperationType;
 use deps;
-use deps::bitcoin::network::serialize::Error as btc_serialize_error;
+use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialize_error;
 use util::HexError as btc_hex_error;
 use util_lib::db::Error as db_error;
 
@@ -42,7 +42,7 @@ pub mod messages;
 pub mod network;
 pub mod spv;
 
-pub type PeerMessage = deps::bitcoin::network::message::NetworkMessage;
+pub type PeerMessage = stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
 
 // Borrowed from Andrew Poelstra's rust-bitcoin
 

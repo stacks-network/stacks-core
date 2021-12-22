@@ -27,7 +27,6 @@ use crate::types::chainstate::StacksBlockId;
 
 use super::clarity_store::SpecialCaseHandler;
 use super::{ClarityBackingStore, ClarityDeserializable};
-use crate::types::proof::TrieMerkleProof;
 
 #[cfg(rollback_value_check)]
 type RollbackValueCheck = String;
@@ -337,7 +336,7 @@ impl<'a> RollbackWrapper<'a> {
 
     /// this function will only return commitment proofs for values _already_ materialized
     ///  in the underlying store. otherwise it returns None.
-    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, TrieMerkleProof<StacksBlockId>)>
+    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, Vec<u8>)>
     where
         T: ClarityDeserializable<T>,
     {

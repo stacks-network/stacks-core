@@ -21,12 +21,14 @@ use std::convert::TryFrom;
 use util::log;
 use vm::costs::ExecutionCost;
 
+pub use self::mempool::MemPoolDB;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-pub use crate::types::StacksEpochId;
-
-pub use self::mempool::MemPoolDB;
+use stacks_common::types::StacksEpoch as GenericStacksEpoch;
+pub use stacks_common::types::StacksEpochId;
 pub mod mempool;
+
+pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
 use std::cmp::Ord;
 use std::cmp::Ordering;
@@ -357,24 +359,32 @@ fn test_ord_for_stacks_epoch_id() {
     );
 }
 
-impl StacksEpoch {
-    #[cfg(test)]
-    pub fn unit_test(
-        stacks_epoch_id: StacksEpochId,
+pub trait StacksEpochExtension {
+    fn all(
         epoch_2_0_block_height: u64,
-    ) -> Vec<StacksEpoch> {
-        match stacks_epoch_id {
-            StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {
-                StacksEpoch::unit_test_pre_2_05(epoch_2_0_block_height)
-            }
-            StacksEpochId::Epoch2_05 => StacksEpoch::unit_test_2_05(epoch_2_0_block_height),
-            StacksEpochId::Epoch21 => {
-                panic!("This method signature is not prepared to go up to Stacks 2.1")
-            }
-        }
-    }
+        epoch_2_05_block_height: u64,
+        epoch_2_1_block_height: u64,
+    ) -> Vec<StacksEpoch>;
+}
 
-    pub fn all(
+impl StacksEpochExtension for StacksEpoch {
+    // #[cfg(test)]
+    // pub fn unit_test(
+    //     stacks_epoch_id: StacksEpochId,
+    //     epoch_2_0_block_height: u64,
+    // ) -> Vec<StacksEpoch> {
+    //     match stacks_epoch_id {
+    //         StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {
+    //             StacksEpoch::unit_test_pre_2_05(epoch_2_0_block_height)
+    //         }
+    //         StacksEpochId::Epoch2_05 => StacksEpoch::unit_test_2_05(epoch_2_0_block_height),
+    //         StacksEpochId::Epoch21 => {
+    //             panic!("This method signature is not prepared to go up to Stacks 2.1")
+    //         }
+    //     }
+    // }
+
+    fn all(
         epoch_2_0_block_height: u64,
         epoch_2_05_block_height: u64,
         epoch_2_1_block_height: u64,

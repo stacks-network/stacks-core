@@ -52,10 +52,10 @@ use vm::{
 };
 
 use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
-use crate::types::proof::TrieHash;
 use crate::{types, util};
 use chainstate::stacks::boot::COSTS_2_NAME;
 use rand::RngCore;

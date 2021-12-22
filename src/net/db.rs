@@ -60,7 +60,7 @@ use burnchains::PublicKey;
 
 use core::NETWORK_P2P_PORT;
 
-use util::strings::UrlString;
+use util_lib::strings::UrlString;
 
 pub const PEERDB_VERSION: &'static str = "1";
 

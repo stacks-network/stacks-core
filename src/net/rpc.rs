@@ -35,6 +35,7 @@ use crate::codec::StacksMessageCodec;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::FeeEstimator;
+use crate::net::BlocksDatum;
 use crate::net::RPCFeeEstimate;
 use crate::net::RPCFeeEstimateResponse;
 use burnchains::Burnchain;
@@ -111,13 +112,15 @@ use vm::{
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::{
-    BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
-};
+use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use chainstate::stacks::StacksBlockHeader;
+
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
     util::hash::Sha256Sum, version_string,
 };
+
+use util_lib::boot::boot_code_id;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
@@ -251,7 +254,7 @@ impl RPCPoxInfoData {
         burnchain: &Burnchain,
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
-        let contract_identifier = util::boot::boot_code_id("pox", mainnet);
+        let contract_identifier = boot_code_id("pox", mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
@@ -397,7 +400,7 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: util::boot::boot_code_id("pox", chainstate.mainnet).to_string(),
+            contract_id: boot_code_id("pox", chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
             prepare_phase_block_length: prepare_cycle_length,
@@ -1135,7 +1138,7 @@ impl ConversationHttp {
                     let (balance, balance_proof) = if with_proof {
                         clarity_db
                             .get_with_proof::<STXBalance>(&key)
-                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| (STXBalance::zero(), Some("".into())))
                     } else {
                         clarity_db
@@ -1148,7 +1151,7 @@ impl ConversationHttp {
                     let (nonce, nonce_proof) = if with_proof {
                         clarity_db
                             .get_with_proof(&key)
-                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| (0, Some("".into())))
                     } else {
                         clarity_db
@@ -1214,7 +1217,7 @@ impl ConversationHttp {
                     let (value, marf_proof) = if with_proof {
                         clarity_db
                             .get_with_proof::<Value>(&key)
-                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))?
+                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                     } else {
                         clarity_db.get::<Value>(&key).map(|a| (a, None))?
                     };
@@ -1265,7 +1268,7 @@ impl ConversationHttp {
                     let (value, marf_proof) = if with_proof {
                         clarity_db
                             .get_with_proof::<Value>(&key)
-                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| {
                                 test_debug!("No value for '{}' in {}", &key, tip);
                                 (Value::none(), Some("".into()))
@@ -1406,7 +1409,7 @@ impl ConversationHttp {
                     let contract_commit_key = make_contract_hash_key(&contract_identifier);
                     let (contract_commit, proof) = if with_proof {
                         db.get_with_proof::<ContractCommitment>(&contract_commit_key)
-                            .map(|(a, b)| (a, Some(format!("0x{}", &b.to_hex()))))
+                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .expect("BUG: obtained source, but couldn't get contract commit")
                     } else {
                         db.get::<ContractCommitment>(&contract_commit_key)
@@ -2460,7 +2463,7 @@ impl ConversationHttp {
                 if accepted {
                     // inform the peer network so it can announce its presence
                     ret = Some(StacksMessageType::Blocks(BlocksData {
-                        blocks: vec![(consensus_hash.clone(), block.clone())],
+                        blocks: vec![BlocksDatum(consensus_hash.clone(), block.clone())],
                     }));
                 }
                 None

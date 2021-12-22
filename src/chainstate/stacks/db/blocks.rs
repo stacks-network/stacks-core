@@ -57,13 +57,13 @@ use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::retry::BoundReader;
-use util::strings::StacksString;
 use util_lib::db::u64_to_sql;
 use util_lib::db::Error as db_error;
 use util_lib::db::{
     query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
     tx_busy_handler, DBConn, FromColumn, FromRow,
 };
+use util_lib::strings::StacksString;
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
@@ -76,11 +76,13 @@ use vm::types::{
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
-use crate::types::chainstate::{
-    StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
-};
 use crate::{types, util};
+use chainstate::stacks::address::StacksAddressExtensions;
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use types::chainstate::BurnchainHeaderHash;
+use util_lib::boot::boot_code_id;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -4542,7 +4544,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx<'a>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
         let mainnet = clarity_tx.config.mainnet;
-        let lockup_contract_id = util::boot::boot_code_id("lockup", mainnet);
+        let lockup_contract_id = boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {

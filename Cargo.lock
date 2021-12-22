@@ -2354,15 +2354,10 @@ dependencies = [
  "chrono",
  "curve25519-dalek",
  "ed25519-dalek",
- "integer-sqrt",
  "lazy_static",
  "libc",
- "mio",
  "percent-encoding",
- "prometheus",
  "rand 0.7.2",
- "rand_chacha 0.2.2",
- "regex",
  "ripemd160",
  "rstest",
  "rstest_reuse",
@@ -2379,8 +2374,6 @@ dependencies = [
  "slog-json",
  "slog-term",
  "time 0.2.23",
- "tini",
- "url",
 ]
 
 [[package]]

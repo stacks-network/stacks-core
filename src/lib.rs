@@ -80,8 +80,13 @@ pub extern crate prometheus;
 #[macro_use]
 extern crate stacks_common;
 
-#[macro_use]
-pub mod codec;
+pub use stacks_common::address;
+pub use stacks_common::codec;
+pub use stacks_common::types;
+pub use stacks_common::util;
+
+//#[macro_use]
+//pub mod codec;
 
 #[macro_use]
 pub mod util_lib;
@@ -93,7 +98,6 @@ pub mod net;
 extern crate clarity;
 
 pub use clarity::vm;
-pub use stacks_common::types;
 
 #[macro_use]
 pub mod chainstate;
@@ -101,7 +105,7 @@ pub mod chainstate;
 #[cfg(test)]
 extern crate stx_genesis;
 
-pub mod address;
+//pub mod address;
 pub mod burnchains;
 
 /// A high level library for interacting with the Clarity vm

@@ -51,6 +51,7 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use clarity::vm::events::*;
 use clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
     Error as clarity_error,
@@ -79,13 +80,14 @@ use {monitoring, util};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
-use crate::types::chainstate::{
-    MARFValue, StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
-};
-use crate::types::proof::{ClarityMarfTrieId, TrieHash};
-use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use chainstate::burn::ConsensusHashExtensions;
+use chainstate::stacks::address::StacksAddressExtensions;
+use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 use vm::Value;
-
 pub mod accounts;
 pub mod blocks;
 pub mod contracts;
@@ -1352,7 +1354,7 @@ impl StacksChainState {
 
             // Setup burnchain parameters for pox contract
             let pox_constants = &boot_data.pox_constants;
-            let contract = util::boot::boot_code_id("pox", mainnet);
+            let contract = boot_code_id("pox", mainnet);
             let sender = PrincipalData::from(contract.clone());
             let params = vec![
                 Value::UInt(boot_data.first_burnchain_block_height as u128),

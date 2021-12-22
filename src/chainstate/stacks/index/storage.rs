@@ -55,7 +55,9 @@ use util_lib::db::SQLITE_MMAP_SIZE;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use crate::types::proof::{ClarityMarfTrieId, TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
+use chainstate::stacks::index::TrieHashExtension;
+use chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 pub fn ftell<F: Seek>(f: &mut F) -> Result<u64, Error> {
     f.seek(SeekFrom::Current(0)).map_err(Error::IOError)

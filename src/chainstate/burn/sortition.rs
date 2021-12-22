@@ -42,7 +42,10 @@ use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
-use crate::types::proof::{ClarityMarfTrieId, TrieHash};
+use chainstate::burn::ConsensusHashExtensions;
+use chainstate::stacks::index::ClarityMarfTrieId;
+use chainstate::stacks::index::TrieHashExtension;
+use stacks_common::types::chainstate::TrieHash;
 
 impl BlockSnapshot {
     /// Create the sentinel block snapshot -- the first one

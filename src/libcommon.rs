@@ -9,22 +9,15 @@
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
 extern crate rand;
-extern crate rand_chacha;
 extern crate rusqlite;
 extern crate secp256k1;
 extern crate serde;
-extern crate tini;
 #[macro_use]
 extern crate lazy_static;
-extern crate integer_sqrt;
-extern crate mio;
-extern crate percent_encoding;
-extern crate regex;
 extern crate ripemd160;
 extern crate sha2;
 extern crate sha3;
 extern crate time;
-extern crate url;
 
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
@@ -41,6 +34,9 @@ extern crate serde_json;
 #[macro_use]
 pub mod util;
 
+#[macro_use]
+pub mod codec;
+
 pub mod types;
 
 pub mod address;
@@ -48,11 +44,6 @@ pub mod address;
 pub mod deps_common;
 
 use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
-
-impl_clarity_marf_trie_id!(BurnchainHeaderHash);
-impl_clarity_marf_trie_id!(StacksBlockId);
-impl_clarity_marf_trie_id!(SortitionId);
-impl_clarity_marf_trie_id!(BlockHeaderHash);
 
 pub mod consts {
     use types::chainstate::BlockHeaderHash;

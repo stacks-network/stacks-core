@@ -32,6 +32,11 @@ use std::convert::TryFrom;
 pub mod b58;
 pub mod c32;
 
+pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22; // P
+pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20; // M
+pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26; // T
+pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21; // N
+
 #[derive(Debug)]
 pub enum Error {
     InvalidCrockford32,
@@ -97,6 +102,31 @@ pub enum AddressHashMode {
     SerializeP2SH = 0x01,   // hash160(multisig-redeem-script), same as bitcoin's multisig p2sh
     SerializeP2WPKH = 0x02, // hash160(segwit-program-00(p2pkh)), same as bitcoin's p2sh-p2wpkh
     SerializeP2WSH = 0x03,  // hash160(segwit-program-00(public-keys)), same as bitcoin's p2sh-p2wsh
+}
+
+impl AddressHashMode {
+    pub fn to_version_mainnet(&self) -> u8 {
+        match *self {
+            AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+            _ => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+        }
+    }
+
+    pub fn to_version_testnet(&self) -> u8 {
+        match *self {
+            AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            _ => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+        }
+    }
+
+    pub fn from_version(version: u8) -> AddressHashMode {
+        match version {
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG | C32_ADDRESS_VERSION_MAINNET_SINGLESIG => {
+                AddressHashMode::SerializeP2PKH
+            }
+            _ => AddressHashMode::SerializeP2SH,
+        }
+    }
 }
 
 /// Given the u8 of an AddressHashMode, deduce the AddressHashNode

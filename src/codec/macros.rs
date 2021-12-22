@@ -1,3 +1,4 @@
+#[macro_export]
 macro_rules! impl_stacks_message_codec_for_int {
     ($typ:ty; $array:expr) => {
         impl StacksMessageCodec for $typ {
@@ -18,6 +19,7 @@ macro_rules! impl_stacks_message_codec_for_int {
     };
 }
 
+#[macro_export]
 macro_rules! impl_byte_array_message_codec {
     ($thing:ident, $len:expr) => {
         impl ::codec::StacksMessageCodec for $thing {

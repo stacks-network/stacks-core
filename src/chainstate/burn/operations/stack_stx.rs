@@ -17,7 +17,7 @@
 use std::io::{Read, Write};
 
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::TrieHash;
 use address::AddressHashMode;
 use burnchains::Address;
 use burnchains::Burnchain;
@@ -343,8 +343,8 @@ mod tests {
     use chainstate::burn::ConsensusHash;
     use chainstate::burn::*;
     use chainstate::stacks::StacksPublicKey;
-    use deps::bitcoin::blockdata::transaction::Transaction;
-    use deps::bitcoin::network::serialize::{deserialize, serialize_hex};
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
     use util::get_epoch_time_secs;
     use util::hash::*;
     use util::vrf::VRFPublicKey;
