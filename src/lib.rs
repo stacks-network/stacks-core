@@ -87,7 +87,7 @@ pub mod util_lib;
 pub mod net;
 
 #[macro_use]
-extern crate clarity;
+pub extern crate clarity;
 
 pub use clarity::vm;
 
@@ -108,6 +108,8 @@ pub mod deps;
 pub mod monitoring;
 
 pub mod cost_estimates;
+
+pub mod clarity_cli;
 
 // set via _compile-time_ envars
 const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");

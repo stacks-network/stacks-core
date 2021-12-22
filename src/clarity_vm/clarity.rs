@@ -1169,23 +1169,29 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
     }
 
     /// Evaluate a poison-microblock transaction
-    #[allow(unused_variables)]
     pub fn run_poison_microblock(
         &mut self,
         sender: &PrincipalData,
         mblock_header_1: &StacksMicroblockHeader,
         mblock_header_2: &StacksMicroblockHeader,
     ) -> Result<Value, Error> {
-        panic!("Handle poison microblock not implemented yet");
-        // self.with_abort_callback(
-        //     |vm_env| {
-        //         vm_env
-        //             .handle_poison_microblock(sender, mblock_header_1, mblock_header_2)
-        //             .map_err(Error::from)
-        //     },
-        //     |_, _| false,
-        // )
-        // .and_then(|(value, ..)| Ok(value))
+        self.with_abort_callback(
+            |vm_env| {
+                vm_env
+                    .execute_in_env(sender.clone(), None, |env| {
+                        env.run_as_transaction(|env| {
+                            StacksChainState::handle_poison_microblock(
+                                env,
+                                mblock_header_1,
+                                mblock_header_2,
+                            )
+                        })
+                    })
+                    .map_err(Error::from)
+            },
+            |_, _| false,
+        )
+        .and_then(|(value, ..)| Ok(value))
     }
 
     /// Commit the changes from the edit log.
