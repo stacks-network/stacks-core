@@ -1115,6 +1115,7 @@ fn spawn_miner_relayer(
                             else {
                                 debug!("Relayer: reset microblock miner state");
                                 microblock_miner_state = None;
+                                set_processed_counter(&microblocks_processed, 0);
                             }
                         }
 
