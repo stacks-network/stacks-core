@@ -1730,7 +1730,7 @@ pub mod test {
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;
     use crate::types::chainstate::SortitionId;
-    use crate::util::boot::boot_code_addr;
+    use crate::util_lib::boot::boot_code_addr;
 
     use super::*;
 

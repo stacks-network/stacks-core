@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::contracts::type_check;
-use crate::clarity_vm::database::MemoryBackingStore;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -24,6 +23,7 @@ use std::convert::TryInto;
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::type_checker::tests::mem_type_check;
 use vm::ast::parse;
+use vm::database::MemoryBackingStore;
 use vm::types::{QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature};
 use vm::ClarityVersion;
 

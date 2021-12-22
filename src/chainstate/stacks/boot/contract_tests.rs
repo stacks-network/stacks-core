@@ -10,6 +10,7 @@ use chainstate::stacks::boot::{
 };
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
+use chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use chainstate::stacks::*;
 use clarity_vm::database::marf::MarfedKV;
@@ -30,9 +31,7 @@ use vm::errors::{
 };
 use vm::eval;
 use vm::representations::SymbolicExpression;
-use vm::tests::{
-    execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
-};
+use vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use vm::types::Value::Response;
 use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -40,15 +39,10 @@ use vm::types::{
 };
 
 use crate::core::POX_TESTNET_CYCLE_LENGTH;
-use crate::util::boot::boot_code_addr;
 use crate::{
     burnchains::PoxConstants,
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
-    util::boot::boot_code_id,
-};
-use crate::{
     core::StacksEpoch,
-    types::proof::{ClarityMarfTrieId, TrieMerkleProof},
 };
 use crate::{
     core::StacksEpochId,
@@ -56,6 +50,8 @@ use crate::{
         BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
     },
 };
+use util_lib::boot::boot_code_addr;
+use util_lib::boot::boot_code_id;
 
 use clarity_vm::clarity::Error as ClarityError;
 use core::PEER_VERSION_EPOCH_1_0;
@@ -90,31 +86,6 @@ lazy_static! {
     .unwrap();
     static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
     static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25;
-}
-
-impl From<&StacksPrivateKey> for StandardPrincipalData {
-    fn from(o: &StacksPrivateKey) -> StandardPrincipalData {
-        let stacks_addr = StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(o)],
-        )
-        .unwrap();
-        StandardPrincipalData::from(stacks_addr)
-    }
-}
-
-impl From<&StacksPrivateKey> for PrincipalData {
-    fn from(o: &StacksPrivateKey) -> PrincipalData {
-        PrincipalData::Standard(StandardPrincipalData::from(o))
-    }
-}
-
-impl From<&StacksPrivateKey> for Value {
-    fn from(o: &StacksPrivateKey) -> Value {
-        Value::from(StandardPrincipalData::from(o))
-    }
 }
 
 pub struct ClarityTestSim {

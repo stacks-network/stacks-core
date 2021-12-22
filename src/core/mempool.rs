@@ -1386,29 +1386,31 @@ mod tests {
     use net::Error as NetError;
     use util::hash::Hash160;
     use util::secp256k1::MessageSignature;
-    use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*, strings::StacksString};
+    use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*};
     use util_lib::db::{DBConn, FromRow};
+    use util_lib::strings::StacksString;
     use vm::{
         database::HeadersDB,
         errors::Error as ClarityError,
         errors::RuntimeErrorType,
-        tests::TEST_BURN_STATE_DB,
+        test_util::TEST_BURN_STATE_DB,
         types::{PrincipalData, QualifiedContractIdentifier},
         ClarityName, ContractName, Value,
     };
 
-    use crate::codec::StacksMessageCodec;
-    use crate::types::chainstate::TrieHash;
-    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-    use crate::types::chainstate::{
-        StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
-        VRFSeed,
-    };
+    use super::MemPoolDB;
     use crate::{
         chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
     };
-
-    use super::MemPoolDB;
+    use chainstate::stacks::index::TrieHashExtension;
+    use chainstate::stacks::StacksBlockHeader;
+    use chainstate::stacks::StacksMicroblockHeader;
+    use stacks_common::codec::StacksMessageCodec;
+    use stacks_common::types::chainstate::TrieHash;
+    use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+    use stacks_common::types::chainstate::{
+        StacksAddress, StacksBlockId, StacksWorkScore, VRFSeed,
+    };
 
     const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                         (define-public (bar (x uint)) (ok x))";

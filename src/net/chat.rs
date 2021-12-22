@@ -2393,8 +2393,8 @@ mod test {
     use net::*;
     use util::pipe::*;
     use util::secp256k1::*;
-    use util::test::*;
     use util::uint::*;
+    use util_lib::test::*;
     use vm::costs::ExecutionCost;
 
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};

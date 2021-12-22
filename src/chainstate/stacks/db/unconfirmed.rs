@@ -555,6 +555,7 @@ mod test {
     use chainstate::stacks::miner::*;
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
+    use clarity::vm::types::StacksAddressExtensions;
     use core::mempool::*;
     use net::test::*;
 

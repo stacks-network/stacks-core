@@ -1186,7 +1186,7 @@ pub mod test {
     use vm::contracts::Contract;
     use vm::representations::ClarityName;
     use vm::representations::ContractName;
-    use vm::tests::TEST_BURN_STATE_DB;
+    use vm::test_util::TEST_BURN_STATE_DB;
     use vm::types::*;
 
     use super::*;

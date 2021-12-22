@@ -536,7 +536,7 @@ impl EventBatch {
 }
 
 impl<'a> OwnedEnvironment<'a> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         let epoch = StacksEpochId::Epoch2_05;
         OwnedEnvironment {
@@ -725,9 +725,9 @@ impl<'a> OwnedEnvironment<'a> {
     //     })
     // }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env::<_, _, ()>(recipient.clone(), None, |env| {
+        self.execute_in_env::<_, _, ::vm::errors::Error>(recipient.clone(), None, |env| {
             let mut snapshot = env
                 .global_context
                 .database
@@ -745,7 +745,7 @@ impl<'a> OwnedEnvironment<'a> {
         .unwrap();
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn eval_raw(
         &mut self,
         program: &str,

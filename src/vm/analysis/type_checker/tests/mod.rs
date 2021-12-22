@@ -32,7 +32,7 @@ use vm::types::{
     QualifiedContractIdentifier, StringUTF8Length, TypeSignature, Value, BUFF_32, BUFF_64,
 };
 
-use crate::clarity_vm::database::MemoryBackingStore;
+use vm::database::MemoryBackingStore;
 use vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use vm::types::{SequenceSubtype::*, StringSubtype::*};
 

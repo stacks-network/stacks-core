@@ -2560,8 +2560,8 @@ pub mod test {
     use net::*;
     use util::hash::*;
     use util::sleep_ms;
-    use util::test::*;
     use util_lib::strings::*;
+    use util_lib::test::*;
     use vm::costs::ExecutionCost;
     use vm::representations::*;
 

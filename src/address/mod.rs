@@ -223,7 +223,6 @@ pub fn public_keys_to_address_hash<K: PublicKey>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use burnchains::PublicKey;
     use util::hash::*;
     use util::log;
     use util::secp256k1::Secp256k1PublicKey as PubKey;

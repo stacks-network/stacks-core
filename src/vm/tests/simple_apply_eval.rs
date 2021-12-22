@@ -15,17 +15,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use types::StacksEpochId;
 
 use address::c32;
 use address::AddressHashMode;
-use chainstate::stacks::StacksPrivateKey;
-use chainstate::stacks::StacksPublicKey;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use util::hash::{hex_bytes, to_hex};
+use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
+use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::types::chainstate::StacksPublicKey;
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 use vm::ast::parse;
 use vm::callables::DefinedFunction;
 use vm::contexts::OwnedEnvironment;
@@ -38,11 +41,9 @@ use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, Stri
 use vm::{eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
-use crate::types::chainstate::StacksAddress;
-use crate::{clarity_vm::database::MemoryBackingStore, vm::ClarityVersion};
-use chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
+use vm::database::MemoryBackingStore;
+use vm::types::StacksAddressExtensions;
+use vm::ClarityVersion;
 
 #[template]
 #[rstest]

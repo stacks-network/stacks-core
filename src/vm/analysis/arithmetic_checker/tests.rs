@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::ClarityVersion;
-use chainstate::stacks::boot::BOOT_CODE_COSTS;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -60,10 +59,11 @@ fn check_good(contract: &str) {
     ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
 }
 
-#[test]
-fn test_boot_definitions() {
-    check_good(BOOT_CODE_COSTS);
-}
+// #[test]
+// fn test_boot_definitions() {
+//     use chainstate::stacks::boot::BOOT_CODE_COSTS;
+//     check_good(BOOT_CODE_COSTS);
+// }
 
 #[apply(test_clarity_versions_arith_checker)]
 fn test_bad_defines(#[case] version: ClarityVersion) {

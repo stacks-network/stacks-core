@@ -6,11 +6,11 @@ use vm::types::TypeSignature::{PrincipalType, SequenceType};
 use vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
 use vm::ClarityVersion;
 
-use crate::clarity_vm::database::MemoryBackingStore;
 use crate::types::StacksEpochId;
 use std::collections::HashMap;
 use vm::callables::{DefineType, DefinedFunction};
 use vm::costs::LimitedCostTracker;
+use vm::database::MemoryBackingStore;
 use vm::errors::{
     CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };

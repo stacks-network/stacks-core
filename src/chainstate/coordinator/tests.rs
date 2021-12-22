@@ -51,14 +51,15 @@ use vm::{
     Value,
 };
 
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
-};
 use crate::{types, util};
 use chainstate::stacks::boot::COSTS_2_NAME;
 use rand::RngCore;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
+};
+use util_lib::boot::boot_code_id;
 use vm::database::BurnStateDB;
 
 lazy_static! {
@@ -265,7 +266,7 @@ pub fn setup_states(
         let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances.clone(), None);
 
         let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
-            let contract = util::boot::boot_code_id("pox", false);
+            let contract = boot_code_id("pox", false);
             let sender = PrincipalData::from(contract.clone());
 
             clarity_tx.connection().as_transaction(|conn| {

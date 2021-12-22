@@ -22,6 +22,7 @@ use std::thread;
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::boot::POX_2_NAME;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::chainstate::stacks::TransactionAuth;
 use crate::chainstate::stacks::TransactionPayload;
@@ -1390,10 +1391,10 @@ mod tests {
     use vm::types::{StandardPrincipalData, Value};
 
     use core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
-    use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+    use vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
     use crate::clarity_vm::database::marf::MarfedKV;
-    use crate::types::proof::ClarityMarfTrieId;
+    use chainstate::stacks::index::ClarityMarfTrieId;
 
     use super::*;
 

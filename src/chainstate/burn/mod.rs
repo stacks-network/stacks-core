@@ -383,11 +383,11 @@ impl ConsensusHashExtensions for ConsensusHash {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::Connection;
-
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use chainstate::burn::db::sortdb::*;
+    use chainstate::stacks::index::TrieHashExtension;
+    use rusqlite::Connection;
     use util::get_epoch_time_secs;
     use util::hash::{hex_bytes, Hash160};
     use util::log;

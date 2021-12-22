@@ -908,8 +908,7 @@ mod test {
     use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::test::*;
     use chainstate::stacks::index::trie::*;
-
-    use crate::types::proof::ClarityMarfTrieId;
+    use chainstate::stacks::index::ClarityMarfTrieId;
 
     use super::*;
 

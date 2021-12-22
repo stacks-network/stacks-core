@@ -19,7 +19,7 @@ use vm::analysis::type_checker::tests::mem_type_check;
 use vm::analysis::ContractAnalysis;
 use vm::ast::parse;
 
-mod costs;
+// mod costs;
 
 #[test]
 fn test_list_types_must_match() {

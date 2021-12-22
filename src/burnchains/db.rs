@@ -372,6 +372,7 @@ impl BurnchainDB {
 
 #[cfg(test)]
 mod tests {
+    use chainstate::stacks::address::StacksAddressExtensions;
     use std::convert::TryInto;
 
     use burnchains::bitcoin::address::*;

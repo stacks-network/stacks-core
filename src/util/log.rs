@@ -205,7 +205,7 @@ fn make_json_logger() -> Logger {
     panic!("Tried to construct JSON logger, but stacks-blockchain built without slog_json feature enabled.")
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 fn make_logger() -> Logger {
     if env::var("STACKS_LOG_JSON") == Ok("1".into()) {
         make_json_logger()
@@ -220,7 +220,7 @@ fn make_logger() -> Logger {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 fn make_logger() -> Logger {
     if env::var("STACKS_LOG_JSON") == Ok("1".into()) {
         make_json_logger()

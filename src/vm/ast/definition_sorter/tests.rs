@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::clarity_vm::database::MemoryBackingStore;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -26,6 +25,7 @@ use vm::ast::errors::ParseResult;
 use vm::ast::expression_identifier::ExpressionIdentifier;
 use vm::ast::parser;
 use vm::ast::types::{BuildASTPass, ContractAST};
+use vm::database::MemoryBackingStore;
 use vm::types::QualifiedContractIdentifier;
 use vm::ClarityVersion;
 
