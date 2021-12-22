@@ -596,6 +596,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         tx_len: u64,
         considered: &mut HashSet<Txid>,
         bytes_so_far: u64,
+        limit_behavior: &BlockLimitFunction,
     ) -> Result<TransactionResult, Error> {
         if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
             && tx.anchor_mode != TransactionAnchorMode::Any
@@ -626,6 +627,37 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 Error::BlockTooBigError,
             ));
         }
+        match limit_behavior {
+            BlockLimitFunction::CONTRACT_LIMIT_HIT => {
+                match &tx.payload {
+                    TransactionPayload::ContractCall(cc) => {
+                        // once we've hit the runtime limit once, allow boot code contract calls, but do not try to eval
+                        //   other contract calls
+                        if !cc.address.is_boot_code_addr() {
+                            return Ok(TransactionResult::skipped(
+                                &tx,
+                                "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
+                            ));
+                        }
+                    }
+                    TransactionPayload::SmartContract(_) => {
+                        return Ok(TransactionResult::skipped(
+                            &tx,
+                            "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            BlockLimitFunction::LIMIT_REACHED => {
+                return Ok(TransactionResult::skipped(
+                    &tx,
+                    "BlockLimitFunction::LIMIT_REACHED".to_string(),
+                ))
+            }
+            BlockLimitFunction::NO_LIMIT_HIT => {}
+        };
+
         let quiet = !cfg!(test);
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet) {
             Ok((fee, receipt)) => Ok(TransactionResult::success(&tx, fee, receipt)),
@@ -689,6 +721,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let mut bytes_so_far = self.runtime.bytes_so_far;
         let mut num_txs = self.runtime.num_mined;
         let mut tx_events = Vec::new();
+        let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
         let mut result = Ok(());
         for (tx, tx_len) in txs_and_lens.into_iter() {
@@ -698,6 +731,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 tx_len,
                 &mut considered,
                 bytes_so_far,
+                &block_limit_hit,
             ) {
                 Ok(tx_result) => {
                     tx_events.push(tx_result.convert_to_event());
@@ -708,8 +742,29 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             num_txs += 1;
                             txs_included.push(tx);
                         }
-                        TransactionResult::Skipped(..) | TransactionResult::ProcessingError(..) => {
+                        TransactionResult::Skipped(TransactionSkipped { error, .. })
+                        | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
                             test_debug!("Exclude tx {} from microblock", tx.txid());
+                            match &error {
+                                Error::BlockTooBigError => {
+                                    // done mining -- our execution budget is exceeded.
+                                    // Make the block from the transactions we did manage to get
+                                    test_debug!("Block budget exceeded on tx {}", &tx.txid());
+                                    if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                                        test_debug!("Switch to mining stx-transfers only");
+                                        block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                    } else if block_limit_hit
+                                        == BlockLimitFunction::CONTRACT_LIMIT_HIT
+                                    {
+                                        test_debug!(
+                                            "Stop mining anchored block due to limit exceeded"
+                                        );
+                                        block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                                        break;
+                                    }
+                                }
+                                _ => {}
+                            }
                             continue;
                         }
                     }
@@ -767,11 +822,14 @@ impl<'a> StacksMicroblockBuilder<'a> {
             .take()
             .expect("Microblock already open and processing");
 
+        let mut invalidated_txs = vec![];
+
         let mut bytes_so_far = self.runtime.bytes_so_far;
         let mut num_txs = self.runtime.num_mined;
         let mut num_selected = 0;
         let mut tx_events = Vec::new();
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
+        let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
         mem_pool.reset_last_known_nonces()?;
         let stacks_epoch_id = clarity_tx.get_epoch();
@@ -810,6 +868,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             mempool_tx.metadata.len,
                             &mut considered,
                             bytes_so_far,
+                            &block_limit_hit,
                         ) {
                             Ok(tx_result) => {
                                 tx_events.push(tx_result.convert_to_event());
@@ -844,8 +903,40 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                         num_selected += 1;
                                         Ok(true)
                                     }
-                                    TransactionResult::Skipped(..)
-                                    | TransactionResult::ProcessingError(..) => Ok(true), // keep iterating
+                                    TransactionResult::Skipped(TransactionSkipped {
+                                        error,
+                                        ..
+                                    })
+                                    | TransactionResult::ProcessingError(TransactionError {
+                                        error,
+                                        ..
+                                    }) => {
+                                        match &error {
+                                            Error::BlockTooBigError => {
+                                                // done mining -- our execution budget is exceeded.
+                                                // Make the block from the transactions we did manage to get
+                                                debug!("Block budget exceeded on tx {}", &mempool_tx.tx.txid());
+                                                if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                                                    debug!("Switch to mining stx-transfers only");
+                                                    block_limit_hit =
+                                                        BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                                } else if block_limit_hit
+                                                    == BlockLimitFunction::CONTRACT_LIMIT_HIT
+                                                {
+                                                    debug!(
+                                                        "Stop mining anchored block due to limit exceeded"
+                                                    );
+                                                    block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                                                    return Ok(false);
+                                                }
+                                            }
+                                            Error::TransactionTooBigError => {
+                                                invalidated_txs.push(mempool_tx.metadata.txid);
+                                            }
+                                            _ => {}
+                                        }
+                                        return Ok(true)
+                                    }
                                 }
                             }
                             Err(e) => Err(e),
@@ -883,13 +974,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.considered.replace(considered);
         self.runtime.num_mined = num_txs;
 
+        mem_pool.drop_txs(&invalidated_txs)?;
+        event_dispatcher.mempool_txs_dropped(invalidated_txs, MemPoolDropReason::TOO_EXPENSIVE);
+
         match result {
             Ok(_) => {}
-            Err(Error::BlockTooBigError) => {
-                info!("Block size budget reached with microblocks");
-            }
             Err(e) => {
-                warn!("Error producing microblock: {}", e);
+                warn!("Failure building microblock: {}", e);
                 return Err(e);
             }
         }
@@ -1921,6 +2012,15 @@ impl StacksBlockBuilder {
                                               "error" => ?e);
                                     }
                                 }
+                                mined_origin_nonces.insert(
+                                    txinfo.tx.origin_address(),
+                                    txinfo.tx.get_origin_nonce(),
+                                );
+                                if let (Some(sponsor_addr), Some(sponsor_nonce)) =
+                                    (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
+                                {
+                                    mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
+                                }
                             }
                             TransactionResult::Skipped(TransactionSkipped { error, .. })
                             | TransactionResult::ProcessingError(TransactionError {
@@ -1948,19 +2048,6 @@ impl StacksBlockBuilder {
                                     }
                                     Error::TransactionTooBigError => {
                                         invalidated_txs.push(txinfo.metadata.txid);
-                                        if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                            block_limit_hit =
-                                                BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                            debug!("Switch to mining stx-transfers only");
-                                        } else if block_limit_hit
-                                            == BlockLimitFunction::CONTRACT_LIMIT_HIT
-                                        {
-                                            debug!(
-                                                "Stop mining anchored block due to limit exceeded"
-                                            );
-                                            block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                                            return Ok(false);
-                                        }
                                     }
                                     Error::InvalidStacksTransaction(_, true) => {
                                         // if we have an invalid transaction that was quietly ignored, don't warn here either
@@ -1971,14 +2058,6 @@ impl StacksBlockBuilder {
                                     }
                                 }
                             }
-                        }
-
-                        mined_origin_nonces
-                            .insert(txinfo.tx.origin_address(), txinfo.tx.get_origin_nonce());
-                        if let (Some(sponsor_addr), Some(sponsor_nonce)) =
-                            (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
-                        {
-                            mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
                         }
 
                         Ok(true)
