@@ -31,9 +31,7 @@ use vm::errors::{
 };
 use vm::types::QualifiedContractIdentifier;
 
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader, StacksBlockId, VRFSeed};
-use crate::types::proof::TrieHash;
-use crate::types::proof::TrieMerkleProof;
+use crate::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
 use crate::vm::contexts::GlobalContext;
 use crate::vm::types::PrincipalData;
 use crate::vm::Value;
@@ -63,7 +61,9 @@ pub trait ClarityBackingStore {
     fn put_all(&mut self, items: Vec<(String, String)>);
     /// fetch K-V out of the committed datastore
     fn get(&mut self, key: &str) -> Option<String>;
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)>;
+    /// fetch K-V out of the committed datastore, along with the byte representation
+    ///  of the Merkle proof for that key-value pair
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)>;
     fn has_entry(&mut self, key: &str) -> bool {
         self.get(key).is_some()
     }
@@ -220,7 +220,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    fn get_with_proof(&mut self, _key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
+    fn get_with_proof(&mut self, _key: &str) -> Option<(String, Vec<u8>)> {
         panic!("NullBackingStore can't retrieve data")
     }
 

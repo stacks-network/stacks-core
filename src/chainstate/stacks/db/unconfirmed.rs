@@ -37,7 +37,7 @@ use vm::database::NULL_BURN_STATE_DB;
 use vm::database::NULL_HEADER_DB;
 
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
+use crate::types::chainstate::StacksBlockId;
 use chainstate::burn::db::sortdb::SortitionDB;
 use types::chainstate::BurnchainHeaderHash;
 
@@ -314,7 +314,7 @@ impl UnconfirmedState {
 
         StacksChainState::load_descendant_staging_microblock_stream(
             &chainstate.db(),
-            &StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash),
+            &StacksBlockId::new(&consensus_hash, &anchored_block_hash),
             0,
             u16::MAX,
         )
@@ -670,10 +670,7 @@ mod test {
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
 
-            let canonical_tip = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let canonical_tip = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             let recv_addr =
                 StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
@@ -901,10 +898,7 @@ mod test {
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
 
-            let canonical_tip = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let canonical_tip = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             let recv_addr =
                 StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();

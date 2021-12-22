@@ -29,8 +29,14 @@ use std::path::PathBuf;
 use util::hash::to_hex;
 use util::sleep_ms;
 
+use stacks_common::types::chainstate::SortitionId;
+use stacks_common::types::chainstate::StacksBlockId;
 use types::chainstate::BlockHeaderHash;
+
 use vm::types::QualifiedContractIdentifier;
+
+use util::secp256k1::Secp256k1PrivateKey;
+use util::secp256k1::Secp256k1PublicKey;
 
 use rusqlite::types::{
     FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, Value as RusqliteValue,
@@ -45,13 +51,13 @@ use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::NO_PARAMS;
 
-use crate::types::chainstate::MARFValue;
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::TrieHash;
 use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::index::marf::MarfTransaction;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::storage::TrieStorageTransaction;
 use chainstate::stacks::index::Error as MARFError;
+use chainstate::stacks::index::MARFValue;
 use chainstate::stacks::index::MarfTrieId;
 
 use rand::thread_rng;
@@ -226,20 +232,19 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
 
 /// Make public keys loadable from a sqlite database
 impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PublicKey, db_error> {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PublicKey, Error> {
         let pubkey_hex: String = row.get_unwrap(column_name);
-        let pubkey =
-            Secp256k1PublicKey::from_hex(&pubkey_hex).map_err(|_e| db_error::ParseError)?;
+        let pubkey = Secp256k1PublicKey::from_hex(&pubkey_hex).map_err(|_e| Error::ParseError)?;
         Ok(pubkey)
     }
 }
 
 /// Make private keys loadable from a sqlite database
 impl FromColumn<Secp256k1PrivateKey> for Secp256k1PrivateKey {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PrivateKey, db_error> {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PrivateKey, Error> {
         let privkey_hex: String = row.get_unwrap(column_name);
         let privkey =
-            Secp256k1PrivateKey::from_hex(&privkey_hex).map_err(|_e| db_error::ParseError)?;
+            Secp256k1PrivateKey::from_hex(&privkey_hex).map_err(|_e| Error::ParseError)?;
         Ok(privkey)
     }
 }

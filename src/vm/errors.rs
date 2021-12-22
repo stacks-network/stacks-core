@@ -21,6 +21,7 @@ use serde_json::Error as SerdeJSONErr;
 use std::error;
 use std::fmt;
 // use util_lib::db::Error as DatabaseError;
+use std::error::Error as ErrorTrait;
 pub use vm::analysis::errors::CheckErrors;
 pub use vm::analysis::errors::{check_argument_count, check_arguments_at_least};
 use vm::ast::errors::ParseError;
@@ -57,12 +58,12 @@ pub enum InterpreterError {
     SqliteError(IncomparableError<SqliteError>),
     BadFileName,
     FailedToCreateDataDirectory,
-    //    MarfFailure(IncomparableError<MarfError>),
+    MarfFailure(String),
     FailureConstructingTupleWithType,
     FailureConstructingListWithType,
     InsufficientBalance,
     CostContractLoadFailure,
-    //    DBError(IncomparableError<DatabaseError>),
+    DBError(String),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected

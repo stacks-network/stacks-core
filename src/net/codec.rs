@@ -56,7 +56,6 @@ use crate::codec::{
 };
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::chainstate::StacksBlockHeader;
 use crate::types::StacksPublicKeyBuffer;
 
 // macro for determining how big an inv bitvec can be, given its bitlen
@@ -64,21 +63,6 @@ macro_rules! BITVEC_LEN {
     ($bitvec:expr) => {
         (($bitvec) / 8 + if ($bitvec) % 8 > 0 { 1 } else { 0 }) as u32
     };
-}
-
-impl StacksPublicKeyBuffer {
-    pub fn from_public_key(pubkey: &Secp256k1PublicKey) -> StacksPublicKeyBuffer {
-        let pubkey_bytes_vec = pubkey.to_bytes_compressed();
-        let mut pubkey_bytes = [0u8; 33];
-        pubkey_bytes.copy_from_slice(&pubkey_bytes_vec[..]);
-        StacksPublicKeyBuffer(pubkey_bytes)
-    }
-
-    pub fn to_public_key(&self) -> Result<Secp256k1PublicKey, codec_error> {
-        Secp256k1PublicKey::from_slice(&self.0).map_err(|_e_str| {
-            codec_error::DeserializeError("Failed to decode Stacks public key".to_string())
-        })
-    }
 }
 
 impl Preamble {
@@ -406,22 +390,6 @@ impl StacksMessageCodec for PoxInvData {
     }
 }
 
-impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.0)?;
-        write_next(fd, &self.1)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(
-        fd: &mut R,
-    ) -> Result<(ConsensusHash, BurnchainHeaderHash), codec_error> {
-        let consensus_hash: ConsensusHash = read_next(fd)?;
-        let burn_header_hash: BurnchainHeaderHash = read_next(fd)?;
-        Ok((consensus_hash, burn_header_hash))
-    }
-}
-
 impl StacksMessageCodec for BlocksAvailableData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.available)?;
@@ -459,23 +427,21 @@ impl BlocksAvailableData {
     }
 }
 
-impl StacksMessageCodec for (ConsensusHash, StacksBlock) {
+impl StacksMessageCodec for BlocksDatum {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.0)?;
         write_next(fd, &self.1)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(
-        fd: &mut R,
-    ) -> Result<(ConsensusHash, StacksBlock), codec_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksDatum, codec_error> {
         let ch: ConsensusHash = read_next(fd)?;
         let block = {
             let mut bound_read = BoundReader::from_reader(fd, MAX_BLOCK_LEN as u64);
             read_next(&mut bound_read)
         }?;
 
-        Ok((ch, block))
+        Ok(BlocksDatum(ch, block))
     }
 }
 
@@ -485,7 +451,7 @@ impl BlocksData {
     }
 
     pub fn push(&mut self, ch: ConsensusHash, block: StacksBlock) -> () {
-        self.blocks.push((ch, block))
+        self.blocks.push(BlocksDatum(ch, block))
     }
 }
 
@@ -496,15 +462,15 @@ impl StacksMessageCodec for BlocksData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksData, codec_error> {
-        let blocks: Vec<(ConsensusHash, StacksBlock)> = {
+        let blocks: Vec<BlocksDatum> = {
             // loose upper-bound
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            read_next_at_most::<_, (ConsensusHash, StacksBlock)>(&mut bound_read, BLOCKS_PUSHED_MAX)
+            read_next_at_most::<_, BlocksDatum>(&mut bound_read, BLOCKS_PUSHED_MAX)
         }?;
 
         // only valid if there are no dups
         let mut present = HashSet::new();
-        for (consensus_hash, _block) in blocks.iter() {
+        for BlocksDatum(consensus_hash, _block) in blocks.iter() {
             if present.contains(consensus_hash) {
                 // no dups allowed
                 return Err(codec_error::DeserializeError(
@@ -512,7 +478,7 @@ impl StacksMessageCodec for BlocksData {
                 ));
             }
 
-            present.insert((*consensus_hash).clone());
+            present.insert(consensus_hash.clone());
         }
 
         Ok(BlocksData { blocks })
@@ -856,7 +822,7 @@ impl StacksMessageType {
                 "Blocks({:?})",
                 m.blocks
                     .iter()
-                    .map(|(ch, blk)| (ch.clone(), blk.block_hash()))
+                    .map(|BlocksDatum(ch, blk)| (ch.clone(), blk.block_hash()))
                     .collect::<Vec<(ConsensusHash, BlockHeaderHash)>>()
             ),
             StacksMessageType::Microblocks(ref m) => format!(
@@ -1182,7 +1148,9 @@ impl StacksMessage {
     /// * the signature doesn't match
     /// * the buffer doesn't encode a secp256k1 public key
     pub fn verify_secp256k1(&self, public_key: &StacksPublicKeyBuffer) -> Result<(), net_error> {
-        let secp256k1_pubkey = public_key.to_public_key()?;
+        let secp256k1_pubkey = public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
 
         let mut message_bits = vec![];
         self.relayers.consensus_serialize(&mut message_bits)?;

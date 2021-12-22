@@ -83,6 +83,19 @@ impl error::Error for HexError {
     }
 }
 
+/// PartialEq helper method for slices of arbitrary length.
+pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
+    if s1.len() != s2.len() {
+        return false;
+    }
+    for i in 0..s1.len() {
+        if s1[i] != s2[i] {
+            return false;
+        }
+    }
+    true
+}
+
 pub mod db_common {
     use rand::{thread_rng, Rng};
     use std::thread;

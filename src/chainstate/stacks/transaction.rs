@@ -35,7 +35,8 @@ use vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::{StacksAddress, StacksMicroblockHeader};
+use crate::types::chainstate::StacksAddress;
+use chainstate::stacks::StacksMicroblockHeader;
 
 impl StacksMessageCodec for TransactionContractCall {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

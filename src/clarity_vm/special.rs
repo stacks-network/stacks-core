@@ -28,8 +28,8 @@ use vm::types::{
     Value,
 };
 
-use crate::types::chainstate::StacksMicroblockHeader;
-use crate::util::boot::boot_code_id;
+use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::util_lib::boot::boot_code_id;
 use chainstate::stacks::db::StacksChainState;
 
 use vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};

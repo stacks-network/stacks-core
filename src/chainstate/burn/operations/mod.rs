@@ -23,8 +23,8 @@ use std::io;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::VRFSeed;
-use crate::types::proof::TrieHash;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;
 use burnchains::Error as BurnchainError;

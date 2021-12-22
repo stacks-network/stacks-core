@@ -22,10 +22,8 @@ use crate::{
     burnchains::Txid,
     core::MemPoolDB,
     net::{Error as net_error, HttpRequestType},
-    util::{
-        db::{tx_busy_handler, DBConn},
-        get_epoch_time_secs,
-    },
+    util::get_epoch_time_secs,
+    util_lib::db::{tx_busy_handler, DBConn},
 };
 use burnchains::BurnchainSigner;
 use std::error::Error;

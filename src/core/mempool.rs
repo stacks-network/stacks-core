@@ -71,7 +71,7 @@ use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::EstimatorError;
 use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use crate::util_lib::db::table_exists;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
@@ -930,10 +930,8 @@ impl MemPoolDB {
         second_consensus_hash: &ConsensusHash,
         second_stacks_block: &BlockHeaderHash,
     ) -> Result<bool, db_error> {
-        let first_block =
-            StacksBlockHeader::make_index_block_hash(first_consensus_hash, first_stacks_block);
-        let second_block =
-            StacksBlockHeader::make_index_block_hash(second_consensus_hash, second_stacks_block);
+        let first_block = StacksBlockId::new(first_consensus_hash, first_stacks_block);
+        let second_block = StacksBlockId::new(second_consensus_hash, second_stacks_block);
         // short circuit equality
         if second_block == first_block {
             return Ok(true);
@@ -1400,12 +1398,12 @@ mod tests {
     };
 
     use crate::codec::StacksMessageCodec;
+    use crate::types::chainstate::TrieHash;
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{
         StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
         VRFSeed,
     };
-    use crate::types::proof::TrieHash;
     use crate::{
         chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
     };
@@ -1605,7 +1603,7 @@ mod tests {
 
         chainstate.with_read_only_clarity_tx(
             &TEST_BURN_STATE_DB,
-            &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
+            &StacksBlockId::new(&b_2.0, &b_2.1),
             |clarity_conn| {
                 let mut count_txs = 0;
                 mempool
@@ -1630,7 +1628,7 @@ mod tests {
         //  nonce for the origin address should have changed. Now it should find *no* transactions.
         chainstate.with_read_only_clarity_tx(
             &TEST_BURN_STATE_DB,
-            &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
+            &StacksBlockId::new(&b_2.0, &b_2.1),
             |clarity_conn| {
                 let mut count_txs = 0;
                 mempool
@@ -1654,7 +1652,7 @@ mod tests {
 
         chainstate.with_read_only_clarity_tx(
             &TEST_BURN_STATE_DB,
-            &StacksBlockHeader::make_index_block_hash(&b_5.0, &b_5.1),
+            &StacksBlockId::new(&b_5.0, &b_5.1),
             |clarity_conn| {
                 let mut count_txs = 0;
                 mempool
@@ -1683,7 +1681,7 @@ mod tests {
         //  the transaction, so b_3 should have the same view.
         chainstate.with_read_only_clarity_tx(
             &TEST_BURN_STATE_DB,
-            &StacksBlockHeader::make_index_block_hash(&b_3.0, &b_3.1),
+            &StacksBlockId::new(&b_3.0, &b_3.1),
             |clarity_conn| {
                 let mut count_txs = 0;
                 mempool
@@ -1710,7 +1708,7 @@ mod tests {
 
         chainstate.with_read_only_clarity_tx(
             &TEST_BURN_STATE_DB,
-            &StacksBlockHeader::make_index_block_hash(&b_4.0, &b_4.1),
+            &StacksBlockId::new(&b_4.0, &b_4.1),
             |clarity_conn| {
                 let mut count_txs = 0;
                 mempool

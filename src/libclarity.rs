@@ -76,8 +76,10 @@ extern crate stacks_common;
 pub use stacks_common::types;
 pub use stacks_common::util;
 
-#[macro_use]
-pub mod codec;
+pub use stacks_common::codec;
+
+//#[macro_use]
+//pub mod codec;
 
 // #[macro_use]
 // pub mod util_lib;

@@ -63,7 +63,7 @@ use core::HELIUM_BLOCK_LIMIT_20;
 
 use serde::Serialize;
 use serde_json::json;
-use util::strings::StacksString;
+use util_lib::strings::StacksString;
 
 use codec::StacksMessageCodec;
 

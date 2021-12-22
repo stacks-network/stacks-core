@@ -20,7 +20,7 @@ pub use self::clarity_db::{
     BurnStateDB, ClarityDatabase, HeadersDB, StoreType, NULL_BURN_STATE_DB, NULL_HEADER_DB,
     STORE_CONTRACT_SRC_INTERFACE,
 };
-pub use self::clarity_store::ClarityBackingStore;
+pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
 pub use self::sqlite::SqliteConnection;
 pub use self::structures::{

@@ -46,10 +46,8 @@ use vm::types::{
 };
 
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
-    StacksBlockId, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
-use crate::types::proof::TrieMerkleProof;
 use crate::vm::types::byte_len_of_serialization;
 
 use crate::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0};
@@ -321,7 +319,7 @@ impl<'a> ClarityDatabase<'a> {
         self.store.get_value(key, expected)
     }
 
-    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, TrieMerkleProof<StacksBlockId>)>
+    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, Vec<u8>)>
     where
         T: ClarityDeserializable<T>,
     {

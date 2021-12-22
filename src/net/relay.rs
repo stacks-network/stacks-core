@@ -27,7 +27,6 @@ use rand::prelude::*;
 use rand::thread_rng;
 use rand::Rng;
 
-use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
@@ -36,6 +35,7 @@ use chainstate::burn::ConsensusHash;
 use chainstate::coordinator::comm::CoordinatorChannels;
 use chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use chainstate::stacks::events::StacksTransactionReceipt;
+use chainstate::stacks::StacksBlockHeader;
 use core::mempool::MemPoolDB;
 use core::mempool::*;
 use net::chat::*;
@@ -451,7 +451,7 @@ impl Relayer {
         conn: &SortitionDBConn,
         blocks_data: &BlocksData,
     ) -> Result<(), net_error> {
-        for (consensus_hash, block) in blocks_data.blocks.iter() {
+        for BlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
             let block_hash = block.block_hash();
 
             // is this the right Stacks block for this sortition?
@@ -685,7 +685,7 @@ impl Relayer {
                     }
                 }
 
-                for (consensus_hash, block) in blocks_data.blocks.iter() {
+                for BlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
                     match SortitionDB::get_block_snapshot_consensus(
                         sort_ic.conn(),
                         &consensus_hash,
@@ -948,7 +948,7 @@ impl Relayer {
 
             // process blocks uploaded to us.  They've already been stored
             for block_data in network_result.uploaded_blocks.drain(..) {
-                for (consensus_hash, _) in block_data.blocks.into_iter() {
+                for BlocksDatum(consensus_hash, _) in block_data.blocks.into_iter() {
                     debug!("Received http-uploaded block for {}", &consensus_hash);
                     new_blocks.insert(consensus_hash);
                 }
@@ -1080,7 +1080,7 @@ impl Relayer {
         block: StacksBlock,
     ) -> Result<(), net_error> {
         let blocks_data = BlocksData {
-            blocks: vec![(consensus_hash, block)],
+            blocks: vec![BlocksDatum(consensus_hash, block)],
         };
         self.p2p
             .broadcast_message(vec![], StacksMessageType::Blocks(blocks_data))
@@ -1560,7 +1560,7 @@ impl PeerNetwork {
 
         for (nk, blocks_data) in network_result.pushed_blocks.iter() {
             for block_msg in blocks_data.iter() {
-                for (_, block) in block_msg.blocks.iter() {
+                for BlocksDatum(_, block) in block_msg.blocks.iter() {
                     self.relayer_stats.add_relayed_message((*nk).clone(), block);
                 }
             }

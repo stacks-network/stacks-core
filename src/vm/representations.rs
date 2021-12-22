@@ -14,13 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use codec::Error as codec_error;
+use codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
 use regex::Regex;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::fmt;
+use std::io::{Read, Write};
 use std::ops::Deref;
 use vm::errors::RuntimeErrorType;
 use vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
+
+use super::ast::parser::{CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
 
 pub const MAX_STRING_LEN: u8 = 128;
 
@@ -45,6 +50,89 @@ guarded_string!(
     RuntimeErrorType,
     RuntimeErrorType::BadNameValue
 );
+
+impl StacksMessageCodec for ClarityName {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        // ClarityName can't be longer than vm::representations::MAX_STRING_LEN, which itself is
+        // a u8, so we should be good here.
+        if self.as_bytes().len() > MAX_STRING_LEN as usize {
+            return Err(codec_error::SerializeError(
+                "Failed to serialize clarity name: too long".to_string(),
+            ));
+        }
+        write_next(fd, &(self.as_bytes().len() as u8))?;
+        fd.write_all(self.as_bytes())
+            .map_err(codec_error::WriteError)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ClarityName, codec_error> {
+        let len_byte: u8 = read_next(fd)?;
+        if len_byte > MAX_STRING_LEN {
+            return Err(codec_error::DeserializeError(
+                "Failed to deserialize clarity name: too long".to_string(),
+            ));
+        }
+        let mut bytes = vec![0u8; len_byte as usize];
+        fd.read_exact(&mut bytes).map_err(codec_error::ReadError)?;
+
+        // must encode a valid string
+        let s = String::from_utf8(bytes).map_err(|_e| {
+            codec_error::DeserializeError(
+                "Failed to parse Clarity name: could not contruct from utf8".to_string(),
+            )
+        })?;
+
+        // must decode to a clarity name
+        let name = ClarityName::try_from(s).map_err(|e| {
+            codec_error::DeserializeError(format!("Failed to parse Clarity name: {:?}", e))
+        })?;
+        Ok(name)
+    }
+}
+
+impl StacksMessageCodec for ContractName {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH as usize
+            || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH as usize
+        {
+            return Err(codec_error::SerializeError(format!(
+                "Failed to serialize contract name: too short or too long: {}",
+                self.as_bytes().len()
+            )));
+        }
+        write_next(fd, &(self.as_bytes().len() as u8))?;
+        fd.write_all(self.as_bytes())
+            .map_err(codec_error::WriteError)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ContractName, codec_error> {
+        let len_byte: u8 = read_next(fd)?;
+        if (len_byte as usize) < CONTRACT_MIN_NAME_LENGTH
+            || (len_byte as usize) > CONTRACT_MAX_NAME_LENGTH
+        {
+            return Err(codec_error::DeserializeError(format!(
+                "Failed to deserialize contract name: too short or too long: {}",
+                len_byte
+            )));
+        }
+        let mut bytes = vec![0u8; len_byte as usize];
+        fd.read_exact(&mut bytes).map_err(codec_error::ReadError)?;
+
+        // must encode a valid string
+        let s = String::from_utf8(bytes).map_err(|_e| {
+            codec_error::DeserializeError(
+                "Failed to parse Contract name: could not construct from utf8".to_string(),
+            )
+        })?;
+
+        let name = ContractName::try_from(s).map_err(|e| {
+            codec_error::DeserializeError(format!("Failed to parse Contract name: {:?}", e))
+        })?;
+        Ok(name)
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum PreSymbolicExpressionType {

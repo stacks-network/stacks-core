@@ -32,7 +32,10 @@ use clarity_vm::clarity::{
 };
 use net::Error as net_error;
 use util::hash::to_hex;
-use util::strings::{StacksString, VecDisplay};
+use util_lib::db::Error as db_error;
+use util_lib::db::{query_count, query_rows, DBConn};
+
+use util_lib::strings::{StacksString, VecDisplay};
 pub use vm::analysis::errors::CheckErrors;
 use vm::analysis::run_analysis;
 use vm::analysis::types::ContractAnalysis;
@@ -53,7 +56,8 @@ use vm::types::{
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
-use crate::types::chainstate::StacksMicroblockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
+use clarity::vm::types::StacksAddressExtensions as ClarityStacksAddressExt;
 
 impl StacksTransactionReceipt {
     pub fn from_stx_transfer(

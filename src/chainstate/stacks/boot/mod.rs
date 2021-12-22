@@ -46,10 +46,10 @@ use vm::types::{
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::types;
 use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
-use crate::util::boot;
+use crate::util_lib::boot;
 use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
+use chainstate::stacks::address::StacksAddressExtensions;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
@@ -107,19 +107,6 @@ pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractId
         StandardPrincipalData::from(addr.clone()),
         ContractName::try_from(name.to_string()).unwrap(),
     )
-}
-
-impl StacksAddress {
-    pub fn as_clarity_tuple(&self) -> TupleData {
-        let version = Value::buff_from_byte(AddressHashMode::from_version(self.version) as u8);
-        let hashbytes = Value::buff_from(Vec::from(self.bytes.0.clone()))
-            .expect("BUG: hash160 bytes do not fit in Clarity Value");
-        TupleData::from_data(vec![
-            ("version".into(), version),
-            ("hashbytes".into(), hashbytes),
-        ])
-        .expect("BUG: StacksAddress byte representation does not fit in Clarity Value")
-    }
 }
 
 /// Extract a PoX address from its tuple representation
@@ -459,7 +446,7 @@ pub mod test {
     use vm::contracts::Contract;
     use vm::types::*;
 
-    use crate::util::boot::{boot_code_id, boot_code_test_addr};
+    use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
     use super::*;
@@ -658,7 +645,7 @@ pub mod test {
         let sortdb = peer.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
-        let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+        let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
         let iconn = sortdb.index_conn();
         let value = peer.chainstate().clarity_eval_read_only(
             &iconn,
@@ -686,7 +673,7 @@ pub mod test {
         let sortdb = peer.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
-        let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+        let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
         let iconn = sortdb.index_conn();
         let value = peer.chainstate().clarity_eval_read_only(
             &iconn,
@@ -762,8 +749,7 @@ pub mod test {
         let account = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
             let (consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
-            let stacks_block_id =
-                StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+            let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
             chainstate
                 .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
                     StacksChainState::get_account(clarity_tx, addr)
@@ -777,8 +763,7 @@ pub mod test {
         let contract_opt = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
             let (consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
-            let stacks_block_id =
-                StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+            let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
             chainstate
                 .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
                     StacksChainState::get_contract(clarity_tx, addr).unwrap()
@@ -1560,10 +1545,7 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
-            let tip_index_block = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let tip_index_block = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             if tenure_id <= 1 {
                 if tenure_id < 1 {
@@ -1806,10 +1788,7 @@ pub mod test {
             }
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
-            let tip_index_block = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let tip_index_block = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             if tenure_id <= 1 {
                 if tenure_id < 1 {
@@ -2033,10 +2012,7 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
-            let tip_index_block = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let tip_index_block = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             if tenure_id <= 1 {
                 if tenure_id < 1 {
@@ -2305,10 +2281,7 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
-            let tip_index_block = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let tip_index_block = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             if tenure_id <= 1 {
                 if tenure_id < 1 {
@@ -2539,10 +2512,7 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
-            let tip_index_block = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let tip_index_block = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             if tenure_id == 0 {
                 // Alice has not locked up half of her STX
@@ -2716,10 +2686,7 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
-            let tip_index_block = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let tip_index_block = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             if tenure_id <= 1 {
                 if tenure_id < 1 {
@@ -3012,10 +2979,7 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
-            let tip_index_block = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let tip_index_block = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
             let tip_burn_block_height =
                 get_par_burn_block_height(peer.chainstate(), &tip_index_block);
             let cur_reward_cycle = burnchain
@@ -3587,10 +3551,7 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
-            let tip_index_block = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let tip_index_block = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
             let tip_burn_block_height =
                 get_par_burn_block_height(peer.chainstate(), &tip_index_block);
 
@@ -3958,10 +3919,7 @@ pub mod test {
             peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
             let total_liquid_ustx = get_liquid_ustx(&mut peer);
-            let tip_index_block = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let tip_index_block = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
             let tip_burn_block_height =
                 get_par_burn_block_height(peer.chainstate(), &tip_index_block);
 

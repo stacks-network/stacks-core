@@ -77,11 +77,14 @@ use util_lib::db::{
 use vm::representations::{ClarityName, ContractName};
 use vm::types::Value;
 
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, MARFValue, PoxId, SortitionId, VRFSeed,
+use chainstate::burn::ConsensusHashExtensions;
+use chainstate::stacks::address::StacksAddressExtensions;
+use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,
 };
-use crate::types::proof::{ClarityMarfTrieId, TrieHash};
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
 
@@ -90,19 +93,19 @@ pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
 
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
 
-// for using BurnchainHeaderHash values as block hashes in a MARF
-impl From<BurnchainHeaderHash> for BlockHeaderHash {
-    fn from(bhh: BurnchainHeaderHash) -> BlockHeaderHash {
-        BlockHeaderHash(bhh.0)
-    }
-}
+// // for using BurnchainHeaderHash values as block hashes in a MARF
+// impl From<BurnchainHeaderHash> for BlockHeaderHash {
+//     fn from(bhh: BurnchainHeaderHash) -> BlockHeaderHash {
+//         BlockHeaderHash(bhh.0)
+//     }
+// }
 
-// for using BurnchainHeaderHash values as block hashes in a MARF
-impl From<BlockHeaderHash> for BurnchainHeaderHash {
-    fn from(bhh: BlockHeaderHash) -> BurnchainHeaderHash {
-        BurnchainHeaderHash(bhh.0)
-    }
-}
+// // for using BurnchainHeaderHash values as block hashes in a MARF
+// impl From<BlockHeaderHash> for BurnchainHeaderHash {
+//     fn from(bhh: BlockHeaderHash) -> BurnchainHeaderHash {
+//         BurnchainHeaderHash(bhh.0)
+//     }
+// }
 
 impl FromRow<SortitionId> for SortitionId {
     fn from_row<'a>(row: &'a Row) -> Result<SortitionId, db_error> {
@@ -1916,43 +1919,6 @@ impl<'a> SortitionHandleConn<'a> {
                 info!("Reward cycle #{} ({}): {:?} reached (F*w), expecting consensus over proof of transfer", reward_cycle_id, block_height, result);
                 Ok(Ok(response))
             }
-        }
-    }
-}
-
-impl FromStr for PoxId {
-    type Err = NetError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = vec![];
-        for i in s.chars() {
-            if i == '1' {
-                result.push(true);
-            } else if i == '0' {
-                result.push(false);
-            } else {
-                return Err(NetError::DeserializeError(
-                    "Unexpected character in PoX ID serialization".into(),
-                ));
-            }
-        }
-        Ok(PoxId::new(result))
-    }
-}
-
-impl SortitionId {
-    pub fn stubbed(from: &BurnchainHeaderHash) -> SortitionId {
-        SortitionId::new(from, &PoxId::stubbed())
-    }
-
-    pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxId) -> SortitionId {
-        if pox == &PoxId::stubbed() {
-            SortitionId(bhh.0.clone())
-        } else {
-            let mut hasher = Sha512Trunc256::new();
-            hasher.input(bhh);
-            write!(hasher, "{}", pox).expect("Failed to deserialize PoX ID into the hasher");
-            let h = Sha512Trunc256Sum::from_hasher(hasher);
-            SortitionId(h.0)
         }
     }
 }

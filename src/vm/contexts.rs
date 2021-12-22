@@ -42,7 +42,6 @@ use vm::types::{
 };
 use vm::{eval, is_reserved};
 
-use crate::types::chainstate::StacksMicroblockHeader;
 use crate::{types::chainstate::StacksBlockId, types::StacksEpochId};
 
 use core::StacksEpochId;

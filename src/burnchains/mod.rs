@@ -41,7 +41,7 @@ use util_lib::db::Error as db_error;
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::TrieHash;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,

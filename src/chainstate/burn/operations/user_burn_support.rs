@@ -18,7 +18,7 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::TrieHash;
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;
@@ -293,8 +293,8 @@ mod tests {
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
     use chainstate::burn::*;
-    use deps::bitcoin::blockdata::transaction::Transaction;
-    use deps::bitcoin::network::serialize::deserialize;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
     use util::get_epoch_time_secs;
     use util::hash::{hex_bytes, to_hex, Hash160};
     use util::log;

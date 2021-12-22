@@ -36,9 +36,7 @@ use util_lib::db::{
 };
 use vm::costs::ExecutionCost;
 
-use crate::types::chainstate::{
-    StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
-};
+use stacks_common::types::chainstate::{StacksBlockId, StacksWorkScore};
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {

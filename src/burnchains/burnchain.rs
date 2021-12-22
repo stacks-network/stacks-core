@@ -28,7 +28,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::types::chainstate::StacksAddress;
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::TrieHash;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
 use burnchains::bitcoin::address::address_type_to_version_byte;
@@ -65,8 +65,8 @@ use core::NETWORK_ID_TESTNET;
 use core::PEER_VERSION_MAINNET;
 use core::PEER_VERSION_TESTNET;
 use deps;
-use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use monitoring::update_burnchain_height;
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
@@ -78,6 +78,8 @@ use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
 use burnchains::bitcoin::indexer::BitcoinIndexer;
+
+use chainstate::stacks::address::StacksAddressExtensions;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -620,7 +622,7 @@ impl Burnchain {
 
     pub fn connect_db<I: BurnchainIndexer>(
         &self,
-        indexer: &I,
+        _indexer: &I,
         readwrite: bool,
         first_block_header_hash: BurnchainHeaderHash,
         first_block_header_timestamp: u64,
@@ -1447,7 +1449,7 @@ pub mod tests {
     use sha2::Sha512;
 
     use crate::types::chainstate::StacksAddress;
-    use crate::types::proof::TrieHash;
+    use crate::types::chainstate::TrieHash;
     use address::AddressHashMode;
     use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::keys::BitcoinPublicKey;

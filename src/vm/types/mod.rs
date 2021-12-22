@@ -1174,6 +1174,15 @@ impl From<StacksAddress> for PrincipalData {
     }
 }
 
+impl From<StandardPrincipalData> for StacksAddress {
+    fn from(o: StandardPrincipalData) -> StacksAddress {
+        StacksAddress {
+            version: o.0,
+            bytes: hash::Hash160(o.1),
+        }
+    }
+}
+
 impl From<StandardPrincipalData> for Value {
     fn from(principal: StandardPrincipalData) -> Self {
         Value::Principal(PrincipalData::from(principal))

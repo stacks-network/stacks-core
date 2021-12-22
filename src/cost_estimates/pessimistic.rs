@@ -18,9 +18,8 @@ use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::table_exists;
 use crate::util_lib::db::tx_begin_immediate_sqlite;
 
-use crate::core::StacksEpochId;
-
 use super::{CostEstimator, EstimatorError};
+use crate::core::StacksEpochId;
 
 /// This struct pessimistically estimates the `ExecutionCost` of transaction payloads.
 ///

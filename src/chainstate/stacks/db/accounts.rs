@@ -31,7 +31,7 @@ use vm::database::clarity_store::*;
 use vm::database::*;
 use vm::types::*;
 
-use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId};
+use crate::types::chainstate::{StacksAddress, StacksBlockId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
@@ -318,10 +318,8 @@ impl StacksChainState {
         assert!(block_reward.burnchain_sortition_burn < i64::MAX as u64);
         assert!(block_reward.stacks_block_height < i64::MAX as u64);
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(
-            &block_reward.consensus_hash,
-            &block_reward.block_hash,
-        );
+        let index_block_hash =
+            StacksBlockId::new(&block_reward.consensus_hash, &block_reward.block_hash);
 
         let args: &[&dyn ToSql] = &[
             &block_reward.address.to_string(),

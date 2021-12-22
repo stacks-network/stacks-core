@@ -3,15 +3,44 @@ use std::convert::TryFrom;
 use std::fmt;
 use types::chainstate::StacksPublicKey;
 use util::secp256k1::MessageSignature;
+use util::secp256k1::Secp256k1PublicKey;
+
+use crate::address::{
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+
+use crate::address::c32::c32_address;
+use crate::address::c32::c32_address_decode;
+use crate::address::AddressHashMode;
+use crate::types::chainstate::StacksAddress;
+use crate::util::hash::Hash160;
+use deps_common::bitcoin::blockdata::transaction::TxOut;
+use std::cmp::Ordering;
 
 pub mod chainstate;
-pub mod proof;
+//pub mod proof;
 
 /// A container for public keys (compressed secp256k1 public keys)
 pub struct StacksPublicKeyBuffer(pub [u8; 33]);
 impl_array_newtype!(StacksPublicKeyBuffer, u8, 33);
 impl_array_hexstring_fmt!(StacksPublicKeyBuffer);
 impl_byte_array_newtype!(StacksPublicKeyBuffer, u8, 33);
+impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
+
+impl StacksPublicKeyBuffer {
+    pub fn from_public_key(pubkey: &Secp256k1PublicKey) -> StacksPublicKeyBuffer {
+        let pubkey_bytes_vec = pubkey.to_bytes_compressed();
+        let mut pubkey_bytes = [0u8; 33];
+        pubkey_bytes.copy_from_slice(&pubkey_bytes_vec[..]);
+        StacksPublicKeyBuffer(pubkey_bytes)
+    }
+
+    pub fn to_public_key(&self) -> Result<Secp256k1PublicKey, &'static str> {
+        Secp256k1PublicKey::from_slice(&self.0)
+            .map_err(|_e_str| "Failed to decode Stacks public key")
+    }
+}
 
 pub trait PublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
@@ -69,19 +98,6 @@ impl TryFrom<u32> for StacksEpochId {
     }
 }
 
-pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22; // P
-pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20; // M
-pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26; // T
-pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21; // N
-
-use crate::address::c32::c32_address;
-use crate::address::c32::c32_address_decode;
-use crate::address::AddressHashMode;
-use crate::types::chainstate::StacksAddress;
-use crate::util::hash::Hash160;
-use deps_common::bitcoin::blockdata::transaction::TxOut;
-use std::cmp::Ordering;
-
 impl PartialOrd for StacksAddress {
     fn partial_cmp(&self, other: &StacksAddress) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -104,12 +120,6 @@ impl StacksAddress {
             bytes: hash,
         }
     }
-
-    // /// is this a boot code address, if the supplied address is mainnet or testnet,
-    // ///  it checks against the appropriate the boot code addr
-    // pub fn is_boot_code_addr(&self) -> bool {
-    //     self == &boot_code_addr(self.is_mainnet())
-    // }
 
     pub fn is_mainnet(&self) -> bool {
         match self.version {
@@ -190,29 +200,6 @@ impl StacksAddress {
         let hash_bits = public_keys_to_address_hash(hash_mode, num_sigs, pubkeys);
         Some(StacksAddress::new(version, hash_bits))
     }
-
-    // /// Convert from a Bitcoin address
-    // pub fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress {
-    //     let btc_version = address_type_to_version_byte(addr.addrtype, addr.network_id);
-
-    //     // should not fail by construction
-    //     let version = to_c32_version_byte(btc_version)
-    //         .expect("Failed to decode Bitcoin version byte to Stacks version byte");
-    //     StacksAddress {
-    //         version: version,
-    //         bytes: addr.bytes.clone(),
-    //     }
-    // }
-
-    // pub fn to_b58(self) -> String {
-    //     let StacksAddress { version, bytes } = self;
-    //     let btc_version = to_b52_version_byte(version)
-    //         // fallback to version
-    //         .unwrap_or(version);
-    //     let mut all_bytes = vec![btc_version];
-    //     all_bytes.extend(bytes.0.iter());
-    //     b58::check_encode_slice(&all_bytes)
-    // }
 }
 
 impl std::fmt::Display for StacksAddress {
@@ -273,5 +260,18 @@ impl<L> StacksEpoch<L> {
             }
         }
         None
+    }
+}
+
+// StacksEpochs are ordered by start block height
+impl<L: PartialEq> PartialOrd for StacksEpoch<L> {
+    fn partial_cmp(&self, other: &StacksEpoch<L>) -> Option<Ordering> {
+        self.epoch_id.partial_cmp(&other.epoch_id)
+    }
+}
+
+impl<L: PartialEq + Eq> Ord for StacksEpoch<L> {
+    fn cmp(&self, other: &StacksEpoch<L>) -> Ordering {
+        self.epoch_id.cmp(&other.epoch_id)
     }
 }

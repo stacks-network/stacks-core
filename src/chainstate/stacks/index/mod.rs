@@ -29,10 +29,10 @@ use util::log;
 use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::SortitionId;
 use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{BurnchainHeaderHash, MARFValue, MARF_VALUE_ENCODED_SIZE};
-use crate::types::proof::{ClarityMarfTrieId, TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 pub mod bits;
 pub mod marf;
@@ -41,6 +41,52 @@ pub mod proofs;
 pub mod storage;
 pub mod trie;
 pub mod trie_sql;
+
+#[derive(Debug)]
+pub struct TrieMerkleProof<T: MarfTrieId>(pub Vec<TrieMerkleProofType<T>>);
+
+pub trait ClarityMarfTrieId:
+    PartialEq + Clone + std::fmt::Display + std::fmt::Debug + std::convert::From<[u8; 32]>
+{
+    fn as_bytes(&self) -> &[u8];
+    fn to_bytes(self) -> [u8; 32];
+    fn from_bytes(from: [u8; 32]) -> Self;
+    fn sentinel() -> Self;
+}
+
+#[derive(Clone)]
+pub enum TrieMerkleProofType<T> {
+    Node4((u8, ProofTrieNode<T>, [TrieHash; 3])),
+    Node16((u8, ProofTrieNode<T>, [TrieHash; 15])),
+    Node48((u8, ProofTrieNode<T>, [TrieHash; 47])),
+    Node256((u8, ProofTrieNode<T>, [TrieHash; 255])),
+    Leaf((u8, TrieLeaf)),
+    Shunt((i64, Vec<TrieHash>)),
+}
+
+/// Merkle Proof Trie Pointers have a different structure
+///   than the runtime representation --- the proof includes
+///   the block header hash for back pointers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProofTrieNode<T> {
+    pub id: u8,
+    pub path: Vec<u8>,
+    pub ptrs: Vec<ProofTriePtr<T>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProofTriePtr<T> {
+    pub id: u8,
+    pub chr: u8,
+    pub back_block: T,
+}
+
+/// Leaf of a Trie.
+#[derive(Clone)]
+pub struct TrieLeaf {
+    pub path: Vec<u8>,   // path to be lazily expanded
+    pub data: MARFValue, // the actual data
+}
 
 pub trait MarfTrieId:
     ClarityMarfTrieId
@@ -51,15 +97,67 @@ pub trait MarfTrieId:
 {
 }
 
+pub const SENTINEL_ARRAY: [u8; 32] = [255u8; 32];
+
+macro_rules! impl_clarity_marf_trie_id {
+    ($thing:ident) => {
+        impl ClarityMarfTrieId for $thing {
+            fn as_bytes(&self) -> &[u8] {
+                self.as_ref()
+            }
+            fn to_bytes(self) -> [u8; 32] {
+                self.0
+            }
+            fn sentinel() -> Self {
+                Self(SENTINEL_ARRAY.clone())
+            }
+            fn from_bytes(bytes: [u8; 32]) -> Self {
+                Self(bytes)
+            }
+        }
+
+        impl From<MARFValue> for $thing {
+            fn from(m: MARFValue) -> Self {
+                let h = m.0;
+                let mut d = [0u8; 32];
+                for i in 0..32 {
+                    d[i] = h[i];
+                }
+                for i in 32..h.len() {
+                    if h[i] != 0 {
+                        panic!(
+                            "Failed to convert MARF value into BHH: data stored after 32nd byte"
+                        );
+                    }
+                }
+                Self(d)
+            }
+        }
+    };
+}
+
+impl_clarity_marf_trie_id!(BurnchainHeaderHash);
+impl_clarity_marf_trie_id!(StacksBlockId);
+impl_clarity_marf_trie_id!(SortitionId);
+#[cfg(test)]
+impl_clarity_marf_trie_id!(BlockHeaderHash);
+
 impl MarfTrieId for SortitionId {}
 impl MarfTrieId for StacksBlockId {}
 impl MarfTrieId for BurnchainHeaderHash {}
 #[cfg(test)]
 impl MarfTrieId for BlockHeaderHash {}
 
-impl TrieHash {
+pub trait TrieHashExtension {
+    fn from_empty_data() -> TrieHash;
+    fn from_data(data: &[u8]) -> TrieHash;
+    fn from_data_array<B: AsRef<[u8]>>(data: &[B]) -> TrieHash;
+    fn to_string(&self) -> String;
+}
+
+impl TrieHashExtension for TrieHash {
     /// TrieHash of zero bytes
-    pub fn from_empty_data() -> TrieHash {
+    fn from_empty_data() -> TrieHash {
         // sha2-512/256 hash of empty string.
         // this is used so frequently it helps performance if we just have a constant for it.
         TrieHash([
@@ -70,7 +168,7 @@ impl TrieHash {
     }
 
     /// TrieHash from bytes
-    pub fn from_data(data: &[u8]) -> TrieHash {
+    fn from_data(data: &[u8]) -> TrieHash {
         if data.len() == 0 {
             return TrieHash::from_empty_data();
         }
@@ -84,7 +182,7 @@ impl TrieHash {
         TrieHash(tmp)
     }
 
-    pub fn from_data_array<B: AsRef<[u8]>>(data: &[B]) -> TrieHash {
+    fn from_data_array<B: AsRef<[u8]>>(data: &[B]) -> TrieHash {
         if data.len() == 0 {
             return TrieHash::from_empty_data();
         }
@@ -101,7 +199,7 @@ impl TrieHash {
     }
 
     /// Convert to a String that can be used in e.g. sqlite
-    pub fn to_string(&self) -> String {
+    fn to_string(&self) -> String {
         let s = format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
                           self.0[0],     self.0[1],       self.0[2],       self.0[3],
                           self.0[4],     self.0[5],       self.0[6],       self.0[7],
@@ -112,6 +210,30 @@ impl TrieHash {
                           self.0[24],    self.0[25],      self.0[26],      self.0[27],
                           self.0[28],    self.0[29],      self.0[30],      self.0[31]);
         s
+    }
+}
+
+/// Structure that holds the actual data in a MARF leaf node.
+/// It only stores the hash of some value string, but we add 8 extra bytes for future extensions.
+/// If not used (the rule today), then they should all be 0.
+pub struct MARFValue(pub [u8; 40]);
+impl_array_newtype!(MARFValue, u8, 40);
+impl_array_hexstring_fmt!(MARFValue);
+impl_byte_array_newtype!(MARFValue, u8, 40);
+impl_byte_array_message_codec!(MARFValue, 40);
+pub const MARF_VALUE_ENCODED_SIZE: u32 = 40;
+
+impl From<u32> for MARFValue {
+    fn from(value: u32) -> MARFValue {
+        let h = value.to_le_bytes();
+        let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
+        if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
+            panic!("Cannot convert a u32 into a MARF Value.");
+        }
+        for i in 0..h.len() {
+            d[i] = h[i];
+        }
+        MARFValue(d)
     }
 }
 
@@ -304,19 +426,6 @@ impl BlockMap for () {
     fn get_block_hash_caching(&mut self, _id: u32) -> Result<&BlockHeaderHash, Error> {
         Err(Error::NotFoundError)
     }
-}
-
-/// PartialEq helper method for slices of arbitrary length.
-pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
-    if s1.len() != s2.len() {
-        return false;
-    }
-    for i in 0..s1.len() {
-        if s1[i] != s2[i] {
-            return false;
-        }
-    }
-    true
 }
 
 // test infrastructure common to multiple files in the index

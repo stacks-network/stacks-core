@@ -31,8 +31,8 @@ use util_lib::db::{
     u64_to_sql, Error as DBError, FromColumn, FromRow,
 };
 
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::proof::ClarityMarfTrieId;
+use chainstate::stacks::index::ClarityMarfTrieId;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub struct BurnchainDB {
     conn: Connection,
@@ -381,8 +381,8 @@ mod tests {
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
     use chainstate::burn::*;
     use chainstate::stacks::*;
-    use deps::bitcoin::blockdata::transaction::Transaction as BtcTx;
-    use deps::bitcoin::network::serialize::deserialize;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
     use util::hash::*;
 
     use crate::types::chainstate::StacksAddress;
