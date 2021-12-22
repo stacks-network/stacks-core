@@ -149,10 +149,10 @@ pub struct TransactionError {
 }
 
 /// Represents a transaction that was skipped, but might succeed later.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct TransactionSkipped {
     pub tx: StacksTransaction,
-    pub reason: String,
+    pub error: Error,
 }
 
 /// Represents an event for a successful transaction. This transaction should be added to the block.
@@ -175,7 +175,7 @@ pub struct TransactionErrorEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionSkippedEvent {
     pub txid: Txid,
-    pub reason: String,
+    pub error: String,
 }
 
 /// `TransactionResult` represents the outcome of transaction processing.
@@ -190,11 +190,10 @@ pub struct TransactionSkippedEvent {
 pub enum TransactionResult {
     /// Transaction has already succeeded.
     Success(TransactionSuccess),
-    /// Transaction failed. It may succeed later depending on the error.
+    /// Transaction failed when processed.
     ProcessingError(TransactionError),
     /// Transaction wasn't ready to be be processed, but might succeed later.
-    /// The bool represents whether mempool propagation should halt or continue
-    Skipped(bool, TransactionSkipped),
+    Skipped(TransactionSkipped),
 }
 
 /// This struct is used to transmit data about transaction results through either the `mined_block`
@@ -213,10 +212,9 @@ pub enum TransactionEvent {
 impl TransactionResult {
     /// Logs a queryable message for the case where `txid` has succeeded.
     pub fn log_transaction_success(tx: &StacksTransaction) {
-        let tx_id_str = format!("{}", &tx.txid());
         info!("Tx successfully processed.";
             "event_name" => %"transaction_result",
-            "tx_id" => %tx_id_str,
+            "tx_id" => %tx.txid(),
             "event_type" => %"success",
         );
     }
@@ -224,23 +222,23 @@ impl TransactionResult {
     /// Logs a queryable message for the case where `txid` has failed
     /// with error `err`.
     pub fn log_transaction_error(tx: &StacksTransaction, err: &Error) {
-        let tx_id_str = format!("{}", &tx.txid());
-        warn!("Tx processing failed with error: {}", err;
-            "event_name" => %"transaction_result",
-            "tx_id" => %tx_id_str,
-            "event_type" => %"error",
+        info!("Tx processing failed with error";
+            "event_name" => "transaction_result",
+            "reason" => %err,
+            "tx_id" => %tx.txid(),
+            "event_type" => "error",
         );
     }
 
     /// Logs a queryable message for the case where `tx` has been skipped
-    /// for reason `reason`.
-    pub fn log_transaction_skipped(tx: &StacksTransaction, reason: String) {
-        let tx_id_str = format!("{}", &tx.txid());
+    /// for error `err`.
+    pub fn log_transaction_skipped(tx: &StacksTransaction, err: &Error) {
         info!(
-            "Tx processing skipped for reason: {}", reason;
-            "event_name" => %"transaction_result",
-            "tx_id" => %tx_id_str,
-            "event_type" => %"skip"
+            "Tx processing skipped";
+            "event_name" => "transaction_result",
+            "tx_id" => %tx.txid(),
+            "event_type" => "skip",
+            "reason" => %err,
         );
     }
 
@@ -271,19 +269,28 @@ impl TransactionResult {
 
     /// Creates a `TransactionResult` backed by `TransactionSkipped`.
     /// This method logs "transaction skipped" as a side effect.
-    pub fn skipped(
+    /// Takes in a reason (String) and uses the default error type for
+    /// skipped transactions, `StacksTransactionSkipped` for the associated error.
+    pub fn skipped(transaction: &StacksTransaction, reason: String) -> TransactionResult {
+        let error = Error::StacksTransactionSkipped(reason);
+        Self::log_transaction_skipped(transaction, &error);
+        TransactionResult::Skipped(TransactionSkipped {
+            tx: transaction.clone(),
+            error: error,
+        })
+    }
+
+    /// Creates a `TransactionResult` backed by `TransactionSkipped`.
+    /// This method logs "transaction skipped" as a side effect.
+    pub fn skipped_due_to_error(
         transaction: &StacksTransaction,
-        reason: String,
-        continue_processing: bool,
+        error: Error,
     ) -> TransactionResult {
-        Self::log_transaction_skipped(transaction, reason.clone());
-        TransactionResult::Skipped(
-            continue_processing,
-            TransactionSkipped {
-                tx: transaction.clone(),
-                reason: reason,
-            },
-        )
+        Self::log_transaction_skipped(transaction, &error);
+        TransactionResult::Skipped(TransactionSkipped {
+            tx: transaction.clone(),
+            error: error,
+        })
     }
 
     pub fn convert_to_event(&self) -> TransactionEvent {
@@ -302,10 +309,10 @@ impl TransactionResult {
                     error: error.to_string(),
                 })
             }
-            TransactionResult::Skipped(_, TransactionSkipped { tx, reason }) => {
+            TransactionResult::Skipped(TransactionSkipped { tx, error }) => {
                 TransactionEvent::Skipped(TransactionSkippedEvent {
                     txid: tx.txid(),
-                    reason: reason.clone(),
+                    error: error.to_string(),
                 })
             }
         }
@@ -593,20 +600,18 @@ impl<'a> StacksMicroblockBuilder<'a> {
         if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
             && tx.anchor_mode != TransactionAnchorMode::Any
         {
-            return Ok(TransactionResult::skipped(
+            return Ok(TransactionResult::skipped_due_to_error(
                 &tx,
-                format!(
-                    "tx.anchor_mode does not support microblocks, anchor_mode={:?}.",
-                    tx.anchor_mode
+                Error::InvalidStacksTransaction(
+                    "Invalid transaction anchor mode for streamed data".to_string(),
+                    false,
                 ),
-                true,
             ));
         }
         if considered.contains(&tx.txid()) {
             return Ok(TransactionResult::skipped(
                 &tx,
                 "Already considered.".to_string(),
-                true,
             ));
         } else {
             considered.insert(tx.txid());
@@ -616,10 +621,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 "Adding microblock tx {} would exceed epoch data size",
                 &tx.txid()
             );
-            return Ok(TransactionResult::skipped(
+            return Ok(TransactionResult::skipped_due_to_error(
                 &tx,
-                "Adding microblock tx would exceed epoch data size".to_string(),
-                true,
+                Error::BlockTooBigError,
             ));
         }
         let quiet = !cfg!(test);
@@ -630,20 +634,34 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     Error::CostOverflowError(cost_before, cost_after, total_budget) => {
                         // note: this path _does_ not perform the tx block budget % heuristic,
                         //  because this code path is not directly called with a mempool handle.
-                        warn!(
-                            "Transaction {} reached block cost {}; budget was {}",
-                            tx.txid(),
-                            &cost_after,
-                            &total_budget
-                        );
                         clarity_tx.reset_cost(cost_before.clone());
-                        Ok(TransactionResult::error(&tx, e))
+                        if total_budget.proportion_largest_dimension(&cost_before)
+                            < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                        {
+                            warn!(
+                                "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
+                                tx.txid(),
+                                100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                                &total_budget
+                            );
+                            return Ok(TransactionResult::error(
+                                &tx,
+                                Error::TransactionTooBigError,
+                            ));
+                        } else {
+                            warn!(
+                                "Transaction {} reached block cost {}; budget was {}",
+                                tx.txid(),
+                                &cost_after,
+                                &total_budget
+                            );
+                            return Ok(TransactionResult::skipped_due_to_error(
+                                &tx,
+                                Error::BlockTooBigError,
+                            ));
+                        }
                     }
-                    _ => {
-                        warn!("Error processing TX {}: {}", tx.txid(), e);
-                        // TODO: might want to change this to error.
-                        Ok(TransactionResult::error(&tx, e))
-                    }
+                    _ => Ok(TransactionResult::error(&tx, e)),
                 }
             }
         }
@@ -690,15 +708,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             num_txs += 1;
                             txs_included.push(tx);
                         }
-                        TransactionResult::Skipped(..) => {
+                        TransactionResult::Skipped(..) | TransactionResult::ProcessingError(..) => {
                             test_debug!("Exclude tx {} from microblock", tx.txid());
-                            continue;
-                        }
-                        TransactionResult::ProcessingError(TransactionError { error, .. }) => {
-                            test_debug!("Exclude tx {} from microblock", tx.txid());
-                            if let Error::BlockTooBigError = error {
-                                info!("Block size budget reached with microblocks");
-                            }
                             continue;
                         }
                     }
@@ -1088,8 +1099,8 @@ impl StacksBlockBuilder {
         let tx_len = tx.tx_len();
         match self.try_mine_tx_with_len(clarity_tx, tx, tx_len, &BlockLimitFunction::NO_LIMIT_HIT) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
-            TransactionResult::Skipped(_, _) => Err(Error::StacksTransactionSkipped),
-            TransactionResult::ProcessingError(TransactionError { tx: _, error }) => Err(error),
+            TransactionResult::Skipped(TransactionSkipped { error, .. })
+            | TransactionResult::ProcessingError(TransactionError { error, .. }) => Err(error),
         }
     }
 
@@ -1103,11 +1114,7 @@ impl StacksBlockBuilder {
         limit_behavior: &BlockLimitFunction,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            return TransactionResult::skipped(
-                &tx,
-                "Adding this tx would exceed epoch data size".to_string(),
-                true,
-            );
+            return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
         }
 
         match limit_behavior {
@@ -1120,7 +1127,6 @@ impl StacksBlockBuilder {
                             return TransactionResult::skipped(
                                 &tx,
                                 "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
-                                true,
                             );
                         }
                     }
@@ -1128,7 +1134,6 @@ impl StacksBlockBuilder {
                         return TransactionResult::skipped(
                             &tx,
                             "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
-                            true,
                         );
                     }
                     _ => {}
@@ -1138,7 +1143,6 @@ impl StacksBlockBuilder {
                 return TransactionResult::skipped(
                     &tx,
                     "BlockLimitFunction::LIMIT_REACHED".to_string(),
-                    true,
                 )
             }
             BlockLimitFunction::NO_LIMIT_HIT => {}
@@ -1150,10 +1154,12 @@ impl StacksBlockBuilder {
             if tx.anchor_mode != TransactionAnchorMode::OnChainOnly
                 && tx.anchor_mode != TransactionAnchorMode::Any
             {
-                return TransactionResult::skipped(
+                return TransactionResult::skipped_due_to_error(
                     tx,
-                    "Invalid transaction anchor mode for anchored data".to_string(),
-                    true,
+                    Error::InvalidStacksTransaction(
+                        "Invalid transaction anchor mode for anchored data".to_string(),
+                        false,
+                    ),
                 );
             }
 
@@ -1180,7 +1186,10 @@ impl StacksBlockBuilder {
                                 &cost_after,
                                 &total_budget
                             );
-                            return TransactionResult::error(&tx, Error::BlockTooBigError);
+                            return TransactionResult::skipped_due_to_error(
+                                &tx,
+                                Error::BlockTooBigError,
+                            );
                         }
                     }
                     _ => return TransactionResult::error(&tx, e),
@@ -1201,10 +1210,12 @@ impl StacksBlockBuilder {
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
                 && tx.anchor_mode != TransactionAnchorMode::Any
             {
-                return TransactionResult::skipped(
+                return TransactionResult::skipped_due_to_error(
                     tx,
-                    "Invalid transaction anchor mode for streamed data".to_string(),
-                    true,
+                    Error::InvalidStacksTransaction(
+                        "Invalid transaction anchor mode for streamed data".to_string(),
+                        false,
+                    ),
                 );
             }
 
@@ -1231,7 +1242,10 @@ impl StacksBlockBuilder {
                                 &cost_after,
                                 &total_budget
                             );
-                            return TransactionResult::error(&tx, Error::BlockTooBigError);
+                            return TransactionResult::skipped_due_to_error(
+                                &tx,
+                                Error::BlockTooBigError,
+                            );
                         }
                     }
                     _ => return TransactionResult::error(&tx, e),
@@ -1908,11 +1922,12 @@ impl StacksBlockBuilder {
                                     }
                                 }
                             }
-                            TransactionResult::Skipped(..) => {}
-                            TransactionResult::ProcessingError(TransactionError {
+                            TransactionResult::Skipped(TransactionSkipped { error, .. })
+                            | TransactionResult::ProcessingError(TransactionError {
                                 error, ..
                             }) => {
                                 match &error {
+                                    Error::StacksTransactionSkipped(_) => {}
                                     Error::BlockTooBigError => {
                                         // done mining -- our execution budget is exceeded.
                                         // Make the block from the transactions we did manage to get

@@ -120,7 +120,6 @@ pub mod test_observer {
     use warp::Filter;
 
     use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent};
-    use stacks::chainstate::stacks::miner::TransactionResult;
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
@@ -3836,10 +3835,8 @@ fn mining_events_integration_test() {
     submit_tx(&http_origin, &tx); // should succeed
     submit_tx(&http_origin, &tx_2); // should fail since it tries to publish contract with same name
     submit_tx(&http_origin, &mb_tx); // should be in microblock bc it is microblock only
-    sleep_ms(20_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    sleep_ms(20_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
@@ -3862,10 +3859,10 @@ fn mining_events_integration_test() {
     // contract publish
     match &microblock_tx_events[0] {
         TransactionEvent::Success(TransactionSuccessEvent {
-            txid,
             result,
             fee,
             execution_cost,
+            ..
         }) => {
             assert_eq!(result.clone().expect_result_ok().expect_bool(), true);
             assert_eq!(fee, &620000);
@@ -3885,11 +3882,8 @@ fn mining_events_integration_test() {
     for i in 1..3 {
         // on chain only transactions will be skipped in a microblock
         match &microblock_tx_events[i] {
-            TransactionEvent::Skipped(TransactionSkippedEvent { txid, reason }) => {
-                assert_eq!(
-                    reason,
-                    "tx.anchor_mode does not support microblocks, anchor_mode=OnChainOnly."
-                );
+            TransactionEvent::Skipped(TransactionSkippedEvent { error, .. }) => {
+                assert_eq!(error, "Invalid transaction anchor mode for streamed data");
             }
             _ => panic!("unexpected event type"),
         }
@@ -3919,10 +3913,10 @@ fn mining_events_integration_test() {
     // contract publish event
     match &third_block_tx_events[1] {
         TransactionEvent::Success(TransactionSuccessEvent {
-            txid,
             result,
             fee,
             execution_cost,
+            ..
         }) => {
             assert_eq!(result.clone().expect_result_ok().expect_bool(), true);
             assert_eq!(fee, &600000);
