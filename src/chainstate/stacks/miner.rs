@@ -52,7 +52,6 @@ use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use chainstate::stacks::address::StacksAddressExtensions;
-use chainstate::stacks::db::blocks::SetupBlockResult;
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblockHeader;
 

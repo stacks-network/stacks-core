@@ -622,7 +622,7 @@ impl Burnchain {
 
     pub fn connect_db<I: BurnchainIndexer>(
         &self,
-        _indexer: &I,
+        indexer: &I,
         readwrite: bool,
         first_block_header_hash: BurnchainHeaderHash,
         first_block_header_timestamp: u64,

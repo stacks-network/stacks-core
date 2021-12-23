@@ -14,12 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ClarityVersion;
-#[cfg(test)]
-use rstest::rstest;
-#[cfg(test)]
-use rstest_reuse::{self, *};
-use vm::analysis::type_checker::tests::mem_type_check;
 use vm::analysis::{
     arithmetic_checker::ArithmeticOnlyChecker, arithmetic_checker::Error,
     arithmetic_checker::Error::*, mem_type_check, ContractAnalysis,

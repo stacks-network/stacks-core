@@ -325,12 +325,6 @@ fn test_ord_for_stacks_epoch_id() {
     );
 }
 pub trait StacksEpochExtension {
-    fn all(
-        epoch_2_0_block_height: u64,
-        epoch_2_05_block_height: u64,
-        epoch_2_1_block_height: u64,
-    ) -> Vec<StacksEpoch>;
-
     #[cfg(test)]
     fn unit_test(stacks_epoch_id: StacksEpochId, epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
     #[cfg(test)]
@@ -341,36 +335,23 @@ pub trait StacksEpochExtension {
 
 impl StacksEpochExtension for StacksEpoch {
     #[cfg(test)]
-    fn unit_test(stacks_epoch_id: StacksEpochId, epoch_2_0_block_height: u64) -> Vec<StacksEpoch> {
-        match stacks_epoch_id {
-            StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {
-                StacksEpoch::unit_test_pre_2_05(epoch_2_0_block_height)
-            }
-            StacksEpochId::Epoch2_05 => StacksEpoch::unit_test_2_05(epoch_2_0_block_height),
-            StacksEpochId::Epoch21 => {
-                panic!("This method signature is not prepared to go up to Stacks 2.1")
-            }
-        }
-    }
-
-    #[cfg(test)]
-    fn unit_test_pre_2_05(epoch_2_0_block_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_pre_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
-            epoch_2_0_block_height
+            first_burnchain_height
         );
 
         vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
-                end_height: epoch_2_0_block_height,
+                end_height: first_burnchain_height,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_1_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
-                start_height: epoch_2_0_block_height,
+                start_height: first_burnchain_height,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_2_0,
@@ -379,30 +360,30 @@ impl StacksEpochExtension for StacksEpoch {
     }
 
     #[cfg(test)]
-    fn unit_test_2_05(epoch_2_0_block_height: u64) -> Vec<StacksEpoch> {
+    fn unit_test_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
-            epoch_2_0_block_height
+            first_burnchain_height
         );
 
         vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
                 start_height: 0,
-                end_height: epoch_2_0_block_height,
+                end_height: first_burnchain_height,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_1_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch20,
-                start_height: epoch_2_0_block_height,
-                end_height: epoch_2_0_block_height + 4,
+                start_height: first_burnchain_height,
+                end_height: first_burnchain_height + 4,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_2_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
-                start_height: epoch_2_0_block_height + 4,
+                start_height: first_burnchain_height + 4,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: ExecutionCost {
                     write_length: 205205,
@@ -416,40 +397,13 @@ impl StacksEpochExtension for StacksEpoch {
         ]
     }
 
-    fn all(
-        epoch_2_0_block_height: u64,
-        epoch_2_05_block_height: u64,
-        epoch_2_1_block_height: u64,
-    ) -> Vec<StacksEpoch> {
-        vec![
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch10,
-                start_height: 0,
-                end_height: epoch_2_0_block_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
-                start_height: epoch_2_0_block_height,
-                end_height: epoch_2_05_block_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch2_05,
-                start_height: epoch_2_05_block_height,
-                end_height: epoch_2_1_block_height,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-            StacksEpoch {
-                epoch_id: StacksEpochId::Epoch21,
-                start_height: epoch_2_1_block_height,
-                end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_1_0,
-            },
-        ]
+    #[cfg(test)]
+    fn unit_test(stacks_epoch_id: StacksEpochId, first_burnchain_height: u64) -> Vec<StacksEpoch> {
+        match stacks_epoch_id {
+            StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {
+                StacksEpoch::unit_test_pre_2_05(first_burnchain_height)
+            }
+            StacksEpochId::Epoch2_05 => StacksEpoch::unit_test_2_05(first_burnchain_height),
+        }
     }
 }

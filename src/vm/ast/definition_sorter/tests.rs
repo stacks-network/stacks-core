@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::type_checker::tests::mem_type_check as run_analysis_helper;
+use vm::analysis::mem_type_check as run_analysis_helper;
 use vm::ast::definition_sorter::DefinitionSorter;
 use vm::ast::errors::ParseErrors;
 use vm::ast::errors::ParseResult;

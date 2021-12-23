@@ -599,10 +599,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_current_burnchain_block_height(&mut self) -> u32 {
         let cur_stacks_height = self.store.get_current_block_height();
         let last_mined_bhh = if cur_stacks_height == 0 {
-            StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            )
+            StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         } else {
             self.get_index_block_header_hash(
                 cur_stacks_height

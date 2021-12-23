@@ -147,7 +147,6 @@ pub struct STXTransferEventData {
     pub sender: PrincipalData,
     pub recipient: PrincipalData,
     pub amount: u128,
-    pub memo: BuffData,
 }
 
 impl STXTransferEventData {
@@ -156,7 +155,6 @@ impl STXTransferEventData {
             "sender": format!("{}",self.sender),
             "recipient": format!("{}",self.recipient),
             "amount": format!("{}", self.amount),
-            "memo": format!("{}", self.memo),
         })
     }
 }

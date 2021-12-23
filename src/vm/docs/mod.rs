@@ -1809,7 +1809,7 @@ mod test {
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
     use crate::{types::chainstate::VRFSeed, vm::StacksEpoch};
-    use vm::analysis::type_checker::tests::contracts::type_check;
+    use vm::analysis::type_check;
 
     use vm::costs::ExecutionCost;
 

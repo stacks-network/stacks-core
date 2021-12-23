@@ -1966,6 +1966,7 @@ pub mod test {
     use std::ops::Deref;
     use std::ops::DerefMut;
     use std::sync::mpsc::sync_channel;
+    use std::sync::Mutex;
     use std::thread;
 
     use mio;

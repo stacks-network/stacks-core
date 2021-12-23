@@ -38,7 +38,6 @@ use vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 
-use crate::core::POX_TESTNET_CYCLE_LENGTH;
 use crate::{
     burnchains::PoxConstants,
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},

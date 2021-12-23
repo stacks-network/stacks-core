@@ -454,7 +454,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
-                blockstack_lib::clarity_cli::vm_execute(input, &clarity_version)?
+                blockstack_lib::clarity_cli::vm_execute(input)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
             _ => {

@@ -39,7 +39,6 @@ use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, V
 
 use vm::database::MemoryBackingStore;
 use vm::types::StacksAddressExtensions;
-use vm::ClarityVersion;
 
 #[test]
 fn test_doubly_defined_persisted_vars() {

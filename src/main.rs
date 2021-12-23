@@ -60,7 +60,6 @@ use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::clarity::vm::costs::ExecutionCost;
 use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
-use blockstack_lib::clarity::vm::ClarityVersion;
 use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::core::*;
 use blockstack_lib::cost_estimates::metrics::UnitMetric;

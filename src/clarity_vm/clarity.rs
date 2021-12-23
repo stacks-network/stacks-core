@@ -20,7 +20,6 @@ use std::fmt;
 use std::thread;
 
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
-use crate::chainstate::stacks::boot::POX_2_NAME;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::StacksMicroblockHeader;
@@ -43,11 +42,7 @@ use crate::{
     burnchains::Burnchain,
     clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
 };
-use crate::{
-    clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId, vm::ClarityVersion,
-};
-use chainstate::stacks::boot::POX_2_MAINNET_CODE;
-use chainstate::stacks::boot::POX_2_TESTNET_CODE;
+use crate::{clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId};
 use chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
     BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
@@ -77,29 +72,6 @@ use vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
 };
 use vm::ContractName;
-
-use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::TransactionAuth;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::chainstate::stacks::TransactionPublicKeyEncoding;
-use crate::chainstate::stacks::TransactionSmartContract;
-use crate::chainstate::stacks::TransactionSpendingCondition;
-use crate::chainstate::stacks::TransactionVersion;
-use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
-use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
-use crate::core::StacksEpoch;
-use crate::core::StacksEpochId;
-use crate::core::FIRST_STACKS_BLOCK_ID;
-use crate::core::GENESIS_EPOCH;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::SortitionId;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::StacksMicroblockHeader;
-use crate::types::proof::TrieHash;
-use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
-use crate::util::secp256k1::MessageSignature;
-use types::chainstate::BurnchainHeaderHash;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -1178,7 +1150,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .execute_in_env(sender.clone(), None, |env| {
+                    .execute_in_env(sender.clone(), |env| {
                         env.run_as_transaction(|env| {
                             StacksChainState::handle_poison_microblock(
                                 env,

@@ -27,7 +27,7 @@ use vm::types::QualifiedContractIdentifier;
 use vm::{
     analysis::{CheckError, ContractAnalysis},
     costs::LimitedCostTracker,
-    ClarityVersion, SymbolicExpression,
+    SymbolicExpression,
 };
 
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
