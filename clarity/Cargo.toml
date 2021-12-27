@@ -13,7 +13,7 @@ readme = "README.md"
 
 [lib]
 name = "clarity"
-path = "../src/libclarity.rs"
+path = "./src/libclarity.rs"
 
 [dependencies]
 rand = "=0.7.2"
@@ -44,12 +44,8 @@ assert-json-diff = "1.0.0"
 # a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
 # criterion = "0.3"
-stx_genesis = { package = "stx-genesis", path = "../stx-genesis/."}
 
 [features]
 default = ["developer-mode"]
 developer-mode = []
 testing = []
-
-[target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
-sha2-asm = "0.5.3"

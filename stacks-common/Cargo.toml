@@ -13,7 +13,7 @@ readme = "README.md"
 
 [lib]
 name = "stacks_common"
-path = "../src/libcommon.rs"
+path = "./src/libcommon.rs"
 
 [dependencies]
 rand = "=0.7.2"
