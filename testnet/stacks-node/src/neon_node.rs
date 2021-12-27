@@ -29,6 +29,7 @@ use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
 use stacks::chainstate::stacks::{
     miner::BlockBuilderSettings, miner::StacksMicroblockBuilder, StacksBlockBuilder,
+    StacksBlockHeader,
 };
 use stacks::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
@@ -51,14 +52,14 @@ use stacks::net::{
     Error as NetError, NetworkResult, PeerAddress,
 };
 use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
 };
 use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::strings::{UrlString, VecDisplay};
 use stacks::util::vrf::VRFPublicKey;
+use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 use stacks::{burnchains::BurnchainSigner, chainstate::stacks::db::StacksHeaderInfo};
 

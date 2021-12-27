@@ -376,10 +376,8 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_stacker",
- "sha2-asm",
  "slog",
  "stacks-common",
- "stx-genesis",
  "time 0.2.23",
 ]
 
@@ -2364,6 +2362,7 @@ dependencies = [
  "backtrace",
  "base64 0.12.3",
  "blockstack-core",
+ "clarity",
  "http-types",
  "lazy_static",
  "libc",
@@ -2376,6 +2375,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
+ "stacks-common",
  "stx-genesis",
  "tokio",
  "toml",

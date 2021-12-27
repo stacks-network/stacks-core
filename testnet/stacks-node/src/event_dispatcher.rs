@@ -16,10 +16,10 @@ use serde_json::json;
 
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
+use stacks::chainstate::stacks::address::StacksAddressExtensions;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::events::{
-    FTEventType, NFTEventType, STXEventType, StacksTransactionEvent, StacksTransactionReceipt,
-    TransactionOrigin,
+    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::StacksBlock;
 use stacks::chainstate::stacks::{
@@ -32,6 +32,7 @@ use stacks::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockI
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
 use stacks::vm::costs::ExecutionCost;
+use stacks::vm::events::{FTEventType, NFTEventType, STXEventType};
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 
 use super::config::{EventKeyType, EventObserverConfig};

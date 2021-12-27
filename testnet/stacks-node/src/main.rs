@@ -9,6 +9,8 @@ extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
 #[macro_use]
+extern crate stacks_common;
+
 extern crate stacks;
 
 #[allow(unused_imports)]
