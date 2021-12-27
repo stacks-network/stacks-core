@@ -14,16 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::proof::ClarityMarfTrieId;
 use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::index::ClarityMarfTrieId;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
 use vm::analysis::errors::CheckErrors;
 use vm::contexts::OwnedEnvironment;
 use vm::database::ClarityDatabase;
 use vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
 use vm::representations::SymbolicExpression;
-use vm::tests::{
+use vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use vm::types::Value;

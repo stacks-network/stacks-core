@@ -54,6 +54,7 @@ use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use chainstate::stacks::address::StacksAddressExtensions;
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblockHeader;
+use vm::clarity::TransactionConnection;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {

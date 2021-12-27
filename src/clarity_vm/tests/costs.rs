@@ -15,12 +15,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
-use crate::types::proof::ClarityMarfTrieId;
 use crate::types::StacksEpochId;
-use crate::util::boot::boot_code_id;
+use crate::util_lib::boot::boot_code_id;
 use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::index::ClarityMarfTrieId;
+use clarity::vm::clarity::TransactionConnection;
 use clarity_vm::clarity::ClarityInstance;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
@@ -36,9 +36,8 @@ use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::events::StacksTransactionEvent;
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
-use vm::tests::{
-    execute, execute_on_network, is_committed, is_err_code, symbols_from_values,
-    with_marfed_environment, with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+use vm::test_util::{
+    execute, execute_on_network, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
@@ -905,10 +904,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool) {
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
-            &StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            ),
+            &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
         )
@@ -936,10 +932,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool) {
     let mut marf_kv = {
         let mut clarity_inst = ClarityInstance::new(use_mainnet, marf_kv);
         let mut block_conn = clarity_inst.begin_block(
-            &StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            ),
+            &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
@@ -1136,10 +1129,7 @@ fn test_cost_voting_integration(use_mainnet: bool) {
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
-            &StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            ),
+            &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
         )
@@ -1171,10 +1161,7 @@ fn test_cost_voting_integration(use_mainnet: bool) {
     let mut marf_kv = {
         let mut clarity_inst = ClarityInstance::new(use_mainnet, marf_kv);
         let mut block_conn = clarity_inst.begin_block(
-            &StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            ),
+            &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,

@@ -534,7 +534,7 @@ impl<'a> OwnedEnvironment<'a> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_max_limit(
         mut database: ClarityDatabase<'a>,
         epoch: StacksEpochId,

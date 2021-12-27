@@ -797,7 +797,7 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or(CheckErrors::NoSuchDataVariable(variable_name.to_string()).into())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn set_variable_unknown_descriptor(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,

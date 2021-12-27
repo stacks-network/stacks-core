@@ -28,7 +28,7 @@ use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
 use vm::tests::costs::get_simple_test;
 use vm::tests::{
-    execute, symbols_from_values, with_marfed_environment, with_memory_environment,
+    execute,
     TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};

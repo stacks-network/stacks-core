@@ -40,6 +40,7 @@ pub use vm::analysis::errors::CheckErrors;
 use vm::analysis::run_analysis;
 use vm::analysis::types::ContractAnalysis;
 use vm::ast::build_ast;
+use vm::clarity::TransactionConnection;
 use vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use vm::contracts::Contract;
 use vm::costs::cost_functions;

@@ -32,7 +32,7 @@ pub mod database;
 pub mod representations;
 
 mod callables;
-mod functions;
+pub mod functions;
 mod variables;
 
 pub mod analysis;
@@ -47,6 +47,8 @@ pub mod tests;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod test_util;
+
+pub mod clarity;
 
 // publish the non-generic StacksEpoch form for use throughout module
 use crate::types::StacksEpochId;

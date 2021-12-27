@@ -11,6 +11,7 @@ use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
 use vm::costs::ExecutionCost;
 use vm::database::{BurnStateDB, HeadersDB};
 use vm::execute as vm_execute;
+use vm::execute_on_network as vm_execute_on_network;
 use vm::representations::SymbolicExpression;
 use vm::types::StandardPrincipalData;
 use vm::types::{PrincipalData, ResponseData, Value};
@@ -30,10 +31,39 @@ pub fn execute(s: &str) -> Value {
     vm_execute(s).unwrap().unwrap()
 }
 
+pub fn execute_on_network(s: &str, use_mainnet: bool) -> Value {
+    vm_execute_on_network(s, use_mainnet).unwrap().unwrap()
+}
+
 pub fn symbols_from_values(vec: Vec<Value>) -> Vec<SymbolicExpression> {
     vec.into_iter()
         .map(|value| SymbolicExpression::atom_value(value))
         .collect()
+}
+
+pub fn is_committed(v: &Value) -> bool {
+    eprintln!("is_committed?: {}", v);
+
+    match v {
+        Value::Response(ref data) => data.committed,
+        _ => false,
+    }
+}
+
+pub fn is_err_code(v: &Value, e: u128) -> bool {
+    eprintln!("is_err_code?: {}", v);
+    match v {
+        Value::Response(ref data) => !data.committed && *data.data == Value::UInt(e),
+        _ => false,
+    }
+}
+
+pub fn is_err_code_i128(v: &Value, e: i128) -> bool {
+    eprintln!("is_err_code?: {}", v);
+    match v {
+        Value::Response(ref data) => !data.committed && *data.data == Value::Int(e),
+        _ => false,
+    }
 }
 
 impl From<&StacksPrivateKey> for StandardPrincipalData {

@@ -67,6 +67,7 @@ use util_lib::strings::StacksString;
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
+use vm::clarity::TransactionConnection;
 use vm::contexts::AssetMap;
 use vm::contracts::Contract;
 use vm::costs::LimitedCostTracker;

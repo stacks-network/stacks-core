@@ -68,6 +68,7 @@ use util_lib::db::{
 use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
+use vm::clarity::TransactionConnection;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::{ExecutionCost, LimitedCostTracker};
 use vm::database::{

@@ -60,6 +60,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
 use util_lib::boot::boot_code_id;
+use vm::clarity::TransactionConnection;
 use vm::database::BurnStateDB;
 
 lazy_static! {

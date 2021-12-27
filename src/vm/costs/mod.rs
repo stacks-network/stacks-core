@@ -249,7 +249,7 @@ pub enum LimitedCostTracker {
     Free,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl LimitedCostTracker {
     pub fn contract_call_circuits(
         &self,
@@ -658,7 +658,7 @@ impl LimitedCostTracker {
         Ok(Self::Limited(cost_tracker))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_max_limit(
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
