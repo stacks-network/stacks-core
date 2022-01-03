@@ -6040,7 +6040,6 @@ fn fuzzed_median_fee_rate_estimation_test() {
                 .json(&body)
                 .send()
                 .expect("Should be able to post")
-                // .json::<serde_json::Value>()
                 .json::<RPCFeeEstimateResponse>()
                 .expect("Failed to parse result into JSON");
 
