@@ -440,7 +440,8 @@ impl Config {
                             // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
                             let mut attempts = 0;
                             let mut addrs_iter = loop {
-                                if let Ok(addrs_iter) = format!("{}:1", peer_host).to_socket_addrs() {
+                                if let Ok(addrs_iter) = format!("{}:1", peer_host).to_socket_addrs()
+                                {
                                     break addrs_iter;
                                 }
                                 attempts += 1;

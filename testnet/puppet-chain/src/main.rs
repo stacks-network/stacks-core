@@ -358,7 +358,6 @@ async fn import_faucet_secret_key(config: &ConfigFile) {
     };
 }
 
-
 async fn transfer_from_faucet_to(recipient: String, amount: String, config: &ConfigFile) {
     let rpc_addr = config.network.bitcoind_rpc_host.clone();
 

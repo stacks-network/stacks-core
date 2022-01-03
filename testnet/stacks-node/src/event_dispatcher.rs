@@ -18,8 +18,8 @@ use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::events::{
-    FTEventType, NFTEventType, STXEventType, StacksTransactionEvent, StacksTransactionReceipt,
-    TransactionOrigin,
+    DataEventType, FTEventType, NFTEventType, STXEventType, StacksTransactionEvent,
+    StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::StacksBlock;
 use stacks::chainstate::stacks::{
@@ -550,6 +550,52 @@ impl EventDispatcher {
                     StacksTransactionEvent::SmartContractEvent(event_data) => {
                         if let Some(observer_indexes) =
                             self.contract_events_observers_lookup.get(&event_data.key)
+                        {
+                            for o_i in observer_indexes {
+                                dispatch_matrix[*o_i as usize].insert(i);
+                            }
+                        }
+                    }
+                    StacksTransactionEvent::DataEvent(DataEventType::VarSetEvent(event_data)) => {
+                        if let Some(observer_indexes) = self
+                            .contract_events_observers_lookup
+                            .get(&(event_data.contract_identifier.clone(), "var".into()))
+                        {
+                            for o_i in observer_indexes {
+                                dispatch_matrix[*o_i as usize].insert(i);
+                            }
+                        }
+                    }
+                    StacksTransactionEvent::DataEvent(DataEventType::MapInsertEvent(
+                        event_data,
+                    )) => {
+                        if let Some(observer_indexes) = self
+                            .contract_events_observers_lookup
+                            .get(&(event_data.contract_identifier.clone(), "map".into()))
+                        {
+                            for o_i in observer_indexes {
+                                dispatch_matrix[*o_i as usize].insert(i);
+                            }
+                        }
+                    }
+                    StacksTransactionEvent::DataEvent(DataEventType::MapUpdateEvent(
+                        event_data,
+                    )) => {
+                        if let Some(observer_indexes) = self
+                            .contract_events_observers_lookup
+                            .get(&(event_data.contract_identifier.clone(), "map".into()))
+                        {
+                            for o_i in observer_indexes {
+                                dispatch_matrix[*o_i as usize].insert(i);
+                            }
+                        }
+                    }
+                    StacksTransactionEvent::DataEvent(DataEventType::MapDeleteEvent(
+                        event_data,
+                    )) => {
+                        if let Some(observer_indexes) = self
+                            .contract_events_observers_lookup
+                            .get(&(event_data.contract_identifier.clone(), "map".into()))
                         {
                             for o_i in observer_indexes {
                                 dispatch_matrix[*o_i as usize].insert(i);

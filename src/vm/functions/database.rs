@@ -300,6 +300,8 @@ pub fn special_set_variable_v200(
 
     env.add_memory(value.get_memory_use())?;
 
+    env.register_data_var_set_event(contract, var_name, &value);
+
     env.global_context
         .database
         .set_variable(contract, var_name, value, data_types)
@@ -330,6 +332,8 @@ pub fn special_set_variable_v205(
         .meta_data_var
         .get(var_name)
         .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
+
+    env.register_data_var_set_event(contract, var_name, &value);
 
     let result = env
         .global_context
@@ -475,6 +479,8 @@ pub fn special_set_entry_v200(
     env.add_memory(key.get_memory_use())?;
     env.add_memory(value.get_memory_use())?;
 
+    env.register_data_map_update_event(contract, map_name, &key, &value);
+
     env.global_context
         .database
         .set_entry(contract, map_name, key, value, data_types)
@@ -507,6 +513,8 @@ pub fn special_set_entry_v205(
         .meta_data_map
         .get(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+
+    env.register_data_map_update_event(contract, map_name, &key, &value);
 
     let result = env
         .global_context
@@ -559,6 +567,8 @@ pub fn special_insert_entry_v200(
     env.add_memory(key.get_memory_use())?;
     env.add_memory(value.get_memory_use())?;
 
+    env.register_data_map_insert_event(contract, map_name, &key, &value);
+
     env.global_context
         .database
         .insert_entry(contract, map_name, key, value, data_types)
@@ -591,6 +601,8 @@ pub fn special_insert_entry_v205(
         .meta_data_map
         .get(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+
+    env.register_data_map_insert_event(contract, map_name, &key, &value);
 
     let result = env
         .global_context
@@ -640,6 +652,8 @@ pub fn special_delete_entry_v200(
 
     env.add_memory(key.get_memory_use())?;
 
+    env.register_data_map_delete_event(contract, map_name, &key);
+
     env.global_context
         .database
         .delete_entry(contract, map_name, &key, data_types)
@@ -670,6 +684,8 @@ pub fn special_delete_entry_v205(
         .meta_data_map
         .get(map_name)
         .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+
+    env.register_data_map_delete_event(contract, map_name, &key);
 
     let result = env
         .global_context
