@@ -29,6 +29,7 @@ use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
 use cost_estimates::fee_medians::fee_rate_estimate_from_sorted_weighted_fees;
 use cost_estimates::fee_medians::FeeRateAndWeight;
+use cost_estimates::tests::common::*;
 
 /// Tolerance for approximate comparison.
 const error_epsilon: f64 = 0.1;
@@ -53,41 +54,6 @@ fn instantiate_test_db<CM: CostMetric>(m: CM) -> WeightedMedianFeeRateEstimator<
     let window_size = 5;
     WeightedMedianFeeRateEstimator::open(&path, m, window_size)
         .expect("Test failure: could not open fee rate DB")
-}
-
-fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksEpochReceipt {
-    StacksEpochReceipt {
-        header: StacksHeaderInfo {
-            anchored_header: StacksBlockHeader {
-                version: 1,
-                total_work: StacksWorkScore { burn: 1, work: 1 },
-                proof: VRFProof::empty(),
-                parent_block: BlockHeaderHash([0; 32]),
-                parent_microblock: BlockHeaderHash([0; 32]),
-                parent_microblock_sequence: 0,
-                tx_merkle_root: Sha512Trunc256Sum([0; 32]),
-                state_index_root: TrieHash([0; 32]),
-                microblock_pubkey_hash: Hash160([0; 20]),
-            },
-            microblock_tail: None,
-            block_height: 1,
-            index_root: TrieHash([0; 32]),
-            consensus_hash: ConsensusHash([2; 20]),
-            burn_header_hash: BurnchainHeaderHash([1; 32]),
-            burn_header_height: 2,
-            burn_header_timestamp: 2,
-            anchored_block_size: 1,
-        },
-        tx_receipts,
-        matured_rewards: vec![],
-        matured_rewards_info: None,
-        parent_microblocks_cost: ExecutionCost::zero(),
-        anchored_block_cost: ExecutionCost::zero(),
-        parent_burn_block_hash: BurnchainHeaderHash([0; 32]),
-        parent_burn_block_height: 1,
-        parent_burn_block_timestamp: 1,
-        evaluated_epoch: StacksEpochId::Epoch20,
-    }
 }
 
 fn make_dummy_coinbase_tx() -> StacksTransaction {
