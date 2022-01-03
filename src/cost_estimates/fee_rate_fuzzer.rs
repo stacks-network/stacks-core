@@ -61,23 +61,12 @@ impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
         }
     }
 
-    /// Fuzzes an individual number.  The fuzzed rate will be `R * (1 + alpha)`, where `R` is the
-    /// original rate, and `alpha` is a random number in `[-uniform_fuzz_bound,
-    /// uniform_fuzz_bound]`.
-    fn fuzz_individual_scalar(&self, original: f64) -> f64 {
-        let mut rng: Box<dyn RngCore> = (self.rng_creator)();
+    /// Add a uniform fuzz to input. Each element is multiplied by the same random factor.
+    fn fuzz_estimate(&self, input: FeeRateEstimate) -> FeeRateEstimate {
+        let mut rng = (self.rng_creator)();
         let uniform = Uniform::new(-self.uniform_fuzz_bound, self.uniform_fuzz_bound);
-        let fuzz_fraction = uniform.sample(&mut rng);
-        original * (1f64 + fuzz_fraction)
-    }
-
-    /// Add a uniform fuzz to input.
-    fn fuzz_estimate(&self, input: &FeeRateEstimate) -> FeeRateEstimate {
-        FeeRateEstimate {
-            high: self.fuzz_individual_scalar(input.high),
-            middle: self.fuzz_individual_scalar(input.middle),
-            low: self.fuzz_individual_scalar(input.low),
-        }
+        let fuzz_scale = 1f64 + uniform.sample(&mut rng);
+        input * fuzz_scale
     }
 }
 
@@ -93,9 +82,7 @@ impl<T: FeeEstimator> FeeEstimator for FeeRateFuzzer<T> {
 
     /// Call underlying estimator and add some fuzz.
     fn get_rate_estimates(&self) -> Result<FeeRateEstimate, EstimatorError> {
-        match self.underlying.get_rate_estimates() {
-            Ok(underlying_estimate) => Ok(self.fuzz_estimate(&underlying_estimate)),
-            Err(e) => Err(e),
-        }
+        let underlying_estimate = self.underlying.get_rate_estimates()?;
+        Ok(self.fuzz_estimate(underlying_estimate))
     }
 }
