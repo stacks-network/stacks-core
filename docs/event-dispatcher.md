@@ -87,7 +87,21 @@ Example:
       "from_stacks_block_hash": "0xf5d4ce0efe1d42c963d615ce57f0d014f263a985175e4ece766eceff10e0a358",
       "from_index_block_hash": "0x329efcbcc6daf5ac3f264522e0df50eddb5be85df6ee8a9fc2384c54274d7afc",
     }
-   ]
+   ],
+   "anchored_cost": {
+    "runtime": 100,
+    "read_count": 10,
+    "write_count": 5,
+    "read_length": 150,
+    "write_length": 75
+   },
+   "confirmed_microblocks_cost": {
+    "runtime": 100,
+    "read_count": 10,
+    "write_count": 5,
+    "read_length": 150,
+    "write_length": 75
+   }
 }
 ```
 
@@ -216,3 +230,37 @@ Reason can be one of:
 * `ReplaceAcrossFork` - replaced by a transaction with the same nonce but in the canonical fork
 * `TooExpensive` - the transaction is too expensive to include in a block
 * `StaleGarbageCollect` - transaction was dropped because it became stale
+
+### `POST /mined_block`
+
+This payload includes data related to block mined by this Stacks node. This
+will never be invoked if the node is configured only as a follower. This is invoked
+when the miner **assembles** the block; this block may or may not win the sortition.
+
+This endpoint will only broadcast events to observers that explicitly register for
+`MinedBlocks` events, `AnyEvent` observers will not receive the events by default.
+
+Example:
+
+```json
+{
+  "block_hash": "0x4eaabcd105865e471f697eff5dd5bd85d47ecb5a26a3379d74fae0ae87c40904",
+  "staks_height": 3,
+  "target_burn_height": 745000,
+  "block_size": 145000,
+  "anchored_cost": {
+    "runtime": 100,
+    "read_count": 10,
+    "write_count": 5,
+    "read_length": 150,
+    "write_length": 75
+  },
+  "confirmed_microblocks_cost": {
+    "runtime": 100,
+    "read_count": 10,
+    "write_count": 5,
+    "read_length": 150,
+    "write_length": 75
+  }
+}
+```

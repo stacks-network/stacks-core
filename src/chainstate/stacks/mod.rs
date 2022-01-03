@@ -145,6 +145,11 @@ pub enum Error {
     InvalidStacksBlock(String),
     InvalidStacksMicroblock(String, BlockHeaderHash),
     InvalidStacksTransaction(String, bool),
+    /// This error indicates that the considered transaction was skipped
+    /// because of the current state of the block assembly algorithm,
+    /// but the transaction otherwise may be valid (e.g., block assembly is
+    /// only considering STX transfers and this tx isn't a transfer).
+    StacksTransactionSkipped,
     PostConditionFailed(String),
     NoSuchBlockError,
     InvalidChainstateDB,
@@ -229,6 +234,9 @@ impl fmt::Display for Error {
             Error::PoxAlreadyLocked => write!(f, "Account has already locked STX for PoX"),
             Error::PoxInsufficientBalance => write!(f, "Not enough STX to lock"),
             Error::PoxNoRewardCycle => write!(f, "No such reward cycle"),
+            Error::StacksTransactionSkipped => {
+                write!(f, "Stacks transaction skipped during assembly")
+            }
         }
     }
 }
@@ -261,6 +269,7 @@ impl error::Error for Error {
             Error::PoxAlreadyLocked => None,
             Error::PoxInsufficientBalance => None,
             Error::PoxNoRewardCycle => None,
+            Error::StacksTransactionSkipped => None,
         }
     }
 }
@@ -293,6 +302,7 @@ impl Error {
             Error::PoxAlreadyLocked => "PoxAlreadyLocked",
             Error::PoxInsufficientBalance => "PoxInsufficientBalance",
             Error::PoxNoRewardCycle => "PoxNoRewardCycle",
+            Error::StacksTransactionSkipped => "StacksTransactionSkipped",
         }
     }
 
@@ -858,6 +868,8 @@ pub struct StacksBlockBuilder {
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
     miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>,
+    parent_consensus_hash: ConsensusHash,
+    parent_header_hash: BlockHeaderHash,
     parent_microblock_hash: Option<BlockHeaderHash>,
     miner_id: usize,
 }

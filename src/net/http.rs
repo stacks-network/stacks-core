@@ -41,10 +41,10 @@ use chainstate::burn::ConsensusHash;
 use chainstate::stacks::{StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction};
 use deps::httparse;
 use net::atlas::Attachment;
-use net::CallReadOnlyRequestBody;
 use net::ClientError;
 use net::Error as net_error;
 use net::Error::ClarityError;
+use net::ExtendedStacksHeader;
 use net::HttpContentType;
 use net::HttpRequestMetadata;
 use net::HttpRequestPreamble;
@@ -65,7 +65,9 @@ use net::UnconfirmedTransactionStatus;
 use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
 use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::HTTP_REQUEST_ID_RESERVED;
+use net::MAX_HEADERS;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
+use net::{CallReadOnlyRequestBody, TipRequest};
 use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
 use util::hash::hex_bytes;
 use util::hash::to_hex;
@@ -82,16 +84,20 @@ use vm::{
     ClarityName, ContractName, Value,
 };
 
+use crate::chainstate::stacks::TransactionPayload;
 use crate::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
 };
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId};
+
+use super::FeeRateEstimateRequestBody;
 
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
     static ref PATH_GETPOXINFO: Regex = Regex::new(r#"^/v2/pox$"#).unwrap();
     static ref PATH_GETNEIGHBORS: Regex = Regex::new(r#"^/v2/neighbors$"#).unwrap();
+    static ref PATH_GETHEADERS: Regex = Regex::new(r#"^/v2/headers/([0-9]+)$"#).unwrap();
     static ref PATH_GETBLOCK: Regex = Regex::new(r#"^/v2/blocks/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_GETMICROBLOCKS_INDEXED: Regex =
         Regex::new(r#"^/v2/microblocks/([0-9a-f]{64})$"#).unwrap();
@@ -102,11 +108,17 @@ lazy_static! {
     static ref PATH_GETTRANSACTION_UNCONFIRMED: Regex =
         Regex::new(r#"^/v2/transactions/unconfirmed/([0-9a-f]{64})$"#).unwrap();
     static ref PATH_POSTTRANSACTION: Regex = Regex::new(r#"^/v2/transactions$"#).unwrap();
+    static ref PATH_POST_FEE_RATE_ESIMATE: Regex = Regex::new(r#"^/v2/fees/transaction$"#).unwrap();
     static ref PATH_POSTBLOCK: Regex = Regex::new(r#"^/v2/blocks/upload/([0-9a-f]{40})$"#).unwrap();
     static ref PATH_POSTMICROBLOCK: Regex = Regex::new(r#"^/v2/microblocks$"#).unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
         "^/v2/accounts/(?P<principal>{})$",
         *PRINCIPAL_DATA_REGEX
+    ))
+    .unwrap();
+    static ref PATH_GET_DATA_VAR: Regex = Regex::new(&format!(
+        "^/v2/data_var/(?P<address>{})/(?P<contract>{})/(?P<varname>{})$",
+        *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX
     ))
     .unwrap();
     static ref PATH_GET_MAP_ENTRY: Regex = Regex::new(&format!(
@@ -1454,6 +1466,7 @@ impl HttpRequestType {
                 &PATH_GETNEIGHBORS,
                 &HttpRequestType::parse_getneighbors,
             ),
+            ("GET", &PATH_GETHEADERS, &HttpRequestType::parse_getheaders),
             ("GET", &PATH_GETBLOCK, &HttpRequestType::parse_getblock),
             (
                 "GET",
@@ -1477,6 +1490,11 @@ impl HttpRequestType {
             ),
             (
                 "POST",
+                &PATH_POST_FEE_RATE_ESIMATE,
+                &HttpRequestType::parse_post_fee_rate_estimate,
+            ),
+            (
+                "POST",
                 &PATH_POSTTRANSACTION,
                 &HttpRequestType::parse_posttransaction,
             ),
@@ -1490,6 +1508,11 @@ impl HttpRequestType {
                 "GET",
                 &PATH_GET_ACCOUNT,
                 &HttpRequestType::parse_get_account,
+            ),
+            (
+                "GET",
+                &PATH_GET_DATA_VAR,
+                &HttpRequestType::parse_get_data_var,
             ),
             (
                 "POST",
@@ -1658,9 +1681,8 @@ impl HttpRequestType {
         ))
     }
 
-    /// check whether the given option query string
-    ///   sets proof=0 (setting proof to false).
-    /// Defaults to _true_
+    /// Check whether the given option query string sets proof=0 (setting proof to false).
+    /// Defaults to true.
     fn get_proof_query(query: Option<&str>) -> bool {
         let no_proof = if let Some(query_string) = query {
             form_urlencoded::parse(query_string.as_bytes())
@@ -1676,7 +1698,7 @@ impl HttpRequestType {
 
     /// get the chain tip optional query argument (`tip`)
     /// Take the first value we can parse.
-    fn get_chain_tip_query(query: Option<&str>) -> Option<StacksBlockId> {
+    fn get_chain_tip_query(query: Option<&str>) -> TipRequest {
         match query {
             Some(query_string) => {
                 for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
@@ -1684,14 +1706,17 @@ impl HttpRequestType {
                         continue;
                     }
 
+                    if value == "latest" {
+                        return TipRequest::UseLatestUnconfirmedTip;
+                    }
                     if let Ok(tip) = StacksBlockId::from_hex(&value) {
-                        return Some(tip);
+                        return TipRequest::SpecificTip(tip);
                     }
                 }
-                return None;
+                return TipRequest::UseLatestAnchoredTip;
             }
             None => {
-                return None;
+                return TipRequest::UseLatestAnchoredTip;
             }
         }
     }
@@ -1724,6 +1749,42 @@ impl HttpRequestType {
         ))
     }
 
+    fn parse_get_data_var<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        captures: &Captures,
+        query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        let content_len = preamble.get_content_length();
+        if content_len != 0 {
+            return Err(net_error::DeserializeError(format!(
+                "Invalid Http request: invalid body length for GetDataVar ({})",
+                content_len
+            )));
+        }
+
+        let contract_addr = StacksAddress::from_string(&captures["address"]).ok_or_else(|| {
+            net_error::DeserializeError("Failed to parse contract address".into())
+        })?;
+        let contract_name = ContractName::try_from(captures["contract"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+        let var_name = ClarityName::try_from(captures["varname"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse data var name".into()))?;
+
+        let with_proof = HttpRequestType::get_proof_query(query);
+        let tip = HttpRequestType::get_chain_tip_query(query);
+
+        Ok(HttpRequestType::GetDataVar(
+            HttpRequestMetadata::from_preamble(preamble),
+            contract_addr,
+            contract_name,
+            var_name,
+            tip,
+            with_proof,
+        ))
+    }
+
     fn parse_get_map_entry<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
@@ -1751,7 +1812,7 @@ impl HttpRequestType {
         let contract_name = ContractName::try_from(captures["contract"].to_string())
             .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
         let map_name = ClarityName::try_from(captures["map"].to_string())
-            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+            .map_err(|_e| net_error::DeserializeError("Failed to parse map name".into()))?;
 
         let value_hex: String = serde_json::from_reader(fd)
             .map_err(|_e| net_error::DeserializeError("Failed to parse JSON body".into()))?;
@@ -1917,6 +1978,39 @@ impl HttpRequestType {
             contract_addr,
             contract_name,
             trait_id,
+            tip,
+        ))
+    }
+
+    fn parse_getheaders<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        captures: &Captures,
+        query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body for GetBlock".to_string(),
+            ));
+        }
+
+        let quantity_str = captures
+            .get(1)
+            .ok_or(net_error::DeserializeError(
+                "Failed to match path to reward cycle group".to_string(),
+            ))?
+            .as_str();
+
+        let quantity: u64 = quantity_str
+            .parse()
+            .map_err(|_| net_error::DeserializeError("Failed to parse reward cycle".to_string()))?;
+
+        let tip = HttpRequestType::get_chain_tip_query(query);
+
+        Ok(HttpRequestType::GetHeaders(
+            HttpRequestMetadata::from_preamble(preamble),
+            quantity,
             tip,
         ))
     }
@@ -2087,6 +2181,61 @@ impl HttpRequestType {
         Ok(HttpRequestType::GetTransactionUnconfirmed(
             HttpRequestMetadata::from_preamble(preamble),
             txid,
+        ))
+    }
+
+    fn parse_post_fee_rate_estimate<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        _regex: &Captures,
+        _query: Option<&str>,
+        fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        let content_len = preamble.get_content_length();
+        if !(content_len > 0 && content_len < MAX_PAYLOAD_LEN) {
+            return Err(net_error::DeserializeError(format!(
+                "Invalid Http request: invalid body length for FeeRateEstimate ({})",
+                content_len
+            )));
+        }
+
+        if preamble.content_type != Some(HttpContentType::JSON) {
+            return Err(net_error::DeserializeError(
+                "Invalid content-type: expected application/json".to_string(),
+            ));
+        }
+
+        let bound_fd = BoundReader::from_reader(fd, content_len as u64);
+
+        let body: FeeRateEstimateRequestBody = serde_json::from_reader(bound_fd).map_err(|e| {
+            net_error::DeserializeError(format!("Failed to parse JSON body: {}", e))
+        })?;
+
+        let payload_hex = if body.transaction_payload.starts_with("0x") {
+            &body.transaction_payload[2..]
+        } else {
+            &body.transaction_payload
+        };
+
+        let payload_data = hex_bytes(payload_hex).map_err(|_e| {
+            net_error::DeserializeError("Bad hex string supplied for transaction payload".into())
+        })?;
+
+        let payload = TransactionPayload::consensus_deserialize(&mut payload_data.as_slice())
+            .map_err(|e| {
+                net_error::DeserializeError(format!(
+                    "Failed to deserialize transaction payload: {}",
+                    e
+                ))
+            })?;
+
+        let estimated_len =
+            std::cmp::max(body.estimated_len.unwrap_or(0), payload_data.len() as u64);
+
+        Ok(HttpRequestType::FeeRateEstimate(
+            HttpRequestMetadata::from_preamble(preamble),
+            payload,
+            estimated_len,
         ))
     }
 
@@ -2411,8 +2560,9 @@ impl HttpRequestType {
     pub fn metadata(&self) -> &HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref md) => md,
-            HttpRequestType::GetPoxInfo(ref md, _) => md,
+            HttpRequestType::GetPoxInfo(ref md, ..) => md,
             HttpRequestType::GetNeighbors(ref md) => md,
+            HttpRequestType::GetHeaders(ref md, ..) => md,
             HttpRequestType::GetBlock(ref md, _) => md,
             HttpRequestType::GetMicroblocksIndexed(ref md, _) => md,
             HttpRequestType::GetMicroblocksConfirmed(ref md, _) => md,
@@ -2422,6 +2572,7 @@ impl HttpRequestType {
             HttpRequestType::PostBlock(ref md, ..) => md,
             HttpRequestType::PostMicroblock(ref md, ..) => md,
             HttpRequestType::GetAccount(ref md, ..) => md,
+            HttpRequestType::GetDataVar(ref md, ..) => md,
             HttpRequestType::GetMapEntry(ref md, ..) => md,
             HttpRequestType::GetTransferCost(ref md) => md,
             HttpRequestType::GetContractABI(ref md, ..) => md,
@@ -2431,6 +2582,7 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref md, ..) => md,
             HttpRequestType::GetAttachment(ref md, ..) => md,
+            HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
         }
     }
@@ -2438,8 +2590,9 @@ impl HttpRequestType {
     pub fn metadata_mut(&mut self) -> &mut HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref mut md) => md,
-            HttpRequestType::GetPoxInfo(ref mut md, _) => md,
+            HttpRequestType::GetPoxInfo(ref mut md, ..) => md,
             HttpRequestType::GetNeighbors(ref mut md) => md,
+            HttpRequestType::GetHeaders(ref mut md, ..) => md,
             HttpRequestType::GetBlock(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksIndexed(ref mut md, _) => md,
             HttpRequestType::GetMicroblocksConfirmed(ref mut md, _) => md,
@@ -2449,6 +2602,7 @@ impl HttpRequestType {
             HttpRequestType::PostBlock(ref mut md, ..) => md,
             HttpRequestType::PostMicroblock(ref mut md, ..) => md,
             HttpRequestType::GetAccount(ref mut md, ..) => md,
+            HttpRequestType::GetDataVar(ref mut md, ..) => md,
             HttpRequestType::GetMapEntry(ref mut md, ..) => md,
             HttpRequestType::GetTransferCost(ref mut md) => md,
             HttpRequestType::GetContractABI(ref mut md, ..) => md,
@@ -2458,28 +2612,42 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref mut md, ..) => md,
             HttpRequestType::GetAttachment(ref mut md, ..) => md,
+            HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
         }
     }
 
-    fn make_query_string(tip_opt: Option<&StacksBlockId>, with_proof: bool) -> String {
-        if let Some(tip) = tip_opt {
-            format!("?tip={}{}", tip, if with_proof { "" } else { "&proof=0" })
-        } else if !with_proof {
-            format!("?proof=0")
-        } else {
-            "".to_string()
+    fn make_query_string(tip_req: &TipRequest, with_proof: bool) -> String {
+        match tip_req {
+            TipRequest::UseLatestUnconfirmedTip => {
+                format!("?tip=latest{}", if with_proof { "" } else { "&proof=0" })
+            }
+            TipRequest::SpecificTip(tip) => {
+                format!("?tip={}{}", tip, if with_proof { "" } else { "&proof=0" })
+            }
+            TipRequest::UseLatestAnchoredTip => {
+                if !with_proof {
+                    format!("?proof=0")
+                } else {
+                    "".to_string()
+                }
+            }
         }
     }
 
     pub fn request_path(&self) -> String {
         match self {
             HttpRequestType::GetInfo(_md) => "/v2/info".to_string(),
-            HttpRequestType::GetPoxInfo(_md, tip_opt) => format!(
+            HttpRequestType::GetPoxInfo(_md, tip_req) => format!(
                 "/v2/pox{}",
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::GetNeighbors(_md) => "/v2/neighbors".to_string(),
+            HttpRequestType::GetHeaders(_md, quantity, tip_req) => format!(
+                "/v2/headers/{}{}",
+                quantity,
+                HttpRequestType::make_query_string(tip_req, true)
+            ),
             HttpRequestType::GetBlock(_md, block_hash) => {
                 format!("/v2/blocks/{}", block_hash.to_hex())
             }
@@ -2499,14 +2667,30 @@ impl HttpRequestType {
             }
             HttpRequestType::PostTransaction(_md, ..) => "/v2/transactions".to_string(),
             HttpRequestType::PostBlock(_md, ch, ..) => format!("/v2/blocks/upload/{}", &ch),
-            HttpRequestType::PostMicroblock(_md, _, tip_opt) => format!(
+            HttpRequestType::PostMicroblock(_md, _, tip_req) => format!(
                 "/v2/microblocks{}",
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
-            HttpRequestType::GetAccount(_md, principal, tip_opt, with_proof) => format!(
-                "/v2/accounts/{}{}",
-                &principal.to_string(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
+            HttpRequestType::GetAccount(_md, principal, tip_req, with_proof) => {
+                format!(
+                    "/v2/accounts/{}{}",
+                    &principal.to_string(),
+                    HttpRequestType::make_query_string(tip_req, *with_proof,)
+                )
+            }
+            HttpRequestType::GetDataVar(
+                _md,
+                contract_addr,
+                contract_name,
+                var_name,
+                tip_req,
+                with_proof,
+            ) => format!(
+                "/v2/data_var/{}/{}/{}{}",
+                &contract_addr.to_string(),
+                contract_name.as_str(),
+                var_name.as_str(),
+                HttpRequestType::make_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetMapEntry(
                 _md,
@@ -2514,40 +2698,40 @@ impl HttpRequestType {
                 contract_name,
                 map_name,
                 _key,
-                tip_opt,
+                tip_req,
                 with_proof,
             ) => format!(
                 "/v2/map_entry/{}/{}/{}{}",
                 &contract_addr.to_string(),
                 contract_name.as_str(),
                 map_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
+                HttpRequestType::make_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetTransferCost(_md) => "/v2/fees/transfer".into(),
-            HttpRequestType::GetContractABI(_, contract_addr, contract_name, tip_opt) => format!(
+            HttpRequestType::GetContractABI(_, contract_addr, contract_name, tip_req) => format!(
                 "/v2/contracts/interface/{}/{}{}",
                 contract_addr,
                 contract_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true,)
             ),
             HttpRequestType::GetContractSrc(
                 _,
                 contract_addr,
                 contract_name,
-                tip_opt,
+                tip_req,
                 with_proof,
             ) => format!(
                 "/v2/contracts/source/{}/{}{}",
                 contract_addr,
                 contract_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
+                HttpRequestType::make_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetIsTraitImplemented(
                 _,
                 contract_addr,
                 contract_name,
                 trait_id,
-                tip_opt,
+                tip_req,
             ) => format!(
                 "/v2/traits/{}/{}/{}/{}/{}{}",
                 contract_addr,
@@ -2555,7 +2739,7 @@ impl HttpRequestType {
                 trait_id.name.to_string(),
                 StacksAddress::from(trait_id.clone().contract_identifier.issuer),
                 trait_id.contract_identifier.name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::CallReadOnlyFunction(
                 _,
@@ -2564,13 +2748,13 @@ impl HttpRequestType {
                 _,
                 func_name,
                 _,
-                tip_opt,
+                tip_req,
             ) => format!(
                 "/v2/contracts/call-read/{}/{}/{}{}",
                 contract_addr,
                 contract_name.as_str(),
                 func_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
             HttpRequestType::GetAttachmentsInv(_md, index_block_hash, pages_indexes) => {
@@ -2591,6 +2775,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachment(_, content_hash) => {
                 format!("/v2/attachments/{}", to_hex(&content_hash.0[..]))
             }
+            HttpRequestType::FeeRateEstimate(_, _, _) => self.get_path().to_string(),
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
@@ -2598,11 +2783,12 @@ impl HttpRequestType {
         }
     }
 
-    pub fn get_path(&self) -> &str {
+    pub fn get_path(&self) -> &'static str {
         match self {
             HttpRequestType::GetInfo(..) => "/v2/info",
             HttpRequestType::GetPoxInfo(..) => "/v2/pox",
             HttpRequestType::GetNeighbors(..) => "/v2/neighbors",
+            HttpRequestType::GetHeaders(..) => "/v2/headers/:height",
             HttpRequestType::GetBlock(..) => "/v2/blocks/:hash",
             HttpRequestType::GetMicroblocksIndexed(..) => "/v2/microblocks/:hash",
             HttpRequestType::GetMicroblocksConfirmed(..) => "/v2/microblocks/confirmed/:hash",
@@ -2614,6 +2800,7 @@ impl HttpRequestType {
             HttpRequestType::PostBlock(..) => "/v2/blocks/upload/:block",
             HttpRequestType::PostMicroblock(..) => "/v2/microblocks",
             HttpRequestType::GetAccount(..) => "/v2/accounts/:principal",
+            HttpRequestType::GetDataVar(..) => "/v2/data_var/:principal/:contract_name/:var_name",
             HttpRequestType::GetMapEntry(..) => "/v2/map_entry/:principal/:contract_name/:map_name",
             HttpRequestType::GetTransferCost(..) => "/v2/fees/transfer",
             HttpRequestType::GetContractABI(..) => {
@@ -2626,6 +2813,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachmentsInv(..) => "/v2/attachments/inv",
             HttpRequestType::GetAttachment(..) => "/v2/attachments/:hash",
             HttpRequestType::GetIsTraitImplemented(..) => "/v2/traits/:principal/:contract_name",
+            HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
         }
     }
@@ -2841,10 +3029,13 @@ impl HttpResponseType {
             ));
         }
 
-        if preamble.content_type != HttpContentType::Text {
-            return Err(net_error::DeserializeError(
-                "Invalid error response: expected text/plain".to_string(),
-            ));
+        if preamble.content_type != HttpContentType::Text
+            && preamble.content_type != HttpContentType::JSON
+        {
+            return Err(net_error::DeserializeError(format!(
+                "Invalid error response: expected text/plain or application/json, got {:?}",
+                &preamble.content_type
+            )));
         }
 
         let mut error_text = String::new();
@@ -3026,7 +3217,9 @@ impl HttpResponseType {
             (&PATH_GETINFO, &HttpResponseType::parse_peerinfo),
             (&PATH_GETPOXINFO, &HttpResponseType::parse_poxinfo),
             (&PATH_GETNEIGHBORS, &HttpResponseType::parse_neighbors),
+            (&PATH_GETHEADERS, &HttpResponseType::parse_headers),
             (&PATH_GETBLOCK, &HttpResponseType::parse_block),
+            (&PATH_GET_DATA_VAR, &HttpResponseType::parse_get_data_var),
             (&PATH_GET_MAP_ENTRY, &HttpResponseType::parse_get_map_entry),
             (
                 &PATH_GETMICROBLOCKS_INDEXED,
@@ -3171,6 +3364,21 @@ impl HttpResponseType {
         ))
     }
 
+    fn parse_headers<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let headers: Vec<ExtendedStacksHeader> =
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::Headers(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            headers,
+        ))
+    }
+
     fn parse_block<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
@@ -3213,6 +3421,21 @@ impl HttpResponseType {
         Ok(HttpResponseType::GetAccount(
             HttpResponseMetadata::from_preamble(request_version, preamble),
             account_entry,
+        ))
+    }
+
+    fn parse_get_data_var<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        let data_var =
+            HttpResponseType::parse_json(preamble, fd, len_hint, MAX_MESSAGE_LEN as u64)?;
+        Ok(HttpResponseType::GetDataVar(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            data_var,
         ))
     }
 
@@ -3486,6 +3709,8 @@ impl HttpResponseType {
             HttpResponseType::PeerInfo(ref md, _) => md,
             HttpResponseType::PoxInfo(ref md, _) => md,
             HttpResponseType::Neighbors(ref md, _) => md,
+            HttpResponseType::HeaderStream(ref md) => md,
+            HttpResponseType::Headers(ref md, _) => md,
             HttpResponseType::Block(ref md, _) => md,
             HttpResponseType::BlockStream(ref md) => md,
             HttpResponseType::Microblocks(ref md, _) => md,
@@ -3494,6 +3719,7 @@ impl HttpResponseType {
             HttpResponseType::StacksBlockAccepted(ref md, ..) => md,
             HttpResponseType::MicroblockHash(ref md, _) => md,
             HttpResponseType::TokenTransferCost(ref md, _) => md,
+            HttpResponseType::GetDataVar(ref md, _) => md,
             HttpResponseType::GetMapEntry(ref md, _) => md,
             HttpResponseType::GetAccount(ref md, _) => md,
             HttpResponseType::GetContractABI(ref md, _) => md,
@@ -3504,6 +3730,7 @@ impl HttpResponseType {
             HttpResponseType::GetAttachment(ref md, _) => md,
             HttpResponseType::GetAttachmentsInv(ref md, _) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
+            HttpResponseType::TransactionFeeEstimation(ref md, _) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -3583,6 +3810,10 @@ impl HttpResponseType {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, account_data)?;
             }
+            HttpResponseType::TransactionFeeEstimation(ref md, ref data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, data)?;
+            }
             HttpResponseType::GetContractABI(ref md, ref data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
@@ -3602,6 +3833,10 @@ impl HttpResponseType {
             HttpResponseType::CallReadOnlyFunction(ref md, ref data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, data)?;
+            }
+            HttpResponseType::GetDataVar(ref md, ref var_data) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, var_data)?;
             }
             HttpResponseType::GetMapEntry(ref md, ref map_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
@@ -3626,6 +3861,31 @@ impl HttpResponseType {
             HttpResponseType::GetAttachmentsInv(ref md, ref zonefile_data) => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, zonefile_data)?;
+            }
+            HttpResponseType::Headers(ref md, ref headers) => {
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    None,
+                    &HttpContentType::JSON,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+                HttpResponseType::send_json(protocol, md, fd, headers)?;
+            }
+            HttpResponseType::HeaderStream(ref md) => {
+                // only send the preamble.  The caller will need to figure out how to send along
+                // the headers data itself.
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    None,
+                    &HttpContentType::JSON,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
             }
             HttpResponseType::Block(ref md, ref block) => {
                 HttpResponsePreamble::new_serialized(
@@ -3816,6 +4076,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetInfo(_) => "HTTP(GetInfo)",
                 HttpRequestType::GetPoxInfo(_, _) => "HTTP(GetPoxInfo)",
                 HttpRequestType::GetNeighbors(_) => "HTTP(GetNeighbors)",
+                HttpRequestType::GetHeaders(..) => "HTTP(GetHeaders)",
                 HttpRequestType::GetBlock(_, _) => "HTTP(GetBlock)",
                 HttpRequestType::GetMicroblocksIndexed(_, _) => "HTTP(GetMicroblocksIndexed)",
                 HttpRequestType::GetMicroblocksConfirmed(_, _) => "HTTP(GetMicroblocksConfirmed)",
@@ -3829,6 +4090,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::PostBlock(..) => "HTTP(PostBlock)",
                 HttpRequestType::PostMicroblock(..) => "HTTP(PostMicroblock)",
                 HttpRequestType::GetAccount(..) => "HTTP(GetAccount)",
+                HttpRequestType::GetDataVar(..) => "HTTP(GetDataVar)",
                 HttpRequestType::GetMapEntry(..) => "HTTP(GetMapEntry)",
                 HttpRequestType::GetTransferCost(_) => "HTTP(GetTransferCost)",
                 HttpRequestType::GetContractABI(..) => "HTTP(GetContractABI)",
@@ -3839,9 +4101,11 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::GetAttachmentsInv(..) => "HTTP(GetAttachmentsInv)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
+                HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
+                HttpResponseType::GetDataVar(_, _) => "HTTP(GetDataVar)",
                 HttpResponseType::GetMapEntry(_, _) => "HTTP(GetMapEntry)",
                 HttpResponseType::GetAccount(_, _) => "HTTP(GetAccount)",
                 HttpResponseType::GetContractABI(..) => "HTTP(GetContractABI)",
@@ -3853,6 +4117,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::PeerInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::PoxInfo(_, _) => "HTTP(PeerInfo)",
                 HttpResponseType::Neighbors(_, _) => "HTTP(Neighbors)",
+                HttpResponseType::Headers(..) => "HTTP(Headers)",
+                HttpResponseType::HeaderStream(..) => "HTTP(HeaderStream)",
                 HttpResponseType::Block(_, _) => "HTTP(Block)",
                 HttpResponseType::BlockStream(_) => "HTTP(BlockStream)",
                 HttpResponseType::Microblocks(_, _) => "HTTP(Microblocks)",
@@ -3872,6 +4138,9 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::ServerError(_, _) => "HTTP(500)",
                 HttpResponseType::ServiceUnavailable(_, _) => "HTTP(503)",
                 HttpResponseType::Error(_, _, _) => "HTTP(other)",
+                HttpResponseType::TransactionFeeEstimation(_, _) => {
+                    "HTTP(TransactionFeeEstimation)"
+                }
             },
         }
     }
@@ -4016,6 +4285,37 @@ impl StacksHttp {
             stream: HttpRecvStream::new(MAX_MESSAGE_LEN as u64),
         });
         true
+    }
+
+    pub fn set_preamble(&mut self, preamble: &StacksHttpPreamble) -> Result<(), net_error> {
+        // if we already have a pending message, then this preamble cannot be processed (indicates an un-compliant client)
+        match preamble {
+            StacksHttpPreamble::Response(ref http_response_preamble) => {
+                // request path must have been set
+                if self.request_path.is_none() {
+                    return Err(net_error::DeserializeError(
+                        "Possible bug: did not set the request path".to_string(),
+                    ));
+                }
+
+                if http_response_preamble.is_chunked() {
+                    // will stream this.  Make sure we're not doing so already (no collisions
+                    // allowed on in-flight request IDs!)
+                    if self.has_pending_reply() {
+                        test_debug!("Have pending reply already");
+                        return Err(net_error::InProgress);
+                    }
+
+                    // mark as pending -- we can stream this
+                    if !self.set_pending(http_response_preamble) {
+                        test_debug!("Have pending reply already");
+                        return Err(net_error::InProgress);
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     pub fn begin_request(&mut self, client_version: HttpVersion, request_path: String) -> () {
@@ -4168,33 +4468,7 @@ impl ProtocolFamily for StacksHttp {
 
         let preamble_len = cursor.position() as usize;
 
-        // if we already have a pending message, then this preamble cannot be processed (indicates an un-compliant client)
-        match preamble {
-            StacksHttpPreamble::Response(ref http_response_preamble) => {
-                // request path must have been set
-                if self.request_path.is_none() {
-                    return Err(net_error::DeserializeError(
-                        "Possible bug: did not set the request path".to_string(),
-                    ));
-                }
-
-                if http_response_preamble.is_chunked() {
-                    // will stream this.  Make sure we're not doing so already (no collisions
-                    // allowed on in-flight request IDs!)
-                    if self.has_pending_reply() {
-                        test_debug!("Have pending reply already");
-                        return Err(net_error::InProgress);
-                    }
-
-                    // mark as pending -- we can stream this
-                    if !self.set_pending(http_response_preamble) {
-                        test_debug!("Have pending reply already");
-                        return Err(net_error::InProgress);
-                    }
-                }
-            }
-            _ => {}
-        }
+        self.set_preamble(&preamble)?;
 
         Ok((preamble, preamble_len))
     }
@@ -5957,7 +6231,7 @@ mod test {
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 4\r\n\r\n\"ab\"",
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\n{",
             "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 1\r\n\r\na",
-            "HTTP/1.1 400 Bad Request\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nContent-length: 2\r\n\r\n{}",
+            "HTTP/1.1 400 Bad Request\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/octet-stream\r\nContent-length: 2\r\n\r\n{}",
         ];
         let expected_bad_request_payload_errors = vec![
             "Invalid content-type",
@@ -6305,46 +6579,58 @@ mod test {
     #[test]
     fn test_http_parse_proof_tip_query() {
         let query_txt = "tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392";
-        assert_eq!(
-            HttpRequestType::get_chain_tip_query(Some(query_txt)).unwrap(),
-            StacksBlockId::from_hex(
-                "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
-            )
-            .unwrap()
-        );
+        let tip_req = HttpRequestType::get_chain_tip_query(Some(query_txt));
+        match tip_req {
+            TipRequest::SpecificTip(tip) => assert_eq!(
+                tip,
+                StacksBlockId::from_hex(
+                    "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
+                )
+                .unwrap()
+            ),
+            _ => panic!(),
+        }
 
         // first parseable tip is taken
         let query_txt_dup = "tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
-        assert_eq!(
-            HttpRequestType::get_chain_tip_query(Some(query_txt_dup)).unwrap(),
-            StacksBlockId::from_hex(
-                "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
-            )
-            .unwrap()
-        );
+        let tip_req = HttpRequestType::get_chain_tip_query(Some(query_txt));
+        match tip_req {
+            TipRequest::SpecificTip(tip) => assert_eq!(
+                tip,
+                StacksBlockId::from_hex(
+                    "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
+                )
+                .unwrap()
+            ),
+            _ => panic!(),
+        }
 
         // first parseable tip is taken
         let query_txt_dup = "tip=bad&tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
-        assert_eq!(
-            HttpRequestType::get_chain_tip_query(Some(query_txt_dup)).unwrap(),
-            StacksBlockId::from_hex(
-                "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
-            )
-            .unwrap()
-        );
+        let tip_req = HttpRequestType::get_chain_tip_query(Some(query_txt_dup));
+        match tip_req {
+            TipRequest::SpecificTip(tip) => assert_eq!(
+                tip,
+                StacksBlockId::from_hex(
+                    "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
+                )
+                .unwrap()
+            ),
+            _ => panic!(),
+        }
 
         // tip can be skipped
         let query_txt_bad = "tip=bad";
         assert_eq!(
             HttpRequestType::get_chain_tip_query(Some(query_txt_bad)),
-            None
+            TipRequest::UseLatestAnchoredTip
         );
 
         // tip can be skipped
         let query_txt_none = "tip=bad";
         assert_eq!(
             HttpRequestType::get_chain_tip_query(Some(query_txt_none)),
-            None
+            TipRequest::UseLatestAnchoredTip
         );
     }
 

@@ -35,6 +35,7 @@ use chainstate::burn::db::sortdb::SortitionHandleTx;
 use chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
 };
+
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
 use util::db::DBConn;
@@ -72,6 +73,7 @@ pub enum Error {
     BlockCommitBadOutputs,
     BlockCommitAnchorCheck,
     BlockCommitBadModulus,
+    BlockCommitBadEpoch,
     MissedBlockCommit(MissedBlockCommit),
 
     // all the things that can go wrong with leader key register
@@ -114,6 +116,9 @@ impl fmt::Display for Error {
             }
             Error::BlockCommitBadModulus => {
                 write!(f, "Block commit included a bad burn block height modulus")
+            }
+            Error::BlockCommitBadEpoch => {
+                write!(f, "Block commit has an invalid epoch")
             }
             Error::MissedBlockCommit(_) => write!(
                 f,
@@ -240,7 +245,7 @@ pub struct LeaderKeyRegisterOp {
     pub consensus_hash: ConsensusHash, // consensus hash at time of issuance
     pub public_key: VRFPublicKey,      // EdDSA public key
     pub memo: Vec<u8>,                 // extra bytes in the op-return
-    pub address: StacksAddress, // hash of public key(s) that will send the leader block commit
+    pub address: StacksAddress, // NOTE: no longer used for anything consensus-critical, but identifies the change address output
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -249,6 +254,7 @@ pub struct LeaderKeyRegisterOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of burn chain block
 }
 
+/// NOTE: this struct is currently not used
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct UserBurnSupportOp {
     pub address: StacksAddress,
@@ -373,7 +379,6 @@ impl fmt::Display for BlockstackOperationType {
             BlockstackOperationType::LeaderKeyRegister(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::PreStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::StackStx(ref op) => write!(f, "{:?}", op),
-
             BlockstackOperationType::LeaderBlockCommit(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::UserBurnSupport(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::TransferStx(ref op) => write!(f, "{:?}", op),

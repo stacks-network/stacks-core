@@ -4,7 +4,8 @@ use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
 
-use ctrlc as termination;
+use stacks::deps::ctrlc as termination;
+use stacks::deps::ctrlc::SignalId;
 
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
@@ -12,15 +13,12 @@ use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
-    BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
+    check_chainstate_db_versions, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
-use stacks::chainstate::stacks::MAX_BLOCK_LEN;
-use stacks::cost_estimates::metrics::ProportionalDotProduct;
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stx_genesis::GenesisData;
 
-use crate::config::{CostEstimatorName, CostMetricName, FeeEstimatorName};
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::PoxSyncWatchdog;
@@ -31,6 +29,8 @@ use crate::{
 };
 
 use super::RunLoopCallbacks;
+use libc;
+pub const STDERR: i32 = 2;
 
 /// Coordinating a node running in neon mode.
 #[cfg(test)]
@@ -47,6 +47,24 @@ pub struct RunLoop {
     config: Config,
     pub callbacks: RunLoopCallbacks,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
+}
+
+/// Write to stderr in an async-safe manner.
+/// See signal-safety(7)
+fn async_safe_write_stderr(msg: &str) {
+    #[cfg(windows)]
+    unsafe {
+        // write(2) inexplicably has a different ABI only on Windows.
+        libc::write(
+            STDERR,
+            msg.as_ptr() as *const libc::c_void,
+            msg.len() as u32,
+        );
+    }
+    #[cfg(not(windows))]
+    unsafe {
+        libc::write(STDERR, msg.as_ptr() as *const libc::c_void, msg.len());
+    }
 }
 
 impl RunLoop {
@@ -117,12 +135,27 @@ impl RunLoop {
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let keep_running_writer = should_keep_running.clone();
 
-        let install = termination::set_handler(move || {
-            info!("Graceful termination request received, will complete the ongoing runloop cycles and terminate");
-            keep_running_writer.store(false, Ordering::SeqCst);
+        let install = termination::set_handler(move |sig_id| match sig_id {
+            SignalId::Bus => {
+                let msg = "Caught SIGBUS; crashing immediately and dumping core\n";
+                async_safe_write_stderr(msg);
+                unsafe {
+                    libc::abort();
+                }
+            }
+            _ => {
+                let msg = format!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate\n", sig_id);
+                async_safe_write_stderr(&msg);
+                keep_running_writer.store(false, Ordering::SeqCst);
+            }
         });
+
         if let Err(e) = install {
-            error!("Error setting termination handler - {}", e);
+            // integration tests can do this
+            if cfg!(test) {
+            } else {
+                panic!("FATAL: error setting termination handler - {}", e);
+            }
         }
 
         // Initialize and start the burnchain.
@@ -132,7 +165,20 @@ impl RunLoop {
             burnchain_opt,
             Some(should_keep_running.clone()),
         );
+
         let pox_constants = burnchain.get_pox_constants();
+        let epochs = burnchain.get_stacks_epochs();
+        if !check_chainstate_db_versions(
+            &epochs,
+            &self.config.get_burn_db_file_path(),
+            &self.config.get_chainstate_path_str(),
+        )
+        .expect("FATAL: unable to query filesystem or databases for version information")
+        {
+            panic!(
+                "FATAL: chainstate database(s) are not compatible with the current system epoch"
+            );
+        }
 
         let is_miner = if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
@@ -184,9 +230,14 @@ impl RunLoop {
             }
         };
 
+        // Invoke connect() to perform any db instantiation early
+        if let Err(e) = burnchain.connect_dbs() {
+            error!("Failed to connect to burnchain databases: {}", e);
+            return;
+        };
+
         let mainnet = self.config.is_mainnet();
         let chainid = self.config.burnchain.chain_id;
-        let block_limit = self.config.block_limit.clone();
         let initial_balances = self
             .config
             .initial_balances
@@ -241,46 +292,19 @@ impl RunLoop {
             chainid,
             &chainstate_path,
             Some(&mut boot_data),
-            block_limit,
         )
         .unwrap();
         coordinator_dispatcher.dispatch_boot_receipts(receipts);
 
         let atlas_config = AtlasConfig::default(mainnet);
         let moved_atlas_config = atlas_config.clone();
-        let moved_estimator_config = self.config.estimation.clone();
-        let moved_chainstate_path = self.config.get_chainstate_path();
-        let moved_block_limit = self.config.block_limit.clone();
+        let moved_config = self.config.clone();
 
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
             .spawn(move || {
-                let cost_estimator = match moved_estimator_config.cost_estimator {
-                    Some(CostEstimatorName::NaivePessimistic) => Some(
-                        moved_estimator_config
-                            .make_pessimistic_cost_estimator(moved_chainstate_path.clone()),
-                    ),
-                    None => None,
-                };
-
-                let metric = match moved_estimator_config.cost_metric {
-                    Some(CostMetricName::ProportionDotProduct) => Some(
-                        ProportionalDotProduct::new(MAX_BLOCK_LEN as u64, moved_block_limit),
-                    ),
-                    None => None,
-                };
-
-                let fee_estimator = match moved_estimator_config.fee_estimator {
-                    Some(FeeEstimatorName::ScalarFeeRate) => {
-                        let metric = metric
-                            .expect("Configured a fee rate estimator without a configure metric.");
-                        Some(
-                            moved_estimator_config
-                                .make_scalar_fee_estimator(moved_chainstate_path, metric),
-                        )
-                    }
-                    None => None,
-                };
+                let mut cost_estimator = moved_config.make_cost_estimator();
+                let mut fee_estimator = moved_config.make_fee_estimator();
 
                 ChainsCoordinator::run(
                     chain_state_db,
@@ -289,8 +313,8 @@ impl RunLoop {
                     &mut coordinator_dispatcher,
                     coordinator_receivers,
                     moved_atlas_config,
-                    cost_estimator,
-                    fee_estimator,
+                    cost_estimator.as_deref_mut(),
+                    fee_estimator.as_deref_mut(),
                 );
             })
             .unwrap();
@@ -397,6 +421,7 @@ impl RunLoop {
             block_height
         );
 
+        let mut last_block_height = 0;
         loop {
             // Orchestrating graceful termination
             if !should_keep_running.load(Ordering::SeqCst) {
@@ -460,10 +485,12 @@ impl RunLoop {
             let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
             let next_height = burnchain_tip.block_snapshot.block_height;
 
-            info!(
-                "Downloaded burnchain blocks up to height {}; new target height is {}; next_height = {}, block_height = {}",
-                next_burnchain_height, target_burnchain_block_height, next_height, block_height
-            );
+            if next_height != last_block_height {
+                info!(
+                    "Downloaded burnchain blocks up to height {}; new target height is {}; next_height = {}, block_height = {}",
+                    next_burnchain_height, target_burnchain_block_height, next_height, block_height
+                );
+            }
 
             if next_height > block_height {
                 debug!(
@@ -479,7 +506,7 @@ impl RunLoop {
                         let ic = burnchain.sortdb_ref().index_conn();
                         SortitionDB::get_ancestor_snapshot(&ic, block_to_process, sortition_tip)
                             .unwrap()
-                            .expect("Failed to find block in fork processed by bitcoin indexer")
+                            .expect("Failed to find block in fork processed by burnchain indexer")
                     };
                     if block.sortition {
                         sort_count += 1;
@@ -533,10 +560,13 @@ impl RunLoop {
                     mine_start = 0;
 
                     // at tip, and not downloading. proceed to mine.
-                    info!(
-                        "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
-                        block_height
-                    );
+                    if last_block_height != block_height {
+                        info!(
+                            "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
+                            block_height
+                        );
+                        last_block_height = block_height;
+                    }
                     if !node.relayer_issue_tenure() {
                         // relayer hung up, exit.
                         error!("Block relayer and miner hung up, exiting.");
