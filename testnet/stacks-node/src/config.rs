@@ -1237,7 +1237,7 @@ impl FeeEstimationConfig {
             let underlying_estimator =
                 WeightedMedianFeeRateEstimator::open(&chainstate_path, metric, 5)
                     .expect("Error opening fee estimator");
-            Box::new(FeeRateFuzzer::new(underlying_estimator, 0.5))
+            Box::new(FeeRateFuzzer::new(underlying_estimator, 0.1))
         } else {
             panic!("BUG: Expected to configure a weighted median fee estimator");
         }
