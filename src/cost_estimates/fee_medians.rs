@@ -39,6 +39,8 @@ CREATE TABLE median_fee_estimator (
     low NUMBER NOT NULL
 )";
 
+const MINIMUM_TX_FEE_RATE:f64 = 1f64;
+
 /// FeeRateEstimator with the following properties:
 ///
 /// 1) We use a "weighted" percentile approach for calculating the percentile values. Described
@@ -299,7 +301,7 @@ fn maybe_add_minimum_fee_rate(working_rates: &mut Vec<FeeRateAndWeight>, full_bl
     if total_weight < full_block_weight {
         let weight_remaining = full_block_weight - total_weight;
         working_rates.push(FeeRateAndWeight {
-            fee_rate: 1f64,
+            fee_rate: MINIMUM_TX_FEE_RATE,
             weight: weight_remaining,
         })
     }
@@ -335,17 +337,17 @@ fn fee_rate_and_weight_from_receipt(
     let denominator = if scalar_cost >= 1 {
         scalar_cost as f64
     } else {
-        1f64
+        MINIMUM_TX_FEE_RATE
     };
     let fee_rate = fee as f64 / denominator;
-    if fee_rate >= 1f64 && fee_rate.is_finite() {
+    if fee_rate >= MINIMUM_TX_FEE_RATE && fee_rate.is_finite() {
         Some(FeeRateAndWeight {
             fee_rate,
             weight: scalar_cost,
         })
     } else {
         Some(FeeRateAndWeight {
-            fee_rate: 1f64,
+            fee_rate: MINIMUM_TX_FEE_RATE,
             weight: scalar_cost,
         })
     }
