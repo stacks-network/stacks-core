@@ -248,6 +248,11 @@ pub fn fee_rate_estimate_from_sorted_weighted_fees(
     for rate_and_weight in sorted_fee_rates {
         total_weight += rate_and_weight.weight as f64;
     }
+
+    if total_weight <= 0f64 {
+        panic!("`total_weight` is 0f64. This is an error.");
+    }
+
     let mut cumulative_weight = 0f64;
     let mut percentiles = Vec::new();
     for rate_and_weight in sorted_fee_rates {
