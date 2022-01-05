@@ -5937,15 +5937,11 @@ fn run_until_burnchain_height(
     true
 }
 
-/// This is an integration test for the "fuzzed_weighted_median_fee_rate" estimation.  It tests that
-/// 1) We can load up the "fuzzed_weighted_median_fee_rate" fee estimator.
-/// 2) We get results that look "somewhat right", but we can't expect exact values due to
-///    pseudo-random fuzz.
-/// We test that, if fees are increasing every block round for the same transaction, that we
-/// expect to see the fee rate estimates rise on every round, modulo the random noise.
-#[test]
-#[ignore]
-fn fuzzed_median_fee_rate_estimation_test() {
+/// Run a fixed contract 20 times. Linearly increase the amount paid each time. The cost of the
+/// contract should stay the same, and the fee rate paid should monotonically grow. The value
+/// should grow faster for lower values of `window_size`, because a bigger window slows down the
+/// growth.
+fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value: f64) {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -5979,6 +5975,9 @@ fn fuzzed_median_fee_rate_estimation_test() {
 
     // Set this estimator as special.
     conf.estimation.fee_estimator = Some(FeeEstimatorName::FuzzedWeightedMedianFeeRate);
+    // Use randomness of 0 to keep test constant. Randomness is tested in unit tests.
+    conf.estimation.fee_rate_fuzzer_fraction = 0f64;
+    conf.estimation.fee_rate_window_size = window_size;
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone().into(),
@@ -6025,11 +6024,11 @@ fn fuzzed_median_fee_rate_estimation_test() {
     );
     run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 212, &conf);
 
-    // Loop 10 times. Each time, execute the same transaction, but increase the amount *paid*.
-    // We will then check that the fee rates always go up, but the cost stays the same.
+    // Loop 20 times. Each time, execute the same transaction, but increase the amount *paid*.
+    // This will exercise the window size.
     let mut response_estimated_costs = vec![];
     let mut response_top_fee_rates = vec![];
-    for i in 1..11 {
+    for i in 1..21 {
         submit_tx(
             &http_origin,
             &make_contract_call(
@@ -6084,13 +6083,12 @@ fn fuzzed_median_fee_rate_estimation_test() {
 
     // Check that:
     // 1) The cost is always the same.
-    // 2) The estimated fee rate only either i) moves up, ii) stays within random noise of where it
-    //    was.
+    // 2) Only grows.
     for i in 1..response_estimated_costs.len() {
         let curr_rate = response_top_fee_rates[i] as f64;
         let last_rate = response_top_fee_rates[i - 1] as f64;
-        // Check that either 1) curr_rate is bigger, or 2) is only smaller by random 11% noise.
-        assert!(curr_rate - last_rate > -1.0 * curr_rate * 0.11);
+        // Check that the rate is growing monotonically.
+        assert!(curr_rate >= last_rate);
 
         // The cost is always the same.
         let curr_cost = response_estimated_costs[i];
@@ -6098,7 +6096,26 @@ fn fuzzed_median_fee_rate_estimation_test() {
         assert_eq!(curr_cost, last_cost);
     }
 
+    // Check the final value is "near" what was expected.
+    assert!(response_top_fee_rates.last().unwrap() - expected_final_value < 0.1);
+
     channel.stop_chains_coordinator();
+}
+
+/// Test the FuzzedWeightedMedianFeeRate with window size 5 and randomness 0. We increase the
+/// amount paid linearly each time. This estimate should grow faster than with window size 10.
+#[test]
+#[ignore]
+fn fuzzed_median_fee_rate_estimation_test_window5() {
+    fuzzed_median_fee_rate_estimation_test(5, 202680.0992)
+}
+
+/// Test the FuzzedWeightedMedianFeeRate with window size 10 and randomness 0. We increase the
+/// amount paid linearly each time. This estimate should grow faster than with window size 5.
+#[test]
+#[ignore]
+fn fuzzed_median_fee_rate_estimation_test_window10() {
+    fuzzed_median_fee_rate_estimation_test(10, 90080.5496)
 }
 
 #[test]

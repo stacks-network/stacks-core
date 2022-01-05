@@ -23,7 +23,7 @@ pub struct FeeRateFuzzer<UnderlyingEstimator: FeeEstimator> {
     rng_creator: Box<dyn Fn() -> Box<dyn RngCore>>,
     /// The fuzzed rate will be `R * (1 + alpha)`, where `R` is the original rate, and `alpha` is a
     /// random number in `[-uniform_fuzz_fraction, uniform_fuzz_fraction]`.
-    /// Note: Must be `0 < uniform_fuzz_fraction < 1`.
+    /// Note: Must be `0 <= uniform_fuzz_fraction < 1`.
     uniform_fuzz_fraction: f64,
 }
 
@@ -34,7 +34,7 @@ impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
         underlying: UnderlyingEstimator,
         uniform_fuzz_fraction: f64,
     ) -> FeeRateFuzzer<UnderlyingEstimator> {
-        assert!(0.0 < uniform_fuzz_fraction && uniform_fuzz_fraction < 1.0);
+        assert!(0.0 <= uniform_fuzz_fraction && uniform_fuzz_fraction < 1.0);
         let rng_creator = Box::new(|| {
             let r: Box<dyn RngCore> = Box::new(thread_rng());
             r
@@ -53,7 +53,7 @@ impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
         rng_creator: Box<dyn Fn() -> Box<dyn RngCore>>,
         uniform_fuzz_fraction: f64,
     ) -> FeeRateFuzzer<UnderlyingEstimator> {
-        assert!(0.0 < uniform_fuzz_fraction && uniform_fuzz_fraction < 1.0);
+        assert!(0.0 <= uniform_fuzz_fraction && uniform_fuzz_fraction < 1.0);
         Self {
             underlying,
             rng_creator,
@@ -63,10 +63,14 @@ impl<UnderlyingEstimator: FeeEstimator> FeeRateFuzzer<UnderlyingEstimator> {
 
     /// Add a uniform fuzz to input. Each element is multiplied by the same random factor.
     fn fuzz_estimate(&self, input: FeeRateEstimate) -> FeeRateEstimate {
-        let mut rng = (self.rng_creator)();
-        let uniform = Uniform::new(-self.uniform_fuzz_fraction, self.uniform_fuzz_fraction);
-        let fuzz_scale = 1f64 + uniform.sample(&mut rng);
-        input * fuzz_scale
+        if self.uniform_fuzz_fraction > 0f64 {
+            let mut rng = (self.rng_creator)();
+            let uniform = Uniform::new(-self.uniform_fuzz_fraction, self.uniform_fuzz_fraction);
+            let fuzz_scale = 1f64 + uniform.sample(&mut rng);
+            input * fuzz_scale
+        } else {
+            input
+        }
     }
 }
 
