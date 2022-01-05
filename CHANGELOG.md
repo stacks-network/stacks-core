@@ -7,7 +7,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Upcoming]
 
-### Changed
+### Added
 
 - A new fee estimator intended to produce fewer over-estimates, by having less
   sensitivity to outliers. Its characteristic features are: 1) use a window to
@@ -15,7 +15,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   percentiles, so that bigger transactions influence the estimates more, 3)
   assess empty blocks as having paid the "minimum fee", so that empty space is
   accounted for, 4) use random "fuzz" so that in busy times we will not have
-  ties. We will now default to this estimator.
+  ties.
 
 ## [2.05.0.0.0]
 
