@@ -6103,7 +6103,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
 }
 
 /// Test the FuzzedWeightedMedianFeeRate with window size 5 and randomness 0. We increase the
-/// amount paid linearly each time. This estimate should grow faster than with window size 10.
+/// amount paid linearly each time. This estimate should grow *faster* than with window size 10.
 #[test]
 #[ignore]
 fn fuzzed_median_fee_rate_estimation_test_window5() {
@@ -6111,7 +6111,7 @@ fn fuzzed_median_fee_rate_estimation_test_window5() {
 }
 
 /// Test the FuzzedWeightedMedianFeeRate with window size 10 and randomness 0. We increase the
-/// amount paid linearly each time. This estimate should grow faster than with window size 5.
+/// amount paid linearly each time. This estimate should grow *slower* than with window size 5.
 #[test]
 #[ignore]
 fn fuzzed_median_fee_rate_estimation_test_window10() {
