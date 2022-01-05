@@ -1114,10 +1114,10 @@ pub struct FeeEstimationConfig {
     pub log_error: bool,
     /// If using FeeRateFuzzer, the amount of random noise, as a percentage of the base value (in
     /// [0, 1]) to add for fuzz. See comments on FeeRateFuzzer.
-    pub fee_rate_fuzzer_fraction: Option<f64>,
+    pub fee_rate_fuzzer_fraction: f64,
     /// If using WeightedMedianFeeRateEstimator, the window size to use. See comments on
     /// WeightedMedianFeeRateEstimator.
-    pub fee_rate_window_size: Option<u64>,
+    pub fee_rate_window_size: u64,
 }
 
 impl Default for FeeEstimationConfig {
@@ -1127,8 +1127,8 @@ impl Default for FeeEstimationConfig {
             fee_estimator: Some(FeeEstimatorName::default()),
             cost_metric: Some(CostMetricName::default()),
             log_error: false,
-            fee_rate_fuzzer_fraction: Some(0.1f64),
-            fee_rate_window_size: Some(5u64),
+            fee_rate_fuzzer_fraction: 0.1f64,
+            fee_rate_window_size: 5u64,
         }
     }
 }
@@ -1141,8 +1141,8 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
                 fee_estimator: None,
                 cost_metric: None,
                 log_error: false,
-                fee_rate_fuzzer_fraction: None,
-                fee_rate_window_size: None,
+                fee_rate_fuzzer_fraction: 0f64,
+                fee_rate_window_size: 0u64,
             };
         }
         let cost_estimator = f
@@ -1163,8 +1163,8 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
             fee_estimator: Some(fee_estimator),
             cost_metric: Some(cost_metric),
             log_error,
-            fee_rate_fuzzer_fraction: f.fee_rate_fuzzer_fraction,
-            fee_rate_window_size: f.fee_rate_window_size,
+            fee_rate_fuzzer_fraction: f.fee_rate_fuzzer_fraction.unwrap_or(0.1f64),
+            fee_rate_window_size: f.fee_rate_window_size.unwrap_or(5u64),
         }
     }
 }
@@ -1250,15 +1250,13 @@ impl FeeEstimationConfig {
                 &chainstate_path,
                 metric,
                 self.fee_rate_window_size
-                    .expect("Must set `fee_rate_window_size`.")
                     .try_into()
                     .expect("Configured fee rate window size out of bounds."),
             )
             .expect("Error opening fee estimator");
             Box::new(FeeRateFuzzer::new(
                 underlying_estimator,
-                self.fee_rate_fuzzer_fraction
-                    .expect("Must set `fee_rate_fuzzer_fraction`."),
+                self.fee_rate_fuzzer_fraction,
             ))
         } else {
             panic!("BUG: Expected to configure a weighted median fee estimator");
