@@ -5976,8 +5976,8 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     // Set this estimator as special.
     conf.estimation.fee_estimator = Some(FeeEstimatorName::FuzzedWeightedMedianFeeRate);
     // Use randomness of 0 to keep test constant. Randomness is tested in unit tests.
-    conf.estimation.fee_rate_fuzzer_fraction = 0f64;
-    conf.estimation.fee_rate_window_size = window_size;
+    conf.estimation.fee_rate_fuzzer_fraction = Some(0f64);
+    conf.estimation.fee_rate_window_size = Some(window_size);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone().into(),
