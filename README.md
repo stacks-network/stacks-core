@@ -381,7 +381,7 @@ rank transactions in the mempool or client to determine appropriate fee rates
 for transactions before broadcasting them.
 
 The default estimator is now `fuzzed_weighted_median_fee_rate`. This uses a
-median estimate from a window the past `fee_rate_window_size` fees paid.
+median estimate from a window of the fees paid in the last `fee_rate_window_size` blocks.
 Estimates are then randomly "fuzzed" using uniform random fuzz of size up to
 `fee_rate_fuzzer_fraction` of the base estimate.
 
