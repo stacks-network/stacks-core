@@ -1249,7 +1249,7 @@ impl FeeEstimationConfig {
             let underlying_estimator = WeightedMedianFeeRateEstimator::open(
                 &chainstate_path,
                 metric,
-                self.fee_rate_window_size.try_into().unwrap(),
+                self.fee_rate_window_size.try_into().expect("Configured fee rate window size out of bounds."),
             )
             .expect("Error opening fee estimator");
             Box::new(FeeRateFuzzer::new(
