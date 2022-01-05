@@ -1246,10 +1246,16 @@ impl FeeEstimationConfig {
     ) -> Box<dyn FeeEstimator> {
         if let Some(FeeEstimatorName::FuzzedWeightedMedianFeeRate) = self.fee_estimator.as_ref() {
             chainstate_path.push("fee_fuzzed_weighted_median.sqlite");
-            let underlying_estimator =
-                WeightedMedianFeeRateEstimator::open(&chainstate_path, metric, 5)
-                    .expect("Error opening fee estimator");
-            Box::new(FeeRateFuzzer::new(underlying_estimator, 0.1))
+            let underlying_estimator = WeightedMedianFeeRateEstimator::open(
+                &chainstate_path,
+                metric,
+                self.fee_rate_window_size.try_into().unwrap(),
+            )
+            .expect("Error opening fee estimator");
+            Box::new(FeeRateFuzzer::new(
+                underlying_estimator,
+                self.fee_rate_fuzzer_fraction,
+            ))
         } else {
             panic!("BUG: Expected to configure a weighted median fee estimator");
         }

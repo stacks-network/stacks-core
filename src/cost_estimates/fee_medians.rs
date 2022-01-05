@@ -39,7 +39,7 @@ CREATE TABLE median_fee_estimator (
     low NUMBER NOT NULL
 )";
 
-const MINIMUM_TX_FEE_RATE:f64 = 1f64;
+const MINIMUM_TX_FEE_RATE: f64 = 1f64;
 
 /// FeeRateEstimator with the following properties:
 ///
