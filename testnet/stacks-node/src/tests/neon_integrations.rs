@@ -162,6 +162,8 @@ pub mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
+    /// Called by the process listening to events on a mined microblock event. The event is added
+    /// to the mutex-guarded vector `MINED_MICROBLOCKS`.
     async fn handle_mined_microblock(
         tx_event: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
@@ -3819,18 +3821,6 @@ fn mining_events_integration_test() {
 
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let account = get_account(&http_origin, &miner_account);
-    assert_eq!(account.nonce, 1);
-    assert_eq!(account.balance, 0);
-
-    let account = get_account(&http_origin, &addr);
-    assert_eq!(account.nonce, 0);
-    assert_eq!(account.balance, 10000000);
-
-    let account = get_account(&http_origin, &addr_2);
-    assert_eq!(account.nonce, 0);
-    assert_eq!(account.balance, 10000000);
 
     submit_tx(&http_origin, &tx); // should succeed
     submit_tx(&http_origin, &tx_2); // should fail since it tries to publish contract with same name

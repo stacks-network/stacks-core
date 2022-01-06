@@ -723,7 +723,7 @@ impl MemPoolDB {
     ///  highest-fee-first order.  This method is interruptable -- in the `settings` struct, the
     ///  caller may choose how long to spend iterating before this method stops.
     ///
-    ///  `todo` returns the number of transactions considered on success.
+    ///  `todo` returns a boolean representing whether or not to keep iterating.
     pub fn iterate_candidates<F, E, C>(
         &mut self,
         clarity_tx: &mut C,
