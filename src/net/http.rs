@@ -41,7 +41,6 @@ use chainstate::burn::ConsensusHash;
 use chainstate::stacks::{StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction};
 use deps::httparse;
 use net::atlas::Attachment;
-use net::CallReadOnlyRequestBody;
 use net::ClientError;
 use net::Error as net_error;
 use net::Error::ClarityError;
@@ -68,6 +67,7 @@ use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_HEADERS;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
+use net::{CallReadOnlyRequestBody, TipRequest};
 use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
 use util::hash::hex_bytes;
 use util::hash::to_hex;
@@ -1682,9 +1682,8 @@ impl HttpRequestType {
         ))
     }
 
-    /// check whether the given option query string
-    ///   sets proof=0 (setting proof to false).
-    /// Defaults to _true_
+    /// Check whether the given option query string sets proof=0 (setting proof to false).
+    /// Defaults to true.
     fn get_proof_query(query: Option<&str>) -> bool {
         let no_proof = if let Some(query_string) = query {
             form_urlencoded::parse(query_string.as_bytes())
@@ -1700,7 +1699,7 @@ impl HttpRequestType {
 
     /// get the chain tip optional query argument (`tip`)
     /// Take the first value we can parse.
-    fn get_chain_tip_query(query: Option<&str>) -> Option<StacksBlockId> {
+    fn get_chain_tip_query(query: Option<&str>) -> TipRequest {
         match query {
             Some(query_string) => {
                 for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
@@ -1708,14 +1707,17 @@ impl HttpRequestType {
                         continue;
                     }
 
+                    if value == "latest" {
+                        return TipRequest::UseLatestUnconfirmedTip;
+                    }
                     if let Ok(tip) = StacksBlockId::from_hex(&value) {
-                        return Some(tip);
+                        return TipRequest::SpecificTip(tip);
                     }
                 }
-                return None;
+                return TipRequest::UseLatestAnchoredTip;
             }
             None => {
-                return None;
+                return TipRequest::UseLatestAnchoredTip;
             }
         }
     }
@@ -2559,7 +2561,7 @@ impl HttpRequestType {
     pub fn metadata(&self) -> &HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref md) => md,
-            HttpRequestType::GetPoxInfo(ref md, _) => md,
+            HttpRequestType::GetPoxInfo(ref md, ..) => md,
             HttpRequestType::GetNeighbors(ref md) => md,
             HttpRequestType::GetHeaders(ref md, ..) => md,
             HttpRequestType::GetBlock(ref md, _) => md,
@@ -2589,7 +2591,7 @@ impl HttpRequestType {
     pub fn metadata_mut(&mut self) -> &mut HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref mut md) => md,
-            HttpRequestType::GetPoxInfo(ref mut md, _) => md,
+            HttpRequestType::GetPoxInfo(ref mut md, ..) => md,
             HttpRequestType::GetNeighbors(ref mut md) => md,
             HttpRequestType::GetHeaders(ref mut md, ..) => md,
             HttpRequestType::GetBlock(ref mut md, _) => md,
@@ -2616,36 +2618,36 @@ impl HttpRequestType {
         }
     }
 
-    fn make_query_string(tip_opt: Option<&StacksBlockId>, with_proof: bool) -> String {
-        if let Some(tip) = tip_opt {
-            format!(
-                "?tip={}{}",
-                tip,
-                if with_proof { "&proof=1" } else { "&proof=0" }
-            )
-        } else if !with_proof {
-            format!("?proof=0")
-        } else {
-            "".to_string()
+    fn make_query_string(tip_req: &TipRequest, with_proof: bool) -> String {
+        match tip_req {
+            TipRequest::UseLatestUnconfirmedTip => {
+                format!("?tip=latest{}", if with_proof { "" } else { "&proof=0" })
+            }
+            TipRequest::SpecificTip(tip) => {
+                format!("?tip={}{}", tip, if with_proof { "" } else { "&proof=0" })
+            }
+            TipRequest::UseLatestAnchoredTip => {
+                if !with_proof {
+                    format!("?proof=0")
+                } else {
+                    "".to_string()
+                }
+            }
         }
     }
 
     pub fn request_path(&self) -> String {
         match self {
             HttpRequestType::GetInfo(_md) => "/v2/info".to_string(),
-            HttpRequestType::GetPoxInfo(_md, tip_opt) => format!(
+            HttpRequestType::GetPoxInfo(_md, tip_req) => format!(
                 "/v2/pox{}",
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::GetNeighbors(_md) => "/v2/neighbors".to_string(),
-            HttpRequestType::GetHeaders(_md, quantity, tip_opt) => format!(
+            HttpRequestType::GetHeaders(_md, quantity, tip_req) => format!(
                 "/v2/headers/{}{}",
                 quantity,
-                if let Some(ref tip) = tip_opt {
-                    format!("?tip={}", tip)
-                } else {
-                    "".to_string()
-                }
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::GetBlock(_md, block_hash) => {
                 format!("/v2/blocks/{}", block_hash.to_hex())
@@ -2666,28 +2668,30 @@ impl HttpRequestType {
             }
             HttpRequestType::PostTransaction(_md, ..) => "/v2/transactions".to_string(),
             HttpRequestType::PostBlock(_md, ch, ..) => format!("/v2/blocks/upload/{}", &ch),
-            HttpRequestType::PostMicroblock(_md, _, tip_opt) => format!(
+            HttpRequestType::PostMicroblock(_md, _, tip_req) => format!(
                 "/v2/microblocks{}",
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
-            HttpRequestType::GetAccount(_md, principal, tip_opt, with_proof) => format!(
-                "/v2/accounts/{}{}",
-                &principal.to_string(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
-            ),
+            HttpRequestType::GetAccount(_md, principal, tip_req, with_proof) => {
+                format!(
+                    "/v2/accounts/{}{}",
+                    &principal.to_string(),
+                    HttpRequestType::make_query_string(tip_req, *with_proof,)
+                )
+            }
             HttpRequestType::GetDataVar(
                 _md,
                 contract_addr,
                 contract_name,
                 var_name,
-                tip_opt,
+                tip_req,
                 with_proof,
             ) => format!(
                 "/v2/data_var/{}/{}/{}{}",
                 &contract_addr.to_string(),
                 contract_name.as_str(),
                 var_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
+                HttpRequestType::make_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetMapEntry(
                 _md,
@@ -2695,40 +2699,40 @@ impl HttpRequestType {
                 contract_name,
                 map_name,
                 _key,
-                tip_opt,
+                tip_req,
                 with_proof,
             ) => format!(
                 "/v2/map_entry/{}/{}/{}{}",
                 &contract_addr.to_string(),
                 contract_name.as_str(),
                 map_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
+                HttpRequestType::make_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetTransferCost(_md) => "/v2/fees/transfer".into(),
-            HttpRequestType::GetContractABI(_, contract_addr, contract_name, tip_opt) => format!(
+            HttpRequestType::GetContractABI(_, contract_addr, contract_name, tip_req) => format!(
                 "/v2/contracts/interface/{}/{}{}",
                 contract_addr,
                 contract_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true,)
             ),
             HttpRequestType::GetContractSrc(
                 _,
                 contract_addr,
                 contract_name,
-                tip_opt,
+                tip_req,
                 with_proof,
             ) => format!(
                 "/v2/contracts/source/{}/{}{}",
                 contract_addr,
                 contract_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
+                HttpRequestType::make_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetIsTraitImplemented(
                 _,
                 contract_addr,
                 contract_name,
                 trait_id,
-                tip_opt,
+                tip_req,
             ) => format!(
                 "/v2/traits/{}/{}/{}/{}/{}{}",
                 contract_addr,
@@ -2736,7 +2740,7 @@ impl HttpRequestType {
                 trait_id.name.to_string(),
                 StacksAddress::from(trait_id.clone().contract_identifier.issuer),
                 trait_id.contract_identifier.name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::CallReadOnlyFunction(
                 _,
@@ -2745,13 +2749,13 @@ impl HttpRequestType {
                 _,
                 func_name,
                 _,
-                tip_opt,
+                tip_req,
             ) => format!(
                 "/v2/contracts/call-read/{}/{}/{}{}",
                 contract_addr,
                 contract_name.as_str(),
                 func_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
             HttpRequestType::GetAttachmentsInv(_md, index_block_hash, pages_indexes) => {
@@ -6575,46 +6579,58 @@ mod test {
     #[test]
     fn test_http_parse_proof_tip_query() {
         let query_txt = "tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392";
-        assert_eq!(
-            HttpRequestType::get_chain_tip_query(Some(query_txt)).unwrap(),
-            StacksBlockId::from_hex(
-                "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
-            )
-            .unwrap()
-        );
+        let tip_req = HttpRequestType::get_chain_tip_query(Some(query_txt));
+        match tip_req {
+            TipRequest::SpecificTip(tip) => assert_eq!(
+                tip,
+                StacksBlockId::from_hex(
+                    "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
+                )
+                .unwrap()
+            ),
+            _ => panic!(),
+        }
 
         // first parseable tip is taken
         let query_txt_dup = "tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
-        assert_eq!(
-            HttpRequestType::get_chain_tip_query(Some(query_txt_dup)).unwrap(),
-            StacksBlockId::from_hex(
-                "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
-            )
-            .unwrap()
-        );
+        let tip_req = HttpRequestType::get_chain_tip_query(Some(query_txt));
+        match tip_req {
+            TipRequest::SpecificTip(tip) => assert_eq!(
+                tip,
+                StacksBlockId::from_hex(
+                    "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
+                )
+                .unwrap()
+            ),
+            _ => panic!(),
+        }
 
         // first parseable tip is taken
         let query_txt_dup = "tip=bad&tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
-        assert_eq!(
-            HttpRequestType::get_chain_tip_query(Some(query_txt_dup)).unwrap(),
-            StacksBlockId::from_hex(
-                "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
-            )
-            .unwrap()
-        );
+        let tip_req = HttpRequestType::get_chain_tip_query(Some(query_txt_dup));
+        match tip_req {
+            TipRequest::SpecificTip(tip) => assert_eq!(
+                tip,
+                StacksBlockId::from_hex(
+                    "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
+                )
+                .unwrap()
+            ),
+            _ => panic!(),
+        }
 
         // tip can be skipped
         let query_txt_bad = "tip=bad";
         assert_eq!(
             HttpRequestType::get_chain_tip_query(Some(query_txt_bad)),
-            None
+            TipRequest::UseLatestAnchoredTip
         );
 
         // tip can be skipped
         let query_txt_none = "tip=bad";
         assert_eq!(
             HttpRequestType::get_chain_tip_query(Some(query_txt_none)),
-            None
+            TipRequest::UseLatestAnchoredTip
         );
     }
 

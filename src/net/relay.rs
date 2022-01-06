@@ -2449,7 +2449,8 @@ mod test {
         let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
         request.keep_alive = false;
         let tip = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
-        let post_microblock = HttpRequestType::PostMicroblock(request, mblock.clone(), Some(tip));
+        let post_microblock =
+            HttpRequestType::PostMicroblock(request, mblock.clone(), TipRequest::SpecificTip(tip));
         let response = http_rpc(http_port, post_microblock).unwrap();
         if let HttpResponseType::MicroblockHash(..) = response {
             return true;

@@ -73,6 +73,7 @@ use vm::types::{
 };
 use vm::ContractName;
 
+use crate::util_lib::db::Error as DatabaseError;
 pub use vm::clarity::ClarityConnection;
 pub use vm::clarity::Error;
 use vm::clarity::TransactionConnection;
@@ -448,6 +449,11 @@ impl ClarityInstance {
             burn_state_db,
             epoch,
         })
+    }
+
+    pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, DatabaseError> {
+        let mut datastore = self.datastore.begin_read_only(None);
+        datastore.trie_exists_for_block(bhh)
     }
 
     /// Evaluate program read-only at `at_block`. This will be evaluated in the Stacks epoch that
