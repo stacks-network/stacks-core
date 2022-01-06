@@ -47,12 +47,14 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
+use core::mempool::MemPoolDB;
 use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use core::*;
 use cost_estimates::EstimatorError;
 use net::BlocksInvData;
 use net::Error as net_error;
 use net::ExtendedStacksHeader;
+use net::MemPoolSyncData;
 use util::db::u64_to_sql;
 use util::db::Error as db_error;
 use util::db::{
@@ -528,6 +530,18 @@ impl StreamCursor {
         }))
     }
 
+    pub fn new_tx_stream(tx_query: MemPoolSyncData, max_txs: u64, height: u64) -> StreamCursor {
+        StreamCursor::MempoolTxs(TxStreamData {
+            tx_query,
+            last_randomized_txid: Txid([0u8; 32]),
+            tx_buf: vec![],
+            tx_buf_ptr: 0,
+            num_txs: 0,
+            max_txs: max_txs,
+            height: height,
+        })
+    }
+
     fn stream_one_byte<W: Write>(fd: &mut W, b: u8) -> Result<u64, Error> {
         loop {
             match fd.write(&[b]) {
@@ -560,6 +574,8 @@ impl StreamCursor {
             StreamCursor::Block(ref stream) => stream.offset(),
             StreamCursor::Microblocks(ref stream) => stream.offset(),
             StreamCursor::Headers(ref stream) => stream.offset(),
+            // no-op for mempool txs
+            StreamCursor::MempoolTxs(..) => 0,
         }
     }
 
@@ -568,11 +584,14 @@ impl StreamCursor {
             StreamCursor::Block(ref mut stream) => stream.add_bytes(nw),
             StreamCursor::Microblocks(ref mut stream) => stream.add_bytes(nw),
             StreamCursor::Headers(ref mut stream) => stream.add_bytes(nw),
+            // no-op fo mempool txs
+            StreamCursor::MempoolTxs(..) => (),
         }
     }
 
     pub fn stream_to<W: Write>(
         &mut self,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         fd: &mut W,
         count: u64,
@@ -592,6 +611,7 @@ impl StreamCursor {
                         .and_then(|bytes_sent| Ok(bytes_sent + num_written))
                 }
             }
+            StreamCursor::MempoolTxs(ref mut tx_stream) => mempool.stream_txs(fd, tx_stream, count),
             StreamCursor::Headers(ref mut stream) => {
                 let mut num_written = 0;
                 if stream.total_bytes == 0 {
@@ -9140,11 +9160,19 @@ pub mod test {
         stream: &mut StreamCursor,
         count: u64,
     ) -> Result<Vec<u8>, chainstate_error> {
+        let mempool = MemPoolDB::open_test(
+            chainstate.mainnet,
+            chainstate.chain_id,
+            &chainstate.root_path,
+        )
+        .unwrap();
         let mut bytes = vec![];
-        stream.stream_to(chainstate, &mut bytes, count).map(|nr| {
-            assert_eq!(bytes.len(), nr as usize);
-            bytes
-        })
+        stream
+            .stream_to(&mempool, chainstate, &mut bytes, count)
+            .map(|nr| {
+                assert_eq!(bytes.len(), nr as usize);
+                bytes
+            })
     }
 
     fn stream_unconfirmed_microblocks_to_vec(
@@ -9152,11 +9180,19 @@ pub mod test {
         stream: &mut StreamCursor,
         count: u64,
     ) -> Result<Vec<u8>, chainstate_error> {
+        let mempool = MemPoolDB::open_test(
+            chainstate.mainnet,
+            chainstate.chain_id,
+            &chainstate.root_path,
+        )
+        .unwrap();
         let mut bytes = vec![];
-        stream.stream_to(chainstate, &mut bytes, count).map(|nr| {
-            assert_eq!(bytes.len(), nr as usize);
-            bytes
-        })
+        stream
+            .stream_to(&mempool, chainstate, &mut bytes, count)
+            .map(|nr| {
+                assert_eq!(bytes.len(), nr as usize);
+                bytes
+            })
     }
 
     fn stream_confirmed_microblocks_to_vec(
@@ -9164,11 +9200,19 @@ pub mod test {
         stream: &mut StreamCursor,
         count: u64,
     ) -> Result<Vec<u8>, chainstate_error> {
+        let mempool = MemPoolDB::open_test(
+            chainstate.mainnet,
+            chainstate.chain_id,
+            &chainstate.root_path,
+        )
+        .unwrap();
         let mut bytes = vec![];
-        stream.stream_to(chainstate, &mut bytes, count).map(|nr| {
-            assert_eq!(bytes.len(), nr as usize);
-            bytes
-        })
+        stream
+            .stream_to(&mempool, chainstate, &mut bytes, count)
+            .map(|nr| {
+                assert_eq!(bytes.len(), nr as usize);
+                bytes
+            })
     }
 
     fn decode_microblock_stream(mblock_bytes: &Vec<u8>) -> Vec<StacksMicroblock> {
