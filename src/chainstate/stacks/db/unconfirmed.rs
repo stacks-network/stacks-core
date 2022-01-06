@@ -383,6 +383,35 @@ impl UnconfirmedState {
             0
         }
     }
+
+    /// Try returning the unconfirmed chain tip. Only return the tip if the underlying MARF trie
+    /// exists, otherwise return None.
+    pub fn get_unconfirmed_state_if_exists(&mut self) -> Result<Option<StacksBlockId>, String> {
+        if self.is_readable() {
+            let trie_exists = match self
+                .clarity_inst
+                .trie_exists_for_block(&self.unconfirmed_chain_tip)
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    let err_str = format!(
+                        "Failed to load Stacks chain tip; error checking underlying trie: {}",
+                        e
+                    );
+                    warn!("{}", err_str);
+                    return Err(err_str);
+                }
+            };
+
+            if trie_exists {
+                Ok(Some(self.unconfirmed_chain_tip))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl StacksChainState {
