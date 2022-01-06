@@ -20,7 +20,9 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::mem;
+use std::net::IpAddr;
 use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::Receiver;
@@ -193,16 +195,16 @@ pub enum PeerNetworkWorkState {
 }
 
 /// The four states the mempool sync state machine can be in
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MempoolSyncState {
     /// Picking an outbound peer
     PickOutboundPeer,
     /// Resolving its data URL to a SocketAddr
-    ResolveURL,
+    ResolveURL(UrlString, DNSRequest),
     /// Sending the request for mempool transactions
-    SendQuery,
+    SendQuery(UrlString, SocketAddr),
     /// Receiving the mempool response
-    RecvResponse,
+    RecvResponse(usize),
 }
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
@@ -288,10 +290,6 @@ pub struct PeerNetwork {
     mempool_state: MempoolSyncState,
     mempool_sync_deadline: u64,
     mempool_sync_timeout: u64,
-    mempool_sync_data_url: Option<UrlString>,
-    mempool_sync_parsed_url: Option<(url::Url, DNSRequest)>,
-    mempool_sync_sockaddr: Option<SocketAddr>,
-    mempool_sync_event_id: Option<usize>,
 
     // how often we pruned a given inbound/outbound peer
     pub prune_outbound_counts: HashMap<NeighborKey, u64>,
@@ -421,10 +419,6 @@ impl PeerNetwork {
             mempool_state: MempoolSyncState::PickOutboundPeer,
             mempool_sync_deadline: 0,
             mempool_sync_timeout: 0,
-            mempool_sync_data_url: None,
-            mempool_sync_parsed_url: None,
-            mempool_sync_sockaddr: None,
-            mempool_sync_event_id: None,
 
             prune_outbound_counts: HashMap::new(),
             prune_inbound_counts: HashMap::new(),
@@ -2143,7 +2137,6 @@ impl PeerNetwork {
     }
 
     /// Do a mempool sync. Return any transactions we might receive.
-    /// Return true if we finish the sync.
     fn do_network_mempool_sync(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
@@ -3134,25 +3127,21 @@ impl PeerNetwork {
     /// Reset a mempool sync
     fn mempool_sync_reset(&mut self) {
         self.mempool_state = MempoolSyncState::PickOutboundPeer;
-        self.mempool_sync_data_url = None;
-        self.mempool_sync_parsed_url = None;
-        self.mempool_sync_sockaddr = None;
-        self.mempool_sync_event_id = None;
         self.mempool_sync_timeout = 0;
     }
 
     /// Pick a peer to mempool sync with.
-    /// Sets self.mempool_sync_data_url.
-    /// Returns Ok((true, ..)) if we're done syncing the mempool.
-    /// Returns Ok((false, ..)) if we're not done
-    /// Returns the data URL if we succeed
+    /// Returns Ok(None) if we're done syncing the mempool.
+    /// Returns Ok(Some(..)) if we're not done, and can proceed
+    /// Returns the new sync state -- either ResolveURL if we need to resolve a data URL,
+    /// or SendQuery if we got the IP address and can just issue the query.
     fn mempool_sync_pick_outbound_peer(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
-    ) -> Result<(bool, Option<UrlString>), net_error> {
+    ) -> Result<Option<MempoolSyncState>, net_error> {
         if self.peers.len() == 0 {
             debug!("No peers connected; cannot do mempool sync");
-            return Ok((true, None));
+            return Ok(None);
         }
 
         let mut idx = thread_rng().gen::<usize>() % self.peers.len();
@@ -3191,94 +3180,103 @@ impl PeerNetwork {
             }
         }
 
-        if mempool_sync_data_url.is_none() {
-            debug!("No peer has a data URL, so no mempool sync can happen");
-            Ok((true, None))
+        if let Some(url) = mempool_sync_data_url {
+            self.mempool_sync_begin_resolve_data_url(url, dns_client_opt)
         } else {
-            Ok((false, mempool_sync_data_url))
+            debug!("No peer has a data URL, so no mempool sync can happen");
+            Ok(None)
+        }
+    }
+
+    /// Begin resolving the DNS host of a data URL for mempool sync.
+    /// Returns Ok(None) if we're done syncing the mempool.
+    /// Returns Ok(Some(..)) if we're not done, and can proceed
+    /// Returns the new sync state -- either ResolveURL if we need to resolve a data URL,
+    /// or SendQuery if we got the IP address and can just issue the query.
+    fn mempool_sync_begin_resolve_data_url(
+        &self,
+        url_str: UrlString,
+        dns_client_opt: &mut Option<&mut DNSClient>,
+    ) -> Result<Option<MempoolSyncState>, net_error> {
+        // start resolving
+        let url = url_str.parse_to_block_url()?;
+        let port = match url.port_or_known_default() {
+            Some(p) => p,
+            None => {
+                warn!("Unsupported URL {:?}: unknown port", &url);
+                return Ok(None);
+            }
+        };
+
+        // bare IP address?
+        if let Some(addr) = PeerNetwork::try_get_url_ip(&url_str)? {
+            return Ok(Some(MempoolSyncState::SendQuery(url_str, addr)));
+        } else if let Some(url::Host::Domain(domain)) = url.host() {
+            if let Some(ref mut dns_client) = dns_client_opt {
+                // begin DNS query
+                match dns_client.queue_lookup(
+                    domain.clone(),
+                    port,
+                    get_epoch_time_ms() + self.connection_opts.dns_timeout,
+                ) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        warn!("Failed to queue DNS lookup on {}", &url_str);
+                        return Ok(None);
+                    }
+                }
+                return Ok(Some(MempoolSyncState::ResolveURL(
+                    url_str,
+                    DNSRequest::new(domain.to_string(), port, 0),
+                )));
+            } else {
+                // can't proceed -- no DNS client
+                return Ok(None);
+            }
+        } else {
+            // can't proceed
+            return Ok(None);
         }
     }
 
     /// Resolve our picked mempool sync peer's data URL.
-    /// Sets self.mempool_sync_sockaddr and self.mempool_sync_parsed_url.
     /// Returns Ok(true, ..) if we're done syncing the mempool.
     /// Returns Ok(false, ..) if there's more to do
     /// Returns the socket addr if we ever succeed in resolving it.
     fn mempool_sync_resolve_data_url(
         &mut self,
         url_str: &UrlString,
+        request: &DNSRequest,
         dns_client_opt: &mut Option<&mut DNSClient>,
     ) -> Result<(bool, Option<SocketAddr>), net_error> {
-        if self.mempool_sync_sockaddr.is_some() {
-            return Ok((false, self.mempool_sync_sockaddr.clone()));
-        }
-
         if let Ok(Some(addr)) = PeerNetwork::try_get_url_ip(url_str) {
             // URL contains an IP address -- go with that
             Ok((false, Some(addr)))
         } else if let Some(dns_client) = dns_client_opt {
-            // URL contains a domain name, and we can use DNS
-            if let Some((_, request)) = self.mempool_sync_parsed_url.as_ref() {
-                // keep trying to resolve
-                match dns_client.poll_lookup(&request.host, request.port) {
-                    Ok(Some(dns_response)) => match dns_response.result {
-                        Ok(mut addrs) => {
-                            if let Some(addr) = addrs.pop() {
-                                // resolved!
-                                return Ok((false, Some(addr)));
-                            } else {
-                                warn!("DNS returned no results for {}", url_str);
-                                return Ok((true, None));
-                            }
-                        }
-                        Err(msg) => {
-                            warn!("DNS failed to look up {:?}: {}", &url_str, msg);
+            // keep trying to resolve
+            match dns_client.poll_lookup(&request.host, request.port) {
+                Ok(Some(dns_response)) => match dns_response.result {
+                    Ok(mut addrs) => {
+                        if let Some(addr) = addrs.pop() {
+                            // resolved!
+                            return Ok((false, Some(addr)));
+                        } else {
+                            warn!("DNS returned no results for {}", url_str);
                             return Ok((true, None));
                         }
-                    },
-                    Ok(None) => {
-                        // still in-flight
-                        return Ok((false, None));
                     }
-                    Err(e) => {
-                        warn!("DNS lookup failed on {:?}: {:?}", url_str, &e);
+                    Err(msg) => {
+                        warn!("DNS failed to look up {:?}: {}", &url_str, msg);
                         return Ok((true, None));
                     }
+                },
+                Ok(None) => {
+                    // still in-flight
+                    return Ok((false, None));
                 }
-            } else {
-                // start resolving
-                let url = url_str.parse_to_block_url()?;
-                let port = match url.port_or_known_default() {
-                    Some(p) => p,
-                    None => {
-                        warn!("Unsupported URL {:?}: unknown port", &url);
-                        return Ok((true, None));
-                    }
-                };
-                match url.host() {
-                    Some(url::Host::Domain(domain)) => {
-                        // begin DNS query
-                        match dns_client.queue_lookup(
-                            domain.clone(),
-                            port,
-                            get_epoch_time_ms() + self.connection_opts.dns_timeout,
-                        ) {
-                            Ok(_) => {}
-                            Err(_) => {
-                                warn!("Failed to queue DNS lookup on {}", url_str);
-                                return Ok((true, None));
-                            }
-                        }
-                        self.mempool_sync_parsed_url =
-                            Some((url.clone(), DNSRequest::new(domain.to_string(), port, 0)));
-                        return Ok((false, None));
-                    }
-                    _ => {
-                        // shouldn't be reachable, since if the URL had a bare IP address,
-                        // we'd have skipped this step.
-                        warn!("Unusable Data URL {}", url_str);
-                        return Ok((true, None));
-                    }
+                Err(e) => {
+                    warn!("DNS lookup failed on {:?}: {:?}", url_str, &e);
+                    return Ok((true, None));
                 }
             }
         } else {
@@ -3289,25 +3287,29 @@ impl PeerNetwork {
     }
 
     /// Ask the remote peer for its mempool, connecting to it in the process if need be.
-    /// sets self.mempool_sync_event_id
     /// Returns Ok((true, ..)) if we're done mempool syncing
     /// Returns Ok((false, ..)) if there's more to do
     /// Returns the event ID on success
     fn mempool_sync_send_query(
         &mut self,
-        url: UrlString,
-        addr: SocketAddr,
+        url: &UrlString,
+        addr: &SocketAddr,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(bool, Option<usize>), net_error> {
         let sync_data = mempool.make_mempool_sync_data()?;
         let request = HttpRequestType::MemPoolQuery(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&addr)),
+            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(addr)),
             sync_data,
         );
 
-        let event_id =
-            self.connect_or_send_http_request(url, addr, request, mempool, chainstate)?;
+        let event_id = self.connect_or_send_http_request(
+            url.clone(),
+            addr.clone(),
+            request,
+            mempool,
+            chainstate,
+        )?;
         return Ok((false, Some(event_id)));
     }
 
@@ -3388,17 +3390,32 @@ impl PeerNetwork {
         // try advancing states until we get blocked.
         // Once we get blocked, return.
         loop {
-            let cur_state = self.mempool_state;
+            let cur_state = self.mempool_state.clone();
             debug!("Mempool sync state is {:?}", &cur_state);
             match cur_state {
                 MempoolSyncState::PickOutboundPeer => {
                     // 1. pick a random outbound conversation.
-                    // Sets self.mempool_sync_data_url on success.
-                    match self.mempool_sync_pick_outbound_peer(dns_client_opt)? {
-                        (false, Some(url)) => {
-                            // success! can advance
-                            self.mempool_sync_data_url = Some(url);
-                            self.mempool_state = MempoolSyncState::ResolveURL;
+                    if let Some(next_state) =
+                        self.mempool_sync_pick_outbound_peer(dns_client_opt)?
+                    {
+                        // success! can advance to either resolve a URL or to send a query
+                        self.mempool_state = next_state;
+                    } else {
+                        // done
+                        self.mempool_sync_reset();
+                        return Ok((true, None));
+                    }
+                }
+                MempoolSyncState::ResolveURL(ref url_str, ref dns_request) => {
+                    // 2. resolve its data URL
+                    match self.mempool_sync_resolve_data_url(
+                        url_str,
+                        dns_request,
+                        dns_client_opt,
+                    )? {
+                        (false, Some(addr)) => {
+                            // success! advance
+                            self.mempool_state = MempoolSyncState::SendQuery(url_str.clone(), addr);
                         }
                         (false, None) => {
                             // try again later
@@ -3411,63 +3428,42 @@ impl PeerNetwork {
                         }
                     }
                 }
-                MempoolSyncState::ResolveURL => {
-                    // 2. resolve its data URL
-                    // sets self.mempool_sync_sockaddr on success
-                    if let Some(url_str) = self.mempool_sync_data_url.clone() {
-                        match self.mempool_sync_resolve_data_url(&url_str, dns_client_opt)? {
-                            (false, Some(addr)) => {
-                                // success! advance
-                                self.mempool_sync_sockaddr = Some(addr);
-                                self.mempool_state = MempoolSyncState::SendQuery;
-                            }
-                            (false, None) => {
-                                // try again later
-                                return Ok((false, None));
-                            }
-                            (true, _) => {
-                                // done
-                                self.mempool_sync_reset();
-                                return Ok((true, None));
-                            }
+                MempoolSyncState::SendQuery(ref url, ref addr) => {
+                    // 3. ask for the remote peer's mempool's novel txs
+                    match self.mempool_sync_send_query(url, addr, mempool, chainstate)? {
+                        (false, Some(event_id)) => {
+                            // success! advance
+                            self.mempool_state = MempoolSyncState::RecvResponse(event_id);
                         }
-                    } else {
-                        // can't really reach this state, but simply reset defensively here.
-                        if cfg!(test) {
-                            panic!("Reached invalid state in {:?}, aborting...", &cur_state);
+                        (false, None) => {
+                            // try again later
+                            return Ok((false, None));
                         }
-                        warn!("Reached invalid state in {:?}, resetting...", &cur_state);
-                        self.mempool_sync_reset();
-                        return Ok((true, None));
+                        (true, _) => {
+                            // done
+                            self.mempool_sync_reset();
+                            return Ok((true, None));
+                        }
                     }
                 }
-                MempoolSyncState::SendQuery => {
-                    // 3. ask for the remote peer's mempool's novel txs
-                    // sets self.mempool_sync_event_id
-                    match (
-                        self.mempool_sync_data_url.clone(),
-                        self.mempool_sync_sockaddr.clone(),
-                    ) {
-                        (Some(url), Some(addr)) => {
-                            match self.mempool_sync_send_query(url, addr, mempool, chainstate)? {
-                                (false, Some(event_id)) => {
-                                    // success! advance
-                                    self.mempool_sync_event_id = Some(event_id);
-                                    self.mempool_state = MempoolSyncState::RecvResponse;
-                                }
-                                (false, None) => {
-                                    // try again later
-                                    return Ok((false, None));
-                                }
-                                (true, _) => {
-                                    // done
-                                    self.mempool_sync_reset();
-                                    return Ok((true, None));
-                                }
-                            }
+                MempoolSyncState::RecvResponse(ref event_id) => {
+                    match self.mempool_sync_recv_response(*event_id)? {
+                        (true, Some(txs)) => {
+                            // done! got data
+                            self.mempool_sync_reset();
+                            return Ok((true, Some(txs)));
                         }
-                        _ => {
-                            // can't really reach this state
+                        (true, None) => {
+                            // done! did not get data
+                            self.mempool_sync_reset();
+                            return Ok((true, None));
+                        }
+                        (false, None) => {
+                            // still receiving; try again later
+                            return Ok((false, None));
+                        }
+                        (false, Some(_)) => {
+                            // should never happen
                             if cfg!(test) {
                                 panic!("Reached invalid state in {:?}, aborting...", &cur_state);
                             }
@@ -3475,46 +3471,6 @@ impl PeerNetwork {
                             self.mempool_sync_reset();
                             return Ok((true, None));
                         }
-                    }
-                }
-                MempoolSyncState::RecvResponse => {
-                    if let Some(event_id) = self.mempool_sync_event_id.clone() {
-                        match self.mempool_sync_recv_response(event_id)? {
-                            (true, Some(txs)) => {
-                                // done! got data
-                                self.mempool_sync_reset();
-                                return Ok((true, Some(txs)));
-                            }
-                            (true, None) => {
-                                // done! did not get data
-                                self.mempool_sync_reset();
-                                return Ok((true, None));
-                            }
-                            (false, None) => {
-                                // still receiving; try again later
-                                return Ok((false, None));
-                            }
-                            (false, Some(_)) => {
-                                // should never happen
-                                if cfg!(test) {
-                                    panic!(
-                                        "Reached invalid state in {:?}, aborting...",
-                                        &cur_state
-                                    );
-                                }
-                                warn!("Reached invalid state in {:?}, resetting...", &cur_state);
-                                self.mempool_sync_reset();
-                                return Ok((true, None));
-                            }
-                        }
-                    } else {
-                        // can't really reach this state
-                        if cfg!(test) {
-                            panic!("Reached invalid state in {:?}, aborting...", &cur_state);
-                        }
-                        warn!("Reached invalid state in {:?}, resetting...", &cur_state);
-                        self.mempool_sync_reset();
-                        return Ok((true, None));
                     }
                 }
             }
