@@ -1014,8 +1014,8 @@ pub struct RPCPeerInfoData {
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_consensus_hash: ConsensusHash,
     pub genesis_chainstate_hash: Sha256Sum,
-    pub unanchored_tip: StacksBlockId,
-    pub unanchored_seq: u16,
+    pub unanchored_tip: Option<StacksBlockId>,
+    pub unanchored_seq: Option<u16>,
     pub exit_at_block_height: Option<u64>,
 }
 
@@ -1353,13 +1353,20 @@ pub struct RPCNeighborsInfo {
     pub outbound: Vec<RPCNeighbor>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum TipRequest {
+    UseLatestAnchoredTip,
+    UseLatestUnconfirmedTip,
+    SpecificTip(StacksBlockId),
+}
+
 /// All HTTP request paths we support, and the arguments they carry in their paths
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
-    GetPoxInfo(HttpRequestMetadata, Option<StacksBlockId>),
+    GetPoxInfo(HttpRequestMetadata, TipRequest),
     GetNeighbors(HttpRequestMetadata),
-    GetHeaders(HttpRequestMetadata, u64, Option<StacksBlockId>),
+    GetHeaders(HttpRequestMetadata, u64, TipRequest),
     GetBlock(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
@@ -1367,19 +1374,14 @@ pub enum HttpRequestType {
     GetTransactionUnconfirmed(HttpRequestMetadata, Txid),
     PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
     PostBlock(HttpRequestMetadata, ConsensusHash, StacksBlock),
-    PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
-    GetAccount(
-        HttpRequestMetadata,
-        PrincipalData,
-        Option<StacksBlockId>,
-        bool,
-    ),
+    PostMicroblock(HttpRequestMetadata, StacksMicroblock, TipRequest),
+    GetAccount(HttpRequestMetadata, PrincipalData, TipRequest, bool),
     GetDataVar(
         HttpRequestMetadata,
         StacksAddress,
         ContractName,
         ClarityName,
-        Option<StacksBlockId>,
+        TipRequest,
         bool,
     ),
     GetMapEntry(
@@ -1388,7 +1390,7 @@ pub enum HttpRequestType {
         ContractName,
         ClarityName,
         Value,
-        Option<StacksBlockId>,
+        TipRequest,
         bool,
     ),
     FeeRateEstimate(HttpRequestMetadata, TransactionPayload, u64),
@@ -1399,22 +1401,17 @@ pub enum HttpRequestType {
         PrincipalData,
         ClarityName,
         Vec<Value>,
-        Option<StacksBlockId>,
+        TipRequest,
     ),
     GetTransferCost(HttpRequestMetadata),
     GetContractSrc(
         HttpRequestMetadata,
         StacksAddress,
         ContractName,
-        Option<StacksBlockId>,
+        TipRequest,
         bool,
     ),
-    GetContractABI(
-        HttpRequestMetadata,
-        StacksAddress,
-        ContractName,
-        Option<StacksBlockId>,
-    ),
+    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName, TipRequest),
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
     GetAttachmentsInv(HttpRequestMetadata, StacksBlockId, HashSet<u32>),
@@ -1423,7 +1420,7 @@ pub enum HttpRequestType {
         StacksAddress,
         ContractName,
         TraitIdentifier,
-        Option<StacksBlockId>,
+        TipRequest,
     ),
     MemPoolQuery(HttpRequestMetadata, MemPoolSyncData),
     /// catch-all for any errors we should surface from parsing
