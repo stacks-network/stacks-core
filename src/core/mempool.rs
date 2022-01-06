@@ -1705,9 +1705,6 @@ impl MemPoolDB {
     /// Make a mempool sync request.
     /// If sufficiently sparse, use a MemPoolSyncData::TxTags variant
     /// Otherwise, use a MemPoolSyncData::BloomFilter variant
-    /// If force_bloom_filter is true, then always make a bloom filter.  The reason for doin this
-    /// is that it's faster to do this than making a txtag list, even though the bloom filter is a
-    /// larger data structure.
     pub fn make_mempool_sync_data(&self) -> Result<MemPoolSyncData, db_error> {
         let num_tags = MemPoolDB::get_num_recent_txs(self.conn())?;
         if num_tags < self.max_tx_tags.into() {
