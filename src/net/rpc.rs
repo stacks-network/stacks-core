@@ -3544,6 +3544,7 @@ mod test {
         peer_2.sortdb = Some(sortdb2);
 
         // stuff some transactions into peer_2's mempool
+        // (relates to mempool query tests)
         let mut mempool = peer_2.mempool.take().unwrap();
         let mut mempool_tx = mempool.tx_begin().unwrap();
         for i in 0..10 {
