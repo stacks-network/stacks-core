@@ -27,14 +27,29 @@ extern crate rusqlite;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+#[macro_use]
+extern crate serde;
+
+use std::fs::File;
 use std::io;
 use std::io::prelude::*;
+use std::io::BufReader;
 use std::process;
 use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
 
 use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
+use blockstack_lib::chainstate::stacks::db::StacksEpochReceipt;
+use blockstack_lib::chainstate::stacks::events::StacksTransactionReceipt;
+use blockstack_lib::chainstate::stacks::events::TransactionOrigin;
+use blockstack_lib::chainstate::stacks::index::MarfTrieId;
+use blockstack_lib::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
+use blockstack_lib::cost_estimates::metrics::ProportionalDotProduct;
+use blockstack_lib::cost_estimates::FeeEstimator;
 use blockstack_lib::cost_estimates::UnitEstimator;
+use blockstack_lib::types::chainstate::StacksWorkScore;
+use blockstack_lib::types::proof::TrieHash;
+use blockstack_lib::util::hash::Sha512Trunc256Sum;
 use cost_estimates::metrics::UnitMetric;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
@@ -74,6 +89,21 @@ use blockstack_lib::{
     vm::representations::UrlString,
 };
 
+#[derive(Deserialize)]
+struct BlockEventPayload {
+    block_hash: String,
+    burn_block_hash: String,
+    block_height: u64,
+    burn_block_height: u32,
+    transactions: Vec<TransactionEventPayload>,
+}
+
+#[derive(Deserialize)]
+struct TransactionEventPayload {
+    raw_tx: String,
+    execution_cost: ExecutionCost,
+}
+
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
@@ -90,6 +120,105 @@ fn main() {
             )
         );
         process::exit(0);
+    }
+
+    if argv[1] == "instrument-fee-estimator" {
+        //
+        // getting JSON data for this is pretty straight-forward if you have a TSV replay of events:
+        // tar -xzOf tsv-latest.tar.gz | grep "/new_block" | cut -f 4 |
+        //    jq '{"block_hash": .block_hash, "block_height": .block_height, "burn_block_hash": .burn_block_hash, "burn_block_height": .burn_block_height, "transactions": [ .transactions[] | { "raw_tx": .raw_tx, "execution_cost": .execution_cost } ] }' > /tmp/block_tx_events.json
+
+        if argv.len() < 3 {
+            eprintln!("Usage: {} instrument-fee-estimator INPUT_JSON", argv[0]);
+            process::exit(1);
+        }
+
+        let file = File::open(&argv[2]).unwrap();
+        let reader = BufReader::new(file);
+
+        let metric = ProportionalDotProduct::new(chainstate::stacks::MAX_BLOCK_LEN as u64);
+        let db_path = std::path::Path::new(&argv[3]);
+        let mut fee_estimator = WeightedMedianFeeRateEstimator::open(db_path, metric, 5).unwrap();
+
+        let block_iterator =
+            serde_json::Deserializer::from_reader(reader).into_iter::<BlockEventPayload>();
+
+        for block_payload in block_iterator {
+            let block_payload = block_payload.unwrap();
+
+            let tx_receipts = block_payload
+                .transactions
+                .iter()
+                .flat_map(|tx_payload| {
+                    if tx_payload.raw_tx.len() > 2 && &tx_payload.raw_tx[2..] != "00" {
+                        let tx_bytes = hex_bytes(&tx_payload.raw_tx[2..]).unwrap();
+                        let tx = StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice())
+                            .unwrap_or_else(|e| {
+                                eprintln!("{}", e);
+                                eprintln!("{}", to_hex(&tx_bytes));
+                                panic!("");
+                            });
+
+                        Some(StacksTransactionReceipt {
+                            transaction: TransactionOrigin::Stacks(tx),
+                            events: vec![],
+                            post_condition_aborted: false,
+                            result: vm::Value::Bool(true),
+                            stx_burned: 0,
+                            contract_analysis: None,
+                            execution_cost: tx_payload.execution_cost.clone(),
+                            microblock_header: None,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            let evaluated_epoch = &core::STACKS_EPOCHS_MAINNET[core::StacksEpoch::find_epoch(
+                core::STACKS_EPOCHS_MAINNET.as_ref(),
+                block_payload.burn_block_height as u64,
+            )
+            .unwrap()];
+
+            let mocked_receipt = StacksEpochReceipt {
+                header: StacksHeaderInfo {
+                    anchored_header: StacksBlockHeader {
+                        version: 0,
+                        total_work: StacksWorkScore { burn: 0, work: 0 },
+                        proof: VRFProof::empty(),
+                        parent_block: BlockHeaderHash([0; 32]),
+                        parent_microblock: BlockHeaderHash([0; 32]),
+                        parent_microblock_sequence: 0,
+                        tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
+                        state_index_root: TrieHash::from_empty_data(),
+                        microblock_pubkey_hash: Hash160::from_data(&[0]),
+                    },
+                    microblock_tail: None,
+                    block_height: block_payload.block_height,
+                    index_root: TrieHash::from_empty_data(),
+                    consensus_hash: ConsensusHash([0; 20]),
+                    burn_header_hash: BurnchainHeaderHash::from_hex(
+                        &block_payload.burn_block_hash[2..],
+                    )
+                    .unwrap(),
+                    burn_header_height: block_payload.burn_block_height,
+                    burn_header_timestamp: 0,
+                    anchored_block_size: 0,
+                },
+                tx_receipts,
+                matured_rewards: vec![],
+                matured_rewards_info: None,
+                parent_microblocks_cost: ExecutionCost::zero(),
+                anchored_block_cost: ExecutionCost::zero(),
+                parent_burn_block_hash: BurnchainHeaderHash::zero(),
+                parent_burn_block_height: 0,
+                parent_burn_block_timestamp: 0,
+                evaluated_epoch: evaluated_epoch.epoch_id,
+            };
+
+            fee_estimator.notify_block(&mocked_receipt, &evaluated_epoch.block_limit);
+        }
     }
 
     if argv[1] == "decode-bitcoin-header" {

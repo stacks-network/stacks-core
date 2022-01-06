@@ -86,7 +86,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         Ok(())
     }
 
-    fn update_estimate(&mut self, new_measure: FeeRateEstimate) {
+    fn update_estimate(&mut self, new_measure: FeeRateEstimate, block_height: u64) {
         let next_estimate = match self.get_rate_estimates() {
             Ok(old_estimate) => {
                 // compute the exponential windowing:
@@ -124,6 +124,7 @@ impl<M: CostMetric> ScalarFeeRateEstimator<M> {
         };
 
         debug!("Updating fee rate estimate for new block";
+               "block_height" => block_height,
                "new_measure_high" => new_measure.high,
                "new_measure_middle" => new_measure.middle,
                "new_measure_low" => new_measure.low,
@@ -218,7 +219,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                 low: all_fee_rates[lowest_index],
             };
 
-            self.update_estimate(block_estimate);
+            self.update_estimate(block_estimate, receipt.header.block_height);
         }
 
         Ok(())

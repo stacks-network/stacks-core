@@ -161,7 +161,7 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
         })
     }
 
-    fn update_estimate(&mut self, new_measure: FeeRateEstimate) {
+    fn update_estimate(&mut self, new_measure: FeeRateEstimate, block_height: u64) {
         let tx = tx_begin_immediate_sqlite(&mut self.db).expect("SQLite failure");
         let insert_sql = "INSERT INTO median_fee_estimator
                           (high, middle, low) VALUES (?, ?, ?)";
@@ -181,6 +181,7 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
         tx.commit().expect("SQLite failure");
         if let Ok(next_estimate) = estimate {
             debug!("Updating fee rate estimate for new block";
+                   "block_height" => block_height,
                    "new_measure_high" => new_measure.high,
                    "new_measure_middle" => new_measure.middle,
                    "new_measure_low" => new_measure.low,
@@ -220,7 +221,7 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
 
             // Compute the estimate and update.
             let block_estimate = fee_rate_estimate_from_sorted_weighted_fees(&working_fee_rates);
-            self.update_estimate(block_estimate);
+            self.update_estimate(block_estimate, receipt.header.block_height);
         }
 
         Ok(())
