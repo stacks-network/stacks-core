@@ -3964,30 +3964,49 @@ fn block_limit_hit_integration_test() {
     //   "read_count":3721,
     //   "runtime":4960871000
     // }
+    // 700 invocations
     let max_contract_src = format!(
-        "(define-public (f) (begin {} (ok 1))) (begin (f))",
-        (0..700)
+         "(define-private (work) (begin {} 1)) 
+         (define-private (times-100) (begin {} 1))
+         (define-private (times-200) (begin (times-100) (times-100) 1))
+         (define-private (times-500) (begin (times-200) (times-200) (times-100) 1))
+         (times-500) (times-200)",
+         (0..10)
             .map(|_| format!(
-                "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
+                "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") 2)",
                 boot_code_id("cost-voting", false),
                 boot_code_id("costs", false),
                 boot_code_id("costs", false),
             ))
             .collect::<Vec<String>>()
-            .join(" ")
+            .join(" "),
+         (0..10)
+             .map(|_| "(work)".to_string())
+             .collect::<Vec<String>>()
+             .join(" "),
     );
 
+    // 2900 invocations
     let oversize_contract_src = format!(
-        "(define-public (f) (begin {} (ok 1))) (begin (f))",
-        (0..2900)
+        "(define-private (work) (begin {} 1)) 
+         (define-private (times-100) (begin {} 1))
+         (define-private (times-200) (begin (times-100) (times-100) 1))
+         (define-private (times-500) (begin (times-200) (times-200) (times-100) 1))
+         (define-private (times-1000) (begin (times-500) (times-500) 1))
+         (times-1000) (times-1000) (times-500) (times-200) (times-200)",
+        (0..10)
             .map(|_| format!(
-                "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
+                "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") 2)",
                 boot_code_id("cost-voting", false),
                 boot_code_id("costs", false),
                 boot_code_id("costs", false),
             ))
             .collect::<Vec<String>>()
-            .join(" ")
+            .join(" "),
+        (0..10)
+            .map(|_| "(work)".to_string())
+            .collect::<Vec<String>>()
+            .join(" "),
     );
 
     let spender_sk = StacksPrivateKey::new();
@@ -4097,32 +4116,43 @@ fn block_limit_hit_integration_test() {
     submit_tx(&http_origin, &tx_2);
     submit_tx(&http_origin, &tx_3);
     submit_tx(&http_origin, &tx_4);
-    // submit_tx(&http_origin, &tx_5);
+
+    sleep_ms(5_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(20_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // sleep_ms(20_000);
+    sleep_ms(20_000);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(20_000);
 
     let res = get_account(&http_origin, &addr);
-    println!("account 1 nonce: {}", res.nonce);
-    // assert_eq!(res.nonce, 1);
+    assert_eq!(res.nonce, 2);
 
     let res = get_account(&http_origin, &second_spender_addr);
-    println!("account 2 nonce: {}", res.nonce);
+    assert_eq!(res.nonce, 1);
 
-    // assert_eq!(res.nonce, 0);
-
-    let res = get_account(&http_origin, &second_spender_addr);
-    println!("account 3 nonce: {}", res.nonce);
-
-    // assert_eq!(res.nonce, 1);
+    let res = get_account(&http_origin, &third_spender_addr);
+    assert_eq!(res.nonce, 1);
 
     let mined_block_events = test_observer::get_blocks();
     assert!(mined_block_events.len() >= 2);
-    println!("num mined blocks: {}", mined_block_events.len());
 
-    assert!(false);
+    let tx_third_block = mined_block_events[2]
+        .get("transactions")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    assert_eq!(tx_third_block.len(), 3);
+
+    let tx_fourth_block = mined_block_events[3]
+        .get("transactions")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    assert_eq!(tx_fourth_block.len(), 3);
 
     test_observer::clear();
     channel.stop_chains_coordinator();
