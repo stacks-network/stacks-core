@@ -49,7 +49,7 @@ use stacks::net::{
     p2p::PeerNetwork,
     relay::Relayer,
     rpc::RPCHandlerArgs,
-    Error as NetError, NetworkResult, PeerAddress,
+    Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
@@ -1280,6 +1280,18 @@ impl InitializedNeonNode {
             }
             tx.commit().unwrap();
         }
+
+        // update services to indicate we can support mempool sync
+        {
+            let mut tx = peerdb.tx_begin().unwrap();
+            PeerDB::set_local_services(
+                &mut tx,
+                (ServiceFlags::RPC as u16) | (ServiceFlags::RELAY as u16),
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
         let atlasdb =
             AtlasDB::connect(atlas_config, &config.get_atlas_db_file_path(), true).unwrap();
 

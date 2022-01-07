@@ -161,11 +161,12 @@ impl LocalPeer {
 
         let addr = addrbytes;
         let port = port;
-        let services = ServiceFlags::RELAY;
+        let services = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
 
         info!(
-            "Will be authenticating p2p messages with public key: {}",
-            Secp256k1PublicKey::from_private(&pkey).to_hex()
+            "Will be authenticating p2p messages with the following";
+            "public key" => &Secp256k1PublicKey::from_private(&pkey).to_hex(),
+            "services" => &to_hex(&(services as u16).to_be_bytes())
         );
 
         LocalPeer {
@@ -1423,7 +1424,10 @@ mod test {
         );
         assert_eq!(local_peer.port, NETWORK_P2P_PORT);
         assert_eq!(local_peer.addrbytes, PeerAddress::from_ipv4(127, 0, 0, 1));
-        assert_eq!(local_peer.services, ServiceFlags::RELAY as u16);
+        assert_eq!(
+            local_peer.services,
+            (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16)
+        );
     }
 
     #[test]

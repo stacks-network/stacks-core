@@ -61,6 +61,7 @@ use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
 use util::hash::to_hex;
 use util_lib::db::Error as db_error;
+use net::MemPoolSyncData;
 use util_lib::db::{
     query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, FromColumn, FromRow,
     IndexDBConn, IndexDBTx,
@@ -489,6 +490,7 @@ pub enum StreamCursor {
     Block(BlockStreamData),
     Microblocks(MicroblockStreamData),
     Headers(HeaderStreamData),
+    MempoolTxs(TxStreamData),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -540,6 +542,23 @@ pub struct HeaderStreamData {
     header_bytes: Option<Vec<u8>>,
     end_of_stream: bool,
     corked: bool,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct TxStreamData {
+    /// Mempool sync data requested
+    pub tx_query: MemPoolSyncData,
+    /// last txid loaded
+    pub last_randomized_txid: Txid,
+    /// serialized transaction buffer that's being sent
+    pub tx_buf: Vec<u8>,
+    pub tx_buf_ptr: usize,
+    /// number of transactions sent so far
+    pub num_txs: u64,
+    /// maximum we can send
+    pub max_txs: u64,
+    /// height of the chain at time of query
+    pub height: u64,
 }
 
 pub const CHAINSTATE_VERSION: &'static str = "2";

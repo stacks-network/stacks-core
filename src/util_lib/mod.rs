@@ -2,6 +2,7 @@
 pub mod db;
 pub mod boot;
 pub mod strings;
+pub mod bloom;
 
 #[cfg(test)]
 pub mod test {

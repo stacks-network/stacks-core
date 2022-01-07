@@ -29,11 +29,14 @@ use stacks_common::types::StacksEpoch as GenericStacksEpoch;
 pub use stacks_common::types::StacksEpochId;
 pub mod mempool;
 
-pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
+#[cfg(test)]
+pub mod tests;
 
 use std::cmp::Ord;
 use std::cmp::Ordering;
 use std::cmp::PartialOrd;
+
+pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];

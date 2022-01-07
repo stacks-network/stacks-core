@@ -53,6 +53,7 @@ use net::HttpResponseMetadata;
 use net::HttpResponsePreamble;
 use net::HttpResponseType;
 use net::HttpVersion;
+use net::MemPoolSyncData;
 use net::MessageSequence;
 use net::NeighborAddress;
 use net::PeerAddress;
@@ -151,6 +152,8 @@ lazy_static! {
     static ref PATH_GET_ATTACHMENTS_INV: Regex = Regex::new("^/v2/attachments/inv$").unwrap();
     static ref PATH_GET_ATTACHMENT: Regex =
         Regex::new(r#"^/v2/attachments/([0-9a-f]{40})$"#).unwrap();
+    static ref PATH_POST_MEMPOOL_QUERY: Regex =
+        Regex::new(r#"^/v2/mempool/query$"#).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
 }
 
@@ -1560,6 +1563,11 @@ impl HttpRequestType {
                 &PATH_GET_ATTACHMENTS_INV,
                 &HttpRequestType::parse_get_attachments_inv,
             ),
+            (
+                "POST",
+                &PATH_POST_MEMPOOL_QUERY,
+                &HttpRequestType::parse_post_mempool_query,
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -2545,6 +2553,51 @@ impl HttpRequestType {
         ))
     }
 
+    fn parse_post_mempool_query<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        _regex: &Captures,
+        _query: Option<&str>,
+        fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() == 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected non-empty body".to_string(),
+            ));
+        }
+
+        if preamble.get_content_length() > MAX_PAYLOAD_LEN {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: MemPoolQuery body is too big".to_string(),
+            ));
+        }
+
+        // content-type must be given, and must be application/octet-stream
+        match preamble.content_type {
+            None => {
+                return Err(net_error::DeserializeError(
+                    "Missing Content-Type for MemPoolQuery".to_string(),
+                ));
+            }
+            Some(ref c) => {
+                if *c != HttpContentType::Bytes {
+                    return Err(net_error::DeserializeError(
+                        "Wrong Content-Type for MemPoolQuery; expected application/octet-stream"
+                            .to_string(),
+                    ));
+                }
+            }
+        };
+
+        let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
+        let mempool_query = MemPoolSyncData::consensus_deserialize(&mut bound_fd)?;
+
+        Ok(HttpRequestType::MemPoolQuery(
+            HttpRequestMetadata::from_preamble(preamble),
+            mempool_query,
+        ))
+    }
+
     fn parse_options_preflight<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
@@ -2583,6 +2636,7 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref md, ..) => md,
             HttpRequestType::GetAttachment(ref md, ..) => md,
+            HttpRequestType::MemPoolQuery(ref md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
         }
@@ -2613,6 +2667,7 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref mut md, ..) => md,
             HttpRequestType::GetAttachment(ref mut md, ..) => md,
+            HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
         }
@@ -2776,6 +2831,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachment(_, content_hash) => {
                 format!("/v2/attachments/{}", to_hex(&content_hash.0[..]))
             }
+            HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query".to_string(),
             HttpRequestType::FeeRateEstimate(_, _, _) => self.get_path().to_string(),
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
@@ -2814,6 +2870,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachmentsInv(..) => "/v2/attachments/inv",
             HttpRequestType::GetAttachment(..) => "/v2/attachments/:hash",
             HttpRequestType::GetIsTraitImplemented(..) => "/v2/traits/:principal/:contract_name",
+            HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query",
             HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
         }
@@ -2965,6 +3022,22 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(request_body_bytes.len() as u32),
                     Some(&HttpContentType::JSON),
+                    empty_headers,
+                )?;
+                fd.write_all(&request_body_bytes)
+                    .map_err(net_error::WriteError)?;
+            }
+            HttpRequestType::MemPoolQuery(md, query) => {
+                let request_body_bytes = query.serialize_to_vec();
+                HttpRequestPreamble::new_serialized(
+                    fd,
+                    &md.version,
+                    "POST",
+                    &self.request_path(),
+                    &md.peer,
+                    md.keep_alive,
+                    Some(request_body_bytes.len() as u32),
+                    Some(&HttpContentType::Bytes),
                     empty_headers,
                 )?;
                 fd.write_all(&request_body_bytes)
@@ -3271,6 +3344,10 @@ impl HttpResponseType {
             (
                 &PATH_GET_ATTACHMENTS_INV,
                 &HttpResponseType::parse_get_attachments_inv,
+            ),
+            (
+                &PATH_POST_MEMPOOL_QUERY,
+                &HttpResponseType::parse_post_mempool_query,
             ),
         ];
 
@@ -3671,6 +3748,40 @@ impl HttpResponseType {
         ))
     }
 
+    fn parse_post_mempool_query<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        // NOTE: there will be no length prefix on this
+        let mut txs = vec![];
+        let max_len = len_hint.unwrap_or(MAX_MESSAGE_LEN as usize) as u64;
+        let mut bound_reader = BoundReader::from_reader(fd, max_len);
+        loop {
+            let tx: StacksTransaction = match read_next(&mut bound_reader) {
+                Ok(tx) => Ok(tx),
+                Err(e) => match e {
+                    codec_error::ReadError(ref ioe) => match ioe.kind() {
+                        io::ErrorKind::UnexpectedEof => {
+                            // end of stream -- this is fine
+                            break;
+                        }
+                        _ => Err(e),
+                    },
+                    _ => Err(e),
+                },
+            }?;
+
+            txs.push(tx);
+        }
+        Ok(HttpResponseType::MemPoolTxs(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            txs,
+        ))
+    }
+
     fn error_reason(code: u16) -> &'static str {
         match code {
             400 => "Bad Request",
@@ -3730,6 +3841,8 @@ impl HttpResponseType {
             HttpResponseType::UnconfirmedTransaction(ref md, _) => md,
             HttpResponseType::GetAttachment(ref md, _) => md,
             HttpResponseType::GetAttachmentsInv(ref md, _) => md,
+            HttpResponseType::MemPoolTxStream(ref md) => md,
+            HttpResponseType::MemPoolTxs(ref md, ..) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
             HttpResponseType::TransactionFeeEstimation(ref md, _) => md,
             // errors
@@ -3984,6 +4097,31 @@ impl HttpResponseType {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, unconfirmed_status)?;
             }
+            HttpResponseType::MemPoolTxStream(ref md) => {
+                // only send the preamble.  The caller will need to figure out how to send along
+                // the tx data itself.
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    None,
+                    &HttpContentType::Bytes,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+            }
+            HttpResponseType::MemPoolTxs(ref md, ref txs) => {
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    md.content_length.clone(),
+                    &HttpContentType::Bytes,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+                HttpResponseType::send_bytestream(protocol, md, fd, txs)?;
+            }
             HttpResponseType::OptionsPreflight(ref md) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
@@ -4100,6 +4238,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpRequestType::GetAttachment(..) => "HTTP(GetAttachment)",
                 HttpRequestType::GetAttachmentsInv(..) => "HTTP(GetAttachmentsInv)",
+                HttpRequestType::MemPoolQuery(..) => "HTTP(MemPoolQuery)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
@@ -4128,6 +4267,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::StacksBlockAccepted(..) => "HTTP(StacksBlockAccepted)",
                 HttpResponseType::MicroblockHash(_, _) => "HTTP(MicroblockHash)",
                 HttpResponseType::UnconfirmedTransaction(_, _) => "HTTP(UnconfirmedTransaction)",
+                HttpResponseType::MemPoolTxStream(..) => "HTTP(MemPoolTxStream)",
+                HttpResponseType::MemPoolTxs(..) => "HTTP(MemPoolTxs)",
                 HttpResponseType::OptionsPreflight(_) => "HTTP(OptionsPreflight)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => {
                     "HTTP(400)"

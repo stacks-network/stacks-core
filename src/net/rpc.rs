@@ -66,6 +66,7 @@ use net::HttpRequestMetadata;
 use net::HttpRequestType;
 use net::HttpResponseMetadata;
 use net::HttpResponseType;
+use net::MemPoolSyncData;
 use net::MicroblocksData;
 use net::NeighborAddress;
 use net::NeighborsData;
@@ -2080,6 +2081,26 @@ impl ConversationHttp {
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 
+    /// Handle a request for mempool transactions in bulk
+    fn handle_mempool_query<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        query: MemPoolSyncData,
+        max_txs: u64,
+    ) -> Result<Option<StreamCursor>, net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let response = HttpResponseType::MemPoolTxStream(response_metadata);
+        let height = chainstate
+            .get_stacks_chain_tip(sortdb)?
+            .map(|blk| blk.height)
+            .unwrap_or(0);
+        let stream = Some(StreamCursor::new_tx_stream(query, max_txs, height));
+        response.send(http, fd).and_then(|_| Ok(stream))
+    }
+
     /// Handle an external HTTP request.
     /// Some requests, such as those for blocks, will create new reply streams.  This method adds
     /// those new streams into the `reply_streams` set.
@@ -2527,6 +2548,17 @@ impl ConversationHttp {
                 }
                 None
             }
+            HttpRequestType::MemPoolQuery(ref _md, ref query) => {
+                ConversationHttp::handle_mempool_query(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    sortdb,
+                    chainstate,
+                    query.clone(),
+                    network.connection_opts.mempool_max_tx_query,
+                )?
+            }
             HttpRequestType::OptionsPreflight(ref _md, ref _path) => {
                 let response_metadata = HttpResponseMetadata::from(&req);
                 let response = HttpResponseType::OptionsPreflight(response_metadata);
@@ -2607,6 +2639,7 @@ impl ConversationHttp {
     /// connection should be severed once the conversation is drained)
     fn send_outbound_responses(
         &mut self,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
         // send out streamed responses in the order they were requested
@@ -2629,7 +2662,8 @@ impl ConversationHttp {
                     Some((ref mut http_chunk_state, ref mut stream)) => {
                         let mut encoder =
                             HttpChunkedTransferWriter::from_writer_state(reply, http_chunk_state);
-                        match stream.stream_to(chainstate, &mut encoder, STREAM_CHUNK_SIZE) {
+                        match stream.stream_to(mempool, chainstate, &mut encoder, STREAM_CHUNK_SIZE)
+                        {
                             Ok(nw) => {
                                 test_debug!("streamed {} bytes", nw);
                                 if nw == 0 {
@@ -2778,8 +2812,12 @@ impl ConversationHttp {
     }
 
     /// Make progress on in-flight messages.
-    pub fn try_flush(&mut self, chainstate: &mut StacksChainState) -> Result<(), net_error> {
-        self.send_outbound_responses(chainstate)?;
+    pub fn try_flush(
+        &mut self,
+        mempool: &MemPoolDB,
+        chainstate: &mut StacksChainState,
+    ) -> Result<(), net_error> {
+        self.send_outbound_responses(mempool, chainstate)?;
         self.recv_inbound_response()?;
         Ok(())
     }
@@ -2919,12 +2957,13 @@ impl ConversationHttp {
     pub fn send<W: Write>(
         &mut self,
         w: &mut W,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<usize, net_error> {
         let mut total_sz = 0;
         loop {
             // prime the Write
-            self.try_flush(chainstate)?;
+            self.try_flush(mempool, chainstate)?;
 
             let sz = match self.connection.send_data(w) {
                 Ok(sz) => sz,
@@ -3174,6 +3213,14 @@ impl ConversationHttp {
             pages_indexes,
         )
     }
+
+    /// Make a new request for mempool contents
+    pub fn new_mempool_query(&self, query: MemPoolSyncData) -> HttpRequestType {
+        HttpRequestType::MemPoolQuery(
+            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            query,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -3207,6 +3254,8 @@ mod test {
     use crate::types::chainstate::BurnchainHeaderHash;
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
+    use core::mempool::{BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
+
     use super::*;
 
     const TEST_CONTRACT: &'static str = "
@@ -3227,8 +3276,10 @@ mod test {
 
     fn convo_send_recv(
         sender: &mut ConversationHttp,
+        sender_mempool: &MemPoolDB,
         sender_chainstate: &mut StacksChainState,
         receiver: &mut ConversationHttp,
+        receiver_mempool: &MemPoolDB,
         receiver_chainstate: &mut StacksChainState,
     ) -> () {
         let (mut pipe_read, mut pipe_write) = Pipe::new();
@@ -3237,15 +3288,19 @@ mod test {
         loop {
             let res = true;
 
-            sender.try_flush(sender_chainstate).unwrap();
-            receiver.try_flush(receiver_chainstate).unwrap();
+            sender.try_flush(sender_mempool, sender_chainstate).unwrap();
+            receiver
+                .try_flush(sender_mempool, receiver_chainstate)
+                .unwrap();
 
             pipe_write.try_flush().unwrap();
 
             let all_relays_flushed =
                 receiver.num_pending_outbound() == 0 && sender.num_pending_outbound() == 0;
 
-            let nw = sender.send(&mut pipe_write, sender_chainstate).unwrap();
+            let nw = sender
+                .send(&mut pipe_write, sender_mempool, sender_chainstate)
+                .unwrap();
             let nr = receiver.recv(&mut pipe_read).unwrap();
 
             test_debug!(
@@ -3549,6 +3604,64 @@ mod test {
         }
         // end microblock section
 
+        // stuff some transactions into peer_2's mempool
+        // (relates to mempool query tests)
+        let mut mempool = peer_2.mempool.take().unwrap();
+        let mut mempool_tx = mempool.tx_begin().unwrap();
+        for i in 0..10 {
+            let pk = StacksPrivateKey::new();
+            let addr = StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&StacksPrivateKey::new())],
+            )
+            .unwrap();
+            let mut tx = StacksTransaction {
+                version: TransactionVersion::Testnet,
+                chain_id: 0x80000000,
+                auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+                anchor_mode: TransactionAnchorMode::Any,
+                post_condition_mode: TransactionPostConditionMode::Allow,
+                post_conditions: vec![],
+                payload: TransactionPayload::TokenTransfer(
+                    addr.to_account_principal(),
+                    123,
+                    TokenTransferMemo([0u8; 34]),
+                ),
+            };
+            tx.set_tx_fee(1000);
+            tx.set_origin_nonce(0);
+
+            let txid = tx.txid();
+            let tx_bytes = tx.serialize_to_vec();
+            let origin_addr = tx.origin_address();
+            let origin_nonce = tx.get_origin_nonce();
+            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+            let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+            let tx_fee = tx.get_tx_fee();
+
+            // should succeed
+            MemPoolDB::try_add_tx(
+                &mut mempool_tx,
+                peer_1.chainstate(),
+                &consensus_hash,
+                &stacks_block.block_hash(),
+                txid.clone(),
+                tx_bytes,
+                tx_fee,
+                stacks_block.header.total_work.work,
+                &origin_addr,
+                origin_nonce,
+                &sponsor_addr,
+                sponsor_nonce,
+                None,
+            )
+            .unwrap();
+        }
+        mempool_tx.commit().unwrap();
+        peer_2.mempool.replace(mempool);
+
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
 
@@ -3575,19 +3688,22 @@ mod test {
         let req = make_request(&mut peer_1, &mut convo_1, &mut peer_2, &mut convo_2);
 
         convo_1.send_request(req.clone()).unwrap();
+        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
+        let peer_2_mempool = peer_2.mempool.take().unwrap();
 
         test_debug!("convo1 sends to convo2");
         convo_send_recv(
             &mut convo_1,
+            &peer_1_mempool,
             peer_1.chainstate(),
             &mut convo_2,
+            &peer_2_mempool,
             peer_2.chainstate(),
         );
 
         // hack around the borrow-checker
         let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
-        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
             .unwrap();
@@ -3605,6 +3721,7 @@ mod test {
         peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
         peer_1.mempool = Some(peer_1_mempool);
+        peer_2.mempool = Some(peer_2_mempool);
 
         test_debug!("convo2 sends to convo1");
 
@@ -3628,12 +3745,14 @@ mod test {
 
         peer_2.sortdb = Some(peer_2_sortdb);
         peer_2.stacks_node = Some(peer_2_stacks_node);
-        peer_2.mempool = Some(peer_2_mempool);
+        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
         convo_send_recv(
             &mut convo_2,
+            &peer_2_mempool,
             peer_2.chainstate(),
             &mut convo_1,
+            &peer_1_mempool,
             peer_1.chainstate(),
         );
 
@@ -3642,14 +3761,17 @@ mod test {
         // hack around the borrow-checker
         convo_send_recv(
             &mut convo_1,
+            &peer_1_mempool,
             peer_1.chainstate(),
             &mut convo_2,
+            &peer_2_mempool,
             peer_2.chainstate(),
         );
 
+        peer_2.mempool = Some(peer_2_mempool);
+
         let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
-        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
             .unwrap();
@@ -3664,11 +3786,13 @@ mod test {
             )
             .unwrap();
 
+        convo_1
+            .try_flush(&peer_1_mempool, &mut peer_1_stacks_node.chainstate)
+            .unwrap();
+
         peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
         peer_1.mempool = Some(peer_1_mempool);
-
-        convo_1.try_flush(peer_1.chainstate()).unwrap();
 
         // should have gotten a reply
         let resp_opt = convo_1.try_get_response();
@@ -5548,6 +5672,73 @@ mod test {
                             msg,
                             "Number of attachment inv pages is limited by 8 per request"
                         );
+                        true
+                    }
+                    _ => false,
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_mempool_query_txtags() {
+        test_rpc(
+            "test_rpc_mempool_query_txtags",
+            40813,
+            40814,
+            50813,
+            50814,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_mempool_query(MemPoolSyncData::TxTags([0u8; 32], vec![]))
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::MemPoolTxs(_, txs) => {
+                        // got everything
+                        assert_eq!(txs.len(), 10);
+                        true
+                    }
+                    _ => false,
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_mempool_query_bloom() {
+        test_rpc(
+            "test_rpc_mempool_query_bloom",
+            40815,
+            40816,
+            50815,
+            50816,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // empty bloom filter
+                convo_client.new_mempool_query(MemPoolSyncData::BloomFilter(BloomFilter::new(
+                    BLOOM_COUNTER_ERROR_RATE,
+                    MAX_BLOOM_COUNTER_TXS,
+                    BloomNodeHasher::new(&[0u8; 32]),
+                )))
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::MemPoolTxs(_, txs) => {
+                        // got everything
+                        assert_eq!(txs.len(), 10);
                         true
                     }
                     _ => false,
