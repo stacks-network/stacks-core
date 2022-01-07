@@ -59,9 +59,9 @@ use clarity_vm::clarity::{
 use core::*;
 use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
+use net::MemPoolSyncData;
 use util::hash::to_hex;
 use util_lib::db::Error as db_error;
-use net::MemPoolSyncData;
 use util_lib::db::{
     query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, FromColumn, FromRow,
     IndexDBConn, IndexDBTx,

@@ -74,6 +74,7 @@ use net::Neighbor;
 use net::NeighborKey;
 use net::PeerAddress;
 use net::*;
+use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
@@ -5231,6 +5232,7 @@ mod test {
     use burnchains::*;
     use chainstate::stacks::test::*;
     use chainstate::stacks::*;
+    use clarity::vm::types::StacksAddressExtensions;
     use core::StacksEpochExtension;
     use net::atlas::*;
     use net::codec::*;

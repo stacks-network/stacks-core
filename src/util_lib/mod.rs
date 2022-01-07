@@ -1,8 +1,8 @@
 #[macro_use]
 pub mod db;
+pub mod bloom;
 pub mod boot;
 pub mod strings;
-pub mod bloom;
 
 #[cfg(test)]
 pub mod test {

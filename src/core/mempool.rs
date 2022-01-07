@@ -68,7 +68,7 @@ use vm::types::PrincipalData;
 
 use net::MemPoolSyncData;
 
-use util::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
+use util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
 
 use clarity_vm::clarity::ClarityConnection;
 

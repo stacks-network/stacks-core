@@ -27,9 +27,9 @@ use codec::Error as codec_error;
 use codec::StacksMessageCodec;
 use codec::{read_next, write_next};
 
-use util::db::query_expect_row;
-use util::db::Error as db_error;
-use util::db::{DBConn, DBTx};
+use util_lib::db::query_expect_row;
+use util_lib::db::Error as db_error;
+use util_lib::db::{DBConn, DBTx};
 
 use util::hash::to_hex;
 
@@ -616,7 +616,7 @@ pub mod test {
 
     use rusqlite::OpenFlags;
 
-    use util::db::{sql_pragma, tx_begin_immediate, tx_busy_handler, DBConn, DBTx};
+    use util_lib::db::{sql_pragma, tx_begin_immediate, tx_busy_handler, DBConn, DBTx};
 
     pub fn setup_bloom_counter(db_name: &str) -> DBConn {
         let db_path = format!("/tmp/test_bloom_filter_{}.db", db_name);
