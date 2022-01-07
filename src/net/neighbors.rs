@@ -5716,7 +5716,7 @@ mod test {
                 random_order[i] = i;
             }
             let mut rng = thread_rng();
-            &mut &random_order.shuffle(&mut rng);
+            let _ = &mut &random_order.shuffle(&mut rng);
 
             for i in random_order.into_iter() {
                 let _ = peers[i].step();
