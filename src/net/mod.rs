@@ -61,6 +61,7 @@ use codec::{read_next, write_next};
 use core::mempool::*;
 use core::POX_REWARD_CYCLE_LENGTH;
 use net::atlas::{Attachment, AttachmentInstance};
+use net::http::HttpReservedHeader;
 use util::bloom::{BloomFilter, BloomNodeHasher};
 use util::db::DBConn;
 use util::db::Error as db_error;
@@ -1434,6 +1435,7 @@ pub struct HttpResponseMetadata {
     pub client_keep_alive: bool,
     pub request_id: u32,
     pub content_length: Option<u32>,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 impl HttpResponseMetadata {
@@ -1451,24 +1453,36 @@ impl HttpResponseMetadata {
         request_id: u32,
         content_length: Option<u32>,
         client_keep_alive: bool,
+        canonical_stacks_tip_height: Option<u64>,
     ) -> HttpResponseMetadata {
         HttpResponseMetadata {
             client_version: client_version,
             client_keep_alive: client_keep_alive,
             request_id: request_id,
             content_length: content_length,
+            canonical_stacks_tip_height: canonical_stacks_tip_height,
         }
     }
 
+    // TODO: revisit; get tip height from headers map
     pub fn from_preamble(
         request_version: HttpVersion,
         preamble: &HttpResponsePreamble,
     ) -> HttpResponseMetadata {
+        let mut canonical_stacks_tip_height = None;
+        for header in preamble.headers {
+            if let Some(HttpReservedHeader::CanonicalStacksTipHeight(h)) =
+                HttpReservedHeader::try_from_str(&header.0, &header.1)
+            {
+                canonical_stacks_tip_height = Some(h);
+            }
+        }
         HttpResponseMetadata {
             client_version: request_version,
             client_keep_alive: preamble.keep_alive,
             request_id: preamble.request_id,
             content_length: preamble.content_length.clone(),
+            canonical_stacks_tip_height: canonical_stacks_tip_height,
         }
     }
 
@@ -1478,21 +1492,36 @@ impl HttpResponseMetadata {
             client_keep_alive: false,
             request_id: HttpResponseMetadata::make_request_id(),
             content_length: Some(0),
+            canonical_stacks_tip_height: None,
         }
     }
-}
 
-impl From<&HttpRequestType> for HttpResponseMetadata {
-    fn from(req: &HttpRequestType) -> HttpResponseMetadata {
+    fn from_http_request_type(
+        req: &HttpRequestType,
+        canonical_stacks_tip_height: Option<u64>,
+    ) -> HttpResponseMetadata {
         let metadata = req.metadata();
         HttpResponseMetadata::new(
             metadata.version,
             HttpResponseMetadata::make_request_id(),
             None,
             metadata.keep_alive,
+            canonical_stacks_tip_height,
         )
     }
 }
+
+// impl From<&HttpRequestType> for HttpResponseMetadata {
+//     fn from(req: &HttpRequestType) -> HttpResponseMetadata {
+//         let metadata = req.metadata();
+//         HttpResponseMetadata::new(
+//             metadata.version,
+//             HttpResponseMetadata::make_request_id(),
+//             None,
+//             metadata.keep_alive,
+//         )
+//     }
+// }
 
 /// All data-plane message types a peer can reply with.
 #[derive(Debug, Clone, PartialEq)]

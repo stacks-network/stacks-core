@@ -158,11 +158,12 @@ lazy_static! {
 
 /// HTTP headers that we really care about
 #[derive(Debug, Clone, PartialEq)]
-enum HttpReservedHeader {
+pub(crate) enum HttpReservedHeader {
     ContentLength(u32),
     ContentType(HttpContentType),
     XRequestID(u32),
     Host(PeerHost),
+    CanonicalStacksTipHeight(u64),
 }
 
 /// Stacks block accepted struct
@@ -251,7 +252,11 @@ impl HttpReservedHeader {
     pub fn is_reserved(header: &str) -> bool {
         let hdr = header.to_string();
         match hdr.as_str() {
-            "content-length" | "content-type" | "x-request-id" | "host" => true,
+            "content-length"
+            | "content-type"
+            | "x-request-id"
+            | "host"
+            | "canonical-stacks-tip-height" => true,
             _ => false,
         }
     }
@@ -273,6 +278,10 @@ impl HttpReservedHeader {
             },
             "host" => match value.parse::<PeerHost>() {
                 Ok(ph) => Some(HttpReservedHeader::Host(ph)),
+                Err(_) => None,
+            },
+            "canonical-stacks-tip-height" => match value.parse::<u64>() {
+                Ok(h) => Some(HttpReservedHeader::CanonicalStacksTipHeight(h)),
                 Err(_) => None,
             },
             _ => None,
@@ -882,6 +891,13 @@ fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result
                     .map_err(codec_error::WriteError)?;
             }
         }
+    }
+    match md.canonical_stacks_tip_height {
+        Some(height) => {
+            fd.write_all(format!("Canonical-Stacks-Tip-Height: {}\r\n", height).as_bytes())
+                .map_err(codec_error::WriteError)?;
+        }
+        _ => {}
     }
     Ok(())
 }
