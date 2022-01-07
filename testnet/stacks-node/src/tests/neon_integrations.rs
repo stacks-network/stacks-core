@@ -449,6 +449,11 @@ fn find_microblock_privkey(
     return None;
 }
 
+// Returns true if relative difference between `a` and `b` is less than 0.01.
+fn is_near(a:f64, b:f64) -> bool {
+    (a - b).abs() < 0.01
+}
+
 #[test]
 #[ignore]
 fn bitcoind_integration_test() {
@@ -6083,21 +6088,19 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
 
     // Check that:
     // 1) The cost is always the same.
-    // 2) Only grows.
+    // 2) Fee rate grows monotonically.
     for i in 1..response_estimated_costs.len() {
-        // Check that the rate is growing monotonically.
-        let curr_rate = response_top_fee_rates[i] as f64;
-        let last_rate = response_top_fee_rates[i - 1] as f64;
-        assert!(curr_rate >= last_rate);
-
-        // The cost is always the same.
         let curr_cost = response_estimated_costs[i];
         let last_cost = response_estimated_costs[i - 1];
         assert_eq!(curr_cost, last_cost);
+
+        let curr_rate = response_top_fee_rates[i] as f64;
+        let last_rate = response_top_fee_rates[i - 1] as f64;
+        assert!(curr_rate >= last_rate);
     }
 
-    // Check the final value is "near" what was expected.
-    assert!(response_top_fee_rates.last().unwrap() - expected_final_value < 0.1);
+    // Check the final value is near input parameter.
+    assert!(is_near(*response_top_fee_rates.last().unwrap(), expected_final_value));
 
     channel.stop_chains_coordinator();
 }
