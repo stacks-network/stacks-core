@@ -6085,9 +6085,9 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     // 1) The cost is always the same.
     // 2) Only grows.
     for i in 1..response_estimated_costs.len() {
+        // Check that the rate is growing monotonically.
         let curr_rate = response_top_fee_rates[i] as f64;
         let last_rate = response_top_fee_rates[i - 1] as f64;
-        // Check that the rate is growing monotonically.
         assert!(curr_rate >= last_rate);
 
         // The cost is always the same.
