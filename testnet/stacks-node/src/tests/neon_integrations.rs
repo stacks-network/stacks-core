@@ -359,7 +359,6 @@ fn run_until_burnchain_height(
     true
 }
 
-
 pub fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) == 0 {
@@ -482,7 +481,7 @@ fn find_microblock_privkey(
 }
 
 // Returns true if relative difference between `a` and `b` is less than 0.01.
-fn is_near(a:f64, b:f64) -> bool {
+fn is_near(a: f64, b: f64) -> bool {
     (a - b).abs() < 0.01
 }
 
@@ -6105,7 +6104,10 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     }
 
     // Check the final value is near input parameter.
-    assert!(is_near(*response_top_fee_rates.last().unwrap(), expected_final_value));
+    assert!(is_near(
+        *response_top_fee_rates.last().unwrap(),
+        expected_final_value
+    ));
 
     channel.stop_chains_coordinator();
 }
