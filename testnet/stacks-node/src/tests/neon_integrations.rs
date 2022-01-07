@@ -328,6 +328,38 @@ pub fn next_block_and_wait(
     true
 }
 
+/// This function will call `next_block_and_wait` until the burnchain height underlying `BitcoinRegtestController`
+/// reaches *exactly* `target_height`.
+///
+/// Returns `false` if `next_block_and_wait` times out.
+fn run_until_burnchain_height(
+    btc_regtest_controller: &mut BitcoinRegtestController,
+    blocks_processed: &Arc<AtomicU64>,
+    target_height: u64,
+    conf: &Config,
+) -> bool {
+    let tip_info = get_chain_info(&conf);
+    let mut current_height = tip_info.burn_block_height;
+
+    while current_height < target_height {
+        eprintln!(
+            "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({})",
+            get_epoch_time_secs(),
+            current_height
+        );
+        let next_result = next_block_and_wait(btc_regtest_controller, &blocks_processed);
+        if !next_result {
+            return false;
+        }
+        let tip_info = get_chain_info(&conf);
+        current_height = tip_info.burn_block_height;
+    }
+
+    assert_eq!(current_height, target_height);
+    true
+}
+
+
 pub fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
     let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) == 0 {
@@ -5911,37 +5943,6 @@ fn atlas_stress_integration_test() {
     test_observer::clear();
 }
 
-/// This function will call `next_block_and_wait` until the burnchain height underlying `BitcoinRegtestController`
-/// reaches *exactly* `target_height`.
-///
-/// Returns `false` if `next_block_and_wait` times out.
-fn run_until_burnchain_height(
-    btc_regtest_controller: &mut BitcoinRegtestController,
-    blocks_processed: &Arc<AtomicU64>,
-    target_height: u64,
-    conf: &Config,
-) -> bool {
-    let tip_info = get_chain_info(&conf);
-    let mut current_height = tip_info.burn_block_height;
-
-    while current_height < target_height {
-        eprintln!(
-            "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({})",
-            get_epoch_time_secs(),
-            current_height
-        );
-        let next_result = next_block_and_wait(btc_regtest_controller, &blocks_processed);
-        if !next_result {
-            return false;
-        }
-        let tip_info = get_chain_info(&conf);
-        current_height = tip_info.burn_block_height;
-    }
-
-    assert_eq!(current_height, target_height);
-    true
-}
-
 /// Run a fixed contract 20 times. Linearly increase the amount paid each time. The cost of the
 /// contract should stay the same, and the fee rate paid should monotonically grow. The value
 /// should grow faster for lower values of `window_size`, because a bigger window slows down the
@@ -6083,6 +6084,10 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
             response_top_fee_rates.push(fee_rate_result.estimations.last().unwrap().fee_rate);
         }
     }
+
+    // Wait two extra blocks to be sure.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     assert_eq!(response_estimated_costs.len(), response_top_fee_rates.len());
 
