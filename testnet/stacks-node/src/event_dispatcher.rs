@@ -851,6 +851,7 @@ impl EventDispatcher {
         })
         .unwrap();
 
+        warn!("sending anchored payload: {:?}", &tx_events);
         for (_, observer) in interested_observers.iter() {
             observer.send_mined_block(&payload);
         }
@@ -885,6 +886,7 @@ impl EventDispatcher {
         })
         .unwrap();
 
+        warn!("sending mircoblock payload: {:?}", &payload);
         for (_, observer) in interested_observers.iter() {
             observer.send_mined_microblock(&payload);
         }
