@@ -429,7 +429,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             &MINER_BLOCK_HEADER_HASH,
         );
 
-        debug!(
+        warn!(
             "Begin microblock mining from {} from unconfirmed state with cost {:?}",
             &StacksBlockHeader::make_index_block_hash(&anchor_block_consensus_hash, &anchor_block),
             &cost_so_far
@@ -485,7 +485,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 )
             } else {
                 // unconfirmed state needs to be initialized
-                debug!("Unconfirmed chainstate not initialized");
+                warn!("Unconfirmed chainstate not initialized");
                 return Err(Error::NoSuchBlockError)?;
             };
 
@@ -497,7 +497,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             Error::NoSuchBlockError
         })?;
 
-        debug!(
+        warn!(
             "Resume microblock mining from {} from unconfirmed state with cost {:?}",
             &StacksBlockHeader::make_index_block_hash(
                 &anchored_consensus_hash,
@@ -781,7 +781,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             .expect("No block limit found for clarity_tx.");
         mem_pool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
-        debug!(
+        warn!(
             "Microblock transaction selection begins (child of {}), bytes so far: {}",
             &self.anchor_block, bytes_so_far
         );
@@ -798,7 +798,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         let update_estimator = to_consider.update_estimate;
 
                         if get_epoch_time_ms() >= deadline {
-                            debug!(
+                            warn!(
                                 "Microblock miner deadline exceeded ({} ms)",
                                 self.settings.max_miner_time_ms
                             );
@@ -834,7 +834,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                             }
                                         }
 
-                                        debug!(
+                                        warn!(
                                             "Include tx {} ({}) in microblock",
                                             mempool_tx.tx.txid(),
                                             mempool_tx.tx.payload.name()
@@ -864,7 +864,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             }
             intermediate_result
         };
-        debug!(
+        warn!(
             "Microblock transaction selection finished (child of {}); {} transactions selected",
             &self.anchor_block, num_selected
         );
@@ -914,7 +914,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
 impl<'a> Drop for StacksMicroblockBuilder<'a> {
     fn drop(&mut self) {
-        debug!(
+        warn!(
             "Drop StacksMicroblockBuilder";
             "chain tip" => %&self.runtime.tip,
             "txs mined off tip" => &self.runtime.considered.as_ref().map(|x| x.len()).unwrap_or(0),
@@ -1114,6 +1114,7 @@ impl StacksBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
     ) -> TransactionResult {
+        warn!("try_mine_tx_with_len {}", &tx_len);
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
         }
@@ -1252,7 +1253,7 @@ impl StacksBlockBuilder {
                     _ => return TransactionResult::error(&tx, e),
                 },
             };
-            debug!(
+            warn!(
                 "Include tx {} ({}) in microblock",
                 tx.txid(),
                 tx.payload.name()
@@ -1487,7 +1488,7 @@ impl StacksBlockBuilder {
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionDBConn,
     ) -> Result<MinerEpochInfo<'a>, Error> {
-        debug!(
+        warn!(
             "Miner epoch begin";
             "miner" => %self.miner_id,
             "chain_tip" => %format!("{}/{}", self.chain_tip.consensus_hash,
@@ -1543,7 +1544,7 @@ impl StacksBlockBuilder {
             }
         };
 
-        debug!(
+        warn!(
             "Descendant of {}/{} confirms {} microblock(s)",
             &self.parent_consensus_hash,
             &self.parent_header_hash,
@@ -1647,19 +1648,19 @@ impl StacksBlockBuilder {
         burn_dbconn: &SortitionDBConn,
         mut txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
-        debug!("Build anchored block from {} transactions", txs.len());
+        warn!("Build anchored block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.drain(..) {
             match builder.try_mine_tx(&mut epoch_tx, &tx) {
                 Ok(_) => {
-                    debug!("Included {}", &tx.txid());
+                    warn!("Included {}", &tx.txid());
                 }
                 Err(Error::BlockTooBigError) => {
                     // done mining -- our execution budget is exceeded.
                     // Make the block from the transactions we did manage to get
-                    debug!("Block budget exceeded on tx {}", &tx.txid());
+                    warn!("Block budget exceeded on tx {}", &tx.txid());
                 }
                 Err(Error::InvalidStacksTransaction(_emsg, true)) => {
                     // if we have an invalid transaction that was quietly ignored, don't warn here either
@@ -1806,7 +1807,7 @@ impl StacksBlockBuilder {
             parent_stacks_header.block_height,
         );
 
-        debug!(
+        warn!(
             "Build anchored block off of {}/{} height {}",
             &tip_consensus_hash, &tip_block_hash, tip_height
         );
@@ -1852,7 +1853,7 @@ impl StacksBlockBuilder {
         let deadline = ts_start + (max_miner_time_ms as u128);
         let mut num_txs = 0;
 
-        debug!(
+        warn!(
             "Anchored block transaction selection begins (child of {})",
             &parent_stacks_header.anchored_header.block_hash()
         );
@@ -1872,7 +1873,7 @@ impl StacksBlockBuilder {
                             return Ok(false);
                         }
                         if get_epoch_time_ms() >= deadline {
-                            debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
+                            warn!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
                             return Ok(false);
                         }
 
@@ -1905,6 +1906,7 @@ impl StacksBlockBuilder {
                             txinfo.metadata.len,
                             &block_limit_hit,
                         );
+                        warn!("tx_result {:?}", &tx_result);
                         tx_events.push(tx_result.convert_to_event());
 
                         match tx_result {
@@ -1932,15 +1934,15 @@ impl StacksBlockBuilder {
                                     Error::BlockTooBigError => {
                                         // done mining -- our execution budget is exceeded.
                                         // Make the block from the transactions we did manage to get
-                                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                                        warn!("Block budget exceeded on tx {}", &txinfo.tx.txid());
                                         if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                            debug!("Switch to mining stx-transfers only");
+                                            warn!("Switch to mining stx-transfers only");
                                             block_limit_hit =
                                                 BlockLimitFunction::CONTRACT_LIMIT_HIT;
                                         } else if block_limit_hit
                                             == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                         {
-                                            debug!(
+                                            warn!(
                                                 "Stop mining anchored block due to limit exceeded"
                                             );
                                             block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
@@ -1952,11 +1954,11 @@ impl StacksBlockBuilder {
                                         if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
                                             block_limit_hit =
                                                 BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                            debug!("Switch to mining stx-transfers only");
+                                            warn!("Switch to mining stx-transfers only");
                                         } else if block_limit_hit
                                             == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                         {
-                                            debug!(
+                                            warn!(
                                                 "Stop mining anchored block due to limit exceeded"
                                             );
                                             block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
@@ -1994,7 +1996,7 @@ impl StacksBlockBuilder {
                     break;
                 }
             }
-            debug!("Anchored block transaction selection finished (child of {}): {} transactions selected ({} considered)", &parent_stacks_header.anchored_header.block_hash(), num_txs, considered.len());
+            warn!("Anchored block transaction selection finished (child of {}): {} transactions selected ({} considered)", &parent_stacks_header.anchored_header.block_hash(), num_txs, considered.len());
             intermediate_result
         };
 
@@ -2033,7 +2035,7 @@ impl StacksBlockBuilder {
             );
         }
 
-        debug!(
+        warn!(
             "Miner: mined anchored block";
             "block_hash" => %block.block_hash(),
             "height" => block.header.total_work.work,

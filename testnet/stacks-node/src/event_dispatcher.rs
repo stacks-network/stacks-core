@@ -851,7 +851,7 @@ impl EventDispatcher {
         })
         .unwrap();
 
-        warn!("sending anchored payload: {:?}", &tx_events);
+        warn!("sending anchored payload: {:?}", &payload);
         for (_, observer) in interested_observers.iter() {
             observer.send_mined_block(&payload);
         }
