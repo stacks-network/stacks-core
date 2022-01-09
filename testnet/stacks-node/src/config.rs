@@ -713,9 +713,6 @@ impl Config {
                     inv_sync_interval: opts
                         .inv_sync_interval
                         .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval),
-                    full_inv_sync_interval: opts.full_inv_sync_interval.unwrap_or_else(|| {
-                        HELIUM_DEFAULT_CONNECTION_OPTIONS.full_inv_sync_interval
-                    }),
                     inv_reward_cycles: opts.inv_reward_cycles.unwrap_or_else(|| {
                         if burnchain.mode == "mainnet" {
                             HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_reward_cycles
