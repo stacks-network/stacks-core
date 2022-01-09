@@ -969,7 +969,14 @@ fn spawn_miner_relayer(
                                     vec![consensus_hash.clone()],
                                 )
                                 .expect("Failed to obtain block information for a block we mined.");
-                                if let Err(e) = relayer.advertize_blocks(blocks_available) {
+
+                                let block_data = {
+                                    let mut bd = HashSet::new();
+                                    bd.insert((consensus_hash.clone(), mined_block.clone()));
+                                    bd
+                                };
+
+                                if let Err(e) = relayer.advertize_blocks(blocks_available, &block_data) {
                                     warn!("Failed to advertise new block: {}", e);
                                 }
 
