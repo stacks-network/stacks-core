@@ -619,13 +619,14 @@ impl Relayer {
     /// Preprocess all our downloaded blocks.
     /// Return burn block hashes for the blocks that we got.
     /// Does not fail on invalid blocks; just logs a warning.
-    /// Returns the set of consensus hashes for the sortitions that selected these blocks
+    /// Returns the set of consensus hashes for the sortitions that selected these blocks, and the
+    /// blocks themselves
     fn preprocess_downloaded_blocks(
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> HashSet<ConsensusHash> {
-        let mut new_blocks = HashSet::new();
+    ) -> HashMap<ConsensusHash, StacksBlock> {
+        let mut new_blocks = HashMap::new();
 
         for (consensus_hash, block, download_time) in network_result.blocks.iter() {
             match Relayer::process_new_anchored_block(
@@ -637,7 +638,7 @@ impl Relayer {
             ) {
                 Ok(accepted) => {
                     if accepted {
-                        new_blocks.insert((*consensus_hash).clone());
+                        new_blocks.insert((*consensus_hash).clone(), block.clone());
                     }
                 }
                 Err(chainstate_error::InvalidStacksBlock(msg)) => {
@@ -668,8 +669,8 @@ impl Relayer {
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> Result<(HashSet<ConsensusHash>, Vec<NeighborKey>), net_error> {
-        let mut new_blocks = HashSet::new();
+    ) -> Result<(HashMap<ConsensusHash, StacksBlock>, Vec<NeighborKey>), net_error> {
+        let mut new_blocks = HashMap::new();
         let mut bad_neighbors = vec![];
 
         // process blocks pushed to us.
@@ -725,7 +726,7 @@ impl Relayer {
                                     "Accepted block {}/{} from {}",
                                     &consensus_hash, &bhh, &neighbor_key
                                 );
-                                new_blocks.insert(consensus_hash.clone());
+                                new_blocks.insert(consensus_hash.clone(), block.clone());
                             }
                         }
                         Err(chainstate_error::InvalidStacksBlock(msg)) => {
@@ -759,8 +760,8 @@ impl Relayer {
     fn preprocess_downloaded_microblocks(
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> HashSet<ConsensusHash> {
-        let mut ret = HashSet::new();
+    ) -> HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)> {
+        let mut ret = HashMap::new();
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
         {
@@ -788,7 +789,12 @@ impl Relayer {
                 }
             }
 
-            ret.insert((*consensus_hash).clone());
+            let index_block_hash =
+                StacksBlockHeader::make_index_block_hash(consensus_hash, &anchored_block_hash);
+            ret.insert(
+                (*consensus_hash).clone(),
+                (index_block_hash, microblock_stream.clone()),
+            );
         }
         ret
     }
@@ -904,8 +910,8 @@ impl Relayer {
 
     /// Process blocks and microblocks that we recieved, both downloaded (confirmed) and streamed
     /// (unconfirmed). Returns:
-    /// * list of consensus hashes that elected the newly-discovered blocks, so we can turn them into BlocksAvailable messages
-    /// * list of confirmed microblock consensus hashes for newly-discovered microblock streams, so we can turn them into MicroblocksAvailable messages
+    /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
+    /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
     /// * list of neighbors that served us invalid data (so we can ban them)
     pub fn process_new_blocks(
@@ -915,15 +921,14 @@ impl Relayer {
         coord_comms: Option<&CoordinatorChannels>,
     ) -> Result<
         (
-            Vec<ConsensusHash>,
-            Vec<ConsensusHash>,
+            HashMap<ConsensusHash, StacksBlock>,
+            HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
             Vec<(Vec<RelayData>, MicroblocksData)>,
             Vec<NeighborKey>,
         ),
         net_error,
     > {
-        let mut new_blocks = HashSet::new();
-        let mut new_confirmed_microblocks = HashSet::new();
+        let mut new_blocks = HashMap::new();
         let mut bad_neighbors = vec![];
 
         {
@@ -932,35 +937,44 @@ impl Relayer {
             // process blocks we downloaded
             let new_dled_blocks =
                 Relayer::preprocess_downloaded_blocks(&sort_ic, network_result, chainstate);
-            for new_dled_block in new_dled_blocks.into_iter() {
-                debug!("Received downloaded block for {}", &new_dled_block);
-                new_blocks.insert(new_dled_block);
+            for (new_dled_block_ch, block_data) in new_dled_blocks.into_iter() {
+                debug!(
+                    "Received downloaded block for {}/{}",
+                    &new_dled_block_ch,
+                    &block_data.block_hash()
+                );
+                new_blocks.insert(new_dled_block_ch, block_data);
             }
 
             // process blocks pushed to us
             let (new_pushed_blocks, mut new_bad_neighbors) =
                 Relayer::preprocess_pushed_blocks(&sort_ic, network_result, chainstate)?;
-            for new_pushed_block in new_pushed_blocks.into_iter() {
-                debug!("Received p2p-pushed block for {}", &new_pushed_block);
-                new_blocks.insert(new_pushed_block);
+            for (new_pushed_block_ch, block_data) in new_pushed_blocks.into_iter() {
+                debug!(
+                    "Received p2p-pushed block for {}/{}",
+                    &new_pushed_block_ch,
+                    &block_data.block_hash()
+                );
+                new_blocks.insert(new_pushed_block_ch, block_data);
             }
             bad_neighbors.append(&mut new_bad_neighbors);
 
             // process blocks uploaded to us.  They've already been stored
             for block_data in network_result.uploaded_blocks.drain(..) {
-                for (consensus_hash, _) in block_data.blocks.into_iter() {
-                    debug!("Received http-uploaded block for {}", &consensus_hash);
-                    new_blocks.insert(consensus_hash);
+                for (consensus_hash, block) in block_data.blocks.into_iter() {
+                    debug!(
+                        "Received http-uploaded block for {}/{}",
+                        &consensus_hash,
+                        block.block_hash()
+                    );
+                    new_blocks.insert(consensus_hash, block);
                 }
             }
         }
 
         // process microblocks we downloaded
-        let mut new_dled_mblocks =
+        let new_confirmed_microblocks =
             Relayer::preprocess_downloaded_microblocks(network_result, chainstate);
-        for new_dled_mblock in new_dled_mblocks.drain() {
-            new_confirmed_microblocks.insert(new_dled_mblock);
-        }
 
         // process microblocks pushed to us
         let (new_microblocks, mut new_bad_neighbors) =
@@ -983,8 +997,8 @@ impl Relayer {
         }
 
         Ok((
-            new_blocks.into_iter().collect(),
-            new_confirmed_microblocks.into_iter().collect(),
+            new_blocks,
+            new_confirmed_microblocks,
             new_microblocks,
             bad_neighbors,
         ))
@@ -1070,8 +1084,12 @@ impl Relayer {
         Ok(ret)
     }
 
-    pub fn advertize_blocks(&mut self, available: BlocksAvailableMap) -> Result<(), net_error> {
-        self.p2p.advertize_blocks(available)
+    pub fn advertize_blocks(
+        &mut self,
+        available: BlocksAvailableMap,
+        blocks: HashMap<ConsensusHash, StacksBlock>,
+    ) -> Result<(), net_error> {
+        self.p2p.advertize_blocks(available, blocks)
     }
 
     pub fn broadcast_block(
@@ -1205,11 +1223,12 @@ impl Relayer {
                 }
 
                 // have the p2p thread tell our neighbors about newly-discovered blocks
-                let available = Relayer::load_blocks_available_data(sortdb, new_blocks)?;
+                let new_block_chs = new_blocks.iter().map(|(ch, _)| ch.clone()).collect();
+                let available = Relayer::load_blocks_available_data(sortdb, new_block_chs)?;
                 if available.len() > 0 {
                     if !ibd {
                         debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
-                        if let Err(e) = self.p2p.advertize_blocks(available) {
+                        if let Err(e) = self.p2p.advertize_blocks(available, new_blocks) {
                             warn!("Failed to advertize new blocks: {:?}", &e);
                         }
                     } else {
@@ -1222,8 +1241,12 @@ impl Relayer {
                 }
 
                 // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
+                let new_mblock_chs = new_confirmed_microblocks
+                    .iter()
+                    .map(|(ch, _)| ch.clone())
+                    .collect();
                 let mblocks_available =
-                    Relayer::load_blocks_available_data(sortdb, new_confirmed_microblocks)?;
+                    Relayer::load_blocks_available_data(sortdb, new_mblock_chs)?;
                 if mblocks_available.len() > 0 {
                     if !ibd {
                         debug!(
@@ -1231,7 +1254,10 @@ impl Relayer {
                             &_local_peer,
                             mblocks_available.len()
                         );
-                        if let Err(e) = self.p2p.advertize_microblocks(mblocks_available) {
+                        if let Err(e) = self
+                            .p2p
+                            .advertize_microblocks(mblocks_available, new_confirmed_microblocks)
+                        {
                             warn!("Failed to advertize new confirmed microblocks: {:?}", &e);
                         }
                     } else {
@@ -1319,9 +1345,10 @@ impl Relayer {
 
 impl PeerNetwork {
     /// Find out which neighbors need at least one (micro)block from the availability set.
-    /// For outbound neighbors (i.e. ones we have inv data for), only send (Micro)BlocksAvailable messages
-    /// for (micro)blocks we have that they don't have.  For inbound neighbors (i.e. ones we don't have
-    /// inv data for), pick a random set and send them the full (Micro)BlocksAvailable message.
+    /// For outbound neighbors (i.e. ones we have inv data for), send (Micro)BlocksData messages if
+    /// we can; fall back to (Micro)BlocksAvailable messages if we can't.
+    /// For inbound neighbors (i.e. ones we don't have inv data for), pick a random set and send them
+    /// the full (Micro)BlocksAvailable message.
     fn find_block_recipients(
         &mut self,
         available: &BlocksAvailableMap,
@@ -1420,47 +1447,202 @@ impl PeerNetwork {
         }
     }
 
+    /// Try to push a block to a peer.
+    /// Absorb and log errors.
+    fn push_block_to_peer(
+        &mut self,
+        recipient: &NeighborKey,
+        consensus_hash: ConsensusHash,
+        block: StacksBlock,
+    ) -> () {
+        let blk_hash = block.block_hash();
+        let ch = consensus_hash.clone();
+        let payload = BlocksData {
+            blocks: vec![(consensus_hash, block)],
+        };
+        let message = match self.sign_for_peer(recipient, StacksMessageType::Blocks(payload)) {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(
+                    "{:?}: Failed to sign for {:?}: {:?}",
+                    &self.local_peer, recipient, &e
+                );
+                return;
+            }
+        };
+
+        debug!(
+            "{:?}: Push block {}/{} to {:?}",
+            &self.local_peer, &ch, &blk_hash, recipient
+        );
+
+        // absorb errors
+        let _ = self.relay_signed_message(recipient, message).map_err(|e| {
+            warn!(
+                "{:?}: Failed to push block {}/{} to {:?}: {:?}",
+                &self.local_peer, &ch, &blk_hash, recipient, &e
+            );
+            e
+        });
+    }
+
+    /// Try to push a confirmed microblock stream to a peer.
+    /// Absorb and log errors.
+    fn push_microblocks_to_peer(
+        &mut self,
+        recipient: &NeighborKey,
+        index_block_hash: StacksBlockId,
+        microblocks: Vec<StacksMicroblock>,
+    ) -> () {
+        let idx_bhh = index_block_hash.clone();
+        let payload = MicroblocksData {
+            index_anchor_block: index_block_hash,
+            microblocks: microblocks,
+        };
+        let message = match self.sign_for_peer(recipient, StacksMessageType::Microblocks(payload)) {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(
+                    "{:?}: Failed to sign for {:?}: {:?}",
+                    &self.local_peer, recipient, &e
+                );
+                return;
+            }
+        };
+
+        debug!(
+            "{:?}: Push microblocks for {} to {:?}",
+            &self.local_peer, &idx_bhh, recipient
+        );
+
+        // absorb errors
+        let _ = self.relay_signed_message(recipient, message).map_err(|e| {
+            warn!(
+                "{:?}: Failed to push microblocks for {} to {:?}: {:?}",
+                &self.local_peer, &idx_bhh, recipient, &e
+            );
+            e
+        });
+    }
+
     /// Announce blocks that we have to an outbound peer that doesn't have them.
-    /// Only advertize blocks and microblocks we have that the outbound peer doesn't.
-    fn advertize_to_outbound_peer(
+    /// If we were given the block, send the block itself.
+    /// Otherwise, send a BlocksAvailable.
+    fn advertize_or_push_blocks_to_outbound_peer(
         &mut self,
         recipient: &NeighborKey,
         available: &BlocksAvailableMap,
-        microblocks: bool,
+        blocks: &HashMap<ConsensusHash, StacksBlock>,
     ) -> Result<(), net_error> {
         let wanted = PeerNetwork::with_inv_state(self, |_network, inv_state| {
-            let mut wanted: Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
+            let mut wanted: Vec<(ConsensusHash, BurnchainHeaderHash, Option<StacksBlock>)> = vec![];
             if let Some(stats) = inv_state.block_stats.get(recipient) {
                 for (bhh, (block_height, ch)) in available.iter() {
-                    let has_data = if microblocks {
-                        stats.inv.has_ith_microblock_stream(*block_height)
-                    } else {
-                        stats.inv.has_ith_block(*block_height)
-                    };
-
-                    if !has_data {
+                    if !stats.inv.has_ith_block(*block_height) {
                         test_debug!(
-                            "{:?}: Outbound neighbor {:?} wants {} data for {}",
+                            "{:?}: Outbound neighbor {:?} wants block data for {}",
                             &_network.local_peer,
                             recipient,
-                            if microblocks { "microblock" } else { "block" },
                             bhh
                         );
 
-                        wanted.push(((*ch).clone(), (*bhh).clone()));
+                        match blocks.get(ch) {
+                            Some(block) => {
+                                wanted.push((
+                                    (*ch).clone(),
+                                    (*bhh).clone(),
+                                    Some((*block).clone()),
+                                ));
+                            }
+                            None => {
+                                wanted.push(((*ch).clone(), (*bhh).clone(), None));
+                            }
+                        }
                     }
                 }
             }
             Ok(wanted)
         })?;
 
-        if microblocks {
-            self.advertize_to_peer(recipient, &wanted, |payload| {
-                StacksMessageType::MicroblocksAvailable(payload)
-            });
-        } else {
-            self.advertize_to_peer(recipient, &wanted, |payload| {
+        let mut advertize = vec![];
+        for (ch, bhh, block_opt) in wanted.into_iter() {
+            match block_opt {
+                Some(block) => {
+                    self.push_block_to_peer(recipient, ch, block);
+                }
+                None => {
+                    advertize.push((ch, bhh));
+                }
+            }
+        }
+
+        if advertize.len() > 0 {
+            self.advertize_to_peer(recipient, &advertize, |payload| {
                 StacksMessageType::BlocksAvailable(payload)
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Announce microblocks that we have to an outbound peer that doesn't have them.
+    /// If we were given the microblock stream, send the stream itself.
+    /// Otherwise, send a MicroblocksAvailable.
+    fn advertize_or_push_microblocks_to_outbound_peer(
+        &mut self,
+        recipient: &NeighborKey,
+        available: &BlocksAvailableMap,
+        microblocks: &HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+    ) -> Result<(), net_error> {
+        let wanted = PeerNetwork::with_inv_state(self, |_network, inv_state| {
+            let mut wanted: Vec<(
+                ConsensusHash,
+                BurnchainHeaderHash,
+                Option<(StacksBlockId, Vec<StacksMicroblock>)>,
+            )> = vec![];
+            if let Some(stats) = inv_state.block_stats.get(recipient) {
+                for (bhh, (block_height, ch)) in available.iter() {
+                    if !stats.inv.has_ith_microblock_stream(*block_height) {
+                        test_debug!(
+                            "{:?}: Outbound neighbor {:?} wants microblock data for {}",
+                            &_network.local_peer,
+                            recipient,
+                            bhh
+                        );
+
+                        match microblocks.get(ch) {
+                            Some(mblock_data) => {
+                                wanted.push((
+                                    (*ch).clone(),
+                                    (*bhh).clone(),
+                                    Some((*mblock_data).clone()),
+                                ));
+                            }
+                            None => {
+                                wanted.push(((*ch).clone(), (*bhh).clone(), None));
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(wanted)
+        })?;
+
+        let mut advertize = vec![];
+        for (ch, bhh, mblock_stream_opt) in wanted.into_iter() {
+            match mblock_stream_opt {
+                Some((stacks_block_id, mblocks)) => {
+                    self.push_microblocks_to_peer(recipient, stacks_block_id, mblocks);
+                }
+                None => {
+                    advertize.push((ch, bhh));
+                }
+            }
+        }
+
+        if advertize.len() > 0 {
+            self.advertize_to_peer(recipient, &advertize, |payload| {
+                StacksMessageType::MicroblocksAvailable(payload)
             });
         }
 
@@ -1490,13 +1672,16 @@ impl PeerNetwork {
 
     /// Announce blocks that we have to a subset of inbound and outbound peers.
     /// * Outbound peers receive announcements for blocks that we know they don't have, based on
-    /// the inv state we synchronized from them.
+    /// the inv state we synchronized from them.  We send the blocks themselves, if we have them.
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
-    /// don't track their inventory state.
+    /// don't track their inventory state.  We send blocks-available messages to them, since they
+    /// can turn around and ask us for the block data.
+    /// Return the number of inbound and outbound neighbors that have received it
     pub fn advertize_blocks(
         &mut self,
         availability_data: BlocksAvailableMap,
-    ) -> Result<(), net_error> {
+        blocks: HashMap<ConsensusHash, StacksBlock>,
+    ) -> Result<(usize, usize), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
         debug!(
@@ -1507,6 +1692,9 @@ impl PeerNetwork {
             inbound_recipients.len()
         );
 
+        let num_inbound = inbound_recipients.len();
+        let num_outbound = outbound_recipients.len();
+
         for recipient in outbound_recipients.drain(..) {
             debug!(
                 "{:?}: Advertize {} blocks to outbound peer {}",
@@ -1514,7 +1702,11 @@ impl PeerNetwork {
                 availability_data.len(),
                 &recipient
             );
-            self.advertize_to_outbound_peer(&recipient, &availability_data, false)?;
+            self.advertize_or_push_blocks_to_outbound_peer(
+                &recipient,
+                &availability_data,
+                &blocks,
+            )?;
         }
         for recipient in inbound_recipients.drain(..) {
             debug!(
@@ -1527,7 +1719,7 @@ impl PeerNetwork {
                 StacksMessageType::BlocksAvailable(payload)
             })?;
         }
-        Ok(())
+        Ok((num_inbound, num_outbound))
     }
 
     /// Announce confirmed microblocks that we have to a subset of inbound and outbound peers.
@@ -1535,13 +1727,18 @@ impl PeerNetwork {
     /// the inv state we synchronized from them.
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
     /// don't track their inventory state.
+    /// Return the number of inbound and outbound neighbors that have received it
     pub fn advertize_microblocks(
         &mut self,
         availability_data: BlocksAvailableMap,
-    ) -> Result<(), net_error> {
+        microblocks: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+    ) -> Result<(usize, usize), net_error> {
         let (mut outbound_recipients, mut inbound_recipients) =
             self.find_block_recipients(&availability_data)?;
         debug!("{:?}: Advertize {} confirmed microblock streams to {} inbound peers, {} outbound peers", &self.local_peer, availability_data.len(), outbound_recipients.len(), inbound_recipients.len());
+
+        let num_inbound = inbound_recipients.len();
+        let num_outbound = outbound_recipients.len();
 
         for recipient in outbound_recipients.drain(..) {
             debug!(
@@ -1550,7 +1747,11 @@ impl PeerNetwork {
                 availability_data.len(),
                 &recipient
             );
-            self.advertize_to_outbound_peer(&recipient, &availability_data, true)?;
+            self.advertize_or_push_microblocks_to_outbound_peer(
+                &recipient,
+                &availability_data,
+                &microblocks,
+            )?;
         }
         for recipient in inbound_recipients.drain(..) {
             debug!(
@@ -1563,7 +1764,7 @@ impl PeerNetwork {
                 StacksMessageType::MicroblocksAvailable(payload)
             })?;
         }
-        Ok(())
+        Ok((num_inbound, num_outbound))
     }
 
     /// Update accounting information for relayed messages from a network result.
@@ -2015,7 +2216,19 @@ mod test {
                     peer_configs[1].connection_opts.disable_natpunch = true;
                     peer_configs[2].connection_opts.disable_natpunch = true;
 
+                    // do not push blocks and microblocks; only announce them
+                    peer_configs[0].connection_opts.disable_block_push = true;
+                    peer_configs[1].connection_opts.disable_block_push = true;
+                    peer_configs[2].connection_opts.disable_block_push = true;
+
+                    peer_configs[0].connection_opts.disable_microblock_push = true;
+                    peer_configs[1].connection_opts.disable_microblock_push = true;
+                    peer_configs[2].connection_opts.disable_microblock_push = true;
+
                     // generous timeouts
+                    peer_configs[0].connection_opts.connect_timeout = 180;
+                    peer_configs[1].connection_opts.connect_timeout = 180;
+                    peer_configs[2].connection_opts.connect_timeout = 180;
                     peer_configs[0].connection_opts.timeout = 180;
                     peer_configs[1].connection_opts.timeout = 180;
                     peer_configs[2].connection_opts.timeout = 180;
@@ -2026,8 +2239,6 @@ mod test {
 
                     peer_configs[0].add_neighbor(&peer_1);
                     peer_configs[1].add_neighbor(&peer_0);
-
-                    // peer_configs[1].add_neighbor(&peer_2);
                     peer_configs[2].add_neighbor(&peer_1);
                 },
                 |num_blocks, ref mut peers| {
@@ -2092,7 +2303,37 @@ mod test {
                 },
                 |ref mut peers| {
                     // make sure peer 2's inv has an entry for peer 1, even
-                    // though it's not doing an inv sync
+                    // though it's not doing an inv sync. This is required for the downloader to
+                    // work, and for (Micro)BlocksAvailable messages to be accepted
+                    let peer_1_nk = peers[1].to_neighbor().addr;
+                    let peer_2_nk = peers[2].to_neighbor().addr;
+                    let bc = peers[1].config.burnchain.clone();
+                    match peers[2].network.inv_state {
+                        Some(ref mut inv_state) => {
+                            if inv_state.get_stats(&peer_1_nk).is_none() {
+                                test_debug!("initialize inv statistics for peer 1 in peer 2");
+                                inv_state.add_peer(peer_1_nk.clone(), true);
+                                if let Some(ref mut stats) = inv_state.get_stats_mut(&peer_1_nk) {
+                                    stats.scans = 1;
+                                    stats.inv.merge_pox_inv(&bc, 0, 6, vec![0xff], false);
+                                    stats.inv.merge_blocks_inv(
+                                        0,
+                                        30,
+                                        vec![0, 0, 0, 0, 0],
+                                        vec![0, 0, 0, 0, 0],
+                                        false,
+                                    );
+                                } else {
+                                    panic!("Unable to instantiate inv stats for {:?}", &peer_1_nk);
+                                }
+                            } else {
+                                test_debug!("peer 2 has inv state for peer 1");
+                            }
+                        }
+                        None => {
+                            test_debug!("No inv state for peer 1");
+                        }
+                    }
 
                     let tip = SortitionDB::get_canonical_burn_chain_tip(
                         &peers[0].sortdb.as_ref().unwrap().conn(),
@@ -2474,7 +2715,10 @@ mod test {
         }
     }
 
-    fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(outbound_test: bool) {
+    fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
+        outbound_test: bool,
+        disable_push: bool,
+    ) {
         with_timeout(600, move || {
             let original_blocks_and_microblocks = RefCell::new(vec![]);
             let blocks_and_microblocks = RefCell::new(vec![]);
@@ -2503,6 +2747,14 @@ mod test {
                     // clears inv state
                     peer_configs[0].connection_opts.disable_natpunch = true;
                     peer_configs[1].connection_opts.disable_natpunch = true;
+
+                    // force usage of blocksavailable/microblocksavailable?
+                    if disable_push {
+                        peer_configs[0].connection_opts.disable_block_push = true;
+                        peer_configs[0].connection_opts.disable_microblock_push = true;
+                        peer_configs[1].connection_opts.disable_block_push = true;
+                        peer_configs[1].connection_opts.disable_microblock_push = true;
+                    }
 
                     let peer_0 = peer_configs[0].to_neighbor();
                     let peer_1 = peer_configs[1].to_neighbor();
@@ -2578,15 +2830,24 @@ mod test {
                     block_data
                 },
                 |ref mut peers| {
-                    // make sure peer 2's inv has an entry for peer 1, even
-                    // though it's not doing an inv sync
+                    if !disable_push {
+                        for peer in peers.iter_mut() {
+                            // force peers to keep trying to process buffered data
+                            peer.network.burnchain_tip.burn_header_hash =
+                                BurnchainHeaderHash([0u8; 32]);
+                        }
+                    }
+
+                    // make sure peer 1's inv has an entry for peer 0, even
+                    // though it's not doing an inv sync.  This is required for the downloader to
+                    // work
                     let peer_0_nk = peers[0].to_neighbor().addr;
                     let peer_1_nk = peers[1].to_neighbor().addr;
                     match peers[1].network.inv_state {
                         Some(ref mut inv_state) => {
                             if inv_state.get_stats(&peer_0_nk).is_none() {
                                 test_debug!("initialize inv statistics for peer 0 in peer 1");
-                                inv_state.add_peer(peer_0_nk, true);
+                                inv_state.add_peer(peer_0_nk.clone(), true);
                             } else {
                                 test_debug!("peer 1 has inv state for peer 0");
                             }
@@ -2705,15 +2966,33 @@ mod test {
     #[test]
     #[ignore]
     fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound() {
-        // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable
-        test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true)
+        // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable.
+        // nodes rely on blocksavailable/microblocksavailable to discover blocks
+        test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true, true)
     }
 
     #[test]
     #[ignore]
     fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound() {
         // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
-        test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false)
+        // nodes rely on blocksavailable/microblocksavailable to discover blocks
+        test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false, true)
+    }
+
+    #[test]
+    #[ignore]
+    fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_outbound_direct() {
+        // simulates node 0 pushing blocks to node 1, but node 0 is publicly routable.
+        // nodes may push blocks and microblocks directly to each other
+        test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(true, false)
+    }
+
+    #[test]
+    #[ignore]
+    fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks_inbound_direct() {
+        // simulates node 0 pushing blocks to node 1, where node 0 is behind a NAT
+        // nodes may push blocks and microblocks directly to each other
+        test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(false, false)
     }
 
     #[test]
@@ -3712,10 +3991,6 @@ mod test {
                     peer_configs[1].connection_opts.antientropy_public = true;
                     peer_configs[0].connection_opts.antientropy_retry = 1;
                     peer_configs[1].connection_opts.antientropy_retry = 1;
-
-                    // full rescan by default
-                    peer_configs[0].connection_opts.full_inv_sync_interval = 1;
-                    peer_configs[1].connection_opts.full_inv_sync_interval = 1;
 
                     // make peer 0 go slowly
                     peer_configs[0].connection_opts.max_block_push = 2;
