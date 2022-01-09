@@ -49,7 +49,7 @@ use net::StacksHttp;
 use net::StacksP2P;
 
 use net::download::BLOCK_DOWNLOAD_INTERVAL;
-use net::inv::{FULL_INV_SYNC_INTERVAL, INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
+use net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
 use net::neighbors::{
     NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS, WALK_MAX_DURATION,
     WALK_MIN_DURATION, WALK_RESET_INTERVAL, WALK_RESET_PROB, WALK_RETRY_COUNT, WALK_STATE_TIMEOUT,
@@ -348,7 +348,6 @@ pub struct ConnectionOptions {
     pub walk_reset_interval: u64,
     pub walk_state_timeout: u64,
     pub inv_sync_interval: u64,
-    pub full_inv_sync_interval: u64,
     pub inv_reward_cycles: u64,
     pub download_interval: u64,
     pub pingback_timeout: u64,
@@ -384,6 +383,8 @@ pub struct ConnectionOptions {
     pub disable_network_prune: bool,
     pub disable_network_bans: bool,
     pub disable_block_advertisement: bool,
+    pub disable_block_push: bool,
+    pub disable_microblock_push: bool,
     pub disable_pingbacks: bool,
     pub disable_inbound_walks: bool,
     pub disable_natpunch: bool,
@@ -424,7 +425,6 @@ impl std::default::Default for ConnectionOptions {
             walk_reset_interval: WALK_RESET_INTERVAL,
             walk_state_timeout: WALK_STATE_TIMEOUT,
             inv_sync_interval: INV_SYNC_INTERVAL, // how often to synchronize block inventories
-            full_inv_sync_interval: FULL_INV_SYNC_INTERVAL, // how often to synchronize the *full* inventory
             inv_reward_cycles: INV_REWARD_CYCLES, // how many reward cycles of blocks to sync in a non-full inventory sync
             download_interval: BLOCK_DOWNLOAD_INTERVAL, // how often to scan for blocks to download
             pingback_timeout: 60,
@@ -466,6 +466,8 @@ impl std::default::Default for ConnectionOptions {
             disable_network_prune: false,
             disable_network_bans: false,
             disable_block_advertisement: false,
+            disable_block_push: false,
+            disable_microblock_push: false,
             disable_pingbacks: false,
             disable_inbound_walks: false,
             disable_natpunch: false,
