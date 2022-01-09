@@ -2376,7 +2376,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
                     .unwrap();
             config
         }
@@ -2389,7 +2389,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
                     .unwrap();
             config
         }
