@@ -2767,8 +2767,8 @@ impl PeerNetwork {
     }
 
     /// Push any blocks and microblock streams that we're holding onto out to our neighbors.
-    /// Push all but the last arrived Stacks block (the block-push and blocks-available protocols
-    /// should handle this, and we don't want the network to DDoS itself to death).
+    /// Start with the most-recently-arrived data, since this node is likely to have already
+    /// fetched older data via the block-downloader.
     fn try_push_local_data(
         &mut self,
         sortdb: &SortitionDB,
@@ -2819,16 +2819,19 @@ impl PeerNetwork {
             .map(|inv_state| inv_state.block_stats.keys().map(|nk| nk.clone()).collect())
             .unwrap_or(vec![]);
 
-        if self.antientropy_start_reward_cycle >= self.pox_id.num_inventory_reward_cycles() as u64 {
-            debug!("AntiEntropy: wrap around back to reward cycle 0");
-            self.antientropy_start_reward_cycle = 0;
+        if self.antientropy_start_reward_cycle == 0 {
+            debug!(
+                "AntiEntropy: wrap around back to reward cycle {}",
+                self.pox_id.num_inventory_reward_cycles().saturating_sub(1)
+            );
+            self.antientropy_start_reward_cycle =
+                self.pox_id.num_inventory_reward_cycles().saturating_sub(1) as u64;
         }
 
         let reward_cycle_start = self.antientropy_start_reward_cycle;
-        let reward_cycle_finish = cmp::min(
-            self.antientropy_start_reward_cycle + self.connection_opts.inv_reward_cycles,
-            self.pox_id.num_inventory_reward_cycles() as u64,
-        );
+        let reward_cycle_finish =
+            self.antientropy_start_reward_cycle
+                .saturating_sub(self.connection_opts.inv_reward_cycles) as u64;
 
         self.antientropy_start_reward_cycle = reward_cycle_finish;
 
@@ -2844,7 +2847,8 @@ impl PeerNetwork {
             reward_cycle_finish
         );
 
-        for reward_cycle in reward_cycle_start..reward_cycle_finish {
+        // go from latest to earliest reward cycle
+        for reward_cycle in (reward_cycle_finish..reward_cycle_start).rev() {
             let local_blocks_inv = match self.get_local_blocks_inv(sortdb, chainstate, reward_cycle)
             {
                 Ok(inv) => inv,
@@ -4812,7 +4816,13 @@ impl PeerNetwork {
         Ok(())
     }
 
-    /// Refresh view of burnchain, if needed
+    /// Refresh view of burnchain, if needed.
+    /// If the burnchain view changes, then take the following additional steps:
+    /// * hint to the inventory sync state-machine to restart, since we potentially have a new
+    /// block to go fetch
+    /// * hint to the download state machine to start looking for the new block at the new
+    /// stable sortition height
+    /// * hint to the antientropy protocol to reset to the latest reward cycle
     pub fn refresh_burnchain_view(
         &mut self,
         sortdb: &SortitionDB,
@@ -4849,6 +4859,12 @@ impl PeerNetwork {
                     .saturating_sub(self.burnchain.first_block_height),
                 false,
             );
+
+            // set up the antientropy protocol to try pushing the latest block
+            // (helps if you're a miner who gets temporarily disconnected)
+            self.antientropy_last_push_ts = get_epoch_time_secs();
+            self.antientropy_start_reward_cycle =
+                self.pox_id.num_inventory_reward_cycles().saturating_sub(1) as u64;
 
             // update cached burnchain view for /v2/info
             self.chain_view = new_chain_view;
@@ -5813,6 +5829,7 @@ mod test {
                                 sortdb,
                                 chainstate,
                                 mempool,
+                                false,
                                 None,
                                 None,
                             )
@@ -5830,6 +5847,7 @@ mod test {
                                 sortdb,
                                 chainstate,
                                 mempool,
+                                false,
                                 None,
                                 None,
                             )
