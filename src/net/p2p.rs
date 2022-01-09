@@ -84,8 +84,11 @@ use crate::types::chainstate::{PoxId, SortitionId, StacksBlockHeader};
 #[derive(Debug)]
 pub enum NetworkRequest {
     Ban(Vec<NeighborKey>),
-    AdvertizeBlocks(BlocksAvailableMap), // announce to all wanting neighbors that we have these blocks
-    AdvertizeMicroblocks(BlocksAvailableMap), // announce to all wanting neighbors that we have these confirmed microblock streams
+    AdvertizeBlocks(BlocksAvailableMap, HashMap<ConsensusHash, StacksBlock>), // announce to all wanting neighbors that we have these blocks
+    AdvertizeMicroblocks(
+        BlocksAvailableMap,
+        HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+    ), // announce to all wanting neighbors that we have these confirmed microblock streams
     Relay(NeighborKey, StacksMessage),
     Broadcast(Vec<RelayData>, StacksMessageType),
 }
@@ -133,14 +136,22 @@ impl NetworkHandle {
     }
 
     /// Advertize blocks
-    pub fn advertize_blocks(&mut self, blocks: BlocksAvailableMap) -> Result<(), net_error> {
-        let req = NetworkRequest::AdvertizeBlocks(blocks);
+    pub fn advertize_blocks(
+        &mut self,
+        blocks: BlocksAvailableMap,
+        block_data: HashMap<ConsensusHash, StacksBlock>,
+    ) -> Result<(), net_error> {
+        let req = NetworkRequest::AdvertizeBlocks(blocks, block_data);
         self.send_request(req)
     }
 
     /// Advertize microblocks
-    pub fn advertize_microblocks(&mut self, blocks: BlocksAvailableMap) -> Result<(), net_error> {
-        let req = NetworkRequest::AdvertizeMicroblocks(blocks);
+    pub fn advertize_microblocks(
+        &mut self,
+        microblocks: BlocksAvailableMap,
+        microblock_data: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+    ) -> Result<(), net_error> {
+        let req = NetworkRequest::AdvertizeMicroblocks(microblocks, microblock_data);
         self.send_request(req)
     }
 
@@ -989,15 +1000,15 @@ impl PeerNetwork {
                 }
                 Ok(())
             }
-            NetworkRequest::AdvertizeBlocks(blocks) => {
+            NetworkRequest::AdvertizeBlocks(blocks, block_data) => {
                 if !(cfg!(test) && self.connection_opts.disable_block_advertisement) {
-                    self.advertize_blocks(blocks)?;
+                    self.advertize_blocks(blocks, block_data)?;
                 }
                 Ok(())
             }
-            NetworkRequest::AdvertizeMicroblocks(mblocks) => {
+            NetworkRequest::AdvertizeMicroblocks(mblocks, mblock_data) => {
                 if !(cfg!(test) && self.connection_opts.disable_block_advertisement) {
-                    self.advertize_microblocks(mblocks)?;
+                    self.advertize_microblocks(mblocks, mblock_data)?;
                 }
                 Ok(())
             }
