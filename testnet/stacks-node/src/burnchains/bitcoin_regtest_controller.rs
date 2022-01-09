@@ -67,7 +67,7 @@ const DUST_UTXO_LIMIT: u64 = 5500;
 
 pub struct BitcoinRegtestController {
     config: Config,
-    indexer_config: BitcoinIndexerConfig,
+    indexer: BitcoinIndexer,
     db: Option<SortitionDB>,
     burnchain_db: Option<BurnchainDB>,
     chain_tip: Option<BurnchainTip>,
@@ -242,10 +242,17 @@ impl BitcoinRegtestController {
             }
         };
 
+        let (_, network_type) = config.burnchain.get_bitcoin_network();
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+        let burnchain_indexer = BitcoinIndexer {
+            config: indexer_config.clone(),
+            runtime: indexer_runtime,
+        };
+
         Self {
             use_coordinator: coordinator_channel,
             config,
-            indexer_config,
+            indexer: burnchain_indexer,
             db: None,
             burnchain_db: None,
             chain_tip: None,
@@ -279,10 +286,17 @@ impl BitcoinRegtestController {
             }
         };
 
+        let (_, network_type) = config.burnchain.get_bitcoin_network();
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+        let burnchain_indexer = BitcoinIndexer {
+            config: indexer_config.clone(),
+            runtime: indexer_runtime,
+        };
+
         Self {
             use_coordinator: None,
             config,
-            indexer_config,
+            indexer: burnchain_indexer,
             db: None,
             burnchain_db: None,
             chain_tip: None,
@@ -321,21 +335,10 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn setup_indexer_runtime(&self) -> (Burnchain, BitcoinIndexer) {
-        let (_, network_type) = self.config.burnchain.get_bitcoin_network();
-        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
-        let burnchain_indexer = BitcoinIndexer {
-            config: self.indexer_config.clone(),
-            runtime: indexer_runtime,
-        };
-        (self.get_burnchain(), burnchain_indexer)
-    }
-
     fn receive_blocks_helium(&mut self) -> BurnchainTip {
-        let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
-
+        let mut burnchain = self.get_burnchain();
         let (block_snapshot, state_transition) = loop {
-            match burnchain.sync_with_indexer_deprecated(&mut burnchain_indexer) {
+            match burnchain.sync_with_indexer_deprecated(&mut self.indexer) {
                 Ok(x) => {
                     break x;
                 }
@@ -405,13 +408,13 @@ impl BitcoinRegtestController {
             }
         };
 
-        let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
+        let mut burnchain = self.get_burnchain();
         let (block_snapshot, burnchain_height, state_transition) = loop {
             if !self.should_keep_running() {
                 return Err(BurnchainControllerError::CoordinatorClosed);
             }
             match burnchain.sync_with_indexer(
-                &mut burnchain_indexer,
+                &mut self.indexer,
                 coordinator_comms.clone(),
                 target_block_height_opt,
                 Some(burnchain.pox_constants.reward_cycle_length as u64),
@@ -439,7 +442,8 @@ impl BitcoinRegtestController {
                         .expect("Sortition DB error.")
                         .expect("BUG: no data for the canonical chain tip");
 
-                    let burnchain_height = burnchain_indexer
+                    let burnchain_height = self
+                        .indexer
                         .get_highest_header_height()
                         .map_err(BurnchainControllerError::IndexerError)?;
                     break (snapshot, burnchain_height, state_transition);
@@ -1471,19 +1475,18 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
-        let (burnchain, burnchain_indexer) = self.setup_indexer_runtime();
+        let burnchain = self.get_burnchain();
         burnchain.connect_db(
-            &burnchain_indexer,
+            &self.indexer,
             true,
-            burnchain_indexer.get_first_block_header_hash()?,
-            burnchain_indexer.get_first_block_header_timestamp()?,
+            self.indexer.get_first_block_header_hash()?,
+            self.indexer.get_first_block_header_timestamp()?,
         )?;
         Ok(())
     }
 
     fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
-        let (_, indexer) = self.setup_indexer_runtime();
-        indexer.get_stacks_epochs()
+        self.indexer.get_stacks_epochs()
     }
 
     fn start(
