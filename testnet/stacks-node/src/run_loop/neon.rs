@@ -120,7 +120,7 @@ impl RunLoop {
     #[cfg(not(test))]
     fn bump_blocks_processed(&self) {}
 
-    /// Starts the testnet runloop.
+    /// Starts the node runloop.
     ///
     /// This function will block by looping infinitely.
     /// It will start the burnchain (separate thread), set-up a channel in
