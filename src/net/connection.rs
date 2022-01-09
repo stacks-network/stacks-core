@@ -36,6 +36,7 @@ use mio::net as mio_net;
 
 use crate::codec::StacksMessageCodec;
 use crate::codec::MAX_MESSAGE_LEN;
+use core::mempool::MAX_BLOOM_COUNTER_TXS;
 use net::codec::*;
 use net::Error as net_error;
 use net::HttpRequestPreamble;
@@ -373,6 +374,12 @@ pub struct ConnectionOptions {
     pub max_buffered_microblocks_available: u64,
     pub max_buffered_blocks: u64,
     pub max_buffered_microblocks: u64,
+    /// how often to query a remote peer for its mempool, in seconds
+    pub mempool_sync_interval: u64,
+    /// how many transactions to ask for in a mempool query
+    pub mempool_max_tx_query: u64,
+    /// how long a mempool sync is allowed to take, in total, before timing out
+    pub mempool_sync_timeout: u64,
 
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -456,6 +463,9 @@ impl std::default::Default for ConnectionOptions {
             max_buffered_microblocks_available: 1,
             max_buffered_blocks: 1,
             max_buffered_microblocks: 10,
+            mempool_sync_interval: 30, // number of seconds in-between mempool sync
+            mempool_max_tx_query: MAX_BLOOM_COUNTER_TXS.into(),
+            mempool_sync_timeout: 60, // how long a mempool sync can go for
 
             // no faults on by default
             disable_neighbor_walk: false,
