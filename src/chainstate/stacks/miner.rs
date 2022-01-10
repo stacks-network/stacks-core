@@ -594,7 +594,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
         clarity_tx: &mut ClarityTx<'a>,
         tx: StacksTransaction,
         tx_len: u64,
-        considered: &mut HashSet<Txid>,
         bytes_so_far: u64,
         limit_behavior: &BlockLimitFunction,
     ) -> Result<TransactionResult, Error> {
@@ -610,14 +609,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 ),
             ));
         }
-        if considered.contains(&tx.txid()) {
-            return Ok(TransactionResult::skipped(
-                &tx,
-                "Already considered.".to_string(),
-            ));
-        } else {
-            considered.insert(tx.txid());
-        }
+
         if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             info!(
                 "Adding microblock tx {} would exceed epoch data size",
@@ -726,11 +718,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let mut result = Ok(());
         for (tx, tx_len) in txs_and_lens.into_iter() {
+            if considered.contains(&tx.txid()) {
+                continue;
+            } else {
+                considered.insert(tx.txid());
+            }
+
             match StacksMicroblockBuilder::mine_next_transaction(
                 &mut clarity_tx,
                 tx.clone(),
                 tx_len,
-                &mut considered,
                 bytes_so_far,
                 &block_limit_hit,
             ) {
@@ -863,11 +860,16 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             return Ok(false);
                         }
 
+                        if considered.contains(&tx.txid()) {
+                            return Ok(true);
+                        } else {
+                            considered.insert(tx.txid());
+                        }
+
                         match StacksMicroblockBuilder::mine_next_transaction(
                             clarity_tx,
                             mempool_tx.tx.clone(),
                             mempool_tx.metadata.len,
-                            &mut considered,
                             bytes_so_far,
                             &block_limit_hit,
                         ) {
