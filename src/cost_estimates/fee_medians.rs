@@ -120,9 +120,9 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
         let mut lows = Vec::with_capacity(window_size as usize);
         let results = stmt
             .query_and_then::<_, SqliteError, _, _>(&[window_size], |row| {
-                let high: f64 = row.get(0)?;
-                let middle: f64 = row.get(1)?;
-                let low: f64 = row.get(2)?;
+                let high: f64 = row.get("high")?;
+                let middle: f64 = row.get("middle")?;
+                let low: f64 = row.get("low")?;
                 Ok((low, middle, high))
             })
             .expect("SQLite failure");
@@ -240,18 +240,20 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
 pub fn fee_rate_estimate_from_sorted_weighted_fees(
     sorted_fee_rates: &Vec<FeeRateAndWeight>,
 ) -> FeeRateEstimate {
-    if sorted_fee_rates.is_empty() {
-        panic!("`sorted_fee_rates` cannot be empty.");
-    }
+    assert!(
+        !sorted_fee_rates.is_empty(),
+        "`sorted_fee_rates` cannot be empty."
+    );
 
     let mut total_weight = 0f64;
     for rate_and_weight in sorted_fee_rates {
         total_weight += rate_and_weight.weight as f64;
     }
 
-    if total_weight <= 0f64 {
-        panic!("`total_weight` is 0f64. This is an error.");
-    }
+    assert!(
+        total_weight > 0f64,
+        "`total_weight` is `0.0`. Must be positive."
+    );
 
     let mut cumulative_weight = 0f64;
     let mut percentiles = Vec::new();
