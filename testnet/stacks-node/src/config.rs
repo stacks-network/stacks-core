@@ -1227,7 +1227,6 @@ impl FeeEstimationConfig {
         metric: CM,
     ) -> Box<dyn FeeEstimator> {
         if let Some(FeeEstimatorName::ScalarFeeRate) = self.fee_estimator.as_ref() {
-            chainstate_path.push("fee_estimation");
             chainstate_path.push("fee_estimator_scalar_rate.sqlite");
             Box::new(
                 ScalarFeeRateEstimator::open(&chainstate_path, metric)
@@ -1246,7 +1245,6 @@ impl FeeEstimationConfig {
         metric: CM,
     ) -> Box<dyn FeeEstimator> {
         if let Some(FeeEstimatorName::FuzzedWeightedMedianFeeRate) = self.fee_estimator.as_ref() {
-            chainstate_path.push("fee_estimation");
             chainstate_path.push("fee_fuzzed_weighted_median.sqlite");
             let underlying_estimator = WeightedMedianFeeRateEstimator::open(
                 &chainstate_path,
