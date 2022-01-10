@@ -411,7 +411,6 @@ impl RunLoop {
 
         let mut burnchain_height = sortition_db_height;
         let mut num_sortitions_in_last_cycle = 1;
-        let mut learned_burnchain_height = false;
 
         // prepare to fetch the first reward cycle!
         target_burnchain_block_height = burnchain_height + pox_constants.reward_cycle_length as u64;
@@ -439,18 +438,16 @@ impl RunLoop {
                 break;
             }
 
+            let remote_chain_height = burnchain.get_headers_height();
+
             // wait for the p2p state-machine to do at least one pass
-            debug!("Wait until we reach steady-state before processing more burnchain blocks...");
+            debug!("Wait until we reach steady-state before processing more burnchain blocks (chain height is {}, we are at {})...", remote_chain_height, burnchain_height);
 
             // wait until it's okay to process the next sortitions
             let ibd = match pox_watchdog.pox_sync_wait(
                 &burnchain_config,
                 &burnchain_tip,
-                if learned_burnchain_height {
-                    Some(burnchain_height)
-                } else {
-                    None
-                },
+                Some(remote_chain_height),
                 num_sortitions_in_last_cycle,
             ) {
                 Ok(ibd) => ibd,
@@ -478,7 +475,6 @@ impl RunLoop {
                     };
 
                 // *now* we know the burnchain height
-                learned_burnchain_height = true;
                 burnchain_tip = next_burnchain_tip;
                 burnchain_height = cmp::min(burnchain_height + 1, target_burnchain_block_height);
 
