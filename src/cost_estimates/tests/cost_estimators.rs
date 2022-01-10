@@ -254,6 +254,104 @@ fn test_pessimistic_cost_estimator_declining_average() {
 /// to produce the expected pessimistic result (i.e., mean over a 10-sample
 /// window, where the window only updates if the new entry would make a dimension
 /// worse).
+fn pessimistic_estimator_contract_owner_separation() {
+    let mut estimator = instantiate_test_db();
+    let cc_payload_0 = TransactionPayload::ContractCall(TransactionContractCall {
+        address: StacksAddress::new(0, Hash160([0; 20])),
+        contract_name: "contract-1".into(),
+        function_name: "func1".into(),
+        function_args: vec![],
+    });
+    let cc_payload_1 = TransactionPayload::ContractCall(TransactionContractCall {
+        address: StacksAddress::new(0, Hash160([1; 20])),
+        contract_name: "contract-1".into(),
+        function_name: "func1".into(),
+        function_args: vec![],
+    });
+
+    estimator
+        .notify_event(
+            &cc_payload_0,
+            &ExecutionCost {
+                write_length: 1,
+                write_count: 1,
+                read_length: 1,
+                read_count: 1,
+                runtime: 1,
+            },
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
+        )
+        .expect("Should be able to process event");
+
+    assert_eq!(
+        estimator.estimate_cost(&cc_payload_1, &StacksEpochId::Epoch20,),
+        Err(EstimatorError::NoEstimateAvailable)
+    );
+
+    assert_eq!(
+        estimator
+            .estimate_cost(&cc_payload_0, &StacksEpochId::Epoch20,)
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 1,
+            write_count: 1,
+            read_length: 1,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &cc_payload_1,
+            &ExecutionCost {
+                write_length: 5,
+                write_count: 5,
+                read_length: 5,
+                read_count: 5,
+                runtime: 5,
+            },
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
+        )
+        .expect("Should be able to process event");
+
+    // cc_payload_0 should not be affected
+    assert_eq!(
+        estimator
+            .estimate_cost(&cc_payload_0, &StacksEpochId::Epoch20,)
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 1,
+            write_count: 1,
+            read_length: 1,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    // cc_payload_1 should be updated
+    assert_eq!(
+        estimator
+            .estimate_cost(&cc_payload_1, &StacksEpochId::Epoch20,)
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 5,
+            write_count: 5,
+            read_length: 5,
+            read_count: 5,
+            runtime: 5,
+        }
+    );
+}
+
+#[test]
+/// This tests the PessimisticEstimator as a unit (i.e., separate
+/// from the trait auto-impl method) by providing payload inputs
+/// to produce the expected pessimistic result (i.e., mean over a 10-sample
+/// window, where the window only updates if the new entry would make a dimension
+/// worse).
 fn test_pessimistic_cost_estimator() {
     let mut estimator = instantiate_test_db();
     estimator

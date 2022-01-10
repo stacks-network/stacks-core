@@ -72,6 +72,9 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
+use stacks::chainstate::stacks::miner::{
+    TransactionErrorEvent, TransactionEvent, TransactionSkippedEvent, TransactionSuccessEvent,
+};
 
 use crate::config::FeeEstimatorName;
 use stacks::net::RPCFeeEstimateResponse;
@@ -123,13 +126,14 @@ pub mod test_observer {
     use warp;
     use warp::Filter;
 
-    use crate::event_dispatcher::MinedBlockEvent;
+    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent};
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
     lazy_static! {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
+        pub static ref MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
         pub static ref NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -162,6 +166,16 @@ pub mod test_observer {
     async fn handle_mined_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
         let mut mined_blocks = MINED_BLOCKS.lock().unwrap();
         mined_blocks.push(serde_json::from_value(block).unwrap());
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    /// Called by the process listening to events on a mined microblock event. The event is added
+    /// to the mutex-guarded vector `MINED_MICROBLOCKS`.
+    async fn handle_mined_microblock(
+        tx_event: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        let mut mined_txs = MINED_MICROBLOCKS.lock().unwrap();
+        mined_txs.push(serde_json::from_value(tx_event).unwrap());
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -236,6 +250,10 @@ pub mod test_observer {
         MINED_BLOCKS.lock().unwrap().clone()
     }
 
+    pub fn get_mined_microblocks() -> Vec<MinedMicroblockEvent> {
+        MINED_MICROBLOCKS.lock().unwrap().clone()
+    }
+
     /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
     async fn serve() {
         let new_blocks = warp::path!("new_block")
@@ -266,6 +284,10 @@ pub mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_mined_block);
+        let mined_microblocks = warp::path!("mined_microblock")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_mined_microblock);
 
         info!("Spawning warp server");
         warp::serve(
@@ -275,7 +297,8 @@ pub mod test_observer {
                 .or(new_burn_blocks)
                 .or(new_attachments)
                 .or(new_microblocks)
-                .or(mined_blocks),
+                .or(mined_blocks)
+                .or(mined_microblocks),
         )
         .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
         .await
@@ -3813,6 +3836,205 @@ fn cost_voting_integration() {
 
 #[test]
 #[ignore]
+fn mining_events_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let small_contract = "(define-public (f) (ok 1))".to_string();
+
+    let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    let addr = to_addr(&spender_sk);
+
+    let spender_sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
+    let addr_2 = to_addr(&spender_sk_2);
+
+    let tx = make_contract_publish(&spender_sk, 0, 600000, "small", &small_contract);
+    let tx_2 = make_contract_publish(&spender_sk, 1, 610000, "small", &small_contract);
+    let mb_tx =
+        make_contract_publish_microblock_only(&spender_sk_2, 0, 620000, "small", &small_contract);
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    conf.initial_balances.push(InitialBalance {
+        address: addr.clone().into(),
+        amount: 10000000,
+    });
+    conf.initial_balances.push(InitialBalance {
+        address: addr_2.clone().into(),
+        amount: 10000000,
+    });
+
+    conf.node.mine_microblocks = true;
+    conf.node.wait_time_for_microblocks = 30000;
+    conf.node.microblock_frequency = 1000;
+
+    conf.miner.min_tx_fee = 1;
+    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![
+            EventKeyType::AnyEvent,
+            EventKeyType::MinedBlocks,
+            EventKeyType::MinedMicroblocks,
+        ],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    submit_tx(&http_origin, &tx); // should succeed
+    submit_tx(&http_origin, &tx_2); // should fail since it tries to publish contract with same name
+    submit_tx(&http_origin, &mb_tx); // should be in microblock bc it is microblock only
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // check that the nonces have gone up
+    let res = get_account(&http_origin, &addr);
+    assert_eq!(res.nonce, 1);
+
+    let res = get_account(&http_origin, &addr_2);
+    assert_eq!(res.nonce, 1);
+
+    // check mined microblock events
+    let mined_microblock_events = test_observer::get_mined_microblocks();
+    assert!(mined_microblock_events.len() >= 1);
+
+    // check tx events in the first microblock
+    // 1 success: 1 contract publish, 2 error (on chain transactions)
+    let microblock_tx_events = &mined_microblock_events[0].tx_events;
+    assert_eq!(microblock_tx_events.len(), 3);
+
+    // contract publish
+    match &microblock_tx_events[0] {
+        TransactionEvent::Success(TransactionSuccessEvent {
+            result,
+            fee,
+            execution_cost,
+            ..
+        }) => {
+            assert_eq!(result.clone().expect_result_ok().expect_bool(), true);
+            assert_eq!(fee, &620000);
+            assert_eq!(
+                execution_cost,
+                &ExecutionCost {
+                    write_length: 35,
+                    write_count: 2,
+                    read_length: 1,
+                    read_count: 1,
+                    runtime: 311000
+                }
+            )
+        }
+        _ => panic!("unexpected event type"),
+    }
+    for i in 1..3 {
+        // on chain only transactions will be skipped in a microblock
+        match &microblock_tx_events[i] {
+            TransactionEvent::Skipped(TransactionSkippedEvent { error, .. }) => {
+                assert_eq!(error, "Invalid transaction anchor mode for streamed data");
+            }
+            _ => panic!("unexpected event type"),
+        }
+    }
+
+    // check mined block events
+    let mined_block_events = test_observer::get_mined_blocks();
+    assert!(mined_block_events.len() >= 3);
+
+    // check the tx events in the third mined block
+    // 2 success: 1 coinbase tx event + 1 contract publish, 1 error (duplicate contract)
+    let third_block_tx_events = &mined_block_events[2].tx_events;
+    assert_eq!(third_block_tx_events.len(), 3);
+
+    // coinbase event
+    match &third_block_tx_events[0] {
+        TransactionEvent::Success(TransactionSuccessEvent { txid, result, .. }) => {
+            assert_eq!(
+                txid.to_string(),
+                "3e04ada5426332bfef446ba0a06d124aace4ade5c11840f541bf88e2e919faf6"
+            );
+            assert_eq!(result.clone().expect_result_ok().expect_bool(), true);
+        }
+        _ => panic!("unexpected event type"),
+    }
+
+    // contract publish event
+    match &third_block_tx_events[1] {
+        TransactionEvent::Success(TransactionSuccessEvent {
+            result,
+            fee,
+            execution_cost,
+            ..
+        }) => {
+            assert_eq!(result.clone().expect_result_ok().expect_bool(), true);
+            assert_eq!(fee, &600000);
+            assert_eq!(
+                execution_cost,
+                &ExecutionCost {
+                    write_length: 35,
+                    write_count: 2,
+                    read_length: 1,
+                    read_count: 1,
+                    runtime: 311000
+                }
+            )
+        }
+        _ => panic!("unexpected event type"),
+    }
+
+    // dupe contract error event
+    match &third_block_tx_events[2] {
+        TransactionEvent::ProcessingError(TransactionErrorEvent { txid, error }) => {
+            assert_eq!(
+                error,
+                "Duplicate contract 'ST3WM51TCWMJYGZS1QFMC28DH5YP86782YGR113C1.small'"
+            );
+        }
+        _ => panic!("unexpected event type"),
+    }
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
 fn near_full_block_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -3841,7 +4063,7 @@ fn near_full_block_integration_test() {
     let spender_sk = StacksPrivateKey::new();
     let spender_addr = to_addr(&spender_sk);
 
-    let tx = make_contract_publish(&spender_sk, 0, 58450, "max", &max_contract_src);
+    let tx = make_contract_publish(&spender_sk, 0, 59070, "max", &max_contract_src);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 

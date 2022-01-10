@@ -17,6 +17,11 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   accounted for, 4) use random "fuzz" so that in busy times we will not have
   ties.
 
+### Changed
+
+- The pessimistic execution cost estimator differentiates between
+  contracts with different origin addresses.
+
 ## [2.05.0.0.0]
 
 This software update is a consensus changing release and the
