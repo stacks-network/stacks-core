@@ -39,8 +39,7 @@ fn is_close_f64(a: f64, b: f64) -> bool {
     error < error_epsilon
 }
 
-/// Returns `true` iff each value in `left` is within `error_epsilon` of the
-/// corresponding value in `right`.
+/// Returns `true` iff each value in `left` "close" to its counterpart in `right`.
 fn is_close(left: FeeRateEstimate, right: FeeRateEstimate) -> bool {
     let is_ok = is_close_f64(left.high, right.high)
         && is_close_f64(left.middle, right.middle)
