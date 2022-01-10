@@ -480,7 +480,7 @@ impl RunLoop {
                 // *now* we know the burnchain height
                 learned_burnchain_height = true;
                 burnchain_tip = next_burnchain_tip;
-                burnchain_height += 1;
+                burnchain_height = cmp::min(burnchain_height + 1, target_burnchain_block_height);
 
                 let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
                 let next_sortition_height = burnchain_tip.block_snapshot.block_height;
@@ -543,6 +543,10 @@ impl RunLoop {
                     // so we can't rely on the relayer alone to
                     // drive it.
                     coordinator_senders.announce_new_stacks_block();
+                }
+
+                if burnchain_height == target_burnchain_block_height {
+                    break;
                 }
             }
 
