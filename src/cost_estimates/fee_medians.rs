@@ -238,7 +238,7 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
 ///
 /// `sorted_fee_rates` must be non-empty.
 pub fn fee_rate_estimate_from_sorted_weighted_fees(
-    sorted_fee_rates: &Vec<FeeRateAndWeight>,
+    sorted_fee_rates: &[FeeRateAndWeight],
 ) -> FeeRateEstimate {
     assert!(!sorted_fee_rates.is_empty());
 

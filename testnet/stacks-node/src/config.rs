@@ -1213,7 +1213,6 @@ impl FeeEstimationConfig {
         mut chainstate_path: PathBuf,
     ) -> PessimisticEstimator {
         if let Some(CostEstimatorName::NaivePessimistic) = self.cost_estimator.as_ref() {
-            chainstate_path.push("fee_estimation");
             chainstate_path.push("cost_estimator_pessimistic.sqlite");
             PessimisticEstimator::open(&chainstate_path, self.log_error)
                 .expect("Error opening cost estimator")
@@ -1597,3 +1596,5 @@ pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
 }
+
+
