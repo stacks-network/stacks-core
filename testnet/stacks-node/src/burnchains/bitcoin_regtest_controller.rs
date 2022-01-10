@@ -1474,6 +1474,22 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
+    fn get_headers_height(&self) -> u64 {
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
+        let spv_client = SpvClient::new(
+            &self.config.get_spv_headers_file_path(),
+            0,
+            None,
+            network_id,
+            false,
+            false,
+        )
+        .expect("Unable to open burnchain headers DB");
+        spv_client
+            .get_headers_height()
+            .expect("Unable to query number of burnchain headers")
+    }
+
     fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
         let burnchain = self.get_burnchain();
         burnchain.connect_db(
