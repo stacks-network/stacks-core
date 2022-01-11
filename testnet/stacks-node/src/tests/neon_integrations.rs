@@ -734,25 +734,6 @@ fn get_pox_info(http_origin: &str) -> RPCPoxInfoData {
         .unwrap()
 }
 
-fn get_fee_rate_info(
-    http_origin: &str,
-    fee_rate_input: &FeeRateEstimateRequestBody,
-) -> RPCPoxInfoData {
-    let client = reqwest::blocking::Client::new();
-    let path = format!("{}/v2/fees/transaction", http_origin);
-
-    let body = { serde_json::to_vec(&json!(fee_rate_input)).unwrap() };
-
-    client
-        .post(&path)
-        .header("Content-Type", "application/json")
-        .body(body)
-        .send()
-        .unwrap()
-        .json::<RPCPoxInfoData>()
-        .unwrap()
-}
-
 fn get_chain_tip(http_origin: &str) -> (ConsensusHash, BlockHeaderHash) {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/info", http_origin);
@@ -6196,8 +6177,6 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     let spender_sk = StacksPrivateKey::new();
     let spender_addr = to_addr(&spender_sk);
 
-    // 1) a basic test `Config`
-    // 2) the miner's
     let (mut conf, _) = neon_integration_test_conf();
 
     // Set this estimator as special.
