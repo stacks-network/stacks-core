@@ -3950,6 +3950,12 @@ fn mining_events_integration_test() {
     channel.stop_chains_coordinator();
 }
 
+/// This test checks that the limit behavior in the miner works as expected for anchored block
+/// building. When we first hit the block limit, the limit behavior switches to
+/// `CONTRACT_LIMIT_HIT`, during which stx transfers are still allowed, and contract related
+/// transactions are skipped.
+/// Note: the test is sensitive to the order in which transactions are mined; it is written
+/// expecting that transactions are traversed in the order tx_1, tx_2, tx_3, and tx_4.
 #[test]
 #[ignore]
 fn block_limit_hit_integration_test() {
@@ -4009,6 +4015,7 @@ fn block_limit_hit_integration_test() {
     let third_spender_sk = StacksPrivateKey::new();
     let third_spender_addr: PrincipalData = to_addr(&third_spender_sk).into();
 
+    // included in first block
     let tx = make_contract_publish(&spender_sk, 0, 555_000, "over", &oversize_contract_src);
     // contract limit hit; included in second block
     let tx_2 = make_contract_publish(&spender_sk, 1, 555_000, "over-2", &oversize_contract_src);
@@ -4079,22 +4086,6 @@ fn block_limit_hit_integration_test() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let account = get_account(&http_origin, &miner_account);
-    assert_eq!(account.nonce, 1);
-    assert_eq!(account.balance, 0);
-
-    let account = get_account(&http_origin, &addr);
-    assert_eq!(account.nonce, 0);
-    assert_eq!(account.balance, 10000000);
-
-    let account = get_account(&http_origin, &second_spender_addr);
-    assert_eq!(account.balance, 10000000);
-    assert_eq!(account.nonce, 0);
-
-    let account = get_account(&http_origin, &third_spender_addr);
-    assert_eq!(account.balance, 10000000);
-    assert_eq!(account.nonce, 0);
-
     // submit all the transactions
     let txid_1 = submit_tx(&http_origin, &tx);
     let txid_2 = submit_tx(&http_origin, &tx_2);
@@ -4150,6 +4141,12 @@ fn block_limit_hit_integration_test() {
     channel.stop_chains_coordinator();
 }
 
+/// This test checks that the limit behavior in the miner works as expected during microblock
+/// building. When we first hit the block limit, the limit behavior switches to
+/// `CONTRACT_LIMIT_HIT`, during which stx transfers are still allowed, and contract related
+/// transactions are skipped.
+/// Note: the test is sensitive to the order in which transactions are mined; it is written
+/// expecting that transactions are traversed in the order tx_1, tx_2, tx_3, and tx_4.
 #[test]
 #[ignore]
 fn microblock_limit_hit_integration_test() {
@@ -4207,6 +4204,7 @@ fn microblock_limit_hit_integration_test() {
     let third_spender_sk = StacksPrivateKey::new();
     let third_spender_addr: PrincipalData = to_addr(&third_spender_sk).into();
 
+    // included in the first block
     let tx = make_contract_publish_microblock_only(
         &spender_sk,
         0,
@@ -4372,12 +4370,12 @@ fn microblock_limit_hit_integration_test() {
 
 #[test]
 #[ignore]
-fn near_full_block_integration_test() {
+fn block_large_tx_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
 
-    let max_contract_src = format!(
+    let small_contract_src = format!(
         "(define-public (f) (begin {} (ok 1))) (begin (f))",
         (0..700)
             .map(|_| format!(
@@ -4406,7 +4404,7 @@ fn near_full_block_integration_test() {
     let spender_sk = StacksPrivateKey::new();
     let addr = to_addr(&spender_sk);
 
-    let tx = make_contract_publish(&spender_sk, 0, 150_000, "max", &max_contract_src);
+    let tx = make_contract_publish(&spender_sk, 0, 150_000, "small", &small_contract_src);
     let tx_2 = make_contract_publish(&spender_sk, 1, 670_000, "over", &oversize_contract_src);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -4492,12 +4490,12 @@ fn near_full_block_integration_test() {
 
 #[test]
 #[ignore]
-fn near_full_microblock_integration_test() {
+fn microblock_large_tx_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
 
-    let max_contract_src = format!(
+    let small_contract_src = format!(
         "(define-public (f) (begin {} (ok 1))) (begin (f))",
         (0..700)
             .map(|_| format!(
@@ -4527,8 +4525,13 @@ fn near_full_microblock_integration_test() {
     let spender_sk = StacksPrivateKey::new();
     let addr = to_addr(&spender_sk);
 
-    let tx =
-        make_contract_publish_microblock_only(&spender_sk, 0, 150_000, "max", &max_contract_src);
+    let tx = make_contract_publish_microblock_only(
+        &spender_sk,
+        0,
+        150_000,
+        "small",
+        &small_contract_src,
+    );
     let tx_2 = make_contract_publish_microblock_only(
         &spender_sk,
         1,
