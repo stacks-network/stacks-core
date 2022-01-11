@@ -6258,9 +6258,8 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
             // Read from the fee estimation endpoin.
             let path = format!("{}/v2/fees/transaction", &http_origin);
 
-            let contract_addr = to_addr(&StacksPrivateKey::from_hex(SK_1).unwrap());
             let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
-                address: contract_addr.clone().into(),
+                address: spender_addr.clone().into(),
                 contract_name: ContractName::try_from("increment-contract").unwrap(),
                 function_name: ClarityName::try_from("increment-many").unwrap(),
                 function_args: vec![],
