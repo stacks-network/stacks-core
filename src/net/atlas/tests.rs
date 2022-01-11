@@ -89,11 +89,12 @@ fn new_peers(peers: Vec<(&str, u32, u32)>) -> HashMap<UrlString, ReliabilityRepo
 fn new_attachment_request(
     sources: Vec<(&str, u32, u32)>,
     content_hash: &Hash160,
+    block_height: u64,
 ) -> AttachmentRequest {
     let sources = {
         let mut s = HashMap::new();
         for (url, req_sent, req_success) in sources {
-            let url = UrlString::try_from(format!("{}", url).as_str()).unwrap();
+            let url = UrlString::try_from(format!("{}", url)).unwrap();
             s.insert(url, ReliabilityReport::new(req_sent, req_success));
         }
         s
@@ -101,6 +102,7 @@ fn new_attachment_request(
     AttachmentRequest {
         sources,
         content_hash: content_hash.clone(),
+        block_height,
     }
 }
 
@@ -124,7 +126,7 @@ fn new_attachments_inventory_request(
 }
 
 fn new_attachments_inventory_response(pages: Vec<(u32, Vec<u8>)>) -> HttpResponseType {
-    let md = HttpResponseMetadata::new(HttpVersion::Http11, 1, None, true);
+    let md = HttpResponseMetadata::new(HttpVersion::Http11, 1, None, true, None);
     let pages = pages
         .into_iter()
         .map(|(index, inventory)| AttachmentPage { index, inventory })
@@ -411,6 +413,7 @@ fn test_attachment_requests_ordering() {
             ("http://localhost:40443", 0, 1),
         ],
         &attachment_1.hash(),
+        10,
     );
 
     let attachment_2_request = new_attachment_request(
@@ -420,13 +423,20 @@ fn test_attachment_requests_ordering() {
             ("http://localhost:30443", 0, 1),
         ],
         &attachment_2.hash(),
+        10,
     );
 
-    let attachment_3_request =
-        new_attachment_request(vec![("http://localhost:30443", 0, 1)], &attachment_3.hash());
+    let attachment_3_request = new_attachment_request(
+        vec![("http://localhost:30443", 0, 1)],
+        &attachment_3.hash(),
+        10,
+    );
 
-    let attachment_4_request =
-        new_attachment_request(vec![("http://localhost:50443", 4, 4)], &attachment_4.hash());
+    let attachment_4_request = new_attachment_request(
+        vec![("http://localhost:50443", 4, 4)],
+        &attachment_4.hash(),
+        10,
+    );
 
     let mut priority_queue = BinaryHeap::new();
     priority_queue.push(attachment_1_request.clone());

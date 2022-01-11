@@ -1161,6 +1161,7 @@ pub struct HttpRequestMetadata {
     pub version: HttpVersion,
     pub peer: PeerHost,
     pub keep_alive: bool,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1283,27 +1284,46 @@ pub struct AttachmentPage {
 pub const HTTP_REQUEST_ID_RESERVED: u32 = 0;
 
 impl HttpRequestMetadata {
-    pub fn new(host: String, port: u16) -> HttpRequestMetadata {
+    pub fn new(
+        host: String,
+        port: u16,
+        canonical_stacks_tip_height: Option<u64>,
+    ) -> HttpRequestMetadata {
         HttpRequestMetadata {
             version: HttpVersion::Http11,
             peer: PeerHost::from_host_port(host, port),
             keep_alive: true,
+            canonical_stacks_tip_height,
         }
     }
 
-    pub fn from_host(peer_host: PeerHost) -> HttpRequestMetadata {
+    pub fn from_host(
+        peer_host: PeerHost,
+        canonical_stacks_tip_height: Option<u64>,
+    ) -> HttpRequestMetadata {
         HttpRequestMetadata {
             version: HttpVersion::Http11,
             peer: peer_host,
             keep_alive: true,
+            canonical_stacks_tip_height,
         }
     }
 
     pub fn from_preamble(preamble: &HttpRequestPreamble) -> HttpRequestMetadata {
+        let mut canonical_stacks_tip_height = None;
+        for header in &preamble.headers {
+            if let Some(HttpReservedHeader::CanonicalStacksTipHeight(h)) =
+                HttpReservedHeader::try_from_str(&header.0, &header.1)
+            {
+                canonical_stacks_tip_height = Some(h);
+                break;
+            }
+        }
         HttpRequestMetadata {
             version: preamble.version,
             peer: preamble.host.clone(),
             keep_alive: preamble.keep_alive,
+            canonical_stacks_tip_height,
         }
     }
 }
@@ -1464,17 +1484,17 @@ impl HttpResponseMetadata {
         }
     }
 
-    // TODO: revisit; get tip height from headers map
     pub fn from_preamble(
         request_version: HttpVersion,
         preamble: &HttpResponsePreamble,
     ) -> HttpResponseMetadata {
         let mut canonical_stacks_tip_height = None;
-        for header in preamble.headers {
+        for header in &preamble.headers {
             if let Some(HttpReservedHeader::CanonicalStacksTipHeight(h)) =
                 HttpReservedHeader::try_from_str(&header.0, &header.1)
             {
                 canonical_stacks_tip_height = Some(h);
+                break;
             }
         }
         HttpResponseMetadata {

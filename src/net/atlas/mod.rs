@@ -92,7 +92,7 @@ impl Attachment {
 pub struct AttachmentInstance {
     pub content_hash: Hash160,
     pub attachment_index: u32,
-    pub block_height: u64,
+    pub block_height: u64, // block height on Stacks chain
     pub index_block_hash: StacksBlockId,
     pub metadata: String,
     pub contract_id: QualifiedContractIdentifier,

@@ -446,6 +446,7 @@ impl AttachmentsBatchStateContext {
                 let request = AttachmentRequest {
                     sources,
                     content_hash: content_hash.clone(),
+                    block_height: self.attachments_batch.block_height,
                 };
                 enqueued.insert(content_hash);
                 queue.push(request);
@@ -954,7 +955,7 @@ pub struct AttachmentsInventoryRequest {
     pub url: UrlString,
     pub contract_id: QualifiedContractIdentifier,
     pub pages: Vec<u32>,
-    pub block_height: u64,
+    pub block_height: u64, // block height on Stacks chain
     pub index_block_hash: StacksBlockId,
     pub reliability_report: ReliabilityReport,
 }
@@ -1001,7 +1002,7 @@ impl Requestable for AttachmentsInventoryRequest {
             pages_indexes.insert(*page);
         }
         HttpRequestType::GetAttachmentsInv(
-            HttpRequestMetadata::from_host(peer_host),
+            HttpRequestMetadata::from_host(peer_host, Some(self.block_height)),
             self.index_block_hash,
             pages_indexes,
         )
@@ -1019,6 +1020,7 @@ impl std::fmt::Display for AttachmentsInventoryRequest {
 pub struct AttachmentRequest {
     pub content_hash: Hash160,
     pub sources: HashMap<UrlString, ReliabilityReport>,
+    pub block_height: u64, // block height of Stacks chain
 }
 
 impl AttachmentRequest {
@@ -1059,7 +1061,10 @@ impl Requestable for AttachmentRequest {
     }
 
     fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
-        HttpRequestType::GetAttachment(HttpRequestMetadata::from_host(peer_host), self.content_hash)
+        HttpRequestType::GetAttachment(
+            HttpRequestMetadata::from_host(peer_host, Some(self.block_height)),
+            self.content_hash,
+        )
     }
 }
 
@@ -1072,7 +1077,7 @@ impl std::fmt::Display for AttachmentRequest {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AttachmentsBatch {
-    pub block_height: u64,
+    pub block_height: u64, // block height on Stacks chain
     pub index_block_hash: StacksBlockId,
     pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<u32, Hash160>>,
     pub retry_count: u64,

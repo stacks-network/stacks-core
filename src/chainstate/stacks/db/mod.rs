@@ -139,7 +139,7 @@ pub struct MinerPaymentSchedule {
 pub struct StacksHeaderInfo {
     pub anchored_header: StacksBlockHeader,
     pub microblock_tail: Option<StacksMicroblockHeader>,
-    pub block_height: u64,
+    pub block_height: u64, // block height on Stacks chain
     pub index_root: TrieHash,
     pub consensus_hash: ConsensusHash,
     pub burn_header_hash: BurnchainHeaderHash,

@@ -157,12 +157,12 @@ impl Requestable for BlockRequestKey {
     fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
         match self.kind {
             BlockRequestKeyKind::Block => HttpRequestType::GetBlock(
-                HttpRequestMetadata::from_host(peer_host),
+                HttpRequestMetadata::from_host(peer_host, Some(self.sortition_height)),
                 self.index_block_hash,
             ),
             BlockRequestKeyKind::ConfirmedMicroblockStream => {
                 HttpRequestType::GetMicroblocksConfirmed(
-                    HttpRequestMetadata::from_host(peer_host),
+                    HttpRequestMetadata::from_host(peer_host, Some(self.sortition_height)),
                     self.index_block_hash,
                 )
             }

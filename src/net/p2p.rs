@@ -2140,6 +2140,7 @@ impl PeerNetwork {
     fn do_network_mempool_sync(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
+        sortdb: &SortitionDB,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         ibd: bool,
@@ -2148,7 +2149,7 @@ impl PeerNetwork {
             return Ok(None);
         }
 
-        match self.do_mempool_sync(dns_client_opt, mempool, chainstate)? {
+        match self.do_mempool_sync(dns_client_opt, sortdb, mempool, chainstate)? {
             (true, txs_opt) => {
                 // did we run to completion?
                 if let Some(txs) = txs_opt {
@@ -3294,12 +3295,17 @@ impl PeerNetwork {
         &mut self,
         url: &UrlString,
         addr: &SocketAddr,
+        sortdb: &SortitionDB,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(bool, Option<usize>), net_error> {
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let sync_data = mempool.make_mempool_sync_data()?;
         let request = HttpRequestType::MemPoolQuery(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(addr)),
+            HttpRequestMetadata::from_host(
+                PeerHost::from_socketaddr(addr),
+                Some(burn_tip.canonical_stacks_tip_height),
+            ),
             sync_data,
         );
 
@@ -3364,6 +3370,7 @@ impl PeerNetwork {
     fn do_mempool_sync(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
+        sortdb: &SortitionDB,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(bool, Option<Vec<StacksTransaction>>), net_error> {
@@ -3430,7 +3437,7 @@ impl PeerNetwork {
                 }
                 MempoolSyncState::SendQuery(ref url, ref addr) => {
                     // 3. ask for the remote peer's mempool's novel txs
-                    match self.mempool_sync_send_query(url, addr, mempool, chainstate)? {
+                    match self.mempool_sync_send_query(url, addr, sortdb, mempool, chainstate)? {
                         (false, Some(event_id)) => {
                             // success! advance
                             self.mempool_state = MempoolSyncState::RecvResponse(event_id);
@@ -4946,7 +4953,7 @@ impl PeerNetwork {
         // In parallel, do a mempool sync.
         // Remember any txs we get, so we can feed them to the relayer thread.
         if let Some(mut txs) =
-            self.do_network_mempool_sync(&mut dns_client_opt, mempool, chainstate, ibd)?
+            self.do_network_mempool_sync(&mut dns_client_opt, sortdb, mempool, chainstate, ibd)?
         {
             network_result.synced_transactions.append(&mut txs);
         }
