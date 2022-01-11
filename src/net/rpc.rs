@@ -60,12 +60,12 @@ use net::http::*;
 use net::p2p::PeerMap;
 use net::p2p::PeerNetwork;
 use net::relay::Relayer;
-use net::ClientError;
 use net::Error as net_error;
 use net::HttpRequestMetadata;
 use net::HttpRequestType;
 use net::HttpResponseMetadata;
 use net::HttpResponseType;
+use net::MemPoolSyncData;
 use net::MicroblocksData;
 use net::NeighborAddress;
 use net::NeighborsData;
@@ -86,6 +86,7 @@ use net::{
     DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
 };
 use net::{BlocksData, GetIsTraitImplementedResponse};
+use net::{ClientError, TipRequest};
 use net::{RPCNeighbor, RPCNeighborsInfo};
 use net::{RPCPeerInfoData, RPCPoxInfoData};
 use util::db::DBConn;
@@ -210,14 +211,14 @@ impl RPCPeerInfoData {
             Some(ref unconfirmed) => {
                 if unconfirmed.num_mined_txs() > 0 {
                     (
-                        unconfirmed.unconfirmed_chain_tip.clone(),
-                        unconfirmed.last_mblock_seq,
+                        Some(unconfirmed.unconfirmed_chain_tip.clone()),
+                        Some(unconfirmed.last_mblock_seq),
                     )
                 } else {
-                    (StacksBlockId([0x00; 32]), 0)
+                    (None, None)
                 }
             }
-            None => (StacksBlockId([0x00; 32]), 0),
+            None => (None, None),
         };
 
         RPCPeerInfoData {
@@ -621,7 +622,6 @@ impl ConversationHttp {
             &handler_args.genesis_chainstate_hash,
         );
         let response = HttpResponseType::PeerInfo(response_metadata, pi);
-        // timer.observe_duration();
         response.send(http, fd)
     }
 
@@ -1652,23 +1652,64 @@ impl ConversationHttp {
     /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block
     /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
     /// will return different values here.
-    /// tip_opt is given by the HTTP request as the optional query parameter for the chain tip
-    /// hash.  It will be None if there was no paramter given.
-    /// The order of chain tips this method prefers is as follows:
-    /// * tip_opt, if it's Some(..),
-    /// * the unconfirmed canonical stacks chain tip, if initialized
-    /// * the confirmed canonical stacks chain tip
+    ///
+    /// # Warn
+    /// - There is a potential race condition. If this function is loading the latest unconfirmed
+    /// tip, that tip may get invalidated by the time it is used in `maybe_read_only_clarity_tx`,
+    /// which is used to load clarity state at a particular tip (which would lead to a 404 error).
+    /// If this race condition occurs frequently, we can modify `maybe_read_only_clarity_tx` to
+    /// re-load the unconfirmed chain tip. Refer to issue #2997.
+    ///
+    /// # Inputs
+    /// - `tip_req` is given by the HTTP request as the optional query parameter for the chain tip
+    /// hash.  It will be UseLatestAnchoredTip if there was no parameter given. If it is set to
+    /// `latest`, the parameter will be set to UseLatestUnconfirmedTip.
     fn handle_load_stacks_chain_tip<W: Write>(
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
-        tip_opt: Option<&StacksBlockId>,
+        tip_req: &TipRequest,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &mut StacksChainState,
     ) -> Result<Option<StacksBlockId>, net_error> {
-        match tip_opt {
-            Some(tip) => Ok(Some(*tip).clone()),
-            None => match chainstate.get_stacks_chain_tip(sortdb)? {
+        match tip_req {
+            TipRequest::UseLatestUnconfirmedTip => {
+                let unconfirmed_chain_tip_opt = match &mut chainstate.unconfirmed_state {
+                    Some(unconfirmed_state) => {
+                        match unconfirmed_state.get_unconfirmed_state_if_exists() {
+                            Ok(res) => res,
+                            Err(msg) => {
+                                let response_metadata = HttpResponseMetadata::from(req);
+                                let response = HttpResponseType::NotFound(response_metadata, msg);
+                                return response.send(http, fd).and_then(|_| Ok(None));
+                            }
+                        }
+                    }
+                    None => None,
+                };
+
+                if let Some(unconfirmed_chain_tip) = unconfirmed_chain_tip_opt {
+                    Ok(Some(unconfirmed_chain_tip))
+                } else {
+                    match chainstate.get_stacks_chain_tip(sortdb)? {
+                        Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
+                            &tip.consensus_hash,
+                            &tip.anchored_block_hash,
+                        ))),
+                        None => {
+                            let response_metadata = HttpResponseMetadata::from(req);
+                            warn!("Failed to load Stacks chain tip");
+                            let response = HttpResponseType::NotFound(
+                                response_metadata,
+                                format!("Failed to load Stacks chain tip"),
+                            );
+                            response.send(http, fd).and_then(|_| Ok(None))
+                        }
+                    }
+                }
+            }
+            TipRequest::SpecificTip(tip) => Ok(Some(*tip).clone()),
+            TipRequest::UseLatestAnchoredTip => match chainstate.get_stacks_chain_tip(sortdb)? {
                 Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
                     &tip.consensus_hash,
                     &tip.anchored_block_hash,
@@ -1690,24 +1731,16 @@ impl ConversationHttp {
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
-        tip_opt: Option<&StacksBlockId>,
-        sortdb: &SortitionDB,
+        tip: StacksBlockId,
         chainstate: &StacksChainState,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, net_error> {
-        match tip_opt {
-            Some(tip) => match chainstate.get_block_header_hashes(&tip)? {
-                Some((ch, bl)) => {
-                    return Ok(Some((ch, bl)));
-                }
-                None => {}
-            },
-            None => match chainstate.get_stacks_chain_tip(sortdb)? {
-                Some(tip) => {
-                    return Ok(Some((tip.consensus_hash, tip.anchored_block_hash)));
-                }
-                None => {}
-            },
+        match chainstate.get_block_header_hashes(&tip)? {
+            Some((ch, bl)) => {
+                return Ok(Some((ch, bl)));
+            }
+            None => {}
         }
+
         let response_metadata = HttpResponseMetadata::from(req);
         warn!("Failed to load Stacks chain tip");
         let response = HttpResponseType::ServerError(
@@ -2045,6 +2078,26 @@ impl ConversationHttp {
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 
+    /// Handle a request for mempool transactions in bulk
+    fn handle_mempool_query<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState,
+        query: MemPoolSyncData,
+        max_txs: u64,
+    ) -> Result<Option<StreamCursor>, net_error> {
+        let response_metadata = HttpResponseMetadata::from(req);
+        let response = HttpResponseType::MemPoolTxStream(response_metadata);
+        let height = chainstate
+            .get_stacks_chain_tip(sortdb)?
+            .map(|blk| blk.height)
+            .unwrap_or(0);
+        let stream = Some(StreamCursor::new_tx_stream(query, max_txs, height));
+        response.send(http, fd).and_then(|_| Ok(stream))
+    }
+
     /// Handle an external HTTP request.
     /// Some requests, such as those for blocks, will create new reply streams.  This method adds
     /// those new streams into the `reply_streams` set.
@@ -2075,12 +2128,12 @@ impl ConversationHttp {
                 )?;
                 None
             }
-            HttpRequestType::GetPoxInfo(ref _md, ref tip_opt) => {
+            HttpRequestType::GetPoxInfo(ref _md, ref tip_req) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
                 )? {
@@ -2105,12 +2158,12 @@ impl ConversationHttp {
                 )?;
                 None
             }
-            HttpRequestType::GetHeaders(ref _md, ref quantity, ref tip_opt) => {
+            HttpRequestType::GetHeaders(ref _md, ref quantity, ref tip_req) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
                 )? {
@@ -2176,12 +2229,12 @@ impl ConversationHttp {
                 )?;
                 None
             }
-            HttpRequestType::GetAccount(ref _md, ref principal, ref tip_opt, ref with_proof) => {
+            HttpRequestType::GetAccount(ref _md, ref principal, ref tip_req, ref with_proof) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
                 )? {
@@ -2203,14 +2256,14 @@ impl ConversationHttp {
                 ref contract_addr,
                 ref contract_name,
                 ref var_name,
-                ref tip_opt,
+                ref tip_req,
                 ref with_proof,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
                 )? {
@@ -2235,14 +2288,14 @@ impl ConversationHttp {
                 ref contract_name,
                 ref map_name,
                 ref key,
-                ref tip_opt,
+                ref tip_req,
                 ref with_proof,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
                 )? {
@@ -2274,13 +2327,13 @@ impl ConversationHttp {
                 ref _md,
                 ref contract_addr,
                 ref contract_name,
-                ref tip_opt,
+                ref tip_req,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
                 )? {
@@ -2316,13 +2369,13 @@ impl ConversationHttp {
                 ref as_sender,
                 ref func_name,
                 ref args,
-                ref tip_opt,
+                ref tip_req,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
                 )? {
@@ -2347,14 +2400,14 @@ impl ConversationHttp {
                 ref _md,
                 ref contract_addr,
                 ref contract_name,
-                ref tip_opt,
+                ref tip_req,
                 ref with_proof,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
                 )? {
@@ -2450,37 +2503,58 @@ impl ConversationHttp {
                 }
                 None
             }
-            HttpRequestType::PostMicroblock(ref _md, ref mblock, ref tip_opt) => {
-                if let Some((consensus_hash, block_hash)) =
-                    ConversationHttp::handle_load_stacks_chain_tip_hashes(
-                        &mut self.connection.protocol,
-                        &mut reply,
-                        &req,
-                        tip_opt.as_ref(),
-                        sortdb,
-                        chainstate,
-                    )?
-                {
-                    let accepted = ConversationHttp::handle_post_microblock(
-                        &mut self.connection.protocol,
-                        &mut reply,
-                        &req,
-                        &consensus_hash,
-                        &block_hash,
-                        chainstate,
-                        mblock,
-                    )?;
-                    if accepted {
-                        // forward to peer network
-                        let tip =
-                            StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
-                        ret = Some(StacksMessageType::Microblocks(MicroblocksData {
-                            index_anchor_block: tip,
-                            microblocks: vec![(*mblock).clone()],
-                        }));
+            HttpRequestType::PostMicroblock(ref _md, ref mblock, ref tip_req) => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    tip_req,
+                    sortdb,
+                    chainstate,
+                )? {
+                    if let Some((consensus_hash, block_hash)) =
+                        ConversationHttp::handle_load_stacks_chain_tip_hashes(
+                            &mut self.connection.protocol,
+                            &mut reply,
+                            &req,
+                            tip,
+                            chainstate,
+                        )?
+                    {
+                        let accepted = ConversationHttp::handle_post_microblock(
+                            &mut self.connection.protocol,
+                            &mut reply,
+                            &req,
+                            &consensus_hash,
+                            &block_hash,
+                            chainstate,
+                            mblock,
+                        )?;
+                        if accepted {
+                            // forward to peer network
+                            let tip = StacksBlockHeader::make_index_block_hash(
+                                &consensus_hash,
+                                &block_hash,
+                            );
+                            ret = Some(StacksMessageType::Microblocks(MicroblocksData {
+                                index_anchor_block: tip,
+                                microblocks: vec![(*mblock).clone()],
+                            }));
+                        }
                     }
                 }
                 None
+            }
+            HttpRequestType::MemPoolQuery(ref _md, ref query) => {
+                ConversationHttp::handle_mempool_query(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    sortdb,
+                    chainstate,
+                    query.clone(),
+                    network.connection_opts.mempool_max_tx_query,
+                )?
             }
             HttpRequestType::OptionsPreflight(ref _md, ref _path) => {
                 let response_metadata = HttpResponseMetadata::from(&req);
@@ -2495,13 +2569,13 @@ impl ConversationHttp {
                 ref contract_addr,
                 ref contract_name,
                 ref trait_id,
-                ref tip_opt,
+                ref tip_req,
             ) => {
                 if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    tip_opt.as_ref(),
+                    tip_req,
                     sortdb,
                     chainstate,
                 )? {
@@ -2562,6 +2636,7 @@ impl ConversationHttp {
     /// connection should be severed once the conversation is drained)
     fn send_outbound_responses(
         &mut self,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
         // send out streamed responses in the order they were requested
@@ -2584,7 +2659,8 @@ impl ConversationHttp {
                     Some((ref mut http_chunk_state, ref mut stream)) => {
                         let mut encoder =
                             HttpChunkedTransferWriter::from_writer_state(reply, http_chunk_state);
-                        match stream.stream_to(chainstate, &mut encoder, STREAM_CHUNK_SIZE) {
+                        match stream.stream_to(mempool, chainstate, &mut encoder, STREAM_CHUNK_SIZE)
+                        {
                             Ok(nw) => {
                                 test_debug!("streamed {} bytes", nw);
                                 if nw == 0 {
@@ -2733,8 +2809,12 @@ impl ConversationHttp {
     }
 
     /// Make progress on in-flight messages.
-    pub fn try_flush(&mut self, chainstate: &mut StacksChainState) -> Result<(), net_error> {
-        self.send_outbound_responses(chainstate)?;
+    pub fn try_flush(
+        &mut self,
+        mempool: &MemPoolDB,
+        chainstate: &mut StacksChainState,
+    ) -> Result<(), net_error> {
+        self.send_outbound_responses(mempool, chainstate)?;
         self.recv_inbound_response()?;
         Ok(())
     }
@@ -2874,12 +2954,13 @@ impl ConversationHttp {
     pub fn send<W: Write>(
         &mut self,
         w: &mut W,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<usize, net_error> {
         let mut total_sz = 0;
         loop {
             // prime the Write
-            self.try_flush(chainstate)?;
+            self.try_flush(mempool, chainstate)?;
 
             let sz = match self.connection.send_data(w) {
                 Ok(sz) => sz,
@@ -2906,10 +2987,10 @@ impl ConversationHttp {
     }
 
     /// Make a new getinfo request to this endpoint
-    pub fn new_getpoxinfo(&self, tip_opt: Option<StacksBlockId>) -> HttpRequestType {
+    pub fn new_getpoxinfo(&self, tip_req: TipRequest) -> HttpRequestType {
         HttpRequestType::GetPoxInfo(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
-            tip_opt,
+            tip_req,
         )
     }
 
@@ -2919,11 +3000,11 @@ impl ConversationHttp {
     }
 
     /// Make a new getheaders request to this endpoint
-    pub fn new_getheaders(&self, quantity: u64, tip_opt: Option<StacksBlockId>) -> HttpRequestType {
+    pub fn new_getheaders(&self, quantity: u64, tip_req: TipRequest) -> HttpRequestType {
         HttpRequestType::GetHeaders(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             quantity,
-            tip_opt,
+            tip_req,
         )
     }
 
@@ -3000,12 +3081,12 @@ impl ConversationHttp {
     pub fn new_post_microblock(
         &self,
         mblock: StacksMicroblock,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
     ) -> HttpRequestType {
         HttpRequestType::PostMicroblock(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             mblock,
-            tip_opt,
+            tip_req,
         )
     }
 
@@ -3013,13 +3094,13 @@ impl ConversationHttp {
     pub fn new_getaccount(
         &self,
         principal: PrincipalData,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
         with_proof: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetAccount(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             principal,
-            tip_opt,
+            tip_req,
             with_proof,
         )
     }
@@ -3030,7 +3111,7 @@ impl ConversationHttp {
         contract_addr: StacksAddress,
         contract_name: ContractName,
         var_name: ClarityName,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
         with_proof: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetDataVar(
@@ -3038,7 +3119,7 @@ impl ConversationHttp {
             contract_addr,
             contract_name,
             var_name,
-            tip_opt,
+            tip_req,
             with_proof,
         )
     }
@@ -3050,7 +3131,7 @@ impl ConversationHttp {
         contract_name: ContractName,
         map_name: ClarityName,
         key: Value,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
         with_proof: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetMapEntry(
@@ -3059,7 +3140,7 @@ impl ConversationHttp {
             contract_name,
             map_name,
             key,
-            tip_opt,
+            tip_req,
             with_proof,
         )
     }
@@ -3069,14 +3150,14 @@ impl ConversationHttp {
         &self,
         contract_addr: StacksAddress,
         contract_name: ContractName,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
         with_proof: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetContractSrc(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             contract_addr,
             contract_name,
-            tip_opt,
+            tip_req,
             with_proof,
         )
     }
@@ -3086,13 +3167,13 @@ impl ConversationHttp {
         &self,
         contract_addr: StacksAddress,
         contract_name: ContractName,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
     ) -> HttpRequestType {
         HttpRequestType::GetContractABI(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             contract_addr,
             contract_name,
-            tip_opt,
+            tip_req,
         )
     }
 
@@ -3104,7 +3185,7 @@ impl ConversationHttp {
         sender: PrincipalData,
         function_name: ClarityName,
         function_args: Vec<Value>,
-        tip_opt: Option<StacksBlockId>,
+        tip_req: TipRequest,
     ) -> HttpRequestType {
         HttpRequestType::CallReadOnlyFunction(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
@@ -3113,7 +3194,7 @@ impl ConversationHttp {
             sender,
             function_name,
             function_args,
-            tip_opt,
+            tip_req,
         )
     }
 
@@ -3127,6 +3208,14 @@ impl ConversationHttp {
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             index_block_hash,
             pages_indexes,
+        )
+    }
+
+    /// Make a new request for mempool contents
+    pub fn new_mempool_query(&self, query: MemPoolSyncData) -> HttpRequestType {
+        HttpRequestType::MemPoolQuery(
+            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            query,
         )
     }
 }
@@ -3162,6 +3251,8 @@ mod test {
     use crate::types::chainstate::BurnchainHeaderHash;
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
+    use core::mempool::{BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
+
     use super::*;
 
     const TEST_CONTRACT: &'static str = "
@@ -3178,10 +3269,14 @@ mod test {
         (begin
           (map-set unit-map { account: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R } { units: 123 }))";
 
+    const TEST_CONTRACT_UNCONFIRMED: &'static str = "(define-read-only (ro-test) (ok 1))";
+
     fn convo_send_recv(
         sender: &mut ConversationHttp,
+        sender_mempool: &MemPoolDB,
         sender_chainstate: &mut StacksChainState,
         receiver: &mut ConversationHttp,
+        receiver_mempool: &MemPoolDB,
         receiver_chainstate: &mut StacksChainState,
     ) -> () {
         let (mut pipe_read, mut pipe_write) = Pipe::new();
@@ -3190,15 +3285,19 @@ mod test {
         loop {
             let res = true;
 
-            sender.try_flush(sender_chainstate).unwrap();
-            receiver.try_flush(receiver_chainstate).unwrap();
+            sender.try_flush(sender_mempool, sender_chainstate).unwrap();
+            receiver
+                .try_flush(sender_mempool, receiver_chainstate)
+                .unwrap();
 
             pipe_write.try_flush().unwrap();
 
             let all_relays_flushed =
                 receiver.num_pending_outbound() == 0 && sender.num_pending_outbound() == 0;
 
-            let nw = sender.send(&mut pipe_write, sender_chainstate).unwrap();
+            let nw = sender
+                .send(&mut pipe_write, sender_mempool, sender_chainstate)
+                .unwrap();
             let nr = receiver.recv(&mut pipe_read).unwrap();
 
             test_debug!(
@@ -3217,12 +3316,19 @@ mod test {
         }
     }
 
+    /// General testing function to test RPC calls.
+    /// This function sets up two peers, a client and a server.
+    /// It takes in a function of type F that generates the request to be sent to the server
+    /// It takes in another function of type C that verifies that the result from
+    /// the server is as expected.
+    /// The parameter `include_microblocks` determines whether a microblock stream is mined or not.
     fn test_rpc<F, C>(
         test_name: &str,
         peer_1_p2p: u16,
         peer_1_http: u16,
         peer_2_p2p: u16,
         peer_2_http: u16,
+        include_microblocks: bool,
         make_request: F,
         check_result: C,
     ) -> ()
@@ -3339,7 +3445,7 @@ mod test {
         };
 
         // make an unconfirmed contract
-        let unconfirmed_contract = "(define-read-only (ro-test) (ok 1))";
+        let unconfirmed_contract = TEST_CONTRACT_UNCONFIRMED.clone();
         let mut tx_unconfirmed_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
@@ -3426,68 +3532,132 @@ mod test {
         peer_1.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
         peer_2.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
 
-        // build 1-block microblock stream with the contract-call and the unconfirmed contract
-        let microblock = {
-            let sortdb = peer_1.sortdb.take().unwrap();
-            Relayer::setup_unconfirmed_state(peer_1.chainstate(), &sortdb).unwrap();
-            let mblock = {
-                let sort_iconn = sortdb.index_conn();
-                let mut microblock_builder = StacksMicroblockBuilder::new(
-                    stacks_block.block_hash(),
-                    consensus_hash.clone(),
-                    peer_1.chainstate(),
-                    &sort_iconn,
-                    BlockBuilderSettings::max_value(),
-                )
-                .unwrap();
-                let microblock = microblock_builder
-                    .mine_next_microblock_from_txs(
-                        vec![
-                            (tx_cc_signed, tx_cc_len),
-                            (tx_unconfirmed_contract_signed, tx_unconfirmed_contract_len),
-                        ],
-                        &microblock_privkey,
+        // begin microblock section
+        if include_microblocks {
+            // build 1-block microblock stream with the contract-call and the unconfirmed contract
+            let microblock = {
+                let sortdb = peer_1.sortdb.take().unwrap();
+                Relayer::setup_unconfirmed_state(peer_1.chainstate(), &sortdb).unwrap();
+                let mblock = {
+                    let sort_iconn = sortdb.index_conn();
+                    let mut microblock_builder = StacksMicroblockBuilder::new(
+                        stacks_block.block_hash(),
+                        consensus_hash.clone(),
+                        peer_1.chainstate(),
+                        &sort_iconn,
+                        BlockBuilderSettings::max_value(),
                     )
                     .unwrap();
-                microblock
+                    let microblock = microblock_builder
+                        .mine_next_microblock_from_txs(
+                            vec![
+                                (tx_cc_signed, tx_cc_len),
+                                (tx_unconfirmed_contract_signed, tx_unconfirmed_contract_len),
+                            ],
+                            &microblock_privkey,
+                        )
+                        .unwrap();
+                    microblock
+                };
+                peer_1.sortdb = Some(sortdb);
+                mblock
             };
-            peer_1.sortdb = Some(sortdb);
-            mblock
-        };
 
-        // store microblock stream
-        peer_1
-            .chainstate()
-            .preprocess_streamed_microblock(
+            // store microblock stream
+            peer_1
+                .chainstate()
+                .preprocess_streamed_microblock(
+                    &consensus_hash,
+                    &stacks_block.block_hash(),
+                    &microblock,
+                )
+                .unwrap();
+            peer_2
+                .chainstate()
+                .preprocess_streamed_microblock(
+                    &consensus_hash,
+                    &stacks_block.block_hash(),
+                    &microblock,
+                )
+                .unwrap();
+
+            // process microblock stream to generate unconfirmed state
+            let canonical_tip = StacksBlockHeader::make_index_block_hash(
                 &consensus_hash,
                 &stacks_block.block_hash(),
-                &microblock,
+            );
+            let sortdb1 = peer_1.sortdb.take().unwrap();
+            let sortdb2 = peer_2.sortdb.take().unwrap();
+            peer_1
+                .chainstate()
+                .reload_unconfirmed_state(&sortdb1.index_conn(), canonical_tip.clone())
+                .unwrap();
+            peer_2
+                .chainstate()
+                .reload_unconfirmed_state(&sortdb2.index_conn(), canonical_tip.clone())
+                .unwrap();
+            peer_1.sortdb = Some(sortdb1);
+            peer_2.sortdb = Some(sortdb2);
+        }
+        // end microblock section
+
+        // stuff some transactions into peer_2's mempool
+        // (relates to mempool query tests)
+        let mut mempool = peer_2.mempool.take().unwrap();
+        let mut mempool_tx = mempool.tx_begin().unwrap();
+        for i in 0..10 {
+            let pk = StacksPrivateKey::new();
+            let addr = StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&StacksPrivateKey::new())],
             )
             .unwrap();
-        peer_2
-            .chainstate()
-            .preprocess_streamed_microblock(
+            let mut tx = StacksTransaction {
+                version: TransactionVersion::Testnet,
+                chain_id: 0x80000000,
+                auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+                anchor_mode: TransactionAnchorMode::Any,
+                post_condition_mode: TransactionPostConditionMode::Allow,
+                post_conditions: vec![],
+                payload: TransactionPayload::TokenTransfer(
+                    addr.to_account_principal(),
+                    123,
+                    TokenTransferMemo([0u8; 34]),
+                ),
+            };
+            tx.set_tx_fee(1000);
+            tx.set_origin_nonce(0);
+
+            let txid = tx.txid();
+            let tx_bytes = tx.serialize_to_vec();
+            let origin_addr = tx.origin_address();
+            let origin_nonce = tx.get_origin_nonce();
+            let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+            let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+            let tx_fee = tx.get_tx_fee();
+
+            // should succeed
+            MemPoolDB::try_add_tx(
+                &mut mempool_tx,
+                peer_1.chainstate(),
                 &consensus_hash,
                 &stacks_block.block_hash(),
-                &microblock,
+                txid.clone(),
+                tx_bytes,
+                tx_fee,
+                stacks_block.header.total_work.work,
+                &origin_addr,
+                origin_nonce,
+                &sponsor_addr,
+                sponsor_nonce,
+                None,
             )
             .unwrap();
-
-        // process microblock stream to generate unconfirmed state
-        let canonical_tip =
-            StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-        let sortdb1 = peer_1.sortdb.take().unwrap();
-        let sortdb2 = peer_2.sortdb.take().unwrap();
-        peer_1
-            .chainstate()
-            .reload_unconfirmed_state(&sortdb1.index_conn(), canonical_tip.clone())
-            .unwrap();
-        peer_2
-            .chainstate()
-            .reload_unconfirmed_state(&sortdb2.index_conn(), canonical_tip.clone())
-            .unwrap();
-        peer_1.sortdb = Some(sortdb1);
-        peer_2.sortdb = Some(sortdb2);
+        }
+        mempool_tx.commit().unwrap();
+        peer_2.mempool.replace(mempool);
 
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
@@ -3515,19 +3685,22 @@ mod test {
         let req = make_request(&mut peer_1, &mut convo_1, &mut peer_2, &mut convo_2);
 
         convo_1.send_request(req.clone()).unwrap();
+        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
+        let peer_2_mempool = peer_2.mempool.take().unwrap();
 
         test_debug!("convo1 sends to convo2");
         convo_send_recv(
             &mut convo_1,
+            &peer_1_mempool,
             peer_1.chainstate(),
             &mut convo_2,
+            &peer_2_mempool,
             peer_2.chainstate(),
         );
 
         // hack around the borrow-checker
         let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
-        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
             .unwrap();
@@ -3545,6 +3718,7 @@ mod test {
         peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
         peer_1.mempool = Some(peer_1_mempool);
+        peer_2.mempool = Some(peer_2_mempool);
 
         test_debug!("convo2 sends to convo1");
 
@@ -3568,12 +3742,14 @@ mod test {
 
         peer_2.sortdb = Some(peer_2_sortdb);
         peer_2.stacks_node = Some(peer_2_stacks_node);
-        peer_2.mempool = Some(peer_2_mempool);
+        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
         convo_send_recv(
             &mut convo_2,
+            &peer_2_mempool,
             peer_2.chainstate(),
             &mut convo_1,
+            &peer_1_mempool,
             peer_1.chainstate(),
         );
 
@@ -3582,14 +3758,17 @@ mod test {
         // hack around the borrow-checker
         convo_send_recv(
             &mut convo_1,
+            &peer_1_mempool,
             peer_1.chainstate(),
             &mut convo_2,
+            &peer_2_mempool,
             peer_2.chainstate(),
         );
 
+        peer_2.mempool = Some(peer_2_mempool);
+
         let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
-        let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
             .unwrap();
@@ -3604,11 +3783,13 @@ mod test {
             )
             .unwrap();
 
+        convo_1
+            .try_flush(&peer_1_mempool, &mut peer_1_stacks_node.chainstate)
+            .unwrap();
+
         peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
         peer_1.mempool = Some(peer_1_mempool);
-
-        convo_1.try_flush(peer_1.chainstate()).unwrap();
 
         // should have gotten a reply
         let resp_opt = convo_1.try_get_response();
@@ -3628,6 +3809,7 @@ mod test {
             40001,
             50000,
             50001,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3662,13 +3844,17 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_getpoxinfo() {
+        // Test v2/pox (aka GetPoxInfo) endpoint.
+        // In this test, `tip_req` is set to UseLatestAnchoredTip.
+        // Thus, the query for pox info will be against the canonical Stacks tip, which we expect to succeed.
         let pox_server_info = RefCell::new(None);
         test_rpc(
             "test_rpc_getpoxinfo",
-            40000,
-            40001,
-            50000,
-            50001,
+            40002,
+            40003,
+            50002,
+            50003,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3690,7 +3876,59 @@ mod test {
                 )
                 .unwrap();
                 *pox_server_info.borrow_mut() = Some(pox_info);
-                convo_client.new_getpoxinfo(None)
+                convo_client.new_getpoxinfo(TipRequest::UseLatestAnchoredTip)
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::PoxInfo(response_md, pox_data) => {
+                        assert_eq!(Some((*pox_data).clone()), *pox_server_info.borrow());
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response: {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_getpoxinfo_use_latest_tip() {
+        // Test v2/pox (aka GetPoxInfo) endpoint.
+        // In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying for pox
+        // info against the unconfirmed state will succeed.
+        let pox_server_info = RefCell::new(None);
+        test_rpc(
+            "test_rpc_getpoxinfo_use_latest_tip",
+            40004,
+            40005,
+            50004,
+            50005,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let mut sortdb = peer_server.sortdb.as_mut().unwrap();
+                let chainstate = &mut peer_server.stacks_node.as_mut().unwrap().chainstate;
+                let stacks_block_id = chainstate
+                    .unconfirmed_state
+                    .as_ref()
+                    .unwrap()
+                    .unconfirmed_chain_tip
+                    .clone();
+                let pox_info = RPCPoxInfoData::from_db(
+                    &mut sortdb,
+                    chainstate,
+                    &stacks_block_id,
+                    &peer_client.config.burnchain,
+                )
+                .unwrap();
+                *pox_server_info.borrow_mut() = Some(pox_info);
+                convo_client.new_getpoxinfo(TipRequest::UseLatestUnconfirmedTip)
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
@@ -3717,6 +3955,7 @@ mod test {
             40011,
             50010,
             50011,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3749,6 +3988,7 @@ mod test {
             40013,
             50012,
             50013,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3799,7 +4039,7 @@ mod test {
                 *server_blocks_cell.borrow_mut() = Some((rev_blocks, rev_ibhs));
 
                 // now ask for it
-                convo_client.new_getheaders(25, Some(tip))
+                convo_client.new_getheaders(25, TipRequest::SpecificTip(tip))
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
@@ -3836,6 +4076,7 @@ mod test {
             40021,
             50020,
             50021,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3893,6 +4134,7 @@ mod test {
             40031,
             50030,
             50031,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -3956,6 +4198,7 @@ mod test {
             40041,
             50040,
             50041,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4068,6 +4311,7 @@ mod test {
             40043,
             50042,
             50043,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4176,6 +4420,7 @@ mod test {
             40051,
             50050,
             50051,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4239,6 +4484,7 @@ mod test {
             40053,
             50052,
             50053,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4311,6 +4557,7 @@ mod test {
             40061,
             50060,
             50061,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4347,6 +4594,7 @@ mod test {
             40071,
             50070,
             50071,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4379,10 +4627,11 @@ mod test {
     fn test_rpc_missing_confirmed_getmicroblocks() {
         test_rpc(
             "test_rpc_missing_confirmed_getmicroblocks",
-            40070,
-            40071,
-            50070,
-            50071,
+            40072,
+            40073,
+            50072,
+            50073,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4421,6 +4670,7 @@ mod test {
             40081,
             50080,
             50081,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4468,12 +4718,18 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_get_contract_src() {
+        // Test v2/contracts/source (aka GetContractSrc) endpoint.
+        // In this test, we don't set any tip parameters, and allow the endpoint to execute against
+        // the canonical Stacks tip.
+        // The contract source we are querying for exists in the anchored state, so we expect the
+        // query to succeed.
         test_rpc(
             "test_rpc_get_contract_src",
             40090,
             40091,
             50090,
             50091,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4482,7 +4738,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
                     "hello-world".try_into().unwrap(),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },
@@ -4504,13 +4760,61 @@ mod test {
 
     #[test]
     #[ignore]
-    fn test_rpc_get_contract_src_unconfirmed() {
+    fn test_rpc_get_contract_src_unconfirmed_with_canonical_tip() {
+        // Test v2/contracts/source (aka GetContractSrc) endpoint.
+        // In this test, we don't set any tip parameters, and allow the endpoint to execute against
+        // the canonical Stacks tip.
+        // The contract source we are querying for only exists in the unconfirmed state, so we
+        // expect the query to fail.
         test_rpc(
-            "test_rpc_get_contract_src_unconfirmed",
+            "test_rpc_get_contract_src_unconfirmed_with_canonical_tip",
             40100,
             40101,
             50100,
             50101,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getcontractsrc(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world-unconfirmed".try_into().unwrap(),
+                    TipRequest::UseLatestAnchoredTip,
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::NotFound(_, error_str) => {
+                        assert_eq!(error_str, "No contract source data found");
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_contract_src_with_unconfirmed_tip() {
+        // Test v2/contracts/source (aka GetContractSrc) endpoint.
+        // In this test, we set `tip_req` to be the unconfirmed chain tip.
+        // The contract source we are querying for exists in the unconfirmed state, so we expect
+        // the query to succeed.
+        test_rpc(
+            "test_rpc_get_contract_src_with_unconfirmed_tip",
+            40102,
+            40103,
+            50102,
+            50103,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4525,8 +4829,8 @@ mod test {
                 convo_client.new_getcontractsrc(
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
-                    "hello-world".try_into().unwrap(),
-                    Some(unconfirmed_tip),
+                    "hello-world-unconfirmed".try_into().unwrap(),
+                    TipRequest::SpecificTip(unconfirmed_tip),
                     false,
                 )
             },
@@ -4534,7 +4838,49 @@ mod test {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetContractSrc(response_md, data) => {
-                        assert_eq!(data.source, TEST_CONTRACT);
+                        assert_eq!(data.source, TEST_CONTRACT_UNCONFIRMED);
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_contract_src_use_latest_tip() {
+        // Test v2/contracts/source (aka GetContractSrc) endpoint.
+        // In this test, we set `tip_req` to UseLatestUnconfirmedTip.
+        // The contract source we are querying for exists in the unconfirmed state, so we expect
+        // the query to succeed.
+        test_rpc(
+            "test_rpc_get_contract_src_use_latest_tip",
+            40104,
+            40105,
+            50104,
+            50105,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getcontractsrc(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world-unconfirmed".try_into().unwrap(),
+                    TipRequest::UseLatestAnchoredTip,
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetContractSrc(response_md, data) => {
+                        assert_eq!(data.source, TEST_CONTRACT_UNCONFIRMED);
                         true
                     }
                     _ => {
@@ -4555,6 +4901,7 @@ mod test {
             40111,
             50110,
             50111,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4563,7 +4910,94 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetAccount(response_md, data) => {
+                        assert_eq!(data.nonce, 2);
+                        let balance = u128::from_str_radix(&data.balance[2..], 16).unwrap();
+                        assert_eq!(balance, 1000000000);
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    /// In this test, the query parameter `tip_req` is set to UseLatestUnconfirmedTip, and so we expect the
+    /// tip used for the query to be the latest microblock.
+    /// We check that the account state matches the state in the most recent microblock.
+    #[test]
+    #[ignore]
+    fn test_rpc_get_account_use_latest_tip() {
+        test_rpc(
+            "test_rpc_get_account_use_latest_tip",
+            40112,
+            40113,
+            50112,
+            50113,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getaccount(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap()
+                        .to_account_principal(),
+                    TipRequest::UseLatestAnchoredTip,
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetAccount(response_md, data) => {
+                        assert_eq!(data.nonce, 4);
+                        let balance = u128::from_str_radix(&data.balance[2..], 16).unwrap();
+                        assert_eq!(balance, 999999877);
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    /// In this test, the query parameter `tip_req` is set to UseLatestUnconfirmedTip, but we did not generate
+    /// microblocks in the rpc test. Thus, we expect the tip used for the query to be the previous
+    /// anchor block (which is the latest tip).
+    /// We check that the account state matches the state in the previous anchor block.
+    #[test]
+    #[ignore]
+    fn test_rpc_get_account_use_latest_tip_no_microblocks() {
+        test_rpc(
+            "test_rpc_get_account",
+            40114,
+            40115,
+            50114,
+            50115,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getaccount(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap()
+                        .to_account_principal(),
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },
@@ -4594,6 +5028,7 @@ mod test {
             40121,
             50120,
             50121,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4609,7 +5044,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
-                    Some(unconfirmed_tip),
+                    TipRequest::SpecificTip(unconfirmed_tip),
                     false,
                 )
             },
@@ -4640,6 +5075,7 @@ mod test {
             40123,
             50122,
             50123,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4649,7 +5085,7 @@ mod test {
                         .unwrap(),
                     "hello-world".try_into().unwrap(),
                     "bar".try_into().unwrap(),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },
@@ -4681,6 +5117,7 @@ mod test {
             40125,
             50124,
             50125,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4697,7 +5134,7 @@ mod test {
                         .unwrap(),
                     "hello-world".try_into().unwrap(),
                     "bar".try_into().unwrap(),
-                    Some(unconfirmed_tip),
+                    TipRequest::SpecificTip(unconfirmed_tip),
                     false,
                 )
             },
@@ -4729,6 +5166,7 @@ mod test {
             40126,
             50125,
             50126,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4738,7 +5176,7 @@ mod test {
                         .unwrap(),
                     "hello-world".try_into().unwrap(),
                     "bar-nonexistant".try_into().unwrap(),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },
@@ -4761,12 +5199,16 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_get_map_entry() {
+        // Test v2/map_entry (aka GetMapEntry) endpoint.
+        // In this test, we don't set any tip parameters, and we expect that querying for map data
+        // against the canonical Stacks tip will succeed.
         test_rpc(
             "test_rpc_get_map_entry",
             40130,
             40131,
             50130,
             50131,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4784,7 +5226,7 @@ mod test {
                         TupleData::from_data(vec![("account".into(), Value::Principal(principal))])
                             .unwrap(),
                     ),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },
@@ -4814,12 +5256,16 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_get_map_entry_unconfirmed() {
+        // Test v2/map_entry (aka GetMapEntry) endpoint.
+        // In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying for map data
+        // against the unconfirmed state will succeed.
         test_rpc(
             "test_rpc_get_map_entry_unconfirmed",
             40140,
             40141,
             50140,
             50141,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4844,7 +5290,61 @@ mod test {
                         TupleData::from_data(vec![("account".into(), Value::Principal(principal))])
                             .unwrap(),
                     ),
-                    Some(unconfirmed_tip),
+                    TipRequest::SpecificTip(unconfirmed_tip),
+                    false,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetMapEntry(response_md, data) => {
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.data).unwrap(),
+                            Value::some(Value::Tuple(
+                                TupleData::from_data(vec![("units".into(), Value::Int(1))])
+                                    .unwrap()
+                            ))
+                            .unwrap()
+                        );
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_map_entry_use_latest_tip() {
+        test_rpc(
+            "test_rpc_get_map_entry_use_latest_tip",
+            40142,
+            40143,
+            50142,
+            50143,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                let principal =
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap()
+                        .to_account_principal();
+                convo_client.new_getmapentry(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world".try_into().unwrap(),
+                    "unit-map".try_into().unwrap(),
+                    Value::Tuple(
+                        TupleData::from_data(vec![("account".into(), Value::Principal(principal))])
+                            .unwrap(),
+                    ),
+                    TipRequest::UseLatestAnchoredTip,
                     false,
                 )
             },
@@ -4874,12 +5374,16 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_get_contract_abi() {
+        // Test /v2/contracts/interface (aka GetContractABI) endpoint.
+        // In this test, we don't set any tip parameters, and we expect that querying
+        // against the canonical Stacks tip will succeed.
         test_rpc(
             "test_rpc_get_contract_abi",
             40150,
             40151,
             50150,
             50151,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4888,7 +5392,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4910,12 +5414,16 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_get_contract_abi_unconfirmed() {
+        // Test /v2/contracts/interface (aka GetContractABI) endpoint.
+        // In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying
+        // against the unconfirmed state will succeed.
         test_rpc(
             "test_rpc_get_contract_abi_unconfirmed",
-            40160,
-            40161,
-            50160,
-            50161,
+            40152,
+            40153,
+            50152,
+            50153,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4931,7 +5439,41 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap(),
                     "hello-world-unconfirmed".try_into().unwrap(),
-                    Some(unconfirmed_tip),
+                    TipRequest::SpecificTip(unconfirmed_tip),
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::GetContractABI(response_md, data) => true,
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_get_contract_abi_use_latest_tip() {
+        test_rpc(
+            "test_rpc_get_contract_abi_use_latest_tip",
+            40154,
+            40155,
+            50154,
+            50155,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_getcontractabi(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world-unconfirmed".try_into().unwrap(),
+                    TipRequest::UseLatestAnchoredTip,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4950,12 +5492,16 @@ mod test {
     #[test]
     #[ignore]
     fn test_rpc_call_read_only() {
+        // Test /v2/contracts/call-read (aka CallReadOnlyFunction) endpoint.
+        // In this test, we don't set any tip parameters, and we expect that querying
+        // against the canonical Stacks tip will succeed.
         test_rpc(
             "test_rpc_call_read_only",
             40170,
             40171,
             50170,
             50171,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -4969,7 +5515,7 @@ mod test {
                         .to_account_principal(),
                     "ro-test".try_into().unwrap(),
                     vec![],
-                    None,
+                    TipRequest::UseLatestAnchoredTip,
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -4993,6 +5539,57 @@ mod test {
 
     #[test]
     #[ignore]
+    fn test_rpc_call_read_only_use_latest_tip() {
+        // Test /v2/contracts/call-read (aka CallReadOnlyFunction) endpoint.
+        // In this test, we set `tip_req` to UseLatestUnconfirmedTip, and we expect that querying
+        // against the unconfirmed state will succeed.
+        test_rpc(
+            "test_rpc_call_read_only_use_latest_tip",
+            40172,
+            40173,
+            50172,
+            50173,
+            true,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_callreadonlyfunction(
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap(),
+                    "hello-world-unconfirmed".try_into().unwrap(),
+                    StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+                        .unwrap()
+                        .to_account_principal(),
+                    "ro-test".try_into().unwrap(),
+                    vec![],
+                    TipRequest::UseLatestAnchoredTip,
+                )
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                match http_response {
+                    HttpResponseType::CallReadOnlyFunction(response_md, data) => {
+                        assert!(data.okay);
+                        assert_eq!(
+                            Value::try_deserialize_hex_untyped(&data.result.clone().unwrap())
+                                .unwrap(),
+                            Value::okay(Value::Int(1)).unwrap()
+                        );
+                        assert!(data.cause.is_none());
+                        true
+                    }
+                    _ => {
+                        error!("Invalid response; {:?}", &http_response);
+                        false
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
     fn test_rpc_call_read_only_unconfirmed() {
         test_rpc(
             "test_rpc_call_read_only_unconfirmed",
@@ -5000,6 +5597,7 @@ mod test {
             40181,
             50180,
             50181,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -5020,7 +5618,7 @@ mod test {
                         .to_account_principal(),
                     "ro-test".try_into().unwrap(),
                     vec![],
-                    Some(unconfirmed_tip),
+                    TipRequest::SpecificTip(unconfirmed_tip),
                 )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
@@ -5050,10 +5648,11 @@ mod test {
     fn test_rpc_getattachmentsinv_limit_reached() {
         test_rpc(
             "test_rpc_getattachmentsinv",
-            40000,
-            40001,
-            50000,
-            50001,
+            40190,
+            40191,
+            50190,
+            50191,
+            true,
             |ref mut peer_client,
              ref mut convo_client,
              ref mut peer_server,
@@ -5070,6 +5669,73 @@ mod test {
                             msg,
                             "Number of attachment inv pages is limited by 8 per request"
                         );
+                        true
+                    }
+                    _ => false,
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_mempool_query_txtags() {
+        test_rpc(
+            "test_rpc_mempool_query_txtags",
+            40813,
+            40814,
+            50813,
+            50814,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                convo_client.new_mempool_query(MemPoolSyncData::TxTags([0u8; 32], vec![]))
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::MemPoolTxs(_, txs) => {
+                        // got everything
+                        assert_eq!(txs.len(), 10);
+                        true
+                    }
+                    _ => false,
+                }
+            },
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rpc_mempool_query_bloom() {
+        test_rpc(
+            "test_rpc_mempool_query_bloom",
+            40815,
+            40816,
+            50815,
+            50816,
+            false,
+            |ref mut peer_client,
+             ref mut convo_client,
+             ref mut peer_server,
+             ref mut convo_server| {
+                // empty bloom filter
+                convo_client.new_mempool_query(MemPoolSyncData::BloomFilter(BloomFilter::new(
+                    BLOOM_COUNTER_ERROR_RATE,
+                    MAX_BLOOM_COUNTER_TXS,
+                    BloomNodeHasher::new(&[0u8; 32]),
+                )))
+            },
+            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+                let req_md = http_request.metadata().clone();
+                println!("{:?}", http_response);
+                match http_response {
+                    HttpResponseType::MemPoolTxs(_, txs) => {
+                        // got everything
+                        assert_eq!(txs.len(), 10);
                         true
                     }
                     _ => false,

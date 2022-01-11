@@ -136,7 +136,7 @@ impl From<&UnconfirmedState> for MicroblockMinerRuntime {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransactionSuccess {
     pub tx: StacksTransaction,
-    // The fee that was charged to the user for doing this transaction.
+    /// The fee that was charged to the user for doing this transaction.
     pub fee: u64,
     pub receipt: StacksTransactionReceipt,
 }
@@ -152,6 +152,7 @@ pub struct TransactionError {
 #[derive(Debug)]
 pub struct TransactionSkipped {
     pub tx: StacksTransaction,
+    /// This error is the reason the transaction was skipped (ex: BlockTooBigError)
     pub error: Error,
 }
 

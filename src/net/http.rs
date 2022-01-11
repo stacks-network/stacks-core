@@ -41,7 +41,6 @@ use chainstate::burn::ConsensusHash;
 use chainstate::stacks::{StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction};
 use deps::httparse;
 use net::atlas::Attachment;
-use net::CallReadOnlyRequestBody;
 use net::ClientError;
 use net::Error as net_error;
 use net::Error::ClarityError;
@@ -54,6 +53,7 @@ use net::HttpResponseMetadata;
 use net::HttpResponsePreamble;
 use net::HttpResponseType;
 use net::HttpVersion;
+use net::MemPoolSyncData;
 use net::MessageSequence;
 use net::NeighborAddress;
 use net::PeerAddress;
@@ -68,6 +68,7 @@ use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
 use net::HTTP_REQUEST_ID_RESERVED;
 use net::MAX_HEADERS;
 use net::MAX_MICROBLOCKS_UNCONFIRMED;
+use net::{CallReadOnlyRequestBody, TipRequest};
 use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
 use util::hash::hex_bytes;
 use util::hash::to_hex;
@@ -150,6 +151,8 @@ lazy_static! {
     static ref PATH_GET_ATTACHMENTS_INV: Regex = Regex::new("^/v2/attachments/inv$").unwrap();
     static ref PATH_GET_ATTACHMENT: Regex =
         Regex::new(r#"^/v2/attachments/([0-9a-f]{40})$"#).unwrap();
+    static ref PATH_POST_MEMPOOL_QUERY: Regex =
+        Regex::new(r#"^/v2/mempool/query$"#).unwrap();
     static ref PATH_OPTIONS_WILDCARD: Regex = Regex::new("^/v2/.{0,4096}$").unwrap();
 }
 
@@ -1559,6 +1562,11 @@ impl HttpRequestType {
                 &PATH_GET_ATTACHMENTS_INV,
                 &HttpRequestType::parse_get_attachments_inv,
             ),
+            (
+                "POST",
+                &PATH_POST_MEMPOOL_QUERY,
+                &HttpRequestType::parse_post_mempool_query,
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -1681,9 +1689,8 @@ impl HttpRequestType {
         ))
     }
 
-    /// check whether the given option query string
-    ///   sets proof=0 (setting proof to false).
-    /// Defaults to _true_
+    /// Check whether the given option query string sets proof=0 (setting proof to false).
+    /// Defaults to true.
     fn get_proof_query(query: Option<&str>) -> bool {
         let no_proof = if let Some(query_string) = query {
             form_urlencoded::parse(query_string.as_bytes())
@@ -1699,7 +1706,7 @@ impl HttpRequestType {
 
     /// get the chain tip optional query argument (`tip`)
     /// Take the first value we can parse.
-    fn get_chain_tip_query(query: Option<&str>) -> Option<StacksBlockId> {
+    fn get_chain_tip_query(query: Option<&str>) -> TipRequest {
         match query {
             Some(query_string) => {
                 for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
@@ -1707,14 +1714,17 @@ impl HttpRequestType {
                         continue;
                     }
 
+                    if value == "latest" {
+                        return TipRequest::UseLatestUnconfirmedTip;
+                    }
                     if let Ok(tip) = StacksBlockId::from_hex(&value) {
-                        return Some(tip);
+                        return TipRequest::SpecificTip(tip);
                     }
                 }
-                return None;
+                return TipRequest::UseLatestAnchoredTip;
             }
             None => {
-                return None;
+                return TipRequest::UseLatestAnchoredTip;
             }
         }
     }
@@ -2542,6 +2552,51 @@ impl HttpRequestType {
         ))
     }
 
+    fn parse_post_mempool_query<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        _regex: &Captures,
+        _query: Option<&str>,
+        fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() == 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected non-empty body".to_string(),
+            ));
+        }
+
+        if preamble.get_content_length() > MAX_PAYLOAD_LEN {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: MemPoolQuery body is too big".to_string(),
+            ));
+        }
+
+        // content-type must be given, and must be application/octet-stream
+        match preamble.content_type {
+            None => {
+                return Err(net_error::DeserializeError(
+                    "Missing Content-Type for MemPoolQuery".to_string(),
+                ));
+            }
+            Some(ref c) => {
+                if *c != HttpContentType::Bytes {
+                    return Err(net_error::DeserializeError(
+                        "Wrong Content-Type for MemPoolQuery; expected application/octet-stream"
+                            .to_string(),
+                    ));
+                }
+            }
+        };
+
+        let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
+        let mempool_query = MemPoolSyncData::consensus_deserialize(&mut bound_fd)?;
+
+        Ok(HttpRequestType::MemPoolQuery(
+            HttpRequestMetadata::from_preamble(preamble),
+            mempool_query,
+        ))
+    }
+
     fn parse_options_preflight<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
@@ -2558,7 +2613,7 @@ impl HttpRequestType {
     pub fn metadata(&self) -> &HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref md) => md,
-            HttpRequestType::GetPoxInfo(ref md, _) => md,
+            HttpRequestType::GetPoxInfo(ref md, ..) => md,
             HttpRequestType::GetNeighbors(ref md) => md,
             HttpRequestType::GetHeaders(ref md, ..) => md,
             HttpRequestType::GetBlock(ref md, _) => md,
@@ -2580,6 +2635,7 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref md, ..) => md,
             HttpRequestType::GetAttachment(ref md, ..) => md,
+            HttpRequestType::MemPoolQuery(ref md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
         }
@@ -2588,7 +2644,7 @@ impl HttpRequestType {
     pub fn metadata_mut(&mut self) -> &mut HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref mut md) => md,
-            HttpRequestType::GetPoxInfo(ref mut md, _) => md,
+            HttpRequestType::GetPoxInfo(ref mut md, ..) => md,
             HttpRequestType::GetNeighbors(ref mut md) => md,
             HttpRequestType::GetHeaders(ref mut md, ..) => md,
             HttpRequestType::GetBlock(ref mut md, _) => md,
@@ -2610,41 +2666,42 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(ref mut md, ..) => md,
             HttpRequestType::GetAttachmentsInv(ref mut md, ..) => md,
             HttpRequestType::GetAttachment(ref mut md, ..) => md,
+            HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
         }
     }
 
-    fn make_query_string(tip_opt: Option<&StacksBlockId>, with_proof: bool) -> String {
-        if let Some(tip) = tip_opt {
-            format!(
-                "?tip={}{}",
-                tip,
-                if with_proof { "&proof=1" } else { "&proof=0" }
-            )
-        } else if !with_proof {
-            format!("?proof=0")
-        } else {
-            "".to_string()
+    fn make_query_string(tip_req: &TipRequest, with_proof: bool) -> String {
+        match tip_req {
+            TipRequest::UseLatestUnconfirmedTip => {
+                format!("?tip=latest{}", if with_proof { "" } else { "&proof=0" })
+            }
+            TipRequest::SpecificTip(tip) => {
+                format!("?tip={}{}", tip, if with_proof { "" } else { "&proof=0" })
+            }
+            TipRequest::UseLatestAnchoredTip => {
+                if !with_proof {
+                    format!("?proof=0")
+                } else {
+                    "".to_string()
+                }
+            }
         }
     }
 
     pub fn request_path(&self) -> String {
         match self {
             HttpRequestType::GetInfo(_md) => "/v2/info".to_string(),
-            HttpRequestType::GetPoxInfo(_md, tip_opt) => format!(
+            HttpRequestType::GetPoxInfo(_md, tip_req) => format!(
                 "/v2/pox{}",
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::GetNeighbors(_md) => "/v2/neighbors".to_string(),
-            HttpRequestType::GetHeaders(_md, quantity, tip_opt) => format!(
+            HttpRequestType::GetHeaders(_md, quantity, tip_req) => format!(
                 "/v2/headers/{}{}",
                 quantity,
-                if let Some(ref tip) = tip_opt {
-                    format!("?tip={}", tip)
-                } else {
-                    "".to_string()
-                }
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::GetBlock(_md, block_hash) => {
                 format!("/v2/blocks/{}", block_hash.to_hex())
@@ -2665,28 +2722,30 @@ impl HttpRequestType {
             }
             HttpRequestType::PostTransaction(_md, ..) => "/v2/transactions".to_string(),
             HttpRequestType::PostBlock(_md, ch, ..) => format!("/v2/blocks/upload/{}", &ch),
-            HttpRequestType::PostMicroblock(_md, _, tip_opt) => format!(
+            HttpRequestType::PostMicroblock(_md, _, tip_req) => format!(
                 "/v2/microblocks{}",
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
-            HttpRequestType::GetAccount(_md, principal, tip_opt, with_proof) => format!(
-                "/v2/accounts/{}{}",
-                &principal.to_string(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
-            ),
+            HttpRequestType::GetAccount(_md, principal, tip_req, with_proof) => {
+                format!(
+                    "/v2/accounts/{}{}",
+                    &principal.to_string(),
+                    HttpRequestType::make_query_string(tip_req, *with_proof,)
+                )
+            }
             HttpRequestType::GetDataVar(
                 _md,
                 contract_addr,
                 contract_name,
                 var_name,
-                tip_opt,
+                tip_req,
                 with_proof,
             ) => format!(
                 "/v2/data_var/{}/{}/{}{}",
                 &contract_addr.to_string(),
                 contract_name.as_str(),
                 var_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
+                HttpRequestType::make_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetMapEntry(
                 _md,
@@ -2694,40 +2753,40 @@ impl HttpRequestType {
                 contract_name,
                 map_name,
                 _key,
-                tip_opt,
+                tip_req,
                 with_proof,
             ) => format!(
                 "/v2/map_entry/{}/{}/{}{}",
                 &contract_addr.to_string(),
                 contract_name.as_str(),
                 map_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
+                HttpRequestType::make_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetTransferCost(_md) => "/v2/fees/transfer".into(),
-            HttpRequestType::GetContractABI(_, contract_addr, contract_name, tip_opt) => format!(
+            HttpRequestType::GetContractABI(_, contract_addr, contract_name, tip_req) => format!(
                 "/v2/contracts/interface/{}/{}{}",
                 contract_addr,
                 contract_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true,)
             ),
             HttpRequestType::GetContractSrc(
                 _,
                 contract_addr,
                 contract_name,
-                tip_opt,
+                tip_req,
                 with_proof,
             ) => format!(
                 "/v2/contracts/source/{}/{}{}",
                 contract_addr,
                 contract_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
+                HttpRequestType::make_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetIsTraitImplemented(
                 _,
                 contract_addr,
                 contract_name,
                 trait_id,
-                tip_opt,
+                tip_req,
             ) => format!(
                 "/v2/traits/{}/{}/{}/{}/{}{}",
                 contract_addr,
@@ -2735,7 +2794,7 @@ impl HttpRequestType {
                 trait_id.name.to_string(),
                 StacksAddress::from(trait_id.clone().contract_identifier.issuer),
                 trait_id.contract_identifier.name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::CallReadOnlyFunction(
                 _,
@@ -2744,13 +2803,13 @@ impl HttpRequestType {
                 _,
                 func_name,
                 _,
-                tip_opt,
+                tip_req,
             ) => format!(
                 "/v2/contracts/call-read/{}/{}/{}{}",
                 contract_addr,
                 contract_name.as_str(),
                 func_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), true)
+                HttpRequestType::make_query_string(tip_req, true)
             ),
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
             HttpRequestType::GetAttachmentsInv(_md, index_block_hash, pages_indexes) => {
@@ -2771,6 +2830,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachment(_, content_hash) => {
                 format!("/v2/attachments/{}", to_hex(&content_hash.0[..]))
             }
+            HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query".to_string(),
             HttpRequestType::FeeRateEstimate(_, _, _) => self.get_path().to_string(),
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
@@ -2809,6 +2869,7 @@ impl HttpRequestType {
             HttpRequestType::GetAttachmentsInv(..) => "/v2/attachments/inv",
             HttpRequestType::GetAttachment(..) => "/v2/attachments/:hash",
             HttpRequestType::GetIsTraitImplemented(..) => "/v2/traits/:principal/:contract_name",
+            HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query",
             HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
         }
@@ -2960,6 +3021,22 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(request_body_bytes.len() as u32),
                     Some(&HttpContentType::JSON),
+                    empty_headers,
+                )?;
+                fd.write_all(&request_body_bytes)
+                    .map_err(net_error::WriteError)?;
+            }
+            HttpRequestType::MemPoolQuery(md, query) => {
+                let request_body_bytes = query.serialize_to_vec();
+                HttpRequestPreamble::new_serialized(
+                    fd,
+                    &md.version,
+                    "POST",
+                    &self.request_path(),
+                    &md.peer,
+                    md.keep_alive,
+                    Some(request_body_bytes.len() as u32),
+                    Some(&HttpContentType::Bytes),
                     empty_headers,
                 )?;
                 fd.write_all(&request_body_bytes)
@@ -3266,6 +3343,10 @@ impl HttpResponseType {
             (
                 &PATH_GET_ATTACHMENTS_INV,
                 &HttpResponseType::parse_get_attachments_inv,
+            ),
+            (
+                &PATH_POST_MEMPOOL_QUERY,
+                &HttpResponseType::parse_post_mempool_query,
             ),
         ];
 
@@ -3666,6 +3747,40 @@ impl HttpResponseType {
         ))
     }
 
+    fn parse_post_mempool_query<R: Read>(
+        _protocol: &mut StacksHttp,
+        request_version: HttpVersion,
+        preamble: &HttpResponsePreamble,
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<HttpResponseType, net_error> {
+        // NOTE: there will be no length prefix on this
+        let mut txs = vec![];
+        let max_len = len_hint.unwrap_or(MAX_MESSAGE_LEN as usize) as u64;
+        let mut bound_reader = BoundReader::from_reader(fd, max_len);
+        loop {
+            let tx: StacksTransaction = match read_next(&mut bound_reader) {
+                Ok(tx) => Ok(tx),
+                Err(e) => match e {
+                    codec_error::ReadError(ref ioe) => match ioe.kind() {
+                        io::ErrorKind::UnexpectedEof => {
+                            // end of stream -- this is fine
+                            break;
+                        }
+                        _ => Err(e),
+                    },
+                    _ => Err(e),
+                },
+            }?;
+
+            txs.push(tx);
+        }
+        Ok(HttpResponseType::MemPoolTxs(
+            HttpResponseMetadata::from_preamble(request_version, preamble),
+            txs,
+        ))
+    }
+
     fn error_reason(code: u16) -> &'static str {
         match code {
             400 => "Bad Request",
@@ -3725,6 +3840,8 @@ impl HttpResponseType {
             HttpResponseType::UnconfirmedTransaction(ref md, _) => md,
             HttpResponseType::GetAttachment(ref md, _) => md,
             HttpResponseType::GetAttachmentsInv(ref md, _) => md,
+            HttpResponseType::MemPoolTxStream(ref md) => md,
+            HttpResponseType::MemPoolTxs(ref md, ..) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
             HttpResponseType::TransactionFeeEstimation(ref md, _) => md,
             // errors
@@ -3979,6 +4096,31 @@ impl HttpResponseType {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, unconfirmed_status)?;
             }
+            HttpResponseType::MemPoolTxStream(ref md) => {
+                // only send the preamble.  The caller will need to figure out how to send along
+                // the tx data itself.
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    None,
+                    &HttpContentType::Bytes,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+            }
+            HttpResponseType::MemPoolTxs(ref md, ref txs) => {
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    200,
+                    "OK",
+                    md.content_length.clone(),
+                    &HttpContentType::Bytes,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+                HttpResponseType::send_bytestream(protocol, md, fd, txs)?;
+            }
             HttpResponseType::OptionsPreflight(ref md) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
@@ -4095,6 +4237,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::CallReadOnlyFunction(..) => "HTTP(CallReadOnlyFunction)",
                 HttpRequestType::GetAttachment(..) => "HTTP(GetAttachment)",
                 HttpRequestType::GetAttachmentsInv(..) => "HTTP(GetAttachmentsInv)",
+                HttpRequestType::MemPoolQuery(..) => "HTTP(MemPoolQuery)",
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
@@ -4123,6 +4266,8 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::StacksBlockAccepted(..) => "HTTP(StacksBlockAccepted)",
                 HttpResponseType::MicroblockHash(_, _) => "HTTP(MicroblockHash)",
                 HttpResponseType::UnconfirmedTransaction(_, _) => "HTTP(UnconfirmedTransaction)",
+                HttpResponseType::MemPoolTxStream(..) => "HTTP(MemPoolTxStream)",
+                HttpResponseType::MemPoolTxs(..) => "HTTP(MemPoolTxs)",
                 HttpResponseType::OptionsPreflight(_) => "HTTP(OptionsPreflight)",
                 HttpResponseType::BadRequestJSON(..) | HttpResponseType::BadRequest(..) => {
                     "HTTP(400)"
@@ -6575,46 +6720,58 @@ mod test {
     #[test]
     fn test_http_parse_proof_tip_query() {
         let query_txt = "tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392";
-        assert_eq!(
-            HttpRequestType::get_chain_tip_query(Some(query_txt)).unwrap(),
-            StacksBlockId::from_hex(
-                "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
-            )
-            .unwrap()
-        );
+        let tip_req = HttpRequestType::get_chain_tip_query(Some(query_txt));
+        match tip_req {
+            TipRequest::SpecificTip(tip) => assert_eq!(
+                tip,
+                StacksBlockId::from_hex(
+                    "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
+                )
+                .unwrap()
+            ),
+            _ => panic!(),
+        }
 
         // first parseable tip is taken
         let query_txt_dup = "tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
-        assert_eq!(
-            HttpRequestType::get_chain_tip_query(Some(query_txt_dup)).unwrap(),
-            StacksBlockId::from_hex(
-                "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
-            )
-            .unwrap()
-        );
+        let tip_req = HttpRequestType::get_chain_tip_query(Some(query_txt));
+        match tip_req {
+            TipRequest::SpecificTip(tip) => assert_eq!(
+                tip,
+                StacksBlockId::from_hex(
+                    "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
+                )
+                .unwrap()
+            ),
+            _ => panic!(),
+        }
 
         // first parseable tip is taken
         let query_txt_dup = "tip=bad&tip=7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392&tip=03e26bd68a8722f8b3861e2058edcafde094ad059e152754986c3573306698f1";
-        assert_eq!(
-            HttpRequestType::get_chain_tip_query(Some(query_txt_dup)).unwrap(),
-            StacksBlockId::from_hex(
-                "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
-            )
-            .unwrap()
-        );
+        let tip_req = HttpRequestType::get_chain_tip_query(Some(query_txt_dup));
+        match tip_req {
+            TipRequest::SpecificTip(tip) => assert_eq!(
+                tip,
+                StacksBlockId::from_hex(
+                    "7070f213d719143d6045e08fd80f85014a161f8bbd3a42d1251576740826a392"
+                )
+                .unwrap()
+            ),
+            _ => panic!(),
+        }
 
         // tip can be skipped
         let query_txt_bad = "tip=bad";
         assert_eq!(
             HttpRequestType::get_chain_tip_query(Some(query_txt_bad)),
-            None
+            TipRequest::UseLatestAnchoredTip
         );
 
         // tip can be skipped
         let query_txt_none = "tip=bad";
         assert_eq!(
             HttpRequestType::get_chain_tip_query(Some(query_txt_none)),
-            None
+            TipRequest::UseLatestAnchoredTip
         );
     }
 
