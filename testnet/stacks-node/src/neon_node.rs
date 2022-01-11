@@ -1078,11 +1078,6 @@ fn spawn_miner_relayer(
                         "last_burn_header_hash" => %burn_header_hash
                     );
 
-                    /*
-                    let mut last_mined_blocks_vec = last_mined_blocks
-                        .remove(&burn_header_hash)
-                        .unwrap_or_default();
-                    */
                     let mut last_mined_blocks_vec = last_mined_blocks
                         .remove(&burn_chain_sn.burn_header_hash)
                         .unwrap_or_default();
@@ -1104,6 +1099,7 @@ fn spawn_miner_relayer(
                     if let Some((last_mined_block, microblock_privkey)) = last_mined_block_opt {
                         if last_mined_blocks_vec.len() == 0 {
                             // (for testing) only bump once per epoch
+                            debug!("Relayer: bump processed counter");
                             bump_processed_counter(&blocks_processed);
                         }
                         last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
@@ -1179,6 +1175,24 @@ enum LeaderKeyRegistrationState {
     Inactive,
     Pending,
     Active(RegisteredKey),
+}
+
+/// Get the chain tip the miner should mine off of from the environment.
+/// The environs to look for are STX_MINER_CONSENSUS_HASH_xxx and STX_MINER_BLOCK_HASH_xxx, where
+/// xxx is the burn block height at which these environs are valid.
+fn get_miner_tip_from_environment(burn_height: u64) -> Option<(ConsensusHash, BlockHeaderHash)> {
+    let envar_consensus_hash = format!("STX_MINER_CONSENSUS_HASH_{}", burn_height);
+    let envar_block_hash = format!("STX_MINER_BLOCK_HASH_{}", burn_height);
+    debug!("Check environment for {}/{}", &envar_consensus_hash, &envar_block_hash);
+    match (std::env::var(&envar_consensus_hash), std::env::var(&envar_block_hash)) {
+        (Ok(ch_str), Ok(bhh_str)) => {
+            match (ConsensusHash::from_hex(&ch_str), BlockHeaderHash::from_hex(&bhh_str)) {
+                (Ok(ch), Ok(bhh)) => Some((ch, bhh)),
+                _ => None
+            }
+        },
+        _ => None
+    }
 }
 
 /// This node is used for both neon testnet and for mainnet
@@ -1610,6 +1624,7 @@ impl InitializedNeonNode {
         last_mined_blocks: &Vec<&AssembledAnchorBlock>,
         event_observer: &EventDispatcher,
     ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey)> {
+        let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn()).ok()?;
         let MiningTenureInformation {
             mut stacks_parent_header,
             parent_consensus_hash,
@@ -1617,7 +1632,22 @@ impl InitializedNeonNode {
             parent_block_total_burn,
             parent_winning_vtxindex,
             coinbase_nonce,
-        } = if let Some(stacks_tip) = chain_state.get_stacks_chain_tip(burn_db).unwrap() {
+        } = if let Some((env_stacks_tip_consensus_hash, env_stacks_tip_anchored_block_hash)) = get_miner_tip_from_environment(burn_chain_tip.block_height) {
+            info!("Miner will build on {}/{} ({}), as dictated by the environment variables", &env_stacks_tip_consensus_hash, &env_stacks_tip_anchored_block_hash, &StacksBlockHeader::make_index_block_hash(&env_stacks_tip_consensus_hash, &env_stacks_tip_anchored_block_hash));
+
+            // environ says to mine off of a particular chain tip
+            let miner_address = keychain.origin_address(config.is_mainnet()).unwrap();
+            Self::get_mining_tenure_information(
+                chain_state,
+                burn_db,
+                &burn_block,
+                miner_address,
+                &env_stacks_tip_consensus_hash,
+                &env_stacks_tip_anchored_block_hash,
+            )
+            .ok()?
+        }
+        else if let Some(stacks_tip) = chain_state.get_stacks_chain_tip(burn_db).unwrap() {
             let miner_address = keychain.origin_address(config.is_mainnet()).unwrap();
             Self::get_mining_tenure_information(
                 chain_state,
