@@ -885,6 +885,7 @@ impl AppChainClient {
         marf_proof_opt: Option<String>,
         data_type: &TypeSignature,
     ) -> Result<Value, burnchain_error> {
+        debug!("Authenticate value '{}'", marf_value);
         let serialized_value = marf_value
             .strip_prefix("0x")
             .ok_or_else(|| {
