@@ -1531,18 +1531,6 @@ impl HttpResponseMetadata {
     }
 }
 
-// impl From<&HttpRequestType> for HttpResponseMetadata {
-//     fn from(req: &HttpRequestType) -> HttpResponseMetadata {
-//         let metadata = req.metadata();
-//         HttpResponseMetadata::new(
-//             metadata.version,
-//             HttpResponseMetadata::make_request_id(),
-//             None,
-//             metadata.keep_alive,
-//         )
-//     }
-// }
-
 /// All data-plane message types a peer can reply with.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpResponseType {

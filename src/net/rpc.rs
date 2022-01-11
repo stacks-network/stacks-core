@@ -148,7 +148,7 @@ pub struct ConversationHttp {
     last_response_timestamp: u64, // absolute timestamp of the last time we sent at least 1 byte in a response
     connection_time: u64,         // when this converation was instantiated
 
-    canonical_stacks_tip_height: Option<u64>, // chain tip height of the Stacks blockchain
+    canonical_stacks_tip_height: Option<u64>, // chain tip height of the peer's Stacks blockchain
 
     // ongoing block streams
     reply_streams: VecDeque<(
@@ -2994,7 +2994,10 @@ impl ConversationHttp {
                     // new request
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
-                    self.canonical_stacks_tip_height = req.metadata().canonical_stacks_tip_height;
+                    if req.metadata().canonical_stacks_tip_height.is_some() {
+                        self.canonical_stacks_tip_height =
+                            req.metadata().canonical_stacks_tip_height;
+                    }
                     let start_time = Instant::now();
                     let path = req.get_path();
                     let msg_opt = monitoring::instrument_http_request_handler(req, |req| {
@@ -3010,7 +3013,10 @@ impl ConversationHttp {
                 StacksHttpMessage::Response(resp) => {
                     // Is there someone else waiting for this message?  If so, pass it along.
                     // (this _should_ be our pending_request handle)
-                    self.canonical_stacks_tip_height = resp.metadata().canonical_stacks_tip_height;
+                    if resp.metadata().canonical_stacks_tip_height.is_some() {
+                        self.canonical_stacks_tip_height =
+                            resp.metadata().canonical_stacks_tip_height;
+                    }
                     match self
                         .connection
                         .fulfill_request(StacksHttpMessage::Response(resp))
@@ -3924,6 +3930,10 @@ mod test {
         ));
     }
 
+    /// This test tests two things:
+    /// (1) the get info RPC call
+    /// (2) whether the ConversationHttp object gets correctly updated with a peer's canonical
+    /// stacks tip height, which is sent in HTTP headers as part of the request/response
     #[test]
     #[ignore]
     fn test_rpc_getinfo() {
