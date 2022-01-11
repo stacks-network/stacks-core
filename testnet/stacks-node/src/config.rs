@@ -1595,5 +1595,3 @@ pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
 }
-
-
