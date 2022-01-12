@@ -776,6 +776,13 @@ impl Config {
         path
     }
 
+    pub fn get_estimates_path(&self) -> PathBuf {
+        let mut path = self.get_chainstate_path();
+        path.push("estimates");
+        assert!(fs::create_dir_all(&path).is_ok());
+        path
+    }
+
     pub fn get_chainstate_path_str(&self) -> String {
         self.get_chainstate_path()
             .to_str()
@@ -1175,7 +1182,7 @@ impl Config {
             match self.estimation.cost_estimator.as_ref()? {
                 CostEstimatorName::NaivePessimistic => Box::new(
                     self.estimation
-                        .make_pessimistic_cost_estimator(self.get_chainstate_path()),
+                        .make_pessimistic_cost_estimator(self.get_estimates_path()),
                 ),
             };
 
@@ -1197,10 +1204,10 @@ impl Config {
         let fee_estimator: Box<dyn FeeEstimator> = match self.estimation.fee_estimator.as_ref()? {
             FeeEstimatorName::ScalarFeeRate => self
                 .estimation
-                .make_scalar_fee_estimator(self.get_chainstate_path(), metric),
+                .make_scalar_fee_estimator(self.get_estimates_path(), metric),
             FeeEstimatorName::FuzzedWeightedMedianFeeRate => self
                 .estimation
-                .make_fuzzed_weighted_median_fee_estimator(self.get_chainstate_path(), metric),
+                .make_fuzzed_weighted_median_fee_estimator(self.get_estimates_path(), metric),
         };
 
         Some(fee_estimator)
@@ -1210,11 +1217,11 @@ impl Config {
 impl FeeEstimationConfig {
     pub fn make_pessimistic_cost_estimator(
         &self,
-        mut chainstate_path: PathBuf,
+        mut estimates_path: PathBuf,
     ) -> PessimisticEstimator {
         if let Some(CostEstimatorName::NaivePessimistic) = self.cost_estimator.as_ref() {
-            chainstate_path.push("cost_estimator_pessimistic.sqlite");
-            PessimisticEstimator::open(&chainstate_path, self.log_error)
+            estimates_path.push("cost_estimator_pessimistic.sqlite");
+            PessimisticEstimator::open(&estimates_path, self.log_error)
                 .expect("Error opening cost estimator")
         } else {
             panic!("BUG: Expected to configure a naive pessimistic cost estimator");
@@ -1223,13 +1230,13 @@ impl FeeEstimationConfig {
 
     pub fn make_scalar_fee_estimator<CM: 'static + CostMetric>(
         &self,
-        mut chainstate_path: PathBuf,
+        mut estimates_path: PathBuf,
         metric: CM,
     ) -> Box<dyn FeeEstimator> {
         if let Some(FeeEstimatorName::ScalarFeeRate) = self.fee_estimator.as_ref() {
-            chainstate_path.push("fee_estimator_scalar_rate.sqlite");
+            estimates_path.push("fee_estimator_scalar_rate.sqlite");
             Box::new(
-                ScalarFeeRateEstimator::open(&chainstate_path, metric)
+                ScalarFeeRateEstimator::open(&estimates_path, metric)
                     .expect("Error opening fee estimator"),
             )
         } else {
@@ -1241,13 +1248,13 @@ impl FeeEstimationConfig {
     // is uniform with bounds [+/- 0.5].
     pub fn make_fuzzed_weighted_median_fee_estimator<CM: 'static + CostMetric>(
         &self,
-        mut chainstate_path: PathBuf,
+        mut estimates_path: PathBuf,
         metric: CM,
     ) -> Box<dyn FeeEstimator> {
         if let Some(FeeEstimatorName::FuzzedWeightedMedianFeeRate) = self.fee_estimator.as_ref() {
-            chainstate_path.push("fee_fuzzed_weighted_median.sqlite");
+            estimates_path.push("fee_fuzzed_weighted_median.sqlite");
             let underlying_estimator = WeightedMedianFeeRateEstimator::open(
-                &chainstate_path,
+                &estimates_path,
                 metric,
                 self.fee_rate_window_size
                     .try_into()
