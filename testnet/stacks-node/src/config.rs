@@ -776,6 +776,7 @@ impl Config {
         path
     }
 
+    /// Returns the path `{get_chainstate_path()}/estimates`, and ensures it exists.
     pub fn get_estimates_path(&self) -> PathBuf {
         let mut path = self.get_chainstate_path();
         path.push("estimates");
