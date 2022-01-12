@@ -339,7 +339,7 @@ fn fee_rate_and_weight_from_receipt(
             metric.from_cost_and_len(&tx_receipt.execution_cost, &block_limit, tx_size)
         }
     };
-    let denominator = cmp::min(scalar_cost, 1) as f64;
+    let denominator = cmp::max(scalar_cost, 1) as f64;
     let fee_rate = fee as f64 / denominator;
 
     if fee_rate.is_infinite() {
