@@ -26,8 +26,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   value and a MARF proof of its existence.
 
 ### Changed
-- The pessimistic execution cost estimator differentiates between
-  contracts with different origin addresses.
 - Updated the mined block event. It now includes information on transaction 
   events that occurred in the course of mining (will provide insight
   on whether a transaction was successfully added to the block, 
