@@ -147,7 +147,7 @@ async fn main() -> http_types::Result<()> {
         if should_ignore_txs {
             // Returns ok
             println!("Buffering request from {}", stream.peer_addr()?);
-            async_h1::accept(&addr, stream.clone(), |_| async {
+            async_h1::accept(stream.clone(), |_| async {
                 Ok(Response::new(StatusCode::Ok))
             })
             .await?;
@@ -181,8 +181,8 @@ async fn main() -> http_types::Result<()> {
 }
 
 // Take a TCP stream, and convert it into sequential HTTP request / response pairs.
-async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_types::Result<()> {
-    async_h1::accept(&addr, stream.clone(), |mut req| async {
+async fn accept(_addr: String, stream: TcpStream, config: &ConfigFile) -> http_types::Result<()> {
+    async_h1::accept(stream.clone(), |mut req| async {
         match (
             req.method(),
             req.url().path(),
@@ -352,12 +352,9 @@ async fn generate_blocks(blocks_count: u64, address: String, config: &ConfigFile
 fn build_request(config: &ConfigFile, body: Vec<u8>) -> Request {
     let url = Url::parse(&format!("http://{}/", config.network.bitcoind_rpc_host)).unwrap();
     let mut req = Request::new(Method::Post, url);
-    req.append_header("Authorization", config.network.authorization_token())
-        .unwrap();
-    req.append_header("Content-Type", "application/json")
-        .unwrap();
-    req.append_header("Host", format!("{}", config.network.bitcoind_rpc_host))
-        .unwrap();
+    req.append_header("Authorization", config.network.authorization_token());
+    req.append_header("Content-Type", "application/json");
+    req.append_header("Host", format!("{}", config.network.bitcoind_rpc_host));
     req.set_body(body);
     req
 }
