@@ -5,6 +5,11 @@ name: stacks-bitcoin-integration-tests
 on:
   pull_request:
 
+concurrency:
+  group: stacks-bitcoin-integration-tests-${{ github.ref }}
+  # Only cancel in progress if this is for a PR
+  cancel-in-progress: github.event_name == 'pull_request'
+
 jobs:
   build-integration-image:
     runs-on: ubuntu-latest
