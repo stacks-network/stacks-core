@@ -503,9 +503,10 @@ fn find_microblock_privkey(
     return None;
 }
 
-// Returns true if relative difference between `a` and `b` is less than 0.01.
-fn is_near(a: f64, b: f64) -> bool {
-    (a - b).abs() < 0.01
+/// Returns true iff `b` is within `0.1%` of `a`.
+fn is_close_f64(a: f64, b: f64) -> bool {
+    let error = (a - b).abs() / a.abs();
+    error < 0.001
 }
 
 #[test]
@@ -6304,7 +6305,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     }
 
     // Check the final value is near input parameter.
-    assert!(is_near(
+    assert!(is_close_f64(
         *response_top_fee_rates.last().unwrap(),
         expected_final_value
     ));

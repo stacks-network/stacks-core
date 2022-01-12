@@ -31,12 +31,10 @@ use cost_estimates::fee_medians::fee_rate_estimate_from_sorted_weighted_fees;
 use cost_estimates::fee_medians::FeeRateAndWeight;
 use cost_estimates::tests::common::*;
 
-/// Tolerance for approximate relative comparison. Values must be within 0.1% of each other.
-const error_epsilon: f64 = 0.001;
-
+/// Returns true iff `b` is within `0.1%` of `a`.
 fn is_close_f64(a: f64, b: f64) -> bool {
     let error = (a - b).abs() / a.abs();
-    error < error_epsilon
+    error < 0.001
 }
 
 /// Returns `true` iff each value in `left` "close" to its counterpart in `right`.

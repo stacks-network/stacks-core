@@ -335,21 +335,17 @@ fn fee_rate_and_weight_from_receipt(
             metric.from_cost_and_len(&tx_receipt.execution_cost, &block_limit, tx_size)
         }
     };
-    let denominator = if scalar_cost >= 1 {
-        scalar_cost as f64
-    } else {
-        MINIMUM_TX_FEE_RATE
-    };
+    let denominator = cmp::min(scalar_cost, 1) as f64;
     let fee_rate = fee as f64 / denominator;
-    if fee_rate >= MINIMUM_TX_FEE_RATE && fee_rate.is_finite() {
-        Some(FeeRateAndWeight {
-            fee_rate,
-            weight: scalar_cost,
-        })
+
+    assert!(fee_rate.is_finite());
+    let effective_fee_rate = if fee_rate < MINIMUM_TX_FEE_RATE {
+        MINIMUM_TX_FEE_RATE
     } else {
-        Some(FeeRateAndWeight {
-            fee_rate: MINIMUM_TX_FEE_RATE,
-            weight: scalar_cost,
-        })
-    }
+        fee_rate
+    };
+    Some(FeeRateAndWeight {
+        fee_rate: effective_fee_rate,
+        weight: scalar_cost,
+    })
 }
