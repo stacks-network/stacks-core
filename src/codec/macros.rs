@@ -35,3 +35,10 @@ macro_rules! impl_byte_array_message_codec {
         }
     };
 }
+
+// macro for determining how big an inv bitvec can be, given its bitlen
+macro_rules! BITVEC_LEN {
+    ($bitvec:expr) => {
+        (($bitvec) / 8 + if ($bitvec) % 8 > 0 { 1 } else { 0 }) as u32
+    };
+}

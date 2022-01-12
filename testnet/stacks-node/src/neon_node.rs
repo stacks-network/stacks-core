@@ -48,7 +48,7 @@ use stacks::net::{
     p2p::PeerNetwork,
     relay::Relayer,
     rpc::RPCHandlerArgs,
-    Error as NetError, NetworkResult, PeerAddress,
+    Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader, VRFSeed,
@@ -333,6 +333,7 @@ fn mine_one_microblock(
     sortdb: &SortitionDB,
     chainstate: &mut StacksChainState,
     mempool: &mut MemPoolDB,
+    event_dispatcher: &EventDispatcher,
 ) -> Result<StacksMicroblock, ChainstateError> {
     debug!(
         "Try to mine one microblock off of {}/{} (total: {})",
@@ -368,7 +369,11 @@ fn mine_one_microblock(
 
         let t1 = get_epoch_time_ms();
 
-        let mblock = microblock_miner.mine_next_microblock(mempool, &microblock_state.miner_key)?;
+        let mblock = microblock_miner.mine_next_microblock(
+            mempool,
+            &microblock_state.miner_key,
+            event_dispatcher,
+        )?;
         let new_cost_so_far = microblock_miner.get_cost_so_far().expect("BUG: cannot read cost so far from miner -- indicates that the underlying Clarity Tx is somehow in use still.");
         let t2 = get_epoch_time_ms();
 
@@ -411,6 +416,7 @@ fn try_mine_microblock(
     sortdb: &SortitionDB,
     mem_pool: &mut MemPoolDB,
     winning_tip: (ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey),
+    event_dispatcher: &EventDispatcher,
 ) -> Result<Option<StacksMicroblock>, NetError> {
     let ch = winning_tip.0;
     let bhh = winning_tip.1;
@@ -471,7 +477,13 @@ fn try_mine_microblock(
                     get_epoch_time_secs() - 600,
                 )?;
                 if num_attachable == 0 {
-                    match mine_one_microblock(&mut microblock_miner, sortdb, chainstate, mem_pool) {
+                    match mine_one_microblock(
+                        &mut microblock_miner,
+                        sortdb,
+                        chainstate,
+                        mem_pool,
+                        event_dispatcher,
+                    ) {
                         Ok(microblock) => {
                             // will need to relay this
                             next_microblock = Some(microblock);
@@ -526,6 +538,7 @@ fn run_microblock_tenure(
         sortdb,
         mem_pool,
         miner_tip.clone(),
+        event_dispatcher,
     ) {
         Ok(x) => x,
         Err(e) => {
@@ -1279,6 +1292,18 @@ impl InitializedNeonNode {
             }
             tx.commit().unwrap();
         }
+
+        // update services to indicate we can support mempool sync
+        {
+            let mut tx = peerdb.tx_begin().unwrap();
+            PeerDB::set_local_services(
+                &mut tx,
+                (ServiceFlags::RPC as u16) | (ServiceFlags::RELAY as u16),
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
         let atlasdb =
             AtlasDB::connect(atlas_config, &config.get_atlas_db_file_path(), true).unwrap();
 

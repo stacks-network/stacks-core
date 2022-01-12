@@ -1,6 +1,3 @@
-codecov:
-  token: 7f1d0962-14d3-4749-ab94-905cd4fc4c00
-
 coverage:
   status:
     patch: off

@@ -68,6 +68,7 @@ use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 use crate::types::proof::TrieHash;
 use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::util::db::Error as db_error;
 use crate::util::secp256k1::MessageSignature;
 use types::chainstate::BurnchainHeaderHash;
 
@@ -515,6 +516,11 @@ impl ClarityInstance {
             burn_state_db,
             epoch,
         })
+    }
+
+    pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, db_error> {
+        let mut datastore = self.datastore.begin_read_only(None);
+        datastore.trie_exists_for_block(bhh)
     }
 
     /// Evaluate program read-only at `at_block`. This will be evaluated in the Stacks epoch that
