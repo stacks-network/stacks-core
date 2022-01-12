@@ -343,6 +343,7 @@ fn fee_rate_and_weight_from_receipt(
     let fee_rate = fee as f64 / denominator;
 
     if fee_rate.is_infinite() {
+        warn!("fee_rate is infinite for {:?}", tx_receipt);
         None
     } else {
         let effective_fee_rate = if fee_rate < MINIMUM_TX_FEE_RATE {
