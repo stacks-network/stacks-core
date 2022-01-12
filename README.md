@@ -361,7 +361,9 @@ Fee and cost estimators can be configure via the config section `[fee_estimation
 ```
 [fee_estimation]
 cost_estimator = naive_pessimistic
-fee_estimator = scalar_fee_rate
+fee_estimator = fuzzed_weighted_median_fee_rate
+fee_rate_fuzzer_fraction = 0.1
+fee_rate_window_size = 5
 cost_metric = proportion_dot_product
 log_error = true
 enabled = true
@@ -377,6 +379,11 @@ observed. Setting `enabled = false` turns off the cost estimators. Cost estimato
 are **not** consensus-critical components, but rather can be used by miners to
 rank transactions in the mempool or client to determine appropriate fee rates
 for transactions before broadcasting them.
+
+The `fuzzed_weighted_median_fee_rate` uses a
+median estimate from a window of the fees paid in the last `fee_rate_window_size` blocks.
+Estimates are then randomly "fuzzed" using uniform random fuzz of size up to
+`fee_rate_fuzzer_fraction` of the base estimate.
 
 ## Non-Consensus Breaking Release Process
 
