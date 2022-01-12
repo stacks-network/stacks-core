@@ -29,6 +29,7 @@ use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
     StacksMicroblockHeader,
 };
+use stacks::types::proof::TrieHash;
 use stacks::util::hash::Hash160;
 use stacks::util::hash::{bytes_to_hex, hex_bytes};
 use stacks::util::secp256k1::Secp256k1PublicKey;
@@ -115,13 +116,13 @@ pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     (conf, miner_account)
 }
 
-<<<<<<< HEAD
 fn neon_integration_test_appchain_conf(
     host_chain_conf: &Config,
     mining_contract_id: QualifiedContractIdentifier,
     node_p2p_port: u16,
     node_data_port: u16,
     boot_code: &Vec<(ContractName, StacksString)>,
+    genesis_hash: TrieHash
 ) -> (Config, StacksAddress) {
     let (mut conf, miner_account) = neon_integration_test_conf();
 
@@ -149,10 +150,13 @@ fn neon_integration_test_appchain_conf(
         .pop()
         .unwrap()
         .port();
+    
+    conf.burnchain.genesis_hash = genesis_hash;
 
     conf.node.rpc_bind = format!("0.0.0.0:{}", node_data_port);
     conf.node.p2p_bind = format!("0.0.0.0:{}", node_p2p_port);
-
+    conf.node.data_url = format!("http://127.0.0.1:{}", node_data_port);
+    conf.node.p2p_address = format!("127.0.0.1:{}", node_p2p_port);
     conf.miner.min_tx_fee = 500;
 
     conf.boot_into_appchain(&boot_code_map);
@@ -393,7 +397,6 @@ pub fn next_block_and_wait(
     true
 }
 
-<<<<<<< HEAD
 fn next_appchain_block_and_wait(appchain_blocks_processed: &Arc<AtomicU64>) {
     let current = appchain_blocks_processed.load(Ordering::SeqCst);
     eprintln!("Waiting for appchain block bump from ({})", current);
@@ -3879,7 +3882,7 @@ fn mining_events_integration_test() {
     let mb_tx =
         make_contract_publish_microblock_only(&spender_sk_2, 0, 620000, "small", &small_contract);
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),
@@ -4045,7 +4048,7 @@ fn mining_events_integration_test() {
 
     // dupe contract error event
     match &third_block_tx_events[2] {
-        TransactionEvent::ProcessingError(TransactionErrorEvent { txid, error }) => {
+        TransactionEvent::ProcessingError(TransactionErrorEvent { txid: _, error }) => {
             assert_eq!(
                 error,
                 "Duplicate contract 'ST3WM51TCWMJYGZS1QFMC28DH5YP86782YGR113C1.small'"
@@ -6492,7 +6495,7 @@ const APPCHAIN_MINING_CONTRACT: &str = r#"
         ;; List of initial balances to be allocated in the appchain genesis block
         initial-balances: (list 128 { recipient: principal, amount: uint }),
         ;; MARF state root hash of the appchain genesis block 
-        genesis-hash: (buff 32)
+        ;; genesis-hash: (buff 32)
     }
     {
         chain-id: u2147483650,   ;; 0x80000002
@@ -6536,7 +6539,7 @@ const APPCHAIN_MINING_CONTRACT: &str = r#"
             }
         ),
         ;; NOTE: this is a deliberately-chosen value and is required for the test to work at all
-        genesis-hash: 0x6ecdc6648ae90a729cca36ce7cb13b2e51eb44ccaed8f9305fbed00e8bfb9f61
+        ;; genesis-hash: 0x6ecdc6648ae90a729cca36ce7cb13b2e51eb44ccaed8f9305fbed00e8bfb9f61
     }
 )
 
@@ -6671,6 +6674,7 @@ fn appchain_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
+
     let spender_sk = StacksPrivateKey::new();
     let addr = to_addr(&spender_sk);
 
@@ -6699,6 +6703,23 @@ fn appchain_integration_test() {
 
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(None, 0));
@@ -6730,7 +6751,7 @@ fn appchain_integration_test() {
     // deploy the mining contract
     submit_tx(&http_origin, &tx);
 
-    for i in 0..10 {
+    for _i in 0..10 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         let account = get_account(&http_origin, &addr);
         if account.nonce == 1 {
@@ -6752,7 +6773,7 @@ fn appchain_integration_test() {
         issuer: StandardPrincipalData(addr.version, addr.bytes.clone().0),
         name: "appchain-mvp".into(),
     };
-    let (mut appchain_conf, appchain_miner_account) = neon_integration_test_appchain_conf(
+    let (mut appchain_conf, _) = neon_integration_test_appchain_conf(
         &conf,
         contract_id,
         14300,
@@ -6761,6 +6782,7 @@ fn appchain_integration_test() {
             "hello-world".into(),
             StacksString::from_str(HELLO_WORLD_CONTRACT).unwrap(),
         )],
+        TrieHash::from_hex("6ecdc6648ae90a729cca36ce7cb13b2e51eb44ccaed8f9305fbed00e8bfb9f61").unwrap(),
     );
 
     appchain_conf.node.seed = hex_bytes(&SK_1).unwrap();
@@ -6835,16 +6857,24 @@ fn appchain_integration_test() {
         issuer: StandardPrincipalData(addr.version, addr.bytes.clone().0),
         name: "appchain-mvp".into(),
     };
-    let (mut appchain_peer_conf, _) =
-        neon_integration_test_appchain_conf(&conf, contract_id, 14302, 14303, &vec![]);
+
+    eprintln!("Make appchain peer conf");
+    let (appchain_peer_conf, _) =
+        neon_integration_test_appchain_conf(&conf, contract_id, 14302, 14303, &vec![], TrieHash::from_hex("6ecdc6648ae90a729cca36ce7cb13b2e51eb44ccaed8f9305fbed00e8bfb9f61").unwrap());
 
     let appchain_peer_http_origin = format!("http://{}", appchain_peer_conf.node.rpc_bind);
+    
+    eprintln!("Make appchain peer runloop");
+
     let mut appchain_peer_runloop = neon::RunLoop::new(appchain_peer_conf);
     let appchain_peer_blocks_processed = appchain_peer_runloop.get_blocks_processed_arc();
     let appchain_peer_channel = appchain_peer_runloop.get_coordinator_channel().unwrap();
 
+    eprintln!("Make appchain peer thread");
+
     thread::spawn(move || {
         eprintln!("Start appchain peer runloop");
+        warn!("Start appchain peer runloop");
         appchain_peer_runloop.start(None, 0)
     });
 
@@ -6852,11 +6882,16 @@ fn appchain_integration_test() {
 
     wait_for_runloop(&appchain_peer_blocks_processed);
 
-    for i in 0..300 {
-        let path = format!("{}/v2/info", &appchain_http_origin);
+    for _i in 0..300 {
+        let path = format!("{}/v2/info", &appchain_peer_http_origin);
         let peer_tip_info = client
+            .get(&path)
+            .send()
+            .unwrap()
+            .json::<RPCPeerInfoData>()
+            .unwrap();
 
-        eprintln!("peer_tip: {:?}", &tip_info);
+        eprintln!("appchain peer_tip: {:?}", &peer_tip_info);
         assert_eq!(peer_tip_info.network_id, 0x80000002);
         assert_eq!(peer_tip_info.parent_network_id, 0x80000000);
 
@@ -6869,6 +6904,8 @@ fn appchain_integration_test() {
         assert_eq!(peer_tip_info, tip_info);
         break;
     }
+
+    eprintln!("Test complete! Shutting down");
 
     test_observer::clear();
 
