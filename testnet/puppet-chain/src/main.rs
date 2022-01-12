@@ -142,7 +142,6 @@ async fn main() -> http_types::Result<()> {
         let should_ignore_txs = config.should_ignore_transactions(effective_block_height - 1);
 
         let stream = stream?;
-        let addr = addr.clone();
 
         if should_ignore_txs {
             // Returns ok
@@ -152,17 +151,17 @@ async fn main() -> http_types::Result<()> {
             })
             .await?;
             // Enqueue request
-            buffered_requests.push_back((addr, stream));
+            buffered_requests.push_back(stream);
         } else {
             // Dequeue all the requests we've been buffering
-            while let Some((addr, stream)) = buffered_requests.pop_front() {
+            while let Some(stream) = buffered_requests.pop_front() {
                 let config = config.clone();
                 task::spawn(async move {
                     println!(
                         "Dequeuing buffered request from {}",
                         stream.peer_addr().unwrap()
                     );
-                    if let Err(err) = accept(addr, stream, &config).await {
+                    if let Err(err) = accept(stream, &config).await {
                         eprintln!("{}", err);
                     }
                 });
@@ -171,7 +170,7 @@ async fn main() -> http_types::Result<()> {
             let config = config.clone();
             task::spawn(async move {
                 println!("Handling request from {}", stream.peer_addr().unwrap());
-                if let Err(err) = accept(addr, stream, &config).await {
+                if let Err(err) = accept(stream, &config).await {
                     eprintln!("{}", err);
                 }
             });
@@ -181,7 +180,7 @@ async fn main() -> http_types::Result<()> {
 }
 
 // Take a TCP stream, and convert it into sequential HTTP request / response pairs.
-async fn accept(_addr: String, stream: TcpStream, config: &ConfigFile) -> http_types::Result<()> {
+async fn accept(stream: TcpStream, config: &ConfigFile) -> http_types::Result<()> {
     async_h1::accept(stream.clone(), |mut req| async {
         match (
             req.method(),
