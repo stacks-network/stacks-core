@@ -18,3 +18,4 @@
 - [ ] Changelog is updated
 - [ ] Required documentation changes (ex: `rpc-endpoints.md` for v2 endpoints, `event-dispatcher.md` for new events)
 - [ ] New clarity functions have corresponding PR in `clarity-benchmarking` repo
+- [ ] New integration test(s) added to `bitcoin-tests.yml`
