@@ -309,6 +309,10 @@ fn maybe_add_minimum_fee_rate(working_rates: &mut Vec<FeeRateAndWeight>, full_bl
 }
 
 /// Depending on the type of the transaction, calculate fee rate and total cost.
+///
+/// Returns None if:
+///   1) There is no fee rate for the tx.
+///   2) Cacluated fee rate is infinite.
 fn fee_rate_and_weight_from_receipt(
     metric: &dyn CostMetric,
     tx_receipt: &StacksTransactionReceipt,
@@ -338,14 +342,17 @@ fn fee_rate_and_weight_from_receipt(
     let denominator = cmp::min(scalar_cost, 1) as f64;
     let fee_rate = fee as f64 / denominator;
 
-    assert!(fee_rate.is_finite());
-    let effective_fee_rate = if fee_rate < MINIMUM_TX_FEE_RATE {
-        MINIMUM_TX_FEE_RATE
+    if fee_rate.is_infinite() {
+        None
     } else {
-        fee_rate
-    };
-    Some(FeeRateAndWeight {
-        fee_rate: effective_fee_rate,
-        weight: scalar_cost,
-    })
+        let effective_fee_rate = if fee_rate < MINIMUM_TX_FEE_RATE {
+            MINIMUM_TX_FEE_RATE
+        } else {
+            fee_rate
+        };
+        Some(FeeRateAndWeight {
+            fee_rate: effective_fee_rate,
+            weight: scalar_cost,
+        })
+    }
 }
