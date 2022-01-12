@@ -14,9 +14,9 @@ use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
+use stacks::core::StacksEpoch;
 use stacks::core::{
-    BLOCK_LIMIT_MAINNET, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use stacks::cost_estimates::metrics::CostMetric;
@@ -299,7 +299,6 @@ pub struct Config {
     pub events_observers: Vec<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
     pub miner: MinerConfig,
-    pub block_limit: ExecutionCost,
     pub estimation: FeeEstimationConfig,
 }
 
@@ -516,6 +515,10 @@ impl Config {
                         })
                         .unwrap_or(TrieHash([0x00; 32])),
                     appchain_runtime: None,
+                    epochs: match burnchain.epochs {
+                        Some(epochs) => Some(epochs),
+                        None => default_burnchain_config.epochs,
+                    },
                 }
             }
             None => default_burnchain_config,
@@ -776,8 +779,6 @@ impl Config {
             None => HELIUM_DEFAULT_CONNECTION_OPTIONS.clone(),
         };
 
-        let block_limit = BLOCK_LIMIT_MAINNET.clone();
-
         let estimation = match config_file.fee_estimation {
             Some(f) => FeeEstimationConfig::from(f),
             None => FeeEstimationConfig::default(),
@@ -789,7 +790,6 @@ impl Config {
             initial_balances,
             events_observers,
             connection_options,
-            block_limit,
             estimation,
             miner,
         }
@@ -936,7 +936,6 @@ impl Config {
 
     pub fn make_block_builder_settings(&self, attempt: u64) -> BlockBuilderSettings {
         BlockBuilderSettings {
-            execution_cost: self.block_limit.clone(),
             max_miner_time_ms: if attempt <= 1 {
                 // first attempt to mine a block -- do so right away
                 self.miner.first_attempt_time_ms
@@ -992,7 +991,6 @@ impl std::default::Default for Config {
         };
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
-        let block_limit = HELIUM_BLOCK_LIMIT.clone();
         let estimation = FeeEstimationConfig::default();
 
         Config {
@@ -1001,7 +999,6 @@ impl std::default::Default for Config {
             initial_balances: vec![],
             events_observers: vec![],
             connection_options,
-            block_limit,
             estimation,
             miner: MinerConfig::default(),
         }
@@ -1014,7 +1011,7 @@ pub struct AppchainRuntime {
     pub boot_code: Vec<(ContractName, StacksString)>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
@@ -1042,6 +1039,9 @@ pub struct BurnchainConfig {
     pub mining_contract: Option<QualifiedContractIdentifier>,
     pub genesis_hash: TrieHash,
     pub appchain_runtime: Option<AppchainRuntime>,
+    /// Custom override for the definitions of the epochs. This will only be applied for testnet and
+    /// regtest nodes.
+    pub epochs: Option<Vec<StacksEpoch>>,
 }
 
 impl BurnchainConfig {
@@ -1073,6 +1073,7 @@ impl BurnchainConfig {
             mining_contract: None,
             genesis_hash: TrieHash([0x00; 32]),
             appchain_runtime: None,
+            epochs: None,
         }
     }
 
@@ -1209,6 +1210,7 @@ pub struct BurnchainConfigFile {
     pub max_rbf: Option<u64>,
     pub mining_contract: Option<String>, // appchains only
     pub genesis_hash: Option<String>,    // appchains only
+    pub epochs: Option<Vec<StacksEpoch>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1369,10 +1371,9 @@ impl Config {
 
     pub fn make_cost_metric(&self) -> Option<Box<dyn CostMetric>> {
         let metric: Box<dyn CostMetric> = match self.estimation.cost_metric.as_ref()? {
-            CostMetricName::ProportionDotProduct => Box::new(ProportionalDotProduct::new(
-                MAX_BLOCK_LEN as u64,
-                self.block_limit.clone(),
-            )),
+            CostMetricName::ProportionDotProduct => {
+                Box::new(ProportionalDotProduct::new(MAX_BLOCK_LEN as u64))
+            }
         };
 
         Some(metric)
@@ -1675,6 +1676,8 @@ pub enum EventKeyType {
     Microblocks,
     AnyEvent,
     BurnchainBlocks,
+    MinedBlocks,
+    MinedMicroblocks,
 }
 
 impl EventKeyType {

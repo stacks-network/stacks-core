@@ -17,6 +17,7 @@
 use std::io::{Read, Write};
 
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
 use crate::types::proof::TrieHash;
 use address::AddressHashMode;
 use burnchains::bitcoin::BitcoinNetworkType;
@@ -37,12 +38,12 @@ use chainstate::burn::Opcodes;
 use chainstate::burn::SortitionId;
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
+use core::STACKS_EPOCH_2_05_MARKER;
+use core::{StacksEpoch, StacksEpochId};
 use net::Error as net_error;
 use util::hash::to_hex;
 use util::log;
 use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
-
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
 
 // return type from parse_data below
 pub struct ParsedData {
@@ -792,6 +793,64 @@ impl LeaderBlockCommitOp {
             }
         }
 
+        /////////////////////////////////////////////////////////////////////////////////////
+        // If we are in Stacks 2.05 or later, then the memo field *must* have the appropriate epoch
+        // marker.  That is, the upper 5 bits of the byte whose lower 3 bits contain the burn
+        // parent modulus must have the marker bit pattern.  For example, in 2.05, this is 0b00101.
+        //
+        // This means that the byte must look like 0bXXXXXYYY, where XXXXX is the epoch marker bit
+        // pattern, and YYY is the burn parent modulus.
+        //
+        // The epoch marker is a minimum-allowed value.  The miner can put a larger number in the
+        // epoch marker field -- for example, to signal support for a new epoch or to be
+        // forwards-compatible with it -- but cannot put a lesser number in.
+        /////////////////////////////////////////////////////////////////////////////////////
+        let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.expect(&format!(
+            "FATAL: impossible block height: no epoch defined for {}",
+            self.block_height
+        ));
+
+        match epoch.epoch_id {
+            StacksEpochId::Epoch10 => {
+                panic!("FATAL: processed block-commit pre-Stacks 2.0");
+            }
+            StacksEpochId::Epoch20 => {
+                // no-op, but log for helping node operators watch for old nodes
+                if self.memo.len() < 1 {
+                    debug!(
+                        "Soon-to-be-invalid block commit";
+                        "reason" => "no epoch marker byte given",
+                    );
+                } else if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
+                    debug!(
+                        "Soon-to-be-invalid block commit";
+                        "reason" => "invalid epoch marker byte",
+                        "marker_byte" => self.memo[0],
+                        "expected_marker_byte" => STACKS_EPOCH_2_05_MARKER
+                    );
+                }
+            }
+            StacksEpochId::Epoch2_05 => {
+                if self.memo.len() < 1 {
+                    debug!(
+                        "Invalid block commit";
+                        "reason" => "no epoch marker byte given",
+                    );
+                    return Err(op_error::BlockCommitBadEpoch);
+                }
+                if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
+                    debug!(
+                        "Invalid block commit";
+                        "reason" => "invalid epoch marker byte",
+                        "marker_byte" => self.memo[0],
+                        "expected_marker_byte" => STACKS_EPOCH_2_05_MARKER
+                    );
+                    return Err(op_error::BlockCommitBadEpoch);
+                }
+            }
+        }
+
+        // good to go!
         Ok(())
     }
 }
@@ -804,12 +863,17 @@ mod tests {
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::*;
     use burnchains::*;
+    use chainstate::burn::db::sortdb::tests::test_append_snapshot;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::db::*;
     use chainstate::burn::operations::*;
     use chainstate::burn::ConsensusHash;
     use chainstate::burn::*;
     use chainstate::stacks::StacksPublicKey;
+    use core::{
+        StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
+        PEER_VERSION_EPOCH_2_05, STACKS_EPOCH_MAX,
+    };
     use deps::bitcoin::blockdata::transaction::Transaction;
     use deps::bitcoin::network::serialize::{deserialize, serialize_hex};
     use util::get_epoch_time_secs;
@@ -820,6 +884,10 @@ mod tests {
     use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 
     use super::*;
+
+    use rand::thread_rng;
+    use rand::RngCore;
+    use vm::costs::ExecutionCost;
 
     struct OpFixture {
         txstr: String,
@@ -2162,6 +2230,290 @@ mod tests {
                 format!("{:?}", &fixture.res),
                 format!("{:?}", &fixture.op.check(&burnchain, &mut ic, None))
             );
+        }
+    }
+
+    #[test]
+    fn test_epoch_marker_2_05() {
+        let first_block_height = 121;
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000001",
+        )
+        .unwrap();
+
+        let burnchain = Burnchain {
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000),
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            first_block_height,
+            initial_reward_start_block: first_block_height,
+            first_block_timestamp: 0,
+            first_block_hash: first_burn_hash.clone(),
+        };
+
+        let epoch_2_05_start = 125;
+
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+
+        let mut db = SortitionDB::connect(
+            &db_path_dir,
+            first_block_height,
+            &first_burn_hash,
+            get_epoch_time_secs(),
+            &vec![
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch10,
+                    start_height: 0,
+                    end_height: first_block_height,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_1_0,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch20,
+                    start_height: first_block_height,
+                    end_height: epoch_2_05_start,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch2_05,
+                    start_height: epoch_2_05_start,
+                    end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
+                },
+            ],
+            true,
+        )
+        .unwrap();
+
+        let leader_key = LeaderKeyRegisterOp {
+            consensus_hash: ConsensusHash([0x01; 20]),
+            public_key: VRFPublicKey::from_bytes(
+                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
+                    .unwrap(),
+            )
+            .unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: StacksAddress::from_string("ST23T8X3WGA59XM4RA7NE4ZAG332V10PSS135TTZR")
+                .unwrap(),
+            txid: Txid([0x01; 32]),
+            vtxindex: 456,
+            block_height: first_block_height + 1,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_pre_2_05 = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x02; 32]),
+            new_seed: VRFSeed([0x03; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![0x80],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid([0x02; 32]),
+            vtxindex: 444,
+            block_height: first_block_height + 2,
+            burn_parent_modulus: ((first_block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_post_2_05_valid = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x03; 32]),
+            new_seed: VRFSeed([0x04; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![STACKS_EPOCH_2_05_MARKER],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "024d8cdaef508d665dd9dd50ca7e9fbd9e7984ec8bfac8f02dea9f02a9232af1d7",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid([0x03; 32]),
+            vtxindex: 444,
+            block_height: epoch_2_05_start,
+            burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_post_2_05_valid_bigger_epoch = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x03; 32]),
+            new_seed: VRFSeed([0x04; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![STACKS_EPOCH_2_05_MARKER + 1],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "024d8cdaef508d665dd9dd50ca7e9fbd9e7984ec8bfac8f02dea9f02a9232af1d7",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid([0x13; 32]),
+            vtxindex: 444,
+            block_height: epoch_2_05_start,
+            burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_post_2_05_invalid_bad_memo = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x04; 32]),
+            new_seed: VRFSeed([0x05; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![STACKS_EPOCH_2_05_MARKER - 1],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "02b20f7d690afa0464d7eb17bdd86820261fb1acfdf489b2442a205a693da231ac",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid([0x04; 32]),
+            vtxindex: 445,
+            block_height: epoch_2_05_start,
+            burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_post_2_05_invalid_no_memo = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x05; 32]),
+            new_seed: VRFSeed([0x06; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "02e371309f1c25abc5f00353d74632c6f5b95eb80e1e1edb9ba53e14b0d47bc0de",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid([0x05; 32]),
+            vtxindex: 446,
+            block_height: epoch_2_05_start,
+            burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let all_leader_key_ops = vec![leader_key];
+
+        let all_block_commit_ops = vec![
+            (block_commit_pre_2_05, true),
+            (block_commit_post_2_05_valid, true),
+            (block_commit_post_2_05_valid_bigger_epoch, true),
+            (block_commit_post_2_05_invalid_bad_memo, false),
+            (block_commit_post_2_05_invalid_no_memo, false),
+        ];
+
+        let mut sn = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
+        for i in sn.block_height..(epoch_2_05_start + 2) {
+            eprintln!("Block {}", i);
+            let mut byte_pattern = [0u8; 32];
+            byte_pattern[24..32].copy_from_slice(&i.to_be_bytes());
+            let next_hash = BurnchainHeaderHash(byte_pattern);
+
+            let mut block_ops = vec![];
+            for op in all_leader_key_ops.iter() {
+                if op.block_height == i + 1 {
+                    let mut block_op = op.clone();
+                    block_op.burn_header_hash = next_hash.clone();
+                    block_ops.push(BlockstackOperationType::LeaderKeyRegister(block_op));
+                }
+            }
+
+            {
+                let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+                eprintln!("Tip sortition is {}", &tip.sortition_id);
+                let mut ic = SortitionHandleTx::begin(&mut db, &tip.sortition_id).unwrap();
+
+                for (op, pass) in all_block_commit_ops.iter() {
+                    if op.block_height == i + 1 {
+                        match op.check(&burnchain, &mut ic, None) {
+                            Ok(_) => {
+                                assert!(
+                                    pass,
+                                    "Check succeeded when it should have failed: {:?}",
+                                    &op
+                                );
+                                block_ops
+                                    .push(BlockstackOperationType::LeaderBlockCommit(op.clone()));
+                            }
+                            Err(op_error::BlockCommitBadEpoch) => {
+                                assert!(
+                                    !pass,
+                                    "Check failed when it should have succeeded: {:?}",
+                                    &op
+                                );
+                            }
+                            Err(e) => {
+                                panic!("Unexpected error variant {}", &e);
+                            }
+                        }
+                    }
+                }
+            }
+            sn = test_append_snapshot(&mut db, next_hash, &block_ops);
         }
     }
 }

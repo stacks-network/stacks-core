@@ -2469,14 +2469,14 @@ impl PeerNetwork {
 
                 let bad_peers = inv_state.cull_bad_peers();
                 for bad_peer in bad_peers {
-                    debug!(
+                    info!(
                         "{:?}: will no longer track inventory of bad peer {:?}",
                         &network.local_peer, &bad_peer
                     );
                     new_sync_peers.remove(&bad_peer);
                 }
                 for dead_peer in dead_peers.iter() {
-                    debug!(
+                    info!(
                         "{:?}: will no longer track inventory of dead peer {:?}",
                         &network.local_peer, &dead_peer
                     );

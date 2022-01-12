@@ -20,6 +20,7 @@ use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
+use crate::core::StacksEpochId;
 use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::FeeRateEstimate;
@@ -27,6 +28,7 @@ use crate::cost_estimates::PessimisticEstimator;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
+use core::BLOCK_LIMIT_MAINNET_20;
 
 fn instantiate_test_db() -> PessimisticEstimator {
     let mut path = env::temp_dir();
@@ -42,7 +44,12 @@ fn instantiate_test_db() -> PessimisticEstimator {
 struct TestCostMetric;
 
 impl CostMetric for TestCostMetric {
-    fn from_cost_and_len(&self, _cost: &ExecutionCost, _tx_len: u64) -> u64 {
+    fn from_cost_and_len(
+        &self,
+        _cost: &ExecutionCost,
+        _block_limit: &ExecutionCost,
+        _tx_len: u64,
+    ) -> u64 {
         1
     }
 
@@ -60,7 +67,7 @@ fn test_empty_pessimistic_estimator() {
     let estimator = instantiate_test_db();
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_transfer_payload())
+            .estimate_cost(&make_dummy_transfer_payload(), &StacksEpochId::Epoch20)
             .expect_err("Empty pessimistic estimator should error."),
         EstimatorError::NoEstimateAvailable
     );
@@ -97,6 +104,7 @@ fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksEpoch
         parent_burn_block_hash: BurnchainHeaderHash([0; 32]),
         parent_burn_block_height: 1,
         parent_burn_block_timestamp: 1,
+        evaluated_epoch: StacksEpochId::Epoch20,
     }
 }
 
@@ -183,11 +191,14 @@ fn test_cost_estimator_notify_block() {
             },
         ),
     ];
-    estimator.notify_block(&block);
+    estimator.notify_block(&block, &BLOCK_LIMIT_MAINNET_20, &StacksEpochId::Epoch20);
 
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 10,
@@ -218,12 +229,17 @@ fn test_pessimistic_cost_estimator_declining_average() {
                 read_count: 10,
                 runtime: 10,
             },
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 10,
@@ -244,12 +260,115 @@ fn test_pessimistic_cost_estimator_declining_average() {
                 read_count: 1,
                 runtime: 1,
             },
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 5,
+            write_count: 5,
+            read_length: 5,
+            read_count: 5,
+            runtime: 5,
+        }
+    );
+}
+
+#[test]
+/// This tests the PessimisticEstimator as a unit (i.e., separate
+/// from the trait auto-impl method) by providing payload inputs
+/// to produce the expected pessimistic result (i.e., mean over a 10-sample
+/// window, where the window only updates if the new entry would make a dimension
+/// worse).
+fn pessimistic_estimator_contract_owner_separation() {
+    let mut estimator = instantiate_test_db();
+    let cc_payload_0 = TransactionPayload::ContractCall(TransactionContractCall {
+        address: StacksAddress::new(0, Hash160([0; 20])),
+        contract_name: "contract-1".into(),
+        function_name: "func1".into(),
+        function_args: vec![],
+    });
+    let cc_payload_1 = TransactionPayload::ContractCall(TransactionContractCall {
+        address: StacksAddress::new(0, Hash160([1; 20])),
+        contract_name: "contract-1".into(),
+        function_name: "func1".into(),
+        function_args: vec![],
+    });
+
+    estimator
+        .notify_event(
+            &cc_payload_0,
+            &ExecutionCost {
+                write_length: 1,
+                write_count: 1,
+                read_length: 1,
+                read_count: 1,
+                runtime: 1,
+            },
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
+        )
+        .expect("Should be able to process event");
+
+    assert_eq!(
+        estimator.estimate_cost(&cc_payload_1, &StacksEpochId::Epoch20,),
+        Err(EstimatorError::NoEstimateAvailable)
+    );
+
+    assert_eq!(
+        estimator
+            .estimate_cost(&cc_payload_0, &StacksEpochId::Epoch20,)
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 1,
+            write_count: 1,
+            read_length: 1,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &cc_payload_1,
+            &ExecutionCost {
+                write_length: 5,
+                write_count: 5,
+                read_length: 5,
+                read_count: 5,
+                runtime: 5,
+            },
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
+        )
+        .expect("Should be able to process event");
+
+    // cc_payload_0 should not be affected
+    assert_eq!(
+        estimator
+            .estimate_cost(&cc_payload_0, &StacksEpochId::Epoch20,)
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 1,
+            write_count: 1,
+            read_length: 1,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    // cc_payload_1 should be updated
+    assert_eq!(
+        estimator
+            .estimate_cost(&cc_payload_1, &StacksEpochId::Epoch20,)
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 5,
@@ -279,12 +398,17 @@ fn test_pessimistic_cost_estimator() {
                 read_count: 1,
                 runtime: 1,
             },
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 1,
@@ -307,12 +431,17 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 5,
@@ -327,6 +456,8 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
@@ -336,7 +467,10 @@ fn test_pessimistic_cost_estimator() {
     // 3 * 2 + 1 = 7 / 3
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 6,
@@ -351,6 +485,8 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
@@ -360,7 +496,10 @@ fn test_pessimistic_cost_estimator() {
     // 3 * 3 + 1 = 10 / 4
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 7,
@@ -375,6 +514,8 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
@@ -384,7 +525,10 @@ fn test_pessimistic_cost_estimator() {
     // 3 * 4 + 1 = 13 / 5
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 7,
@@ -399,6 +543,8 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
@@ -408,7 +554,10 @@ fn test_pessimistic_cost_estimator() {
     // 3 * 5 + 1 = 16 / 6
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 7,
@@ -423,6 +572,8 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
@@ -432,7 +583,10 @@ fn test_pessimistic_cost_estimator() {
     // 3 * 6 + 1 = 19 / 7
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 7,
@@ -447,6 +601,8 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
@@ -456,7 +612,10 @@ fn test_pessimistic_cost_estimator() {
     // 3 * 7 + 1 = 22 / 8
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 8,
@@ -471,6 +630,8 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
@@ -480,7 +641,10 @@ fn test_pessimistic_cost_estimator() {
     // 3 * 8 + 1 = 25 / 9
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 8,
@@ -495,6 +659,8 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
@@ -504,7 +670,10 @@ fn test_pessimistic_cost_estimator() {
     // 3 * 9 + 1 = 28 / 10
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 8,
@@ -522,13 +691,18 @@ fn test_pessimistic_cost_estimator() {
         .notify_event(
             &make_dummy_cc_payload("contract-1", "func1"),
             &repeated_cost,
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
     // should just be equal to the repeated cost, because all of the costs in the window are equal
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 9,
@@ -549,6 +723,8 @@ fn test_pessimistic_cost_estimator() {
                 read_count: 1,
                 runtime: 1,
             },
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
         )
         .expect("Should be able to process event");
 
@@ -556,7 +732,10 @@ fn test_pessimistic_cost_estimator() {
     //  by the pessimistic estimator
     assert_eq!(
         estimator
-            .estimate_cost(&make_dummy_cc_payload("contract-1", "func1"))
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20,
+            )
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 9,
@@ -565,5 +744,166 @@ fn test_pessimistic_cost_estimator() {
             read_count: 1,
             runtime: 1,
         }
+    );
+}
+
+/// Test that we forget the "learnings" from previous Stacks epoch on next epoch.
+#[test]
+fn test_cost_estimator_forget_previous() {
+    // Setup: Do "notify" in Epoch20.
+    let mut estimator = instantiate_test_db();
+    let block = vec![make_dummy_cc_tx(
+        "contract-1",
+        "func1",
+        ExecutionCost {
+            write_length: 10,
+            write_count: 10,
+            read_length: 10,
+            read_count: 10,
+            runtime: 10,
+        },
+    )];
+    estimator.notify_block(&block, &BLOCK_LIMIT_MAINNET_20, &StacksEpochId::Epoch20);
+
+    // Test 1: We should get *non-zero* estimates back when we test in Epoch20.
+    assert_eq!(
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20
+            )
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 10,
+            write_count: 10,
+            read_length: 10,
+            read_count: 10,
+            runtime: 10,
+        }
+    );
+
+    // Test 2: We should get *zero* estimates back when we test in Epoch2_05.
+    assert_eq!(
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch2_05
+            )
+            .unwrap_err(),
+        EstimatorError::NoEstimateAvailable
+    );
+}
+
+/// Test that data from a later epoch doesn't affect an earlier one.
+#[test]
+fn test_cost_estimator_dont_affect_previous() {
+    // Setup: Do "notify" in Epoch2_05.
+    let mut estimator = instantiate_test_db();
+    let block = vec![make_dummy_cc_tx(
+        "contract-1",
+        "func1",
+        ExecutionCost {
+            write_length: 10,
+            write_count: 10,
+            read_length: 10,
+            read_count: 10,
+            runtime: 10,
+        },
+    )];
+    estimator.notify_block(&block, &BLOCK_LIMIT_MAINNET_20, &StacksEpochId::Epoch2_05);
+
+    // Test 1: We should get *non-zero* estimates back when we test in Epoch2_05.
+    assert_eq!(
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch2_05
+            )
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 10,
+            write_count: 10,
+            read_length: 10,
+            read_count: 10,
+            runtime: 10,
+        }
+    );
+
+    // Test 2: We should get *zero* estimates back when we test in Epoch20.
+    assert_eq!(
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20
+            )
+            .unwrap_err(),
+        EstimatorError::NoEstimateAvailable
+    );
+}
+
+/// Test that updates to Stacks 2.0 and Stacks 2.05 can be recorded and recovered independently.
+#[test]
+fn test_cost_estimator_epochs_independent() {
+    let contract_name = "contract-1";
+    let func_name = "func1";
+    let cost_200 = ExecutionCost {
+        write_length: 200,
+        write_count: 200,
+        read_length: 200,
+        read_count: 200,
+        runtime: 200,
+    };
+    let cost_205 = ExecutionCost {
+        write_length: 205,
+        write_count: 205,
+        read_length: 205,
+        read_count: 205,
+        runtime: 205,
+    };
+    let mut estimator = instantiate_test_db();
+
+    // Setup: "notify" cost_200 in Epoch20.
+    estimator.notify_block(
+        &vec![make_dummy_cc_tx(
+            &contract_name,
+            &func_name,
+            cost_200.clone(),
+        )],
+        &BLOCK_LIMIT_MAINNET_20,
+        &StacksEpochId::Epoch20,
+    );
+
+    // Setup: "notify" cost_205 in Epoch2_05.
+    estimator.notify_block(
+        &vec![
+            make_dummy_coinbase_tx(),
+            make_dummy_transfer_tx(),
+            make_dummy_transfer_tx(),
+            make_dummy_cc_tx(&contract_name, &func_name, cost_205.clone()),
+        ],
+        &BLOCK_LIMIT_MAINNET_20,
+        &StacksEpochId::Epoch2_05,
+    );
+
+    // Check: We get back cost_200 for Epoch20.
+    assert_eq!(
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch20
+            )
+            .expect("Should be able to provide cost estimate now"),
+        cost_200.clone(),
+    );
+
+    // Check: We get back cost_205 for Epoch2_05.
+    assert_eq!(
+        estimator
+            .estimate_cost(
+                &make_dummy_cc_payload("contract-1", "func1"),
+                &StacksEpochId::Epoch2_05
+            )
+            .expect("Should be able to provide cost estimate now"),
+        cost_205.clone(),
     );
 }

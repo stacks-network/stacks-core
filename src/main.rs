@@ -33,12 +33,14 @@ use std::process;
 use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
 
+use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use blockstack_lib::cost_estimates::UnitEstimator;
 use cost_estimates::metrics::UnitMetric;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 
+use blockstack_lib::burnchains::bitcoin::indexer::{BitcoinIndexerConfig, BitcoinIndexerRuntime};
 use blockstack_lib::burnchains::bitcoin::spv;
 use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
 use blockstack_lib::chainstate::burn::ConsensusHash;
@@ -488,7 +490,7 @@ simulating a miner.
         tx_signer.sign_origin(&sk).unwrap();
         let coinbase_tx = tx_signer.get_tx().unwrap();
 
-        let mut settings = BlockBuilderSettings::limited(core::BLOCK_LIMIT_MAINNET.clone());
+        let mut settings = BlockBuilderSettings::limited();
         settings.max_miner_time_ms = max_time;
         settings.mempool_settings.min_tx_fee = min_fee;
 
@@ -640,7 +642,7 @@ simulating a miner.
         }
         let program: String =
             fs::read_to_string(&argv[2]).expect(&format!("Error reading file: {}", argv[2]));
-        match vm::execute(&program) {
+        match clarity::vm_execute(&program) {
             Ok(Some(result)) => println!("{}", result),
             Ok(None) => println!(""),
             Err(error) => {
@@ -792,19 +794,31 @@ simulating a miner.
             ),
         ];
 
-        // block limit that argon uses
-        let argon_block_limit: ExecutionCost = ExecutionCost {
-            write_length: 15_0_000_000,
-            write_count: 5_0_000,
-            read_length: 1_000_000_000,
-            read_count: 5_0_000,
-            runtime: 1_00_000_000,
-        };
         let burnchain = Burnchain::regtest(&burnchain_db_path);
+        let spv_headers_path = "/tmp/replay-chainstate".to_string();
+        let indexer_config = BitcoinIndexerConfig {
+            peer_host: "127.0.0.1".to_string(),
+            peer_port: 18444,
+            rpc_port: 18443,
+            rpc_ssl: false,
+            username: Some("blockstack".to_string()),
+            password: Some("blockstacksystem".to_string()),
+            timeout: 30,
+            spv_headers_path,
+            first_block: 0,
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            epochs: None,
+        };
+
+        let indexer = BitcoinIndexer::new(
+            indexer_config,
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+        );
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
         let (mut new_sortition_db, _) = burnchain
             .connect_db(
+                &indexer,
                 true,
                 first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
@@ -839,7 +853,6 @@ simulating a miner.
             0x80000000,
             new_chainstate_path,
             Some(&mut boot_data),
-            argon_block_limit,
         )
         .unwrap();
 
@@ -895,18 +908,14 @@ simulating a miner.
 
         let (p2p_new_sortition_db, _) = burnchain
             .connect_db(
+                &indexer,
                 true,
                 first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
             )
             .unwrap();
-        let (mut p2p_chainstate, _) = StacksChainState::open_with_block_limit(
-            false,
-            0x80000000,
-            new_chainstate_path,
-            ExecutionCost::max_value(),
-        )
-        .unwrap();
+        let (mut p2p_chainstate, _) =
+            StacksChainState::open(false, 0x80000000, new_chainstate_path).unwrap();
 
         let _ = thread::spawn(move || {
             loop {

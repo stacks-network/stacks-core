@@ -16,6 +16,7 @@ use vm::types::QualifiedContractIdentifier;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
 use crate::types::chainstate::{MARFValue, StacksBlockId};
 use crate::types::proof::{ClarityMarfTrieId, TrieHash, TrieMerkleProof};
+use crate::util::db::Error as db_error;
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -266,6 +267,13 @@ impl<'a> ReadOnlyMarfStore<'a> {
 
     pub fn as_analysis_db<'b>(&'b mut self) -> AnalysisDatabase<'b> {
         AnalysisDatabase::new(self)
+    }
+
+    pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, db_error> {
+        self.marf.with_conn(|conn| match conn.has_block(bhh) {
+            Ok(res) => Ok(res),
+            Err(e) => Err(db_error::IndexError(e)),
+        })
     }
 }
 

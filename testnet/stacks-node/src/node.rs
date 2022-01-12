@@ -55,6 +55,7 @@ use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::PoxConstants;
+use stacks::vm::database::BurnStateDB;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
@@ -327,7 +328,6 @@ impl Node {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
-            config.block_limit.clone(),
         );
 
         let (chain_state, receipts) = match chain_state_result {
@@ -445,6 +445,9 @@ impl Node {
         let sortdb = SortitionDB::open(&self.config.get_burn_db_file_path(), true)
             .expect("Error while instantiating burnchain db");
 
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
+            .expect("Error while loading stacks epochs");
+
         let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
 
         let view = {
@@ -537,6 +540,7 @@ impl Node {
             burnchain,
             view,
             self.config.connection_options.clone(),
+            epochs,
         );
         let _join_handle = spawn_peer(
             self.config.is_mainnet(),
@@ -884,12 +888,20 @@ impl Node {
         let mut cost_estimator = self.config.make_cost_estimator();
         let mut fee_estimator = self.config.make_fee_estimator();
 
+        let stacks_epoch = db
+            .index_conn()
+            .get_stacks_epoch_by_epoch_id(&processed_block.evaluated_epoch)
+            .expect("Could not find a stacks epoch.");
         if let Some(estimator) = cost_estimator.as_mut() {
-            estimator.notify_block(&processed_block.tx_receipts);
+            estimator.notify_block(
+                &processed_block.tx_receipts,
+                &stacks_epoch.block_limit,
+                &stacks_epoch.epoch_id,
+            );
         }
 
         if let Some(estimator) = fee_estimator.as_mut() {
-            if let Err(e) = estimator.notify_block(&processed_block) {
+            if let Err(e) = estimator.notify_block(&processed_block, &stacks_epoch.block_limit) {
                 warn!("FeeEstimator failed to process block receipt";
                       "stacks_block" => %processed_block.header.anchored_header.block_hash(),
                       "stacks_height" => %processed_block.header.block_height,
@@ -930,6 +942,8 @@ impl Node {
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
+            &processed_block.anchored_block_cost,
+            &processed_block.parent_microblocks_cost,
         );
 
         self.chain_tip = Some(chain_tip.clone());

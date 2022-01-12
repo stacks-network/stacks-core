@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use core::StacksEpochId;
 use std::collections::HashMap;
 
 use address::c32;
@@ -34,6 +35,7 @@ use vm::{eval, execute as vm_execute};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
 use crate::clarity_vm::database::MemoryBackingStore;
+use crate::core;
 use crate::types::chainstate::StacksAddress;
 use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
@@ -382,8 +384,12 @@ fn test_simple_if_functions() {
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut marf = MemoryBackingStore::new();
-        let mut global_context =
-            GlobalContext::new(false, marf.as_clarity_db(), LimitedCostTracker::new_free());
+        let mut global_context = GlobalContext::new(
+            false,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch2_05,
+        );
 
         contract_context
             .functions

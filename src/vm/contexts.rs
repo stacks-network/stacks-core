@@ -49,6 +49,7 @@ use chainstate::stacks::Error as ChainstateError;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::StacksMicroblockHeader;
 
+use core::StacksEpochId;
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
 
@@ -194,6 +195,8 @@ pub struct GlobalContext<'a> {
     pub cost_track: LimitedCostTracker,
     pub mainnet: bool,
     pub coverage_reporting: Option<CoverageReporter>,
+    /// This is the epoch of the the block that this transaction is executing within.
+    epoch_id: StacksEpochId,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -529,20 +532,24 @@ impl EventBatch {
 impl<'a> OwnedEnvironment<'a> {
     #[cfg(test)]
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+        let epoch = StacksEpochId::Epoch2_05;
         OwnedEnvironment {
-            context: GlobalContext::new(false, database, LimitedCostTracker::new_free()),
+            context: GlobalContext::new(false, database, LimitedCostTracker::new_free(), epoch),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
     }
 
     #[cfg(test)]
-    pub fn new_max_limit(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
-        let cost_track = LimitedCostTracker::new_max_limit(&mut database)
+    pub fn new_max_limit(
+        mut database: ClarityDatabase<'a>,
+        epoch: StacksEpochId,
+        use_mainnet: bool,
+    ) -> OwnedEnvironment<'a> {
+        let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch, use_mainnet)
             .expect("FAIL: problem instantiating cost tracking");
-
         OwnedEnvironment {
-            context: GlobalContext::new(false, database, cost_track),
+            context: GlobalContext::new(use_mainnet, database, cost_track, epoch),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
@@ -556,9 +563,18 @@ impl<'a> OwnedEnvironment<'a> {
         self.context.coverage_reporting.take()
     }
 
-    pub fn new_free(mainnet: bool, database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+    pub fn new_free(
+        mainnet: bool,
+        database: ClarityDatabase<'a>,
+        epoch_id: StacksEpochId,
+    ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(mainnet, database, LimitedCostTracker::new_free()),
+            context: GlobalContext::new(
+                mainnet,
+                database,
+                LimitedCostTracker::new_free(),
+                epoch_id,
+            ),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
@@ -568,9 +584,10 @@ impl<'a> OwnedEnvironment<'a> {
         mainnet: bool,
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
+        epoch_id: StacksEpochId,
     ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(mainnet, database, cost_tracker),
+            context: GlobalContext::new(mainnet, database, cost_tracker, epoch_id),
             default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new(),
         }
@@ -923,6 +940,15 @@ impl<'a, 'b> Environment<'a, 'b> {
         let result = to_run(self);
         self.global_context.cost_track = original_tracker;
         result
+    }
+
+    /// This is the epoch of the the block that this transaction is executing within.
+    /// Note: in the current plans for 2.10, there is also a contract-specific **Clarity version**
+    ///  which governs which native functions are available / defined. That is separate from this
+    ///  epoch identifier, and most Clarity VM changes should consult that value instead. This
+    ///  epoch identifier is used for determining how cost functions should be applied.
+    pub fn epoch(&self) -> &StacksEpochId {
+        &self.global_context.epoch_id
     }
 
     pub fn execute_contract(
@@ -1352,6 +1378,7 @@ impl<'a> GlobalContext<'a> {
         mainnet: bool,
         database: ClarityDatabase,
         cost_track: LimitedCostTracker,
+        epoch_id: StacksEpochId,
     ) -> GlobalContext {
         GlobalContext {
             database,
@@ -1360,6 +1387,7 @@ impl<'a> GlobalContext<'a> {
             asset_maps: Vec::new(),
             event_batches: Vec::new(),
             mainnet,
+            epoch_id,
             coverage_reporting: None,
         }
     }

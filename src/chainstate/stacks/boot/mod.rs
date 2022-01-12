@@ -55,9 +55,13 @@ const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testne
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
 const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
+pub const BOOT_CODE_COSTS_2: &'static str = std::include_str!("costs-2.clar");
+pub const BOOT_CODE_COSTS_2_TESTNET: &'static str = std::include_str!("costs-2-testnet.clar");
 const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
+pub const COSTS_1_NAME: &'static str = "costs";
+pub const COSTS_2_NAME: &'static str = "costs-2";
 
 lazy_static! {
     static ref BOOT_CODE_POX_MAINNET: String =
@@ -588,13 +592,24 @@ pub mod test {
         .unwrap()
     }
 
-    fn instantiate_pox_peer<'a>(
+    pub fn instantiate_pox_peer<'a>(
         burnchain: &Burnchain,
         test_name: &str,
         port: u16,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
+        instantiate_pox_peer_with_epoch(burnchain, test_name, port, None, None)
+    }
+
+    pub fn instantiate_pox_peer_with_epoch<'a>(
+        burnchain: &Burnchain,
+        test_name: &str,
+        port: u16,
+        epochs: Option<Vec<StacksEpoch>>,
+        observer: Option<&'a TestEventObserver>,
+    ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
         let mut peer_config = TestPeerConfig::new(test_name, port, port + 1);
         peer_config.burnchain = burnchain.clone();
+        peer_config.epochs = epochs;
         peer_config.setup_code = format!(
             "(contract-call? .pox set-burnchain-parameters u{} u{} u{} u{})",
             burnchain.first_block_height,
@@ -633,7 +648,7 @@ pub mod test {
             .collect();
 
         peer_config.initial_balances = balances;
-        let peer = TestPeer::new(peer_config);
+        let peer = TestPeer::new_with_observer(peer_config, observer);
 
         (peer, keys.to_vec())
     }
@@ -1040,7 +1055,7 @@ pub mod test {
             })
     }
 
-    fn get_parent_tip(
+    pub fn get_parent_tip(
         parent_opt: &Option<&StacksBlock>,
         chainstate: &StacksChainState,
         sortdb: &SortitionDB,

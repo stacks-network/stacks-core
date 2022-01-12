@@ -43,8 +43,10 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use url;
 
+use crate::util::boot::boot_code_tx_auth;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
+use chainstate::coordinator::Error as coordinator_error;
 use chainstate::stacks::db::blocks::MemPoolRejection;
 use chainstate::stacks::index::Error as marf_error;
 use chainstate::stacks::Error as chainstate_error;
@@ -59,6 +61,7 @@ use codec::{read_next, write_next};
 use core::mempool::*;
 use core::POX_REWARD_CYCLE_LENGTH;
 use net::atlas::{Attachment, AttachmentInstance};
+use util::bloom::{BloomFilter, BloomNodeHasher};
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
@@ -90,6 +93,8 @@ use crate::vm::costs::ExecutionCost;
 
 use self::dns::*;
 pub use self::http::StacksHttp;
+
+use core::StacksEpoch;
 
 pub mod asn;
 pub mod atlas;
@@ -449,7 +454,7 @@ impl<'de> Deserialize<'de> for PeerAddress {
 }
 
 impl PeerAddress {
-    pub fn from_bytevec(bytes: &Vec<u8>) -> Option<PeerAddress> {
+    pub fn from_slice(bytes: &[u8]) -> Option<PeerAddress> {
         if bytes.len() != 16 {
             return None;
         }
@@ -847,6 +852,17 @@ pub struct NatPunchData {
     pub nonce: u32,
 }
 
+define_u8_enum!(MemPoolSyncDataID {
+    BloomFilter = 0x01,
+    TxTags = 0x02
+});
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MemPoolSyncData {
+    BloomFilter(BloomFilter<BloomNodeHasher>),
+    TxTags([u8; 32], Vec<TxTag>),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelayData {
     pub peer: NeighborAddress,
@@ -878,7 +894,7 @@ pub enum StacksMessageType {
 }
 
 /// Peer address variants
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Deserialize)]
 pub enum PeerHost {
     DNS(String, u16),
     IP(PeerAddress, u16),
@@ -998,8 +1014,8 @@ pub struct RPCPeerInfoData {
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_consensus_hash: ConsensusHash,
     pub genesis_chainstate_hash: Sha256Sum,
-    pub unanchored_tip: StacksBlockId,
-    pub unanchored_seq: u16,
+    pub unanchored_tip: Option<StacksBlockId>,
+    pub unanchored_seq: Option<u16>,
     pub exit_at_block_height: Option<u64>,
 }
 
@@ -1048,11 +1064,34 @@ pub struct RPCPoxInfoData {
 }
 
 /// Headers response payload
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtendedStacksHeader {
     pub consensus_hash: ConsensusHash,
+    #[serde(
+        serialize_with = "ExtendedStacksHeader_StacksBlockHeader_serialize",
+        deserialize_with = "ExtendedStacksHeader_StacksBlockHeader_deserialize"
+    )]
     pub header: StacksBlockHeader,
     pub parent_block_id: StacksBlockId,
+}
+
+/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
+fn ExtendedStacksHeader_StacksBlockHeader_serialize<S: serde::Serializer>(
+    header: &StacksBlockHeader,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    let bytes = header.serialize_to_vec();
+    let header_hex = to_hex(&bytes);
+    s.serialize_str(&header_hex.as_str())
+}
+
+/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
+fn ExtendedStacksHeader_StacksBlockHeader_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<StacksBlockHeader, D::Error> {
+    let header_hex = String::deserialize(d)?;
+    let header_bytes = hex_bytes(&header_hex).map_err(de_Error::custom)?;
+    StacksBlockHeader::consensus_deserialize(&mut &header_bytes[..]).map_err(de_Error::custom)
 }
 
 impl StacksMessageCodec for ExtendedStacksHeader {
@@ -1314,13 +1353,20 @@ pub struct RPCNeighborsInfo {
     pub outbound: Vec<RPCNeighbor>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum TipRequest {
+    UseLatestAnchoredTip,
+    UseLatestUnconfirmedTip,
+    SpecificTip(StacksBlockId),
+}
+
 /// All HTTP request paths we support, and the arguments they carry in their paths
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
-    GetPoxInfo(HttpRequestMetadata, Option<StacksBlockId>),
+    GetPoxInfo(HttpRequestMetadata, TipRequest),
     GetNeighbors(HttpRequestMetadata),
-    GetHeaders(HttpRequestMetadata, u64, Option<StacksBlockId>),
+    GetHeaders(HttpRequestMetadata, u64, TipRequest),
     GetBlock(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
@@ -1328,19 +1374,14 @@ pub enum HttpRequestType {
     GetTransactionUnconfirmed(HttpRequestMetadata, Txid),
     PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
     PostBlock(HttpRequestMetadata, ConsensusHash, StacksBlock),
-    PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
-    GetAccount(
-        HttpRequestMetadata,
-        PrincipalData,
-        Option<StacksBlockId>,
-        bool,
-    ),
+    PostMicroblock(HttpRequestMetadata, StacksMicroblock, TipRequest),
+    GetAccount(HttpRequestMetadata, PrincipalData, TipRequest, bool),
     GetDataVar(
         HttpRequestMetadata,
         StacksAddress,
         ContractName,
         ClarityName,
-        Option<StacksBlockId>,
+        TipRequest,
         bool,
     ),
     GetMapEntry(
@@ -1349,7 +1390,7 @@ pub enum HttpRequestType {
         ContractName,
         ClarityName,
         Value,
-        Option<StacksBlockId>,
+        TipRequest,
         bool,
     ),
     FeeRateEstimate(HttpRequestMetadata, TransactionPayload, u64),
@@ -1360,22 +1401,17 @@ pub enum HttpRequestType {
         PrincipalData,
         ClarityName,
         Vec<Value>,
-        Option<StacksBlockId>,
+        TipRequest,
     ),
     GetTransferCost(HttpRequestMetadata),
     GetContractSrc(
         HttpRequestMetadata,
         StacksAddress,
         ContractName,
-        Option<StacksBlockId>,
+        TipRequest,
         bool,
     ),
-    GetContractABI(
-        HttpRequestMetadata,
-        StacksAddress,
-        ContractName,
-        Option<StacksBlockId>,
-    ),
+    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName, TipRequest),
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
     GetAttachmentsInv(HttpRequestMetadata, StacksBlockId, HashSet<u32>),
@@ -1384,8 +1420,9 @@ pub enum HttpRequestType {
         StacksAddress,
         ContractName,
         TraitIdentifier,
-        Option<StacksBlockId>,
+        TipRequest,
     ),
+    MemPoolQuery(HttpRequestMetadata, MemPoolSyncData),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1483,6 +1520,8 @@ pub enum HttpResponseType {
     UnconfirmedTransaction(HttpResponseMetadata, UnconfirmedTransactionResponse),
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
+    MemPoolTxStream(HttpResponseMetadata),
+    MemPoolTxs(HttpResponseMetadata, Vec<StacksTransaction>),
     OptionsPreflight(HttpResponseMetadata),
     TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
     // peer-given error responses
@@ -1525,6 +1564,7 @@ pub enum StacksMessageID {
     Pong = 16,
     NatPunchRequest = 17,
     NatPunchReply = 18,
+    // reserved
     Reserved = 255,
 }
 
@@ -1796,6 +1836,7 @@ pub struct NetworkResult {
     pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
+    pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
@@ -1819,6 +1860,7 @@ impl NetworkResult {
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
             attachments: vec![],
+            synced_transactions: vec![],
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
@@ -1836,7 +1878,9 @@ impl NetworkResult {
     }
 
     pub fn has_transactions(&self) -> bool {
-        self.pushed_transactions.len() > 0 || self.uploaded_transactions.len() > 0
+        self.pushed_transactions.len() > 0
+            || self.uploaded_transactions.len() > 0
+            || self.synced_transactions.len() > 0
     }
 
     pub fn has_attachments(&self) -> bool {
@@ -1848,6 +1892,7 @@ impl NetworkResult {
             .values()
             .flat_map(|pushed_txs| pushed_txs.iter().map(|(_, tx)| tx.clone()))
             .chain(self.uploaded_transactions.iter().map(|x| x.clone()))
+            .chain(self.synced_transactions.iter().map(|x| x.clone()))
             .collect()
     }
 
@@ -1995,12 +2040,16 @@ pub mod test {
     use vm::database::STXBalance;
     use vm::types::*;
 
+    use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::codec::StacksMessageCodec;
     use crate::types::chainstate::StacksMicroblockHeader;
     use crate::types::proof::TrieHash;
     use crate::util::boot::boot_code_test_addr;
 
     use super::*;
+    use chainstate::stacks::db::accounts::MinerReward;
+    use chainstate::stacks::events::StacksTransactionReceipt;
+    use std::sync::Mutex;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -2194,6 +2243,76 @@ pub mod test {
         (listener, sock_1, sock_2)
     }
 
+    #[derive(Clone)]
+    pub struct TestEventObserverBlock {
+        pub block: StacksBlock,
+        pub metadata: StacksHeaderInfo,
+        pub receipts: Vec<StacksTransactionReceipt>,
+        pub parent: StacksBlockId,
+        pub winner_txid: Txid,
+        pub matured_rewards: Vec<MinerReward>,
+        pub matured_rewards_info: Option<MinerRewardInfo>,
+    }
+
+    pub struct TestEventObserver {
+        blocks: Mutex<Vec<TestEventObserverBlock>>,
+    }
+
+    impl TestEventObserver {
+        pub fn get_blocks(&self) -> Vec<TestEventObserverBlock> {
+            self.blocks.lock().unwrap().deref().to_vec()
+        }
+
+        pub fn new() -> TestEventObserver {
+            TestEventObserver {
+                blocks: Mutex::new(vec![]),
+            }
+        }
+    }
+
+    impl BlockEventDispatcher for TestEventObserver {
+        fn announce_block(
+            &self,
+            block: StacksBlock,
+            metadata: StacksHeaderInfo,
+            receipts: Vec<events::StacksTransactionReceipt>,
+            parent: &StacksBlockId,
+            winner_txid: Txid,
+            matured_rewards: Vec<accounts::MinerReward>,
+            matured_rewards_info: Option<MinerRewardInfo>,
+            parent_burn_block_hash: BurnchainHeaderHash,
+            parent_burn_block_height: u32,
+            parent_burn_block_timestamp: u64,
+            _anchor_block_cost: &ExecutionCost,
+            _confirmed_mblock_cost: &ExecutionCost,
+        ) {
+            self.blocks.lock().unwrap().push(TestEventObserverBlock {
+                block,
+                metadata,
+                receipts,
+                parent: parent.clone(),
+                winner_txid,
+                matured_rewards,
+                matured_rewards_info,
+            })
+        }
+
+        fn announce_burn_block(
+            &self,
+            _burn_block: &BurnchainHeaderHash,
+            _burn_block_height: u64,
+            _rewards: Vec<(StacksAddress, u64)>,
+            _burns: u64,
+            _reward_recipients: Vec<StacksAddress>,
+        ) {
+            // pass
+        }
+
+        fn dispatch_boot_receipts(&mut self, _receipts: Vec<events::StacksTransactionReceipt>) {
+            // pass
+        }
+    }
+
     // describes a peer's initial configuration
     #[derive(Debug, Clone)]
     pub struct TestPeerConfig {
@@ -2219,6 +2338,7 @@ pub mod test {
         pub spending_account: TestMiner,
         pub setup_code: String,
         pub appchain: bool,
+        pub epochs: Option<Vec<StacksEpoch>>,
     }
 
     impl TestPeerConfig {
@@ -2265,6 +2385,7 @@ pub mod test {
                 spending_account: spending_account,
                 setup_code: "".into(),
                 appchain: false,
+                epochs: None,
             }
         }
 
@@ -2275,7 +2396,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
                     .unwrap();
             config
         }
@@ -2288,7 +2409,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
                     .unwrap();
             config
         }
@@ -2351,10 +2472,14 @@ pub mod test {
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
-        pub coord: ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), ()>,
+        pub coord: ChainsCoordinator<'a, TestEventObserver, (), OnChainRewardSetProvider, (), ()>,
     }
 
     impl<'a> TestPeer<'a> {
+        pub fn new(config: TestPeerConfig) -> TestPeer<'a> {
+            TestPeer::new_with_observer(config, None)
+        }
+
         pub fn test_path(config: &TestPeerConfig) -> String {
             format!(
                 "/tmp/stacks-node-tests/units-test-peer/{}-{}",
@@ -2362,7 +2487,10 @@ pub mod test {
             )
         }
 
-        pub fn new(mut config: TestPeerConfig) -> TestPeer<'a> {
+        pub fn new_with_observer(
+            mut config: TestPeerConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> TestPeer<'a> {
             let test_path = TestPeer::test_path(&config);
             match fs::metadata(&test_path) {
                 Ok(_) => {
@@ -2382,11 +2510,16 @@ pub mod test {
 
             config.burnchain.working_dir = get_burnchain(&test_path, None).working_dir;
 
+            let epochs = config.epochs.clone().unwrap_or_else(|| {
+                StacksEpoch::unit_test_pre_2_05(config.burnchain.first_block_height)
+            });
+
             let mut sortdb = SortitionDB::connect(
                 &config.burnchain.get_db_path(),
                 config.burnchain.first_block_height,
                 &config.burnchain.first_block_hash,
                 0,
+                &epochs,
                 true,
             )
             .unwrap();
@@ -2452,16 +2585,7 @@ pub mod test {
                             stx_balance: STXBalance::zero(),
                         };
 
-                        let boot_code_auth = TransactionAuth::Standard(
-                            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                                signer: boot_code_addr.bytes.clone(),
-                                hash_mode: SinglesigHashMode::P2PKH,
-                                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                                nonce: 0,
-                                tx_fee: 0,
-                                signature: MessageSignature::empty(),
-                            }),
-                        );
+                        let boot_code_auth = boot_code_tx_auth(boot_code_addr);
 
                         debug!(
                             "Instantiate test-specific boot code contract '{}.{}' ({} bytes)...",
@@ -2492,6 +2616,7 @@ pub mod test {
                     });
                     receipts.push(receipt);
                 }
+                debug!("Bootup receipts: {:?}", &receipts);
                 receipts
             };
 
@@ -2512,22 +2637,21 @@ pub mod test {
                 config.network_id,
                 &chainstate_path,
                 Some(&mut boot_data),
-                ExecutionCost::max_value(),
             )
             .unwrap();
 
             let (tx, _) = sync_channel(100000);
-            let mut coord = ChainsCoordinator::test_new(
+            let mut coord = ChainsCoordinator::test_new_with_observer(
                 &config.burnchain,
                 config.network_id,
                 &test_path,
                 OnChainRewardSetProvider(),
                 tx,
+                observer,
             );
             coord.handle_new_burnchain_block().unwrap();
 
             let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
-
             if !config.appchain {
                 // pre-populate burnchain, if running on bitcoin
                 let prev_snapshot = SortitionDB::get_first_block_snapshot(sortdb.conn()).unwrap();
@@ -2566,7 +2690,6 @@ pub mod test {
                     config.server_port,
                 )
                 .unwrap();
-                PeerDB::set_local_services(&mut tx, ServiceFlags::RELAY as u16).unwrap();
                 PeerDB::set_local_private_key(
                     &mut tx,
                     &config.private_key,
@@ -2591,6 +2714,7 @@ pub mod test {
                 config.burnchain.clone(),
                 burnchain_view,
                 config.connection_opts.clone(),
+                epochs.clone(),
             );
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
@@ -2951,6 +3075,50 @@ pub mod test {
             self.stacks_node = Some(node);
         }
 
+        fn inner_process_stacks_epoch_at_tip(
+            &mut self,
+            sortdb: &SortitionDB,
+            node: &mut TestStacksNode,
+            block: &StacksBlock,
+            microblocks: &Vec<StacksMicroblock>,
+        ) -> Result<(), coordinator_error> {
+            {
+                let ic = sortdb.index_conn();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(&ic)?;
+                node.chainstate
+                    .preprocess_stacks_epoch(&ic, &tip, block, microblocks)?;
+            }
+            self.coord.handle_new_stacks_block()?;
+
+            let pox_id = {
+                let ic = sortdb.index_conn();
+                let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
+                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id)?;
+                sortdb_reader.get_pox_id()?;
+            };
+            test_debug!(
+                "\n\n{:?}: after stacks block {:?}, tip PoX ID is {:?}\n\n",
+                &self.to_neighbor().addr,
+                &block.block_hash(),
+                &pox_id
+            );
+            Ok(())
+        }
+
+        pub fn process_stacks_epoch_at_tip_checked(
+            &mut self,
+            block: &StacksBlock,
+            microblocks: &Vec<StacksMicroblock>,
+        ) -> Result<(), coordinator_error> {
+            let sortdb = self.sortdb.take().unwrap();
+            let mut node = self.stacks_node.take().unwrap();
+            let res =
+                self.inner_process_stacks_epoch_at_tip(&sortdb, &mut node, block, microblocks);
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(node);
+            res
+        }
+
         pub fn process_stacks_epoch(
             &mut self,
             block: &StacksBlock,
@@ -2999,6 +3167,10 @@ pub mod test {
 
         pub fn add_empty_burnchain_block(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
             self.next_burnchain_block(vec![])
+        }
+
+        pub fn mempool(&mut self) -> &mut MemPoolDB {
+            self.mempool.as_mut().unwrap()
         }
 
         pub fn chainstate(&mut self) -> &mut StacksChainState {
@@ -3104,6 +3276,59 @@ pub mod test {
             self.sortdb = Some(sortdb);
             self.mempool = Some(mempool);
             res
+        }
+
+        /// Make a tenure with the given transactions. Creates a coinbase tx with the given nonce, and then increments
+        ///  the provided reference.
+        pub fn tenure_with_txs(
+            &mut self,
+            txs: &[StacksTransaction],
+            coinbase_nonce: &mut usize,
+        ) -> StacksBlockId {
+            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_pubkeyhash =
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+            let (burn_ops, stacks_block, microblocks) = self.make_tenure(
+                |ref mut miner,
+                 ref mut sortdb,
+                 ref mut chainstate,
+                 vrf_proof,
+                 ref parent_opt,
+                 ref parent_microblock_header_opt| {
+                    let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                    let coinbase_tx = make_coinbase(miner, *coinbase_nonce);
+
+                    let mut block_txs = vec![coinbase_tx];
+                    block_txs.extend_from_slice(txs);
+
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &parent_tip,
+                        vrf_proof,
+                        tip.total_burn,
+                        microblock_pubkeyhash,
+                    )
+                    .unwrap();
+                    let (anchored_block, _size, _cost) =
+                        StacksBlockBuilder::make_anchored_block_from_txs(
+                            block_builder,
+                            chainstate,
+                            &sortdb.index_conn(),
+                            block_txs,
+                        )
+                        .unwrap();
+                    (anchored_block, vec![])
+                },
+            );
+
+            let (_, _, consensus_hash) = self.next_burnchain_block(burn_ops);
+            self.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            *coinbase_nonce += 1;
+
+            StacksBlockId::new(&consensus_hash, &stacks_block.block_hash())
         }
 
         // Make a tenure
@@ -3260,9 +3485,14 @@ pub mod test {
                     let (mut miner_chainstate, _) =
                         StacksChainState::open(false, network_id, &chainstate_path).unwrap();
                     let sort_iconn = sortdb.index_conn();
-                    let mut epoch = builder
-                        .epoch_begin(&mut miner_chainstate, &sort_iconn)
+
+                    let mut miner_epoch_info = builder
+                        .pre_epoch_begin(&mut miner_chainstate, &sort_iconn)
                         .unwrap();
+                    let mut epoch = builder
+                        .epoch_begin(&sort_iconn, &mut miner_epoch_info)
+                        .unwrap()
+                        .0;
 
                     let (stacks_block, microblocks) =
                         mine_smart_contract_block_contract_call_microblock(
@@ -3326,5 +3556,15 @@ pub mod test {
             debug!("{:#?}", &peers);
             debug!("--- END ALL PEERS ({}) -----", peers.len());
         }
+    }
+
+    pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
+        StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(sk)],
+        )
+        .unwrap()
     }
 }

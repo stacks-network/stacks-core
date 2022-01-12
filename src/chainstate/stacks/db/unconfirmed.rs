@@ -94,8 +94,7 @@ impl UnconfirmedState {
     fn new(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
-        let clarity_instance =
-            ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
+        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -127,8 +126,7 @@ impl UnconfirmedState {
     ) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
 
-        let clarity_instance =
-            ClarityInstance::new(chainstate.mainnet, marf, chainstate.block_limit.clone());
+        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -385,6 +383,35 @@ impl UnconfirmedState {
             0
         }
     }
+
+    /// Try returning the unconfirmed chain tip. Only return the tip if the underlying MARF trie
+    /// exists, otherwise return None.
+    pub fn get_unconfirmed_state_if_exists(&mut self) -> Result<Option<StacksBlockId>, String> {
+        if self.is_readable() {
+            let trie_exists = match self
+                .clarity_inst
+                .trie_exists_for_block(&self.unconfirmed_chain_tip)
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    let err_str = format!(
+                        "Failed to load Stacks chain tip; error checking underlying trie: {}",
+                        e
+                    );
+                    warn!("{}", err_str);
+                    return Err(err_str);
+                }
+            };
+
+            if trie_exists {
+                Ok(Some(self.unconfirmed_chain_tip))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl StacksChainState {
@@ -403,14 +430,9 @@ impl StacksChainState {
             "Dropping unconfirmed state off of {} ({})",
             &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
         );
-        let clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
-            self.config(),
-            &NULL_HEADER_DB,
-            &mut unconfirmed.clarity_inst,
-            &NULL_BURN_STATE_DB,
-            &unconfirmed.confirmed_chain_tip,
-        );
-        clarity_tx.rollback_unconfirmed();
+        unconfirmed
+            .clarity_inst
+            .drop_unconfirmed_state(&unconfirmed.confirmed_chain_tip);
         debug!(
             "Dropped unconfirmed state off of {} ({})",
             &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip

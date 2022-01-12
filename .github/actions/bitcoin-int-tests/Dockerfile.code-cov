@@ -1,4 +1,4 @@
-FROM rust:bullseye AS build
+FROM rust:bullseye AS test
 
 WORKDIR /build
 
@@ -15,7 +15,7 @@ RUN cargo build && \
     cargo test
 
 # Generate coverage report and upload it to codecov
-RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info && \
-    curl -Os https://uploader.codecov.io/latest/linux/codecov && \
-    chmod +x codecov && \
-    ./codecov
+RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+
+FROM scratch AS export-stage
+COPY --from=test /build/lcov.info /

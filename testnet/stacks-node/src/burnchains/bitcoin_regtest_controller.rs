@@ -43,6 +43,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::codec::StacksMessageCodec;
+use stacks::core::StacksEpoch;
 use stacks::deps::bitcoin::blockdata::opcodes;
 use stacks::deps::bitcoin::blockdata::script::{Builder, Script};
 use stacks::deps::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
@@ -222,6 +223,11 @@ impl BitcoinRegtestController {
         let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
             .expect("Bitcoin network unsupported");
 
+        if network_id == BitcoinNetworkType::Mainnet && config.burnchain.epochs.is_some() {
+            panic!("It is an error to set custom epochs while running on Mainnet: network_id {:?} config.burnchain {:#?}",
+                   &network_id, &config.burnchain);
+        }
+
         let indexer_config = {
             let burnchain_config = config.burnchain.clone();
             BitcoinIndexerConfig {
@@ -235,6 +241,7 @@ impl BitcoinRegtestController {
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
+                epochs: burnchain_config.epochs,
             }
         };
 
@@ -271,6 +278,7 @@ impl BitcoinRegtestController {
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
+                epochs: burnchain_config.epochs,
             }
         };
 
@@ -309,7 +317,7 @@ impl BitcoinRegtestController {
         burnchain.pox_constants
     }
 
-    fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
+    fn setup_indexer_runtime(&self) -> (Burnchain, BitcoinIndexer) {
         let (_, network_type) = self.config.burnchain.get_bitcoin_network();
         let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
         let burnchain_indexer = BitcoinIndexer {
@@ -1455,6 +1463,22 @@ impl BurnchainController for BitcoinRegtestController {
             info!("UTXOs found - will run as a Miner node");
             true
         }
+    }
+    
+    fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
+        let (burnchain, burnchain_indexer) = self.setup_indexer_runtime();
+        burnchain.connect_db(
+            &burnchain_indexer,
+            true,
+            burnchain_indexer.get_first_block_header_hash()?,
+            burnchain_indexer.get_first_block_header_timestamp()?,
+        )?;
+        Ok(())
+    }
+
+    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+        let (_, indexer) = self.setup_indexer_runtime();
+        indexer.get_stacks_epochs()
     }
 
     fn start(

@@ -38,6 +38,7 @@ use stacks::chainstate::stacks::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use stacks::core::STACKS_EPOCH_2_05_MARKER;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
@@ -48,7 +49,7 @@ use stacks::net::{
     p2p::PeerNetwork,
     relay::Relayer,
     rpc::RPCHandlerArgs,
-    Error as NetError, NetworkResult, PeerAddress,
+    Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader, VRFSeed,
@@ -69,6 +70,7 @@ use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
@@ -314,7 +316,7 @@ fn inner_generate_block_commit_op(
         apparent_sender: sender,
         key_block_ptr: key.block_height as u32,
         key_vtxindex: key.op_vtxindex as u16,
-        memo: vec![],
+        memo: vec![STACKS_EPOCH_2_05_MARKER],
         new_seed: vrf_seed,
         parent_block_ptr,
         parent_vtxindex,
@@ -333,6 +335,7 @@ fn mine_one_microblock(
     sortdb: &SortitionDB,
     chainstate: &mut StacksChainState,
     mempool: &mut MemPoolDB,
+    event_dispatcher: &EventDispatcher,
 ) -> Result<StacksMicroblock, ChainstateError> {
     debug!(
         "Try to mine one microblock off of {}/{} (total: {})",
@@ -368,7 +371,11 @@ fn mine_one_microblock(
 
         let t1 = get_epoch_time_ms();
 
-        let mblock = microblock_miner.mine_next_microblock(mempool, &microblock_state.miner_key)?;
+        let mblock = microblock_miner.mine_next_microblock(
+            mempool,
+            &microblock_state.miner_key,
+            event_dispatcher,
+        )?;
         let new_cost_so_far = microblock_miner.get_cost_so_far().expect("BUG: cannot read cost so far from miner -- indicates that the underlying Clarity Tx is somehow in use still.");
         let t2 = get_epoch_time_ms();
 
@@ -411,6 +418,7 @@ fn try_mine_microblock(
     sortdb: &SortitionDB,
     mem_pool: &mut MemPoolDB,
     winning_tip: (ConsensusHash, BlockHeaderHash, Secp256k1PrivateKey),
+    event_dispatcher: &EventDispatcher,
 ) -> Result<Option<StacksMicroblock>, NetError> {
     let ch = winning_tip.0;
     let bhh = winning_tip.1;
@@ -471,7 +479,13 @@ fn try_mine_microblock(
                     get_epoch_time_secs() - 600,
                 )?;
                 if num_attachable == 0 {
-                    match mine_one_microblock(&mut microblock_miner, sortdb, chainstate, mem_pool) {
+                    match mine_one_microblock(
+                        &mut microblock_miner,
+                        sortdb,
+                        chainstate,
+                        mem_pool,
+                        event_dispatcher,
+                    ) {
                         Ok(microblock) => {
                             // will need to relay this
                             next_microblock = Some(microblock);
@@ -526,6 +540,7 @@ fn run_microblock_tenure(
         sortdb,
         mem_pool,
         miner_tip.clone(),
+        event_dispatcher,
     ) {
         Ok(x) => x,
         Err(e) => {
@@ -627,7 +642,6 @@ fn spawn_peer(
 ) -> Result<JoinHandle<()>, NetError> {
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
-    let block_limit = config.block_limit.clone();
     let exit_at_block_height = config.burnchain.process_exit_at_block_height;
     let is_appchain = config.describes_appchain();
 
@@ -635,11 +649,10 @@ fn spawn_peer(
     let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
     let sortdb = SortitionDB::open(&burn_db_path, false).map_err(NetError::DBError)?;
 
-    let (mut chainstate, _) = StacksChainState::open_with_block_limit(
+    let (mut chainstate, _) = StacksChainState::open(
         is_mainnet,
         config.burnchain.chain_id,
         &stacks_chainstate_path,
-        block_limit,
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
@@ -844,13 +857,8 @@ fn spawn_miner_relayer(
     //   should address via #1449
     let mut sortdb = SortitionDB::open(&burn_db_path, true).map_err(NetError::DBError)?;
 
-    let (mut chainstate, _) = StacksChainState::open_with_block_limit(
-        is_mainnet,
-        chain_id,
-        &stacks_chainstate_path,
-        config.block_limit.clone(),
-    )
-    .map_err(|e| NetError::ChainstateError(e.to_string()))?;
+    let (mut chainstate, _) = StacksChainState::open(is_mainnet, chain_id, &stacks_chainstate_path)
+        .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
     let mut last_mined_blocks: HashMap<
         BurnchainHeaderHash,
@@ -1137,6 +1145,7 @@ fn spawn_miner_relayer(
                             else {
                                 debug!("Relayer: reset microblock miner state");
                                 microblock_miner_state = None;
+                                set_processed_counter(&microblocks_processed, 0);
                             }
                         }
 
@@ -1216,6 +1225,9 @@ impl InitializedNeonNode {
         //   make_genesis_block
         let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), false)
             .expect("Error while instantiating sortition db");
+
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
+            .expect("Error while loading stacks epochs");
 
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
@@ -1320,6 +1332,18 @@ impl InitializedNeonNode {
             }
             tx.commit().unwrap();
         }
+
+        // update services to indicate we can support mempool sync
+        {
+            let mut tx = peerdb.tx_begin().unwrap();
+            PeerDB::set_local_services(
+                &mut tx,
+                (ServiceFlags::RPC as u16) | (ServiceFlags::RELAY as u16),
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
         let atlasdb =
             AtlasDB::connect(atlas_config, &config.get_atlas_db_file_path(), true).unwrap();
 
@@ -1354,6 +1378,7 @@ impl InitializedNeonNode {
             burnchain.clone(),
             view,
             config.connection_options.clone(),
+            epochs,
         );
 
         // setup the relayer channel
@@ -1902,6 +1927,11 @@ impl InitializedNeonNode {
                     config.burnchain.chain_id,
                 );
 
+                let stacks_epoch = burn_db
+                    .index_conn()
+                    .get_stacks_epoch(burn_block.block_height as u32)
+                    .expect("Could not find a stacks epoch.");
+
                 // submit the poison payload, privately, so we'll mine it when building the
                 // anchored block.
                 if let Err(e) = mem_pool.submit(
@@ -1910,6 +1940,8 @@ impl InitializedNeonNode {
                     &stacks_parent_header.anchored_header.block_hash(),
                     &poison_microblock_tx,
                     Some(event_observer),
+                    &stacks_epoch.block_limit,
+                    &stacks_epoch.epoch_id,
                 ) {
                     warn!(
                         "Detected but failed to mine poison-microblock transaction: {:?}",
@@ -2198,7 +2230,6 @@ impl NeonGenesisNode {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
-            config.block_limit.clone(),
         ) {
             Ok(res) => res,
             Err(err) => panic!(
