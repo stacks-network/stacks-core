@@ -10,39 +10,45 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added 
 - Implements anti-entropy protocol for querying transactions from other 
   nodes' mempools. Before, nodes wouldn't sync mempool contents with one another.
+  (#2884)
 - Structured logging in the mining code paths. This will shine light 
   on what happens to transactions (successfully added, skipped or errored) that the
-  miner considers while buildings blocks.
+  miner considers while buildings blocks. (#2975)
 - Added the mined microblock event, which includes information on transaction
   events that occurred in the course of mining (will provide insight
   on whether a transaction was successfully added to the block,
-  skipped, or had a processing error).
+  skipped, or had a processing error). (#2975)
 - For v2 endpoints, can now specify the `tip` parameter to `latest`. If 
-  `tip=latest`, the node will try to run the query off of the latest tip. 
+  `tip=latest`, the node will try to run the query off of the latest tip. (#2778)
 - Adds the /v2/headers endpoint, which returns a sequence of SIP-003-encoded 
   block headers and consensus hashes (see the ExtendedStacksHeader struct that 
-  this PR adds to represent this data).
+  this PR adds to represent this data). (#2862)
 - Adds the /v2/data_var endpoint, which returns a contract's data variable 
-  value and a MARF proof of its existence.
+  value and a MARF proof of its existence. (#2862)
 
 ### Changed
 - Updated the mined block event. It now includes information on transaction 
   events that occurred in the course of mining (will provide insight
   on whether a transaction was successfully added to the block, 
-  skipped, or had a processing error).
+  skipped, or had a processing error). (#2975)
 - Updated some of the logic in the block assembly for the miner and the follower
   to consolidate similar logic. Added functions `setup_block` and `finish_block`.
+  (#2946)
 - Makes the p2p state machine more reactive to newly-arrived 
   `BlocksAvailable` and `MicroblocksAvailable` messages for block and microblock 
   streams that this node does not have. If such messages arrive during an inventory 
   sync, the p2p state machine will immediately transition from the inventory sync 
   work state to the block downloader work state, and immediately proceed to fetch 
-  the available block or microblock stream.
+  the available block or microblock stream. (#2862)
+- Updated fee estimator. Here are the four changes: (1) use median of a window
+  instead of exponential windowing, (2) account for relative weight of transaction when 
+  calculating fee rate percentiles, (3) "fill" non-full part of block with the minimum 
+  fee rate, and (4) fuzz estimated fee rate. (#2972)
 
 ### Fixed 
 - Updates the lookup key for contracts in the pessimistic cost estimator. Before, contracts
   published by different principals with the same name would have had the same 
-  key in the cost estimator.
+  key in the cost estimator. (#2984)
 
 ## [2.05.0.0.0]
 
