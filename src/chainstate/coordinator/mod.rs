@@ -74,6 +74,7 @@ use core::{
 use std::iter::FromIterator;
 use util;
 use util::db::Error::NotFoundError;
+use util::sleep_ms;
 use vm::costs::LimitedCostTracker;
 use vm::database::ClarityDatabase;
 use vm::types::{StandardPrincipalData, TupleData};
@@ -91,11 +92,16 @@ pub enum PoxAnchorBlockStatus {
     NotSelected,
 }
 
+#[derive(Debug)]
 pub struct BlockExitRewardCycleInfo {
+    // The block id that corresponds to this exit cycle information
     pub block_id: StacksBlockId,
+    // The reward cycle of the block that corresponds to this exit cycle information
     pub block_reward_cycle: u64,
-    // This value is non-None when consensus has been achieved, and there will be a veto cycle
+    // This value is non-None when consensus has been achieved on a vote; the cycle after this
+    // will be a veto period for miner
     pub curr_exit_proposal: Option<u64>,
+    // The current exit reward cycle for node (can be None, and this values rises monotonically)
     pub curr_exit_at_reward_cycle: Option<u64>,
 }
 
@@ -646,7 +652,14 @@ impl<
                     self.sortition_db.conn(),
                     &chain_tip,
                 )?;
-
+                let first_reward_cycle_in_epoch = self
+                    .burnchain
+                    .block_height_to_reward_cycle(BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT)
+                    .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
+                info!(
+                    "EARC: exit info is: {:?}; EARC: reward height is: {:?}",
+                    exit_info_opt, first_reward_cycle_in_epoch
+                );
                 if let Some(exit_info) = exit_info_opt {
                     if let Some(exit_reward_cycle) = exit_info.curr_exit_at_reward_cycle {
                         let first_reward_cycle_in_epoch = self
@@ -657,17 +670,18 @@ impl<
                             .burnchain
                             .block_height_to_reward_cycle(header.block_height)
                             .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
+                        info!("EARC: curr reward cycle: {}, exit reward cycle: {}, first_reward_cycle_in_epoch: {}", curr_reward_cycle, exit_reward_cycle, first_reward_cycle_in_epoch);
                         if curr_reward_cycle >= exit_reward_cycle
                             && exit_reward_cycle > first_reward_cycle_in_epoch
                         {
                             // the burnchain has reached the exit reward cycle (as voted in the
                             // "exit-at-rc" contract)
-                            // TODO - question, should I forcefully exit here?
-                            debug!("Reached the exit reward cycle that was voted on in the \
+                            info!("EARC: Reached the exit reward cycle that was voted on in the \
                                 'exit-at-rc' contract, ignoring subsequent burn blocks";
                                        "exit_reward_cycle" => exit_reward_cycle,
                                        "current_reward_cycle" => curr_reward_cycle);
-                            break;
+                            sleep_ms(30000);
+                            std::process::exit(0);
                         }
                     }
                 }

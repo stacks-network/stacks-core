@@ -3780,7 +3780,6 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
-    // TODO - maybe can just directly store the option type in database?
     pub fn store_exit_at_reward_cycle_info(
         &self,
         exit_at_reward_cycle_info: BlockExitRewardCycleInfo,

@@ -8087,6 +8087,15 @@ fn exit_at_rc_integration_test() {
     assert_eq!(exit_rc_info.curr_exit_proposal, None);
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, Some(53));
 
+    // mine blocks through reward cycle 53; node should exit
+    while sort_height < ((55 * pox_constants.reward_cycle_length) + 1).into() {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    panic!("Should not have reached this line; node should exit once it gets to RC 53");
+
     test_observer::clear();
     channel.stop_chains_coordinator();
 }
