@@ -8,6 +8,13 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [2.05.0.1.0]
 
 ### Added 
+- A new fee estimator intended to produce fewer over-estimates, by having less
+  sensitivity to outliers. Its characteristic features are: 1) use a window to
+  forget past estimates instead of exponential averaging, 2) use weighted
+  percentiles, so that bigger transactions influence the estimates more, 3)
+  assess empty space in blocks as having paid the "minimum fee", so that empty
+  space is accounted for, 4) use random "fuzz" so that in busy times we will
+  not have ties. (#2972)
 - Implements anti-entropy protocol for querying transactions from other 
   nodes' mempools. Before, nodes wouldn't sync mempool contents with one another.
   (#2884)
@@ -40,10 +47,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   sync, the p2p state machine will immediately transition from the inventory sync 
   work state to the block downloader work state, and immediately proceed to fetch 
   the available block or microblock stream. (#2862)
-- Updated fee estimator. Here are the four changes: (1) use median of a window
-  instead of exponential windowing, (2) account for relative weight of transaction when 
-  calculating fee rate percentiles, (3) "fill" non-full part of block with the minimum 
-  fee rate, and (4) fuzz estimated fee rate. (#2972)
 
 ### Fixed 
 - Updates the lookup key for contracts in the pessimistic cost estimator. Before, contracts

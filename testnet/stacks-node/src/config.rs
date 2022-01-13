@@ -14,6 +14,8 @@ use stacks::core::StacksEpoch;
 use stacks::core::{
     CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
+use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
+use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use stacks::cost_estimates::metrics::CostMetric;
 use stacks::cost_estimates::metrics::ProportionalDotProduct;
@@ -1040,6 +1042,7 @@ pub enum CostEstimatorName {
 #[derive(Clone, Debug)]
 pub enum FeeEstimatorName {
     ScalarFeeRate,
+    FuzzedWeightedMedianFeeRate,
 }
 
 #[derive(Clone, Debug)]
@@ -1082,6 +1085,8 @@ impl FeeEstimatorName {
     fn panic_parse(s: String) -> FeeEstimatorName {
         if &s.to_lowercase() == "scalar_fee_rate" {
             FeeEstimatorName::ScalarFeeRate
+        } else if &s.to_lowercase() == "fuzzed_weighted_median_fee_rate" {
+            FeeEstimatorName::FuzzedWeightedMedianFeeRate
         } else {
             panic!(
                 "Bad fee estimator name supplied in configuration file: {}",
@@ -1107,6 +1112,12 @@ pub struct FeeEstimationConfig {
     pub fee_estimator: Option<FeeEstimatorName>,
     pub cost_metric: Option<CostMetricName>,
     pub log_error: bool,
+    /// If using FeeRateFuzzer, the amount of random noise, as a percentage of the base value (in
+    /// [0, 1]) to add for fuzz. See comments on FeeRateFuzzer.
+    pub fee_rate_fuzzer_fraction: f64,
+    /// If using WeightedMedianFeeRateEstimator, the window size to use. See comments on
+    /// WeightedMedianFeeRateEstimator.
+    pub fee_rate_window_size: u64,
 }
 
 impl Default for FeeEstimationConfig {
@@ -1116,6 +1127,8 @@ impl Default for FeeEstimationConfig {
             fee_estimator: Some(FeeEstimatorName::default()),
             cost_metric: Some(CostMetricName::default()),
             log_error: false,
+            fee_rate_fuzzer_fraction: 0.1f64,
+            fee_rate_window_size: 5u64,
         }
     }
 }
@@ -1128,6 +1141,8 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
                 fee_estimator: None,
                 cost_metric: None,
                 log_error: false,
+                fee_rate_fuzzer_fraction: 0f64,
+                fee_rate_window_size: 0u64,
             };
         }
         let cost_estimator = f
@@ -1148,6 +1163,8 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
             fee_estimator: Some(fee_estimator),
             cost_metric: Some(cost_metric),
             log_error,
+            fee_rate_fuzzer_fraction: f.fee_rate_fuzzer_fraction.unwrap_or(0.1f64),
+            fee_rate_window_size: f.fee_rate_window_size.unwrap_or(5u64),
         }
     }
 }
@@ -1178,10 +1195,12 @@ impl Config {
     pub fn make_fee_estimator(&self) -> Option<Box<dyn FeeEstimator>> {
         let metric = self.make_cost_metric()?;
         let fee_estimator: Box<dyn FeeEstimator> = match self.estimation.fee_estimator.as_ref()? {
-            FeeEstimatorName::ScalarFeeRate => Box::new(
-                self.estimation
-                    .make_scalar_fee_estimator(self.get_chainstate_path(), metric),
-            ),
+            FeeEstimatorName::ScalarFeeRate => self
+                .estimation
+                .make_scalar_fee_estimator(self.get_chainstate_path(), metric),
+            FeeEstimatorName::FuzzedWeightedMedianFeeRate => self
+                .estimation
+                .make_fuzzed_weighted_median_fee_estimator(self.get_chainstate_path(), metric),
         };
 
         Some(fee_estimator)
@@ -1202,17 +1221,45 @@ impl FeeEstimationConfig {
         }
     }
 
-    pub fn make_scalar_fee_estimator<CM: CostMetric>(
+    pub fn make_scalar_fee_estimator<CM: 'static + CostMetric>(
         &self,
         mut chainstate_path: PathBuf,
         metric: CM,
-    ) -> ScalarFeeRateEstimator<CM> {
+    ) -> Box<dyn FeeEstimator> {
         if let Some(FeeEstimatorName::ScalarFeeRate) = self.fee_estimator.as_ref() {
             chainstate_path.push("fee_estimator_scalar_rate.sqlite");
-            ScalarFeeRateEstimator::open(&chainstate_path, metric)
-                .expect("Error opening fee estimator")
+            Box::new(
+                ScalarFeeRateEstimator::open(&chainstate_path, metric)
+                    .expect("Error opening fee estimator"),
+            )
         } else {
             panic!("BUG: Expected to configure a scalar fee estimator");
+        }
+    }
+
+    // Creates a fuzzed WeightedMedianFeeRateEstimator with window_size 5. The fuzz
+    // is uniform with bounds [+/- 0.5].
+    pub fn make_fuzzed_weighted_median_fee_estimator<CM: 'static + CostMetric>(
+        &self,
+        mut chainstate_path: PathBuf,
+        metric: CM,
+    ) -> Box<dyn FeeEstimator> {
+        if let Some(FeeEstimatorName::FuzzedWeightedMedianFeeRate) = self.fee_estimator.as_ref() {
+            chainstate_path.push("fee_fuzzed_weighted_median.sqlite");
+            let underlying_estimator = WeightedMedianFeeRateEstimator::open(
+                &chainstate_path,
+                metric,
+                self.fee_rate_window_size
+                    .try_into()
+                    .expect("Configured fee rate window size out of bounds."),
+            )
+            .expect("Error opening fee estimator");
+            Box::new(FeeRateFuzzer::new(
+                underlying_estimator,
+                self.fee_rate_fuzzer_fraction,
+            ))
+        } else {
+            panic!("BUG: Expected to configure a weighted median fee estimator");
         }
     }
 }
@@ -1427,6 +1474,8 @@ pub struct FeeEstimationConfigFile {
     pub cost_metric: Option<String>,
     pub disabled: Option<bool>,
     pub log_error: Option<bool>,
+    pub fee_rate_fuzzer_fraction: Option<f64>,
+    pub fee_rate_window_size: Option<u64>,
 }
 
 impl Default for FeeEstimationConfigFile {
@@ -1437,6 +1486,8 @@ impl Default for FeeEstimationConfigFile {
             cost_metric: None,
             disabled: None,
             log_error: None,
+            fee_rate_fuzzer_fraction: None,
+            fee_rate_window_size: None,
         }
     }
 }
