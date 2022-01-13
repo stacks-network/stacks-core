@@ -780,7 +780,10 @@ impl Config {
     pub fn get_estimates_path(&self) -> PathBuf {
         let mut path = self.get_chainstate_path();
         path.push("estimates");
-        assert!(fs::create_dir_all(&path).is_ok());
+        fs::create_dir_all(&path).expect(&format!(
+            "Failed to create `estimates` directory at {}",
+            path.to_string_lossy()
+        ));
         path
     }
 
