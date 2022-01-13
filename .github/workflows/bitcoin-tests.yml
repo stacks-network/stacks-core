@@ -54,6 +54,8 @@ jobs:
           - tests::neon_integrations::filter_low_fee_tx_integration_test
           - tests::neon_integrations::filter_long_runtime_tx_integration_test
           - tests::neon_integrations::mining_transactions_is_fair
+          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window5
+          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::epoch_205::test_dynamic_db_method_costs
           - tests::epoch_205::transition_empty_blocks
