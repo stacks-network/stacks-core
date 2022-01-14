@@ -12,6 +12,11 @@ on:
         description: 'The tag to create (optional)'
         required: false
 
+concurrency:
+  group: stacks-blockchain-${{ github.ref }}
+  # Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Notify Slack channel of workflow start
   notify-start:
