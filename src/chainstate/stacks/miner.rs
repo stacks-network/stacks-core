@@ -1777,46 +1777,6 @@ impl StacksBlockBuilder {
         Ok(builder)
     }
 
-    /// Create a block builder for a particular burnchain
-    pub fn make_block_builder_for_burnchain(
-        burnchain: &Burnchain,
-        stacks_parent_header: &StacksHeaderInfo,
-        proof: VRFProof,
-        total_burn: u64,
-        pubkey_hash: Hash160,
-    ) -> Result<StacksBlockBuilder, Error> {
-        let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
-            StacksBlockBuilder::first_pubkey_hash(
-                0,
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &burnchain.first_block_hash,
-                burnchain.first_block_height as u32,
-                burnchain.first_block_timestamp as u64,
-                &proof,
-                pubkey_hash,
-            )
-        } else {
-            // building off an existing stacks block
-            let new_work = StacksWorkScore {
-                burn: total_burn,
-                work: stacks_parent_header
-                    .block_height
-                    .checked_add(1)
-                    .expect("FATAL: block height overflow"),
-            };
-
-            StacksBlockBuilder::from_parent_pubkey_hash(
-                0,
-                stacks_parent_header,
-                &new_work,
-                &proof,
-                pubkey_hash,
-            )
-        };
-
-        Ok(builder)
-    }
-
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
