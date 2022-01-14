@@ -63,8 +63,6 @@ use stacks::util::vrf::VRFPublicKey;
 use stacks::vm::costs::ExecutionCost;
 use stacks::{burnchains::BurnchainSigner, chainstate::stacks::db::StacksHeaderInfo};
 
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
-use crate::burnchains::stacks_controller::StacksController;
 use crate::run_loop::RegisteredKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
@@ -72,6 +70,8 @@ use crate::ChainTip;
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
+
+use crate::appchain::make_burnchain_submitter;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 
@@ -875,19 +875,7 @@ fn spawn_miner_relayer(
     let relayer_handle = thread::Builder::new()
         .name(format!("relayer{}", if is_appchain { "-appchain" } else { "" }))
         .spawn(move || {
-        let mut burnchain_controller : Box<dyn BurnchainController> =
-            if is_appchain {
-                Box::new(StacksController::new_submitter(config.clone())
-                    .map_err(|e| {
-                        error!("FATAL: failed to instantiate Stacks transaction submitter: {:?}", &e);
-                        panic!();
-                    }).unwrap()
-                )
-            }
-            else {
-                Box::new(BitcoinRegtestController::new_dummy(config.clone()))
-            };
-
+        let mut burnchain_controller = make_burnchain_submitter(config.clone());
         let cost_estimator = config.make_cost_estimator()
             .unwrap_or_else(|| Box::new(UnitEstimator));
         let metric = config.make_cost_metric()
@@ -1192,15 +1180,24 @@ enum LeaderKeyRegistrationState {
 fn get_miner_tip_from_environment(burn_height: u64) -> Option<(ConsensusHash, BlockHeaderHash)> {
     let envar_consensus_hash = format!("STX_MINER_CONSENSUS_HASH_{}", burn_height);
     let envar_block_hash = format!("STX_MINER_BLOCK_HASH_{}", burn_height);
-    debug!("Check environment for {}/{}", &envar_consensus_hash, &envar_block_hash);
-    match (std::env::var(&envar_consensus_hash), std::env::var(&envar_block_hash)) {
+    debug!(
+        "Check environment for {}/{}",
+        &envar_consensus_hash, &envar_block_hash
+    );
+    match (
+        std::env::var(&envar_consensus_hash),
+        std::env::var(&envar_block_hash),
+    ) {
         (Ok(ch_str), Ok(bhh_str)) => {
-            match (ConsensusHash::from_hex(&ch_str), BlockHeaderHash::from_hex(&bhh_str)) {
+            match (
+                ConsensusHash::from_hex(&ch_str),
+                BlockHeaderHash::from_hex(&bhh_str),
+            ) {
                 (Ok(ch), Ok(bhh)) => Some((ch, bhh)),
-                _ => None
+                _ => None,
             }
-        },
-        _ => None
+        }
+        _ => None,
     }
 }
 
@@ -1657,8 +1654,18 @@ impl InitializedNeonNode {
             parent_block_total_burn,
             parent_winning_vtxindex,
             coinbase_nonce,
-        } = if let Some((env_stacks_tip_consensus_hash, env_stacks_tip_anchored_block_hash)) = get_miner_tip_from_environment(burn_chain_tip.block_height) {
-            info!("Miner will build on {}/{} ({}), as dictated by the environment variables", &env_stacks_tip_consensus_hash, &env_stacks_tip_anchored_block_hash, &StacksBlockHeader::make_index_block_hash(&env_stacks_tip_consensus_hash, &env_stacks_tip_anchored_block_hash));
+        } = if let Some((env_stacks_tip_consensus_hash, env_stacks_tip_anchored_block_hash)) =
+            get_miner_tip_from_environment(burn_chain_tip.block_height)
+        {
+            info!(
+                "Miner will build on {}/{} ({}), as dictated by the environment variables",
+                &env_stacks_tip_consensus_hash,
+                &env_stacks_tip_anchored_block_hash,
+                &StacksBlockHeader::make_index_block_hash(
+                    &env_stacks_tip_consensus_hash,
+                    &env_stacks_tip_anchored_block_hash
+                )
+            );
 
             // environ says to mine off of a particular chain tip
             let miner_address = keychain.origin_address(config.is_mainnet()).unwrap();
@@ -1671,8 +1678,7 @@ impl InitializedNeonNode {
                 &env_stacks_tip_anchored_block_hash,
             )
             .ok()?
-        }
-        else if let Some(stacks_tip) = chain_state.get_stacks_chain_tip(burn_db).unwrap() {
+        } else if let Some(stacks_tip) = chain_state.get_stacks_chain_tip(burn_db).unwrap() {
             let miner_address = keychain.origin_address(config.is_mainnet()).unwrap();
             Self::get_mining_tenure_information(
                 chain_state,
