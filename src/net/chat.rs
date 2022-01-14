@@ -748,16 +748,23 @@ impl ConversationP2P {
             .checked_add(self.burnchain.stable_confirmations as u64)
             != Some(msg.preamble.burn_block_height)
         {
-            // invalid message
-            debug!(
-                "{:?}: Preamble invalid: wrong stable block height: {:?} != {}",
-                &self,
-                msg.preamble
-                    .burn_stable_block_height
-                    .checked_add(self.burnchain.stable_confirmations as u64),
-                msg.preamble.burn_block_height
-            );
-            return Err(net_error::InvalidMessage);
+            // this is okay if we're within `stable_confirmations` of the first burn block height.
+            // otherwise, this is a problem
+            if self.burnchain.first_block_height + (self.burnchain.stable_confirmations as u64)
+                < msg.preamble.burn_block_height
+            {
+                // invalid message
+                debug!(
+                    "{:?}: Preamble invalid: wrong stable block height: {} + {} != {} (first block is {})",
+                    &self,
+                    msg.preamble
+                        .burn_stable_block_height,
+                    self.burnchain.stable_confirmations,
+                    msg.preamble.burn_block_height,
+                    self.burnchain.first_block_height,
+                );
+                return Err(net_error::InvalidMessage);
+            }
         }
 
         if msg.preamble.burn_stable_block_height
