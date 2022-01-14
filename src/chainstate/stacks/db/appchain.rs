@@ -13,7 +13,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 use burnchains::bitcoin::address::BitcoinAddress;
 use burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use chainstate::burn::db::sortdb::BlockHeaderCache;
@@ -96,6 +95,9 @@ impl StacksChainState {
         first_burnchain_block_hash: BurnchainHeaderHash,
         first_burnchain_block_height: u64,
     ) -> StacksChainState {
+        use chainstate::stacks::db::test::chainstate_path;
+        use std::fs;
+
         assert!(chain_id != 0 && chain_id != 0x80000000);
 
         let path = chainstate_path(test_name);
