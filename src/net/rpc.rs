@@ -3124,25 +3124,6 @@ impl ConversationHttp {
         )
     }
 
-    /// Make a new request for a data var
-    pub fn new_getdatavar(
-        &self,
-        contract_addr: StacksAddress,
-        contract_name: ContractName,
-        var_name: ClarityName,
-        tip_opt: Option<StacksBlockId>,
-        with_proof: bool,
-    ) -> HttpRequestType {
-        HttpRequestType::GetDataVar(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
-            contract_addr,
-            contract_name,
-            var_name,
-            tip_opt,
-            with_proof,
-        )
-    }
-
     /// Make a new request for a data map
     pub fn new_getmapentry(
         &self,
