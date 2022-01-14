@@ -61,14 +61,21 @@ use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::TransactionSmartContract;
 use chainstate::stacks::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+use core::{
+    StacksEpoch, StacksEpochId, GENESIS_EPOCH, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    STACKS_EPOCH_MAX,
+};
 use util::db::Error as db_error;
 use util::hash::to_hex;
 use util::hash::Sha512Trunc256Sum;
 use util::strings::StacksString;
 use vm::costs::ExecutionCost;
 use vm::representations::UrlString;
+use vm::types::ASCIIData;
+use vm::types::CharType;
 use vm::types::PrincipalData;
 use vm::types::QualifiedContractIdentifier;
+use vm::types::SequenceData;
 use vm::types::TupleData;
 use vm::types::Value;
 use vm::ContractName;
@@ -140,8 +147,151 @@ impl From<net_error> for Error {
     }
 }
 
+/// Checked operations for Clarity value conversions
+impl Value {
+    pub fn checked_ascii(self) -> Option<String> {
+        if let Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) = self {
+            match String::from_utf8(data) {
+                Ok(s) => Some(s),
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_u128(self) -> Option<u128> {
+        if let Value::UInt(inner) = self {
+            Some(inner)
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_i128(self) -> Option<i128> {
+        if let Value::Int(inner) = self {
+            Some(inner)
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_buff(self, sz: usize) -> Option<Vec<u8>> {
+        if let Value::Sequence(SequenceData::Buffer(buffdata)) = self {
+            if buffdata.data.len() <= sz {
+                Some(buffdata.data)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_buff_exact(self, sz: usize) -> Option<Vec<u8>> {
+        if let Value::Sequence(SequenceData::Buffer(buffdata)) = self {
+            if buffdata.data.len() == sz {
+                Some(buffdata.data)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_list(self) -> Option<Vec<Value>> {
+        if let Value::Sequence(SequenceData::List(listdata)) = self {
+            Some(listdata.data)
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_buff_padded(self, sz: usize, pad: u8) -> Option<Vec<u8>> {
+        let mut data = self.checked_buff(sz)?;
+        if sz > data.len() {
+            for _ in data.len()..sz {
+                data.push(pad)
+            }
+        }
+        Some(data)
+    }
+
+    pub fn checked_bool(self) -> Option<bool> {
+        if let Value::Bool(b) = self {
+            Some(b)
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_tuple(self) -> Option<TupleData> {
+        if let Value::Tuple(data) = self {
+            Some(data)
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_optional(self) -> Option<Option<Value>> {
+        if let Value::Optional(opt) = self {
+            Some(match opt.data {
+                Some(boxed_value) => Some(*boxed_value),
+                None => None,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_principal(self) -> Option<PrincipalData> {
+        if let Value::Principal(p) = self {
+            Some(p)
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_result(self) -> Option<std::result::Result<Value, Value>> {
+        if let Value::Response(res_data) = self {
+            Some(if res_data.committed {
+                Ok(*res_data.data)
+            } else {
+                Err(*res_data.data)
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_result_ok(self) -> Option<Value> {
+        if let Value::Response(res_data) = self {
+            if res_data.committed {
+                Some(*res_data.data)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn checked_result_err(self) -> Option<Value> {
+        if let Value::Response(res_data) = self {
+            if !res_data.committed {
+                Some(*res_data.data)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
 /// This is the global appchain config variable
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct AppChainConfigV1 {
     /// Is this appchain a mainnet chain?
     pub mainnet: bool,
@@ -170,7 +320,7 @@ pub struct AppChainConfigV1 {
     pub initial_balances: Vec<(PrincipalData, u64)>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub enum AppChainConfig {
     V1(AppChainConfigV1),
 }
@@ -244,9 +394,9 @@ impl AppChainConfigV1 {
                     .clone()
                     .checked_buff_exact(2)?;
 
-                let pubkey = StacksPublicKey::from_bytevec(&pubkey_bytes).ok()?;
-                let host = PeerAddress::from_bytevec(&host_bytes)?;
-                let datahost = PeerAddress::from_bytevec(&data_host_bytes)?;
+                let pubkey = StacksPublicKey::from_slice(&pubkey_bytes).ok()?;
+                let host = PeerAddress::from_slice(&host_bytes)?;
+                let datahost = PeerAddress::from_slice(&data_host_bytes)?;
 
                 // safe since checked_buff_exact(2) requires a buff of length 2
                 let port = u16::from_be_bytes([port_bytes[0], port_bytes[1]]);
@@ -839,10 +989,6 @@ pub struct AppChainClient {
     pub tip: Option<StacksBlockId>,
     /// App chain config (learned from mining contract at runtime)
     pub config: Option<AppChainConfig>, // loaded from the parent chain
-    /// How often to refresh the parent chain's peerinfo
-    pub refresh_peerinfo_interval: u64,
-    /// When to refresh the parent chain's peerinfo, absolute time
-    pub refresh_peerinfo_deadline: u64,
     /// Runtime session
     pub session: Option<(TcpStream, RPCPeerInfoData)>,
     /// Genesis state root hash
@@ -930,6 +1076,36 @@ impl BurnchainIndexer for AppChainClient {
 
     fn get_first_block_header_timestamp(&self) -> Result<u64, burnchain_error> {
         Ok(0)
+    }
+
+    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+        vec![
+            // first block must always be the genesis epoch
+            StacksEpoch {
+                epoch_id: GENESIS_EPOCH,
+                start_height: 0,
+                end_height: 1,
+                block_limit: self
+                    .config
+                    .as_ref()
+                    .expect("BUG: bootup() not yet called successfully")
+                    .block_limit()
+                    .clone(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 1,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: self
+                    .config
+                    .as_ref()
+                    .expect("BUG: bootup() not yet called successfully")
+                    .block_limit()
+                    .clone(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+        ]
     }
 
     fn get_headers_path(&self) -> String {
