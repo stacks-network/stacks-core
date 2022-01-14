@@ -2808,7 +2808,6 @@ pub mod test {
             config.chain_id,
             &appchain_working_dir,
             Some(&mut appchain_boot_data),
-            config.block_limit.clone(),
         )
         .unwrap();
 
@@ -3470,7 +3469,8 @@ pub mod test {
         // burnchain DB got all the ops we sent
         let (_, burnchain_db) = burnchain
             .connect_db(
-                false,
+                &appchain_client,
+                true,
                 appchain_client.config.as_ref().unwrap().start_block_hash(),
                 0,
             )
@@ -3721,7 +3721,8 @@ pub mod test {
         // everything should have been accepted
         let (_, burnchain_db) = burnchain
             .connect_db(
-                false,
+                &appchain_client,
+                true,
                 appchain_client.config.as_ref().unwrap().start_block_hash(),
                 0,
             )
