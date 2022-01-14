@@ -2092,7 +2092,7 @@ impl HttpRequestType {
     ) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
             return Err(net_error::DeserializeError(
-                "Invalid Http request: expected 0-length body for GetMicrolocks".to_string(),
+                "Invalid Http request: expected 0-length body for GetMicroblocks".to_string(),
             ));
         }
 
@@ -2747,20 +2747,6 @@ impl HttpRequestType {
                 var_name.as_str(),
                 HttpRequestType::make_query_string(tip_req, *with_proof)
             ),
-            HttpRequestType::GetDataVar(
-                _md,
-                contract_addr,
-                contract_name,
-                var_name,
-                tip_opt,
-                with_proof,
-            ) => format!(
-                "/v2/data_var/{}/{}/{}{}",
-                &contract_addr.to_string(),
-                contract_name.as_str(),
-                var_name.as_str(),
-                HttpRequestType::make_query_string(tip_opt.as_ref(), *with_proof)
-            ),
             HttpRequestType::GetMapEntry(
                 _md,
                 contract_addr,
@@ -2858,7 +2844,7 @@ impl HttpRequestType {
             HttpRequestType::GetInfo(..) => "/v2/info",
             HttpRequestType::GetPoxInfo(..) => "/v2/pox",
             HttpRequestType::GetNeighbors(..) => "/v2/neighbors",
-            HttpRequestType::GetHeaders(..) => "/v2/headers/:height",
+            HttpRequestType::GetHeaders(..) => "/v2/headers/:num_headers",
             HttpRequestType::GetBlock(..) => "/v2/blocks/:hash",
             HttpRequestType::GetMicroblocksIndexed(..) => "/v2/microblocks/:hash",
             HttpRequestType::GetMicroblocksConfirmed(..) => "/v2/microblocks/confirmed/:hash",
