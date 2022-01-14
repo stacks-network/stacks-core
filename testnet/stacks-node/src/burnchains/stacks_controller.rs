@@ -35,7 +35,7 @@ use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::Txid;
 use stacks::chainstate::stacks::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use stacks::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-use stacks::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks::core::{StacksEpoch, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, STACKS_EPOCH_2_05_MARKER};
 
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::ConsensusHash;
@@ -69,6 +69,8 @@ use stacks::vm::types::Value;
 pub struct StacksController {
     /// Inner appchain client
     pub client: AppChainClient,
+    /// Has the system been booted?
+    booted: bool,
     /// System config copy
     config: Config,
     /// Burnchain config
@@ -138,6 +140,7 @@ impl StacksController {
 
             Ok(StacksController {
                 client,
+                booted: false,
                 config,
                 burnchain,
                 coordinator_comms,
@@ -385,7 +388,7 @@ impl StacksController {
                 num_sigs: 1,
                 hash_mode: AddressHashMode::SerializeP2PKH,
             },
-            memo: vec![0x00],
+            memo: vec![STACKS_EPOCH_2_05_MARKER],
 
             // filled in late
             commit_outs: vec![],
@@ -499,6 +502,21 @@ impl StacksController {
             }
         }
     }
+
+    /// Do the client bootup, so we can have a complete config
+    pub fn bootup(&mut self) -> Result<(), Error> {
+        if let Some(appchain_runtime) = self.config.burnchain.appchain_runtime.as_ref() {
+            let mut available_bootcode = HashMap::new();
+            for (code_name, code_body) in appchain_runtime.boot_code.iter() {
+                available_bootcode.insert(code_name.clone(), code_body.clone());
+            }
+            self.client.bootup(&available_bootcode)?;
+            self.booted = true;
+            Ok(())
+        } else {
+            panic!("BUG: config does not contain any appchain state");
+        }
+    }
 }
 
 impl BurnchainController for StacksController {
@@ -506,18 +524,12 @@ impl BurnchainController for StacksController {
         &mut self,
         target_block_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), Error> {
-        if let Some(appchain_runtime) = self.config.burnchain.appchain_runtime.as_ref() {
-            let mut available_bootcode = HashMap::new();
-            for (code_name, code_body) in appchain_runtime.boot_code.iter() {
-                available_bootcode.insert(code_name.clone(), code_body.clone());
-            }
-
-            self.client.bootup(&available_bootcode)?;
-            let target_block_height = target_block_height_opt.unwrap_or(1);
-            self.receive_blocks(false, target_block_height)
-        } else {
-            panic!("BUG: config does not contain any appchain state");
+        if !self.booted {
+            self.bootup()?;
         }
+
+        let target_block_height = target_block_height_opt.unwrap_or(1);
+        self.receive_blocks(false, target_block_height)
     }
 
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error> {
@@ -575,6 +587,20 @@ impl BurnchainController for StacksController {
                 unreachable!();
             }
         }
+    }
+
+    fn connect_dbs(&mut self) -> Result<(), Error> {
+        self.burnchain.connect_db(
+            &self.client,
+            true,
+            self.client.get_first_block_header_hash()?,
+            self.client.get_first_block_header_timestamp()?,
+        )?;
+        Ok(())
+    }
+
+    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+        self.client.get_stacks_epochs()
     }
 
     /// wait until the ChainsCoordinator has processed sortitions up to the
