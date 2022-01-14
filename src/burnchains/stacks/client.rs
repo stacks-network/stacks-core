@@ -69,6 +69,7 @@ use net::RPCPeerInfoData;
 use net::StacksHttp;
 use net::StacksHttpMessage;
 use net::StacksHttpPreamble;
+use net::TipRequest;
 use net::MAX_HEADERS;
 
 use util::boot::boot_code_addr;
@@ -191,6 +192,16 @@ lazy_static! {
     ).unwrap();
 }
 
+impl StacksAccount {
+    pub fn empty(principal: PrincipalData) -> StacksAccount {
+        StacksAccount {
+            principal,
+            nonce: 0,
+            stx_balance: STXBalance::zero(),
+        }
+    }
+}
+
 impl AppChainClient {
     /// Instantiate a new appchain client
     pub fn new(
@@ -211,8 +222,6 @@ impl AppChainClient {
             peer: (parent_chain_peer.0.to_string(), parent_chain_peer.1),
             connect_timeout: 5_000,
             duration_timeout: 60_000,
-            refresh_peerinfo_deadline: 0,
-            refresh_peerinfo_interval: 10,
             contract_id: contract_id,
             root_to_block: HashMap::new(),
             tip: tip,
@@ -235,8 +244,6 @@ impl AppChainClient {
             peer: self.peer.clone(),
             connect_timeout: self.connect_timeout,
             duration_timeout: self.duration_timeout,
-            refresh_peerinfo_deadline: self.refresh_peerinfo_deadline,
-            refresh_peerinfo_interval: self.refresh_peerinfo_interval,
             contract_id: self.contract_id.clone(),
             root_to_block: self.root_to_block.clone(),
             tip: self.tip.clone(),
@@ -412,7 +419,8 @@ impl AppChainClient {
         let req = HttpRequestType::GetHeaders(
             HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer)),
             num_headers,
-            tip,
+            tip.map(|tip| TipRequest::SpecificTip(tip))
+                .unwrap_or(TipRequest::UseLatestAnchoredTip),
         );
 
         let resp = AppChainClient::request(socket, req)?;
@@ -452,7 +460,21 @@ impl AppChainClient {
         let mut num_headers = initial_header_request;
         loop {
             debug!("Get {} headers tipped at {:?}", num_headers, last_tip);
-            let next_headers = AppChainClient::download_headers(socket, num_headers, last_tip)?;
+            let next_headers = match AppChainClient::download_headers(socket, num_headers, last_tip)
+            {
+                Ok(headers) => headers,
+                Err(burnchain_error::Indexer(indexer_error::Stacks(Error::HttpError(404, _)))) => {
+                    debug!(
+                        "Received HTTP 404 on tip={:?}; assuming no more headers",
+                        &last_tip
+                    );
+                    return cls(session, vec![]).map(|_| ());
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            };
+
             debug!(
                 "Got {} (out of {}) headers tipped at {:?}",
                 next_headers.len(),
@@ -599,18 +621,14 @@ impl AppChainClient {
     {
         let mut clear = false;
         if let Some((tcp_socket, rpc_peerinfo)) = self.session.as_mut() {
-            // periodically refresh the peerinfo
-            if self.refresh_peerinfo_deadline < get_epoch_time_secs() {
-                debug!("Refresh peerinfo");
-                match AppChainClient::download_getinfo(tcp_socket) {
-                    Ok(new_peerinfo) => {
-                        *rpc_peerinfo = new_peerinfo;
-                    }
-                    Err(e) => {
-                        debug!("Refresh peerinfo failed: {:?}", &e);
-                        let _ = tcp_socket.shutdown(Shutdown::Both);
-                        clear = true;
-                    }
+            match AppChainClient::download_getinfo(tcp_socket) {
+                Ok(new_peerinfo) => {
+                    *rpc_peerinfo = new_peerinfo;
+                }
+                Err(e) => {
+                    debug!("Refresh peerinfo failed: {:?}", &e);
+                    let _ = tcp_socket.shutdown(Shutdown::Both);
+                    clear = true;
                 }
             }
         }
@@ -624,7 +642,6 @@ impl AppChainClient {
             // start up a session
             let session = self.begin_session();
             self.session = Some(session);
-            self.refresh_peerinfo_deadline = get_epoch_time_secs() + self.refresh_peerinfo_interval;
         }
 
         if let Some((mut tcp_socket, rpc_peerinfo)) = self.session.take() {
@@ -667,6 +684,22 @@ impl AppChainClient {
                 return Ok(false);
             };
 
+            for ehdr in reverse_headers.iter() {
+                // verify consistent, in case of intermittent reorg
+                if let Some(our_ehdr) =
+                    light_client.read_block_header(ehdr.header.total_work.work)?
+                {
+                    if our_ehdr != *ehdr {
+                        warn!("Stacks reorg happened during header sync! local {} != remote {} at height {}",
+                              StacksBlockHeader::make_index_block_hash(&our_ehdr.consensus_hash, &our_ehdr.header.block_hash()),
+                              StacksBlockHeader::make_index_block_hash(&ehdr.consensus_hash, &ehdr.header.block_hash()),
+                              ehdr.header.total_work.work
+                        );
+                        return Err(burnchain_error::TrySyncAgain);
+                    }
+                }
+            }
+
             if let Some(highest_header) = reverse_headers.first() {
                 let cur_highest_header_height = highest_header_downloaded
                     .as_ref()
@@ -689,6 +722,13 @@ impl AppChainClient {
                     if *lowest_header == ehdr {
                         debug!("Sync'ed Stacks headers down to known header at height {} ({}), so will stop sync'ing", ehdr.header.block_hash(), ehdr.header.total_work.work);
                         more = false;
+                    } else {
+                        warn!("Stacks reorg happened during header sync! local {} != remote {} at height {}",
+                              StacksBlockHeader::make_index_block_hash(&ehdr.consensus_hash, &ehdr.header.block_hash()),
+                              StacksBlockHeader::make_index_block_hash(&lowest_header.consensus_hash, &lowest_header.header.block_hash()),
+                              lowest_header.header.total_work.work
+                        );
+                        return Err(burnchain_error::TrySyncAgain);
                     }
                 }
             }
@@ -722,8 +762,8 @@ impl AppChainClient {
         Ok((highest_header_downloaded, lowest_header_downloaded))
     }
 
-    /// Find the lowest header at which we need to go and re-download and re-process blocks in the
-    /// event of a host chain reorg.  Returns a height higher than any known height if no reorg is
+    /// Find the highest header at which our headers DB is consistent with the chain.
+    ///  Returns a height higher than any known height if no reorg is
     /// necessary.
     pub fn find_reorg_height(
         &mut self,
@@ -735,14 +775,11 @@ impl AppChainClient {
             &peer_info.stacks_tip,
         );
         let light_client = LightClientDB::new(&self.headers_path, false)?;
-        let highest_header_height = light_client.get_highest_header_height()?;
-        let mut diverged_height = highest_header_height + 1;
+        let mut highest_header_height = light_client.get_highest_header_height()?;
 
-        if self.tip == Some(tip) {
-            return Ok(diverged_height);
-        }
+        debug!("Check for Stacks reorg off of {}", &tip);
 
-        // tip changed. Most likely, this means the chain advanced, but either way, sync headers
+        // If anything, it's most likely that the chain advanced, but either way, sync headers
         // until we find the highest common ancestor and return *its* height.
         AppChainClient::walk_headers(socket, 6, self, |_client, reverse_headers| {
             for ehdr in reverse_headers {
@@ -751,29 +788,41 @@ impl AppChainClient {
                     Some(our_ehdr) => {
                         if our_ehdr != ehdr {
                             // divergence
+                            debug!("Stacks reorg detected: {:?} != {:?}", &our_ehdr, &ehdr);
                             debug!(
-                                "Stacks parent reorg detected: {:?} != {:?}",
-                                &our_ehdr, &ehdr
+                                "Stacks reorg detected: {:?} != {:?}",
+                                &StacksBlockHeader::make_index_block_hash(
+                                    &our_ehdr.consensus_hash,
+                                    &our_ehdr.header.block_hash()
+                                ),
+                                &StacksBlockHeader::make_index_block_hash(
+                                    &ehdr.consensus_hash,
+                                    &ehdr.header.block_hash()
+                                )
                             );
-                            diverged_height = ehdr.header.total_work.work;
-                            return Ok(false);
+                            highest_header_height = ehdr.header.total_work.work.saturating_sub(1);
                         }
                     }
                     None => {
-                        // we don't have this header!
+                        // we don't have this header, so keep searching
                         debug!(
-                            "Stacks parent reorg detected: no header at height {}",
-                            ehdr.header.total_work.work
+                            "Stacks reorg detected: no header at height {} (highest header is {})",
+                            ehdr.header.total_work.work, highest_header_height
                         );
-                        diverged_height = ehdr.header.total_work.work;
-                        return Ok(false);
+                        highest_header_height = ehdr.header.total_work.work;
                     }
                 }
             }
             Ok(true)
         })?;
 
-        Ok(diverged_height)
+        debug!(
+            "Stacks reorg diverge height is {}, tip height is {}, highest header height is {}",
+            highest_header_height + 1,
+            peer_info.stacks_tip_height,
+            light_client.get_highest_header_height()?
+        );
+        Ok(highest_header_height)
     }
 
     /// Given the cached host chain tip, find both its id-block-hash and associated state root hash
@@ -1120,7 +1169,7 @@ impl AppChainClient {
             self.contract_id.clone().name.clone(),
             map_name.into(),
             map_key,
-            Some(tip),
+            TipRequest::SpecificTip(tip),
             true,
         );
         Ok(req)
@@ -1140,7 +1189,7 @@ impl AppChainClient {
             self.contract_id.clone().issuer.into(),
             self.contract_id.clone().name.clone(),
             var_name.into(),
-            Some(tip),
+            TipRequest::SpecificTip(tip),
             true,
         );
         Ok(req)
@@ -1159,7 +1208,7 @@ impl AppChainClient {
             HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer)),
             contract_address,
             contract_name,
-            Some(tip),
+            TipRequest::SpecificTip(tip),
             true,
         );
         Ok(req)
@@ -1176,7 +1225,7 @@ impl AppChainClient {
         let req = HttpRequestType::GetAccount(
             HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer)),
             address.to_account_principal(),
-            Some(tip),
+            TipRequest::SpecificTip(tip),
             true,
         );
         Ok(req)
@@ -2850,7 +2899,8 @@ pub mod test {
         assert!(res.is_ok());
 
         // should show up in parent chain mempool
-        let parent_mempool = MemPoolDB::open_test(false, 0x80000000, &parent_chainstate_dir).unwrap();
+        let parent_mempool =
+            MemPoolDB::open_test(false, 0x80000000, &parent_chainstate_dir).unwrap();
         let txinfo = MemPoolDB::get_tx(parent_mempool.conn(), &tx.txid()).unwrap();
         assert!(txinfo.is_some());
 
