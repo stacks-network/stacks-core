@@ -429,7 +429,6 @@ is tagged.
    candidate on various staging infrastructure:
 
    1. Stacks Foundation staging environments.
-   1. Hiro PBC regtest network.
    1. Hiro PBC testnet network.
    1. Hiro PBC mainnet mock miner.
 
