@@ -312,17 +312,6 @@ impl StacksChainState {
         Ok(row_opt.expect("BUG: no genesis header info"))
     }
 
-    /// Get the genesis state root hash, once the burnchain block has been calculated
-    pub fn get_genesis_state_index_root(&mut self) -> TrieHash {
-        self.clarity_state.with_marf(|marf| {
-            let index_block_hash = StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            );
-            marf.get_root_hash_at(&index_block_hash).unwrap()
-        })
-    }
-
     /// Get the parent block ID for this block
     pub fn get_parent_block_id(
         conn: &Connection,
