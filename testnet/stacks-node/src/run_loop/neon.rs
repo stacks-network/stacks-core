@@ -17,16 +17,14 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment};
 use stx_genesis::GenesisData;
 
+use crate::appchain::make_burnchain_client;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
     use_test_genesis_chainstate,
 };
 use crate::syncctl::PoxSyncWatchdog;
-use crate::{
-    BitcoinRegtestController, BurnchainController, Config, EventDispatcher, NeonGenesisNode,
-    StacksController,
-};
+use crate::{Config, EventDispatcher, NeonGenesisNode};
 
 use super::RunLoopCallbacks;
 use libc;
@@ -159,36 +157,16 @@ impl RunLoop {
         }
 
         // Initialize and start the burnchain client.
-        let mut burnchain_client: Box<dyn BurnchainController> = if self.config.describes_appchain()
-        {
-            debug!(
-                "Starting runloop for appchain {}",
-                self.config.burnchain.chain_id
-            );
-            Box::new(
-                StacksController::new(
-                    self.config.clone(),
-                    coordinator_senders.clone(),
-                    should_keep_running.clone(),
-                )
-                .expect("BUG: failed to instantiate Stacks controller"),
-            )
-        } else {
-            debug!(
-                "Starting runloop for Stacks mainchain {}",
-                self.config.burnchain.chain_id
-            );
-            Box::new(BitcoinRegtestController::with_burnchain(
-                self.config.clone(),
-                Some(coordinator_senders.clone()),
-                burnchain_opt,
-                Some(should_keep_running.clone()),
-            ))
-        };
+        let mut burnchain_client = make_burnchain_client(
+            self.config.clone(),
+            burnchain_opt,
+            coordinator_senders.clone(),
+            should_keep_running.clone(),
+        );
 
         let burnchain_config = burnchain_client.get_burnchain();
         let pox_constants = burnchain_config.pox_constants.clone();
-        let epochs = burnchain_config.get_stacks_epochs();
+        let epochs = burnchain_client.get_stacks_epochs();
         if !check_chainstate_db_versions(
             &epochs,
             &self.config.get_burn_db_file_path(),
@@ -220,15 +198,14 @@ impl RunLoop {
         };
         debug!("Header sync finished");
 
-        // Invoke connect() to perform any db instantiation early
-        if let Err(e) = burnchain.connect_dbs() {
+        // Invoke connect_dbs() to perform any db instantiation early
+        if let Err(e) = burnchain_client.connect_dbs() {
             error!("Failed to connect to burnchain databases: {}", e);
             return;
         };
 
         let mainnet = self.config.is_mainnet();
         let chainid = self.config.burnchain.chain_id;
-        let block_limit = self.config.block_limit.clone();
         let is_appchain = self.config.describes_appchain();
         let initial_balances = self
             .config
