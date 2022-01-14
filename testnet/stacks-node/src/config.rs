@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::convert::From;
 use std::convert::TryInto;
 use std::fs;
@@ -8,8 +7,6 @@ use std::path::PathBuf;
 use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::stacks::{AppChainClient, AppChainConfig};
-use stacks::burnchains::BurnchainParameters;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
@@ -26,18 +23,14 @@ use stacks::cost_estimates::FeeEstimator;
 use stacks::cost_estimates::PessimisticEstimator;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
-use stacks::types::chainstate::BurnchainHeaderHash;
-use stacks::types::chainstate::StacksAddress;
 use stacks::types::proof::TrieHash;
 use stacks::util::get_epoch_time_ms;
 use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::util::sleep_ms;
-use stacks::util::strings::StacksString;
-use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-use stacks::vm::ContractName;
+
+use crate::appchain::AppchainRuntime;
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
@@ -795,58 +788,7 @@ impl Config {
         }
     }
 
-    pub fn describes_appchain(&self) -> bool {
-        self.burnchain.appchain_runtime.is_some()
-    }
-
-    /// NOTE: may stall forever
-    pub fn boot_into_appchain(
-        &mut self,
-        available_boot_code: &HashMap<ContractName, StacksString>,
-    ) {
-        let appchain_runtime = self
-            .burnchain
-            .download_appchain_runtime(&self, available_boot_code);
-
-        // patch config with runtime
-        self.burnchain.appchain_runtime = Some(appchain_runtime.clone());
-        self.burnchain.chain_id = appchain_runtime.config.chain_id();
-        self.block_limit = appchain_runtime.config.block_limit();
-
-        self.node.set_bootstrap_nodes(
-            appchain_runtime
-                .config
-                .boot_nodes()
-                .iter()
-                .map(|((boot_node_pubkey, boot_node_p2p_addr), _)| {
-                    format!("{}@{}", &boot_node_pubkey.to_hex(), &boot_node_p2p_addr)
-                })
-                .collect(),
-            appchain_runtime.config.chain_id(),
-            self.burnchain.peer_version,
-        );
-
-        for node in self.node.bootstrap_node.iter_mut() {
-            node.addr.network_id = self.burnchain.chain_id;
-        }
-
-        if self.initial_balances.len() > 0 {
-            warn!("Appchain config overrides initial balances");
-        }
-        self.initial_balances = appchain_runtime
-            .config
-            .initial_balances()
-            .into_iter()
-            .map(|(principal, amount)| InitialBalance {
-                address: principal,
-                amount: amount,
-            })
-            .collect();
-
-        assert!(self.describes_appchain());
-    }
-
-    fn get_burnchain_path(&self) -> PathBuf {
+    pub fn get_burnchain_path(&self) -> PathBuf {
         let mut path = PathBuf::from(&self.node.working_dir);
         path.push(&self.burnchain.mode);
         path.push("burnchain");
@@ -956,27 +898,6 @@ impl Config {
             },
         }
     }
-
-    pub fn get_burnchain_genesis_info(&self) -> (u64, BurnchainHeaderHash, u64) {
-        if let Some(appchain_runtime) = self.burnchain.appchain_runtime.as_ref() {
-            // burnchain is another Stacks chain
-            let appchain_start_block_height = appchain_runtime.config.start_block();
-            let appchain_start_block_hash = appchain_runtime.config.start_block_hash();
-            (appchain_start_block_height, appchain_start_block_hash, 0)
-        } else {
-            // burnchain is Bitcoin
-            let (network, _) = self.burnchain.get_bitcoin_network();
-            let burnchain_params =
-                BurnchainParameters::from_params(&self.burnchain.chain, &network)
-                    .expect("Bitcoin network unsupported");
-
-            (
-                burnchain_params.first_block_height,
-                burnchain_params.first_block_hash,
-                burnchain_params.first_block_timestamp as u64,
-            )
-        }
-    }
 }
 
 impl std::default::Default for Config {
@@ -1003,12 +924,6 @@ impl std::default::Default for Config {
             miner: MinerConfig::default(),
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct AppchainRuntime {
-    pub config: AppChainConfig,
-    pub boot_code: Vec<(ContractName, StacksString)>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -1105,82 +1020,6 @@ impl BurnchainConfig {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
             _ => panic!("Invalid bitcoin mode -- expected mainnet, testnet, or regtest"),
-        }
-    }
-
-    /// NOTE: may stall forever
-    fn download_appchain_runtime(
-        &self,
-        config: &Config,
-        available_boot_code: &HashMap<ContractName, StacksString>,
-    ) -> AppchainRuntime {
-        let burnchain_mode = &self.mode;
-
-        // this is an appchain. boot off the mining contract
-        if let Some(contract_id) = self.mining_contract.as_ref() {
-            let issuer_addr = StacksAddress::from(contract_id.issuer.clone());
-
-            // issuer must be consistent with mainnet/testnet|regtest mode
-            if burnchain_mode == "mainnet" && !issuer_addr.is_mainnet() {
-                panic!(
-                    "Invalid mining contract identifier `{}`: not a mainnet address",
-                    &contract_id
-                );
-            } else if issuer_addr.is_mainnet() {
-                panic!(
-                    "Invalid mining contract identifier `{}`: is a mainnet address",
-                    &contract_id
-                );
-            }
-
-            // boot the app chain to learn the configuration data
-            let working_dir = config.get_burnchain_path();
-            if fs::metadata(&working_dir).is_err() {
-                fs::create_dir_all(&working_dir).expect(&format!(
-                    "Failed to set up working directory `{:?}`",
-                    &working_dir
-                ));
-            }
-            let headers_path = config.get_spv_headers_file_path();
-
-            // spin up the appchain and get its config and (missing) boot code
-            let mut appchain_client = AppChainClient::new(
-                burnchain_mode.as_str() == "mainnet",
-                &headers_path,
-                self.chain_id,
-                (self.peer_host.as_str(), self.rpc_port),
-                contract_id.clone(),
-                self.magic_bytes.clone(),
-                self.genesis_hash.clone(),
-                None,
-            );
-
-            loop {
-                match appchain_client.bootup(available_boot_code) {
-                    Ok(_) => {
-                        break;
-                    }
-                    Err(e) => {
-                        warn!("Appchain bootup failed: {:?}; try again in 30s", &e);
-                        sleep_ms(30_000);
-                    }
-                }
-            }
-
-            let boot_code = appchain_client
-                .get_boot_code()
-                .expect("BUG: appchain booted but not all boot code was obtained");
-
-            let appchain_config = appchain_client.config.clone().expect(&format!(
-                "FATAL: no appchain config discovered from `{}'",
-                &contract_id
-            ));
-            AppchainRuntime {
-                config: appchain_config,
-                boot_code,
-            }
-        } else {
-            panic!("Attempted to run an appchain without `mining_contract` set");
         }
     }
 }
