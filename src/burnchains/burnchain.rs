@@ -41,7 +41,6 @@ use burnchains::db::BurnchainDB;
 use burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
-use burnchains::stacks::AppChainConfig;
 use burnchains::Address;
 use burnchains::Burnchain;
 use burnchains::PublicKey;
@@ -489,34 +488,6 @@ impl Burnchain {
             first_block_hash: params.first_block_hash,
             first_block_timestamp: params.first_block_timestamp,
             pox_constants,
-        })
-    }
-
-    pub fn new_appchain(
-        appchain_config: &AppChainConfig,
-        working_dir: &str,
-    ) -> Result<Burnchain, db_error> {
-        Ok(Burnchain {
-            peer_version: if appchain_config.mainnet() {
-                PEER_VERSION_MAINNET
-            } else {
-                PEER_VERSION_TESTNET
-            },
-            network_id: appchain_config.parent_chain_id(),
-            chain_name: format!("{}", &appchain_config.mining_contract_id()),
-            network_name: if appchain_config.mainnet() {
-                "mainnet".to_string()
-            } else {
-                "testnet".to_string()
-            },
-            working_dir: working_dir.to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_height: appchain_config.start_block(),
-            first_block_hash: appchain_config.start_block_hash(),
-            first_block_timestamp: 0,
-            initial_reward_start_block: appchain_config.start_block(),
-            pox_constants: appchain_config.pox_constants(),
         })
     }
 
@@ -1319,6 +1290,9 @@ impl Burnchain {
                     start_block + max_blocks
                 );
                 end_block = start_block + max_blocks;
+
+                // make sure we resume at this height next time
+                indexer.drop_headers(end_block.saturating_sub(1))?;
             }
         }
 
