@@ -20,6 +20,7 @@ use stacks::util::hash::hex_bytes;
 
 pub mod monitoring;
 
+pub mod appchain;
 pub mod burnchains;
 pub mod config;
 pub mod event_dispatcher;
@@ -237,7 +238,6 @@ fn main() {
             appchain_runtime.config.chain_id(),
             &appchain_working_dir,
             Some(&mut appchain_boot_data),
-            appchain_runtime.config.block_limit(),
         )
         .unwrap();
 
