@@ -60,6 +60,7 @@ use self::stacks::Error as stacks_error;
 use self::stacks::{MiningContractBlock, MiningContractTransaction};
 
 /// This module contains drivers and types for all burn chains we support.
+pub mod appchain;
 pub mod bitcoin;
 pub mod burnchain;
 pub mod db;
