@@ -137,16 +137,6 @@ impl MinerPaymentSchedule {
     }
 }
 
-impl StacksAccount {
-    pub fn empty(principal: PrincipalData) -> StacksAccount {
-        StacksAccount {
-            principal,
-            nonce: 0,
-            stx_balance: STXBalance::zero(),
-        }
-    }
-}
-
 impl StacksChainState {
     pub fn get_account<T: ClarityConnection>(
         clarity_tx: &mut T,
