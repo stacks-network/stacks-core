@@ -70,21 +70,15 @@ pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, Cont
     }
 }
 
-/// Used by CLI tools like the docs generator. Not used in production
 #[cfg(test)]
 pub fn mem_type_check_with_db(
     snippet: &str,
     name: &str,
     analysis_db: &mut AnalysisDatabase,
 ) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
-    use crate::clarity_vm::database::MemoryBackingStore;
     use vm::ast::parse;
     let contract_identifier = QualifiedContractIdentifier::local(name).unwrap();
-    println!(
-        "principal addr: {:?}, name: {}",
-        StandardPrincipalData::transient(),
-        name
-    );
+
     let mut contract = parse(&contract_identifier, snippet).unwrap();
     let cost_tracker = LimitedCostTracker::new_free();
     let res = match run_analysis(
@@ -107,13 +101,11 @@ pub fn mem_type_check_with_db(
         Err((e, _)) => Err(e),
     };
 
-    analysis_db.execute(|db| {
-        println!("stored {}: {}", name, db.has_contract(&contract_identifier));
-        if true {
-            Ok(())
-        } else {
-            Err(())
-        }
+    analysis_db.execute(|db| -> Result<(), ()> {
+        // ensures contract => contract hash exists in MARF (in normal operation, this is called by
+        // the Clarity DB)
+        db.test_insert_contract_hash(&contract_identifier);
+        Ok(())
     });
 
     res
@@ -163,7 +155,6 @@ pub fn run_analysis(
         }
         if save_contract {
             db.insert_contract(&contract_identifier, &contract_analysis)?;
-            println!("in run analysis: {}", db.has_contract(&contract_identifier));
         }
         Ok(())
     });
