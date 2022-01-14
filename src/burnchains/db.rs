@@ -137,7 +137,7 @@ impl<'a> BurnchainDBTransaction<'a> {
         &self,
         header: &BurnchainBlockHeader,
     ) -> Result<i64, BurnchainError> {
-        let sql = "INSERT INTO burnchain_db_block_headers
+        let sql = "INSERT OR REPLACE INTO burnchain_db_block_headers
                    (block_height, block_hash, parent_block_hash, num_txs, timestamp)
                    VALUES (?, ?, ?, ?, ?)";
         let args: &[&dyn ToSql] = &[
