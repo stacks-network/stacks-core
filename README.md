@@ -402,9 +402,9 @@ discussed in [Versioning](#versioning).  We assume, in this section,
 that the change is not consensus-breaking.  So, the release manager must first
 determine whether there are any "non-consensus-breaking changes that require a
 fresh chainstate". This means, in other words, that the database schema has
-changed. Then, the release manager should determine whether this is a feature
-release, as opposed to a hot fix or a patch. Given the answers to these
-questions, the version number can be computed.
+changed, but an automatic migration was not implemented. Then, the release manager 
+should determine whether this is a feature release, as opposed to a hot fix or a
+patch. Given the answers to these questions, the version number can be computed.
 
 1. The release manager enumerates the PRs or issues that would _block_
    the release. A label should be applied to each such issue/PR as
