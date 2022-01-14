@@ -3601,7 +3601,6 @@ impl PeerNetwork {
                                 }
 
                                 if !have_unsynced {
-                                    have_always_allowed = true;
                                     // There exists one or more always-allowed peers in
                                     // the inv state machine (per the peer DB), but all such peers
                                     // report either our bind address or our public IP address.
