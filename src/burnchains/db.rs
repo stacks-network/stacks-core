@@ -130,6 +130,8 @@ CREATE TABLE burnchain_db_block_ops (
     FOREIGN KEY(block_hash) REFERENCES burnchain_db_block_headers(block_hash)
 );
 
+CREATE INDEX index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);
+
 CREATE TABLE db_config(version TEXT NOT NULL);";
 
 impl<'a> BurnchainDBTransaction<'a> {
