@@ -39,6 +39,7 @@ pub struct RunLoop {
     pub callbacks: RunLoopCallbacks,
     blocks_processed: std::sync::Arc<std::sync::atomic::AtomicU64>,
     microblocks_processed: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    missed_tenures: std::sync::Arc<std::sync::atomic::AtomicU64>,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
 }
 
@@ -88,6 +89,7 @@ impl RunLoop {
             callbacks: RunLoopCallbacks::new(),
             blocks_processed: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             microblocks_processed: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            missed_tenures: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -119,6 +121,14 @@ impl RunLoop {
 
     #[cfg(not(test))]
     fn bump_blocks_processed(&self) {}
+
+    #[cfg(test)]
+    pub fn get_missed_tenures_arc(&self) -> std::sync::Arc<std::sync::atomic::AtomicU64> {
+        self.missed_tenures.clone()
+    }
+
+    #[cfg(not(test))]
+    fn get_missed_tenures_arc(&self) {}
 
     /// Starts the node runloop.
     ///
@@ -353,6 +363,7 @@ impl RunLoop {
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
                 self.get_microblocks_processed_arc(),
+                self.get_missed_tenures_arc(),
                 coordinator_senders.clone(),
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
@@ -364,6 +375,7 @@ impl RunLoop {
                 burnchain_tip.clone(),
                 self.get_blocks_processed_arc(),
                 self.get_microblocks_processed_arc(),
+                self.get_missed_tenures_arc(),
                 coordinator_senders.clone(),
                 pox_watchdog.make_comms_handle(),
                 attachments_rx,
