@@ -15,15 +15,14 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
-use stacks::chainstate::stacks::TokenTransferMemo;
 use stacks::clarity::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::CHAIN_ID_TESTNET;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
-    AccountEntryResponse, ContractSrcResponse, FeeRateEstimateRequestBody, GetAttachmentResponse,
-    GetAttachmentsInvResponse, PostTransactionRequestBody, RPCPeerInfoData,
+    AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
+    PostTransactionRequestBody, RPCPeerInfoData,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
@@ -3836,7 +3835,7 @@ fn mining_events_integration_test() {
     let mb_tx =
         make_contract_publish_microblock_only(&spender_sk_2, 0, 620000, "small", &small_contract);
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),
@@ -4002,7 +4001,7 @@ fn mining_events_integration_test() {
 
     // dupe contract error event
     match &third_block_tx_events[2] {
-        TransactionEvent::ProcessingError(TransactionErrorEvent { txid, error }) => {
+        TransactionEvent::ProcessingError(TransactionErrorEvent { txid: _, error }) => {
             assert_eq!(
                 error,
                 "Duplicate contract 'ST3WM51TCWMJYGZS1QFMC28DH5YP86782YGR113C1.small'"
@@ -6568,4 +6567,70 @@ fn use_latest_tip_integration_test() {
         true,
     )
     .is_ok());
+}
+
+#[test]
+#[ignore]
+fn test_flash_block_skip_tenure() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (conf, miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let missed_tenures = run_loop.get_missed_tenures_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // fault injection: force tenures to take 30 seconds
+    std::env::set_var("STX_TEST_SLOW_TENURE".to_string(), "30000".to_string());
+
+    for _i in 0..5 {
+        btc_regtest_controller.build_next_block(1);
+        sleep_ms(10000);
+    }
+
+    // at least one tenure was skipped
+    let num_skipped = missed_tenures.load(Ordering::SeqCst);
+    eprintln!("Skipped {} tenures", &num_skipped);
+    assert!(num_skipped > 1);
+
+    // let's query the miner's account nonce:
+
+    eprintln!("Miner account: {}", miner_account);
+
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 2);
+
+    channel.stop_chains_coordinator();
 }
