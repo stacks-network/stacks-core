@@ -858,9 +858,15 @@ impl Config {
         self.events_observers.len() > 0
     }
 
-    pub fn make_block_builder_settings(&self, attempt: u64) -> BlockBuilderSettings {
+    pub fn make_block_builder_settings(
+        &self,
+        attempt: u64,
+        microblocks: bool,
+    ) -> BlockBuilderSettings {
         BlockBuilderSettings {
-            max_miner_time_ms: if attempt <= 1 {
+            max_miner_time_ms: if microblocks {
+                self.node.microblock_frequency
+            } else if attempt <= 1 {
                 // first attempt to mine a block -- do so right away
                 self.miner.first_attempt_time_ms
             } else {
@@ -869,7 +875,9 @@ impl Config {
             },
             mempool_settings: MemPoolWalkSettings {
                 min_tx_fee: self.miner.min_tx_fee,
-                max_walk_time_ms: if attempt <= 1 {
+                max_walk_time_ms: if microblocks {
+                    self.node.microblock_frequency
+                } else if attempt <= 1 {
                     // first attempt to mine a block -- do so right away
                     self.miner.first_attempt_time_ms
                 } else {
@@ -1403,7 +1411,7 @@ impl MinerConfig {
         MinerConfig {
             min_tx_fee: 1,
             first_attempt_time_ms: 1_000,
-            subsequent_attempt_time_ms: 60_000,
+            subsequent_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
         }
     }
