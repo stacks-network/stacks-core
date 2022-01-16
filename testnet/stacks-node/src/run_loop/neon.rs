@@ -477,7 +477,7 @@ impl RunLoop {
                     break;
                 }
 
-                let (next_burnchain_tip, _next_burnchain_height) =
+                let (next_burnchain_tip, tip_burnchain_height) =
                     match burnchain.sync(Some(burnchain_height + 1)) {
                         Ok(x) => x,
                         Err(e) => {
@@ -488,7 +488,7 @@ impl RunLoop {
 
                 // *now* we know the burnchain height
                 burnchain_tip = next_burnchain_tip;
-                burnchain_height = cmp::min(burnchain_height + 1, target_burnchain_block_height);
+                burnchain_height = cmp::min(burnchain_height + 1, tip_burnchain_height);
 
                 let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
                 let next_sortition_height = burnchain_tip.block_snapshot.block_height;
@@ -553,7 +553,9 @@ impl RunLoop {
                     coordinator_senders.announce_new_stacks_block();
                 }
 
-                if burnchain_height == target_burnchain_block_height {
+                if burnchain_height == target_burnchain_block_height
+                    || burnchain_height == tip_burnchain_height
+                {
                     break;
                 }
             }
