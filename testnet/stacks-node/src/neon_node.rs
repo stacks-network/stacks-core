@@ -57,6 +57,7 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
+use stacks::util::sleep_ms;
 use stacks::util::strings::{UrlString, VecDisplay};
 use stacks::util::vrf::VRFPublicKey;
 use stacks::vm::costs::ExecutionCost;
@@ -96,13 +97,14 @@ enum RelayerDirective {
     ProcessTenure(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
     RunTenure(RegisteredKey, BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
     RegisterKey(BlockSnapshot),
-    RunMicroblockTenure(u128), // time of issuance in ms
+    RunMicroblockTenure(BlockSnapshot, u128), // time of issuance in ms
     Exit,
 }
 
 pub struct InitializedNeonNode {
     config: Config,
     relay_channel: SyncSender<RelayerDirective>,
+    last_sortition_mutex: Arc<Mutex<Option<BlockSnapshot>>>,
     burnchain_signer: BurnchainSigner,
     last_burn_block: Option<BlockSnapshot>,
     is_miner: bool,
@@ -140,6 +142,43 @@ fn set_processed_counter(blocks_processed: &BlocksProcessedCounter, value: u64) 
 
 #[cfg(not(test))]
 fn set_processed_counter(_blocks_processed: &BlocksProcessedCounter, _value: u64) {}
+
+#[cfg(test)]
+type MissedTenureCounter = std::sync::Arc<std::sync::atomic::AtomicU64>;
+
+#[cfg(not(test))]
+type MissedTenureCounter = ();
+
+#[cfg(test)]
+fn bump_missed_tenure_counter(tenures_missed: &MissedTenureCounter) {
+    tenures_missed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(not(test))]
+fn bump_missed_tenure_counter(_tenures_missed: &MissedTenureCounter) {}
+
+#[cfg(test)]
+fn fault_injection_long_tenure() {
+    // simulated slow block
+    match std::env::var("STX_TEST_SLOW_TENURE") {
+        Ok(tenure_str) => match tenure_str.parse::<u64>() {
+            Ok(tenure_time) => {
+                info!(
+                    "Fault injection: sleeping for {} milliseconds to simulate a long tenure",
+                    tenure_time
+                );
+                sleep_ms(tenure_time);
+            }
+            Err(_) => {
+                error!("Parse error for STX_TEST_SLOW_TENURE");
+            }
+        },
+        _ => {}
+    }
+}
+
+#[cfg(not(test))]
+fn fault_injection_long_tenure() {}
 
 enum Error {
     HeaderNotFoundForChainTip,
@@ -445,7 +484,7 @@ fn try_mine_microblock(
                     last_mined: 0,
                     quantity: 0,
                     cost_so_far: cost_so_far,
-                    settings: config.make_block_builder_settings(2),
+                    settings: config.make_block_builder_settings(0, true),
                 });
             }
             Ok(None) => {
@@ -767,6 +806,7 @@ fn spawn_peer(
                         if mblock_deadline < get_epoch_time_ms() {
                             debug!("P2P: schedule microblock tenure");
                             results_with_data.push_back(RelayerDirective::RunMicroblockTenure(
+                                this.burnchain_tip.clone(),
                                 get_epoch_time_ms(),
                             ));
                             mblock_deadline =
@@ -791,7 +831,9 @@ fn spawn_peer(
                         );
                         match e {
                             TrySendError::Full(directive) => {
-                                if let RelayerDirective::RunMicroblockTenure(_) = directive {
+                                if let RelayerDirective::RunMicroblockTenure(..) = directive {
+                                    // can drop this
+                                } else if let RelayerDirective::RunTenure(..) = directive {
                                     // can drop this
                                 } else {
                                     // don't lose this data -- just try it again
@@ -826,6 +868,18 @@ fn spawn_peer(
     Ok(server_thread)
 }
 
+fn get_last_sortition(
+    last_sortition_mutex: &Arc<Mutex<Option<BlockSnapshot>>>,
+) -> Option<BlockSnapshot> {
+    match last_sortition_mutex.lock() {
+        Ok(sort_opt) => sort_opt.clone(),
+        Err(_) => {
+            error!("Sortition mutex poisoned!");
+            panic!();
+        }
+    }
+}
+
 fn spawn_miner_relayer(
     is_mainnet: bool,
     chain_id: u32,
@@ -836,9 +890,11 @@ fn spawn_miner_relayer(
     burn_db_path: String,
     stacks_chainstate_path: String,
     relay_channel: Receiver<RelayerDirective>,
+    last_sortition_mutex: Arc<Mutex<Option<BlockSnapshot>>>,
     event_dispatcher: EventDispatcher,
     blocks_processed: BlocksProcessedCounter,
     microblocks_processed: BlocksProcessedCounter,
+    missed_tenures: MissedTenureCounter,
     burnchain: Burnchain,
     coord_comms: CoordinatorChannels,
     sync_comms: PoxSyncWatchdogComms,
@@ -1038,8 +1094,15 @@ fn spawn_miner_relayer(
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
                     if last_tenure_issue_time > issue_timestamp_ms {
-                        // coalesce -- stale
+                        // coalesce -- duplicate
                         continue;
+                    }
+                    if let Some(cur_sortition) = get_last_sortition(&last_sortition_mutex) {
+                        if last_burn_block.sortition_id != cur_sortition.sortition_id {
+                            debug!("Drop stale RunTenure for {}: current sortition is for {}", &last_burn_block.burn_header_hash, &cur_sortition.burn_header_hash);
+                            bump_missed_tenure_counter(&missed_tenures);
+                            continue;
+                        }
                     }
 
                     let burn_header_hash = last_burn_block.burn_header_hash.clone();
@@ -1075,6 +1138,8 @@ fn spawn_miner_relayer(
                         "burn_header_hash" => %burn_chain_tip,
                         "last_burn_header_hash" => %burn_header_hash
                     );
+
+                    fault_injection_long_tenure();
 
                     let mut last_mined_blocks_vec = last_mined_blocks
                         .remove(&burn_header_hash)
@@ -1114,10 +1179,16 @@ fn spawn_miner_relayer(
                     );
                     bump_processed_counter(&blocks_processed);
                 }
-                RelayerDirective::RunMicroblockTenure(tenure_issue_ms) => {
+                RelayerDirective::RunMicroblockTenure(burnchain_tip, tenure_issue_ms) => {
                     if last_microblock_tenure_time > tenure_issue_ms {
                         // stale request
                         continue;
+                    }
+                    if let Some(cur_sortition) = get_last_sortition(&last_sortition_mutex) {
+                        if burnchain_tip.sortition_id != cur_sortition.sortition_id {
+                            debug!("Drop stale RunMicroblockTenure for {}/{}: current sortition is for {} ({})", &burnchain_tip.consensus_hash, &burnchain_tip.winning_stacks_block_hash, &cur_sortition.consensus_hash, &cur_sortition.burn_header_hash);
+                            continue;
+                        }
                     }
 
                     debug!("Relayer: run microblock tenure");
@@ -1184,6 +1255,7 @@ impl InitializedNeonNode {
         miner: bool,
         blocks_processed: BlocksProcessedCounter,
         microblocks_processed: BlocksProcessedCounter,
+        missed_tenures: MissedTenureCounter,
         coord_comms: CoordinatorChannels,
         sync_comms: PoxSyncWatchdogComms,
         burnchain: Burnchain,
@@ -1353,6 +1425,8 @@ impl InitializedNeonNode {
         // setup the relayer channel
         let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
 
+        let last_sortition_mutex = Arc::new(Mutex::new(None));
+
         let burnchain_signer = keychain.get_burnchain_signer();
         match monitoring::set_burnchain_signer(burnchain_signer.clone()) {
             Err(e) => {
@@ -1386,9 +1460,11 @@ impl InitializedNeonNode {
             config.get_burn_db_file_path(),
             config.get_chainstate_path_str(),
             relay_recv,
+            last_sortition_mutex.clone(),
             event_dispatcher.clone(),
             blocks_processed.clone(),
             microblocks_processed.clone(),
+            missed_tenures.clone(),
             burnchain,
             coord_comms,
             sync_comms.clone(),
@@ -1423,6 +1499,7 @@ impl InitializedNeonNode {
         InitializedNeonNode {
             config,
             relay_channel: relay_send,
+            last_sortition_mutex,
             last_burn_block,
             burnchain_signer,
             is_miner,
@@ -1491,6 +1568,16 @@ impl InitializedNeonNode {
                 &snapshot.winning_stacks_block_hash
             );
             if snapshot.sortition {
+                // pass along latest sortition
+                match self.last_sortition_mutex.lock() {
+                    Ok(mut sortition_opt) => {
+                        sortition_opt.replace(snapshot.clone());
+                    }
+                    Err(_) => {
+                        error!("Sortition mutex poisoned!");
+                        panic!();
+                    }
+                };
                 return self
                     .relay_channel
                     .send(RelayerDirective::ProcessTenure(
@@ -1907,7 +1994,7 @@ impl InitializedNeonNode {
             vrf_proof.clone(),
             mblock_pubkey_hash,
             &coinbase_tx,
-            config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
+            config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64, false),
             Some(event_observer),
         ) {
             Ok(block) => block,
@@ -1947,7 +2034,7 @@ impl InitializedNeonNode {
                     vrf_proof.clone(),
                     mblock_pubkey_hash,
                     &coinbase_tx,
-                    config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
+                    config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64, false),
                     Some(event_observer),
                 ) {
                     Ok(block) => block,
@@ -2189,6 +2276,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         microblocks_processed: BlocksProcessedCounter,
+        missed_tenures: MissedTenureCounter,
         coord_comms: CoordinatorChannels,
         sync_comms: PoxSyncWatchdogComms,
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
@@ -2207,6 +2295,7 @@ impl NeonGenesisNode {
             true,
             blocks_processed,
             microblocks_processed,
+            missed_tenures,
             coord_comms,
             sync_comms,
             self.burnchain,
@@ -2221,6 +2310,7 @@ impl NeonGenesisNode {
         burnchain_tip: BurnchainTip,
         blocks_processed: BlocksProcessedCounter,
         microblocks_processed: BlocksProcessedCounter,
+        missed_tenures: MissedTenureCounter,
         coord_comms: CoordinatorChannels,
         sync_comms: PoxSyncWatchdogComms,
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
@@ -2239,6 +2329,7 @@ impl NeonGenesisNode {
             false,
             blocks_processed,
             microblocks_processed,
+            missed_tenures,
             coord_comms,
             sync_comms,
             self.burnchain,
