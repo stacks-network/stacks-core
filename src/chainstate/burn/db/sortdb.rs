@@ -487,6 +487,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
     "CREATE INDEX snapshots_block_heights ON snapshots(burn_header_hash,block_height);",
     "CREATE INDEX snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);",
+    "CREATE INDEX snapshots_pox_valid(pox_valid);",
     "CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);",
     "CREATE INDEX arrival_indexes ON snapshots(arrival_index);",
     r#"
