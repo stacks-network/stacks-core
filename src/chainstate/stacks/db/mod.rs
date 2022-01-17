@@ -620,6 +620,10 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
         vtxindex INT NOT NULL               -- user burn support vtxindex
     );"#,
     r#"
+    CREATE INDEX index_payments_block_hash_consensus_hash_vtxindex ON payments(block_hash,consensus_hash,vtxindex ASC);
+    CREATE INDEX index_payments_index_block_hash_vtxindex ON payments(index_block_hash,vtxindex ASC);
+    "#,
+    r#"
     -- users who supported miners
     CREATE TABLE user_supporters(
         address TEXT NOT NULL,
@@ -696,6 +700,9 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                            burn_amount INT NOT NULL,
                                            vtxindex INT NOT NULL
     );"#,
+    r#"
+    CREATE INDEX index_staging_user_burn_support ON staging_user_burn_support(anchored_block_hash,consensus_hash);
+    "#,
     r#"
     CREATE TABLE transactions(
         id INTEGER PRIMARY KEY,

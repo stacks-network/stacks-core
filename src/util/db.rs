@@ -271,6 +271,7 @@ where
     P::Item: ToSql,
     T: FromRow<T>,
 {
+    trace!("SQL QUERY: {}", sql_query);
     let mut stmt = conn.prepare(sql_query)?;
     let result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
 
@@ -285,6 +286,7 @@ where
     P::Item: ToSql,
     T: FromRow<T>,
 {
+    trace!("SQL QUERY: {}", sql_query);
     let query_result = conn.query_row_and_then(sql_query, sql_args, |row| T::from_row(row));
     match query_result {
         Ok(x) => Ok(Some(x)),
@@ -305,6 +307,7 @@ where
     P::Item: ToSql,
     T: FromRow<T>,
 {
+    trace!("SQL QUERY: {}", sql_query);
     let mut stmt = conn.prepare(sql_query)?;
     let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
     let mut return_value = None;
@@ -331,6 +334,7 @@ where
     T: FromRow<T>,
     F: FnOnce() -> String,
 {
+    trace!("SQL QUERY: {}", sql_query);
     let mut stmt = conn.prepare(sql_query)?;
     let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
     let mut return_value = None;
@@ -355,8 +359,8 @@ where
     P::Item: ToSql,
     T: FromColumn<T>,
 {
+    trace!("SQL QUERY: {}", sql_query);
     let mut stmt = conn.prepare(sql_query)?;
-
     let mut rows = stmt.query(sql_args)?;
 
     // gather
@@ -375,10 +379,9 @@ where
     P: IntoIterator,
     P::Item: ToSql,
 {
+    trace!("SQL QUERY: {}", sql_query);
     let mut stmt = conn.prepare(sql_query)?;
-
     let mut rows = stmt.query(sql_args)?;
-
     let mut row_data = vec![];
     while let Some(row) = rows.next().map_err(|e| Error::SqliteError(e))? {
         if row_data.len() > 0 {

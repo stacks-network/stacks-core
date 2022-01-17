@@ -515,6 +515,9 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
     r#"
+    CREATE INDEX index_leader_keys_sortition_id_block_height_vtxindex ON leader_keys(sortition_id,block_height,vtxindex);
+    "#,
+    r#"
     CREATE TABLE block_commits(
         txid TEXT NOT NULL,
         vtxindex INTEGER NOT NULL,
@@ -540,6 +543,10 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
     r#"
+    CREATE INDEX index_block_commits_sortition_id_vtxindex ON block_commits(sortition_id,vtxindex);
+    CREATE INDEX index_block_commits_sortition_id_block_height_vtxindex ON block_commits(sortition_id,block_height,vtxindex);
+    "#,
+    r#"
     CREATE TABLE user_burn_support(
         txid TEXT NOT NULL,
         vtxindex INTEGER NOT NULL,
@@ -560,6 +567,9 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
     r#"
+    CREATE INDEX index_user_burn_support_sortition_id_vtxindex ON user_burn_support(sortition_id,vtxindex);
+    "#,
+    r#"
     CREATE TABLE stack_stx (
         txid TEXT NOT NULL,
         vtxindex INTEGER NOT NULL,
@@ -574,6 +584,9 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         PRIMARY KEY(txid)
     );"#,
     r#"
+    CREATE INDEX index_stack_stx_burn_header_hash ON stack_stx(burn_header_hash);
+    "#,
+    r#"
     CREATE TABLE transfer_stx (
         txid TEXT NOT NULL,
         vtxindex INTEGER NOT NULL,
@@ -587,6 +600,9 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(txid)
     );"#,
+    r#"
+    CREATE INDEX index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);
+    "#,
     r#"
     CREATE TABLE missed_commits (
         txid TEXT NOT NULL,
