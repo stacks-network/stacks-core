@@ -2401,7 +2401,8 @@ fn size_check_integration_test() {
 
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 5000;
-    conf.node.microblock_frequency = 1000;
+    conf.node.microblock_frequency = 5000;
+    conf.node.microblock_attempt_time_ms = 120_000;
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
@@ -2578,6 +2579,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 5_000;
     conf.node.microblock_frequency = 5_000;
+    conf.node.microblock_attempt_time_ms = 120_000;
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
@@ -2772,6 +2774,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 1000;
     conf.node.microblock_frequency = 1000;
+    conf.node.microblock_attempt_time_ms = 120_000;
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
 
@@ -2962,6 +2965,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 5_000;
     conf.node.microblock_frequency = 1_000;
+    conf.node.microblock_attempt_time_ms = 120_000;
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
 
@@ -3230,6 +3234,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 0;
     conf.node.microblock_frequency = 15000;
+    conf.node.microblock_attempt_time_ms = 120_000;
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
