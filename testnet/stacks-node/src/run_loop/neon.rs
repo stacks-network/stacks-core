@@ -176,7 +176,6 @@ impl RunLoop {
             Some(should_keep_running.clone()),
         );
 
-        let pox_constants = burnchain.get_pox_constants();
         let epochs = burnchain.get_stacks_epochs();
         if !check_chainstate_db_versions(
             &epochs,
@@ -425,7 +424,12 @@ impl RunLoop {
         let mut num_sortitions_in_last_cycle = 1;
 
         // prepare to fetch the first reward cycle!
-        target_burnchain_block_height = burnchain_height + pox_constants.reward_cycle_length as u64;
+        target_burnchain_block_height = burnchain_config.reward_cycle_to_block_height(
+            burnchain_config
+                .block_height_to_reward_cycle(burnchain_height)
+                .expect("BUG: block height is not in a reward cycle")
+                + 1,
+        );
 
         debug!(
             "Begin main runloop starting a burnchain block {}",
@@ -464,7 +468,7 @@ impl RunLoop {
             ) {
                 Ok(ibd) => ibd,
                 Err(e) => {
-                    debug!("Pox sync wait routine aborted: {:?}", e);
+                    debug!("PoX sync wait routine aborted: {:?}", e);
                     continue;
                 }
             };
@@ -560,9 +564,11 @@ impl RunLoop {
                 }
             }
 
-            target_burnchain_block_height = cmp::min(
-                burnchain_height,
-                target_burnchain_block_height + pox_constants.reward_cycle_length as u64,
+            target_burnchain_block_height = burnchain_config.reward_cycle_to_block_height(
+                burnchain_config
+                    .block_height_to_reward_cycle(burnchain_height)
+                    .expect("BUG: block height is not in a reward cycle")
+                    + 1,
             );
 
             if sortition_db_height >= burnchain_height && !ibd {
