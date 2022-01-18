@@ -1422,7 +1422,8 @@ fn bitcoind_forking_test() {
     btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
     btc_regtest_controller.build_next_block(5);
 
-    thread::sleep(Duration::from_secs(5));
+    thread::sleep(Duration::from_secs(50));
+    eprintln!("Wait for block off of shallow fork");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
@@ -1441,7 +1442,8 @@ fn bitcoind_forking_test() {
     btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
     btc_regtest_controller.build_next_block(10);
 
-    thread::sleep(Duration::from_secs(5));
+    thread::sleep(Duration::from_secs(50));
+    eprintln!("Wait for block off of deep fork");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
@@ -1453,8 +1455,9 @@ fn bitcoind_forking_test() {
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
     // but we're able to keep on mining
-    assert_eq!(account.nonce, 3);
+    assert!(account.nonce >= 3);
 
+    eprintln!("End of test");
     channel.stop_chains_coordinator();
 }
 
