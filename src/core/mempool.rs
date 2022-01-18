@@ -371,6 +371,7 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     );
     "#,
     "CREATE INDEX by_txid ON mempool(txid);",
+    "CREATE INDEX by_height ON mempool(height);",
     "CREATE INDEX by_txid_and_height ON mempool(txid,height);",
     "CREATE INDEX by_sponsor ON mempool(sponsor_address, sponsor_nonce);",
     "CREATE INDEX by_origin ON mempool(origin_address, origin_nonce);",
@@ -417,6 +418,7 @@ const MEMPOOL_SCHEMA_3_BLOOM_STATE: &'static [&'static str] = &[
         hashed_txid TEXT NOT NULL,
         FOREIGN KEY(txid) REFERENCES mempool(txid) ON DELETE CASCADE
     );
+    CREATE INDEX IF NOT EXISTS by_ordered_hashed_txid ON randomized_txids(hashed_txid ASC);
     CREATE INDEX IF NOT EXISTS by_hashed_txid ON randomized_txids(txid,hashed_txid);
     "#,
     r#"
