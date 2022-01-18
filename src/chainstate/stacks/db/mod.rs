@@ -653,6 +653,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                      PRIMARY KEY(anchored_block_hash,consensus_hash,microblock_hash)
     );"#,
     "CREATE INDEX staging_microblocks_index_hash ON staging_microblocks(index_block_hash);",
+    "CREATE INDEX staging_microblocks_index_hash_orphaned ON staging_microblocks(index_block_hash,orphaned);",
     r#"
     -- Staging microblocks data
     CREATE TABLE staging_microblocks_data(block_hash TEXT NOT NULL,
