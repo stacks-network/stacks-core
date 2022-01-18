@@ -264,6 +264,50 @@ macro_rules! impl_byte_array_from_column {
     };
 }
 
+/// Load the path of the database from the connection
+fn get_db_path(conn: &Connection) -> Result<String, Error> {
+    let sql = "PRAGMA database_list";
+    let path: Result<Option<String>, sqlite_error> =
+        conn.query_row_and_then(sql, NO_PARAMS, |row| row.get(2));
+    match path {
+        Ok(Some(path)) => Ok(path),
+        Ok(None) => Ok("<unknown>".to_string()),
+        Err(e) => Err(Error::SqliteError(e)),
+    }
+}
+
+/// Generate debug output to be fed into an external script to examine query plans.
+/// TODO: it uses mocked arguments, which it assumes are strings. This does not always result in a
+/// valid query.
+#[cfg(test)]
+fn log_sql_eqp(conn: &Connection, sql_query: &str) {
+    if std::env::var("BLOCKSTACK_DB_TRACE") != Ok("1".to_string()) {
+        return;
+    }
+
+    let mut parts = sql_query.clone().split(" ");
+    let mut full_sql = if let Some(part) = parts.next() {
+        part.to_string()
+    } else {
+        sql_query.to_string()
+    };
+
+    while let Some(part) = parts.next() {
+        if part.starts_with("?") {
+            full_sql = format!("{} \"mock_arg\"", full_sql.trim());
+        } else {
+            full_sql = format!("{} {}", full_sql.trim(), part.trim());
+        }
+    }
+
+    let path = get_db_path(conn).unwrap_or("ERROR!".to_string());
+    let eqp_sql = format!("\"{}\" EXPLAIN QUERY PLAN {}", &path, full_sql.trim());
+    debug!("{}", &eqp_sql);
+}
+
+#[cfg(not(test))]
+fn log_sql_eqp(_conn: &Connection, _sql_query: &str) {}
+
 /// boilerplate code for querying rows
 pub fn query_rows<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Vec<T>, Error>
 where
@@ -271,7 +315,7 @@ where
     P::Item: ToSql,
     T: FromRow<T>,
 {
-    trace!("SQL QUERY: {}", sql_query);
+    log_sql_eqp(conn, sql_query);
     let mut stmt = conn.prepare(sql_query)?;
     let result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
 
@@ -286,7 +330,7 @@ where
     P::Item: ToSql,
     T: FromRow<T>,
 {
-    trace!("SQL QUERY: {}", sql_query);
+    log_sql_eqp(conn, sql_query);
     let query_result = conn.query_row_and_then(sql_query, sql_args, |row| T::from_row(row));
     match query_result {
         Ok(x) => Ok(Some(x)),
@@ -307,7 +351,7 @@ where
     P::Item: ToSql,
     T: FromRow<T>,
 {
-    trace!("SQL QUERY: {}", sql_query);
+    log_sql_eqp(conn, sql_query);
     let mut stmt = conn.prepare(sql_query)?;
     let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
     let mut return_value = None;
@@ -334,7 +378,7 @@ where
     T: FromRow<T>,
     F: FnOnce() -> String,
 {
-    trace!("SQL QUERY: {}", sql_query);
+    log_sql_eqp(conn, sql_query);
     let mut stmt = conn.prepare(sql_query)?;
     let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
     let mut return_value = None;
@@ -359,7 +403,7 @@ where
     P::Item: ToSql,
     T: FromColumn<T>,
 {
-    trace!("SQL QUERY: {}", sql_query);
+    log_sql_eqp(conn, sql_query);
     let mut stmt = conn.prepare(sql_query)?;
     let mut rows = stmt.query(sql_args)?;
 
@@ -379,7 +423,7 @@ where
     P: IntoIterator,
     P::Item: ToSql,
 {
-    trace!("SQL QUERY: {}", sql_query);
+    log_sql_eqp(conn, sql_query);
     let mut stmt = conn.prepare(sql_query)?;
     let mut rows = stmt.query(sql_args)?;
     let mut row_data = vec![];
