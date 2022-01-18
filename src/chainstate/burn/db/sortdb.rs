@@ -567,7 +567,9 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
     r#"
+    CREATE INDEX index_user_burn_support_txid ON user_burn_support(txid);
     CREATE INDEX index_user_burn_support_sortition_id_vtxindex ON user_burn_support(sortition_id,vtxindex);
+    CREATE INDEX index_user_burn_support_sortition_id_hash_160_key_vtxindex_key_block_ptr_vtxindex ON user_burn_support(sortition_id,block_header_hash_160,key_vtxindex,key_block_ptr,vtxindex ASC);
     "#,
     r#"
     CREATE TABLE stack_stx (
@@ -611,6 +613,9 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(txid, intended_sortition_id)
     );"#,
+    r#"
+    CREATE INDEX index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);
+    "#,
     r#"
     CREATE TABLE canonical_accepted_stacks_blocks(
         tip_consensus_hash TEXT NOT NULL,
@@ -1590,8 +1595,8 @@ impl<'a> SortitionHandleConn<'a> {
         let winning_block_hash160 =
             Hash160::from_sha256(snapshot.winning_stacks_block_hash.as_bytes());
 
-        let qry = "SELECT * FROM user_burn_support
-                   WHERE sortition_id = ?1 AND block_header_hash_160 = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4
+        let qry = "SELECT * FROM user_burn_support \
+                   WHERE sortition_id = ?1 AND block_header_hash_160 = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4 \
                    ORDER BY vtxindex ASC";
         let args: [&dyn ToSql; 4] = [
             &snapshot.sortition_id,
@@ -1603,7 +1608,7 @@ impl<'a> SortitionHandleConn<'a> {
         let mut winning_user_burns: Vec<UserBurnSupportOp> = query_rows(self, qry, &args)?;
 
         // were there multiple miners with the same VRF key and block header hash? (i.e., are these user burns shared?)
-        let qry = "SELECT COUNT(*) FROM block_commits
+        let qry = "SELECT COUNT(*) FROM block_commits \
                    WHERE sortition_id = ?1 AND block_header_hash = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4";
         let args: [&dyn ToSql; 4] = [
             &snapshot.sortition_id,
