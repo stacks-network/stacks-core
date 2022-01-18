@@ -51,12 +51,23 @@ pub struct Counters {
 }
 
 impl Counters {
+    #[cfg(test)]
     pub fn new() -> Counters {
         Counters {
             blocks_processed: RunLoopCounter::new(AtomicU64::new(0)),
             microblocks_processed: RunLoopCounter::new(AtomicU64::new(0)),
             missed_tenures: RunLoopCounter::new(AtomicU64::new(0)),
             cancelled_commits: RunLoopCounter::new(AtomicU64::new(0)),
+        }
+    }
+
+    #[cfg(not(test))]
+    pub fn new() -> Counters {
+        Counters {
+            blocks_processed: (),
+            microblocks_processed: (),
+            missed_tenures: (),
+            cancelled_commits: (),
         }
     }
 
