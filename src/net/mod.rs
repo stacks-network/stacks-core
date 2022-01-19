@@ -1422,7 +1422,7 @@ pub enum HttpRequestType {
         TraitIdentifier,
         TipRequest,
     ),
-    MemPoolQuery(HttpRequestMetadata, MemPoolSyncData),
+    MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1521,7 +1521,7 @@ pub enum HttpResponseType {
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
     MemPoolTxStream(HttpResponseMetadata),
-    MemPoolTxs(HttpResponseMetadata, Vec<StacksTransaction>),
+    MemPoolTxs(HttpResponseMetadata, Option<Txid>, Vec<StacksTransaction>),
     OptionsPreflight(HttpResponseMetadata),
     TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
     // peer-given error responses
@@ -1682,6 +1682,7 @@ impl_byte_array_message_codec!(StacksBlockId, 32);
 impl_byte_array_message_codec!(MessageSignature, 65);
 impl_byte_array_message_codec!(PeerAddress, 16);
 impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
+impl_byte_array_message_codec!(Txid, 32);
 
 impl_byte_array_serde!(ConsensusHash);
 
