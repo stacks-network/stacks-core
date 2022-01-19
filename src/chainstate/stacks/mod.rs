@@ -172,7 +172,6 @@ pub enum Error {
     PoxAlreadyLocked,
     PoxInsufficientBalance,
     PoxNoRewardCycle,
-    Yield(u64),
 }
 
 impl From<marf_error> for Error {
@@ -243,7 +242,6 @@ impl fmt::Display for Error {
                     r
                 )
             }
-            Error::Yield(ref sz) => write!(f, "Yield to next stream after {} bytes", sz),
         }
     }
 }
@@ -277,7 +275,6 @@ impl error::Error for Error {
             Error::PoxInsufficientBalance => None,
             Error::PoxNoRewardCycle => None,
             Error::StacksTransactionSkipped(ref _r) => None,
-            Error::Yield(_) => None,
         }
     }
 }
@@ -311,7 +308,6 @@ impl Error {
             Error::PoxInsufficientBalance => "PoxInsufficientBalance",
             Error::PoxNoRewardCycle => "PoxNoRewardCycle",
             Error::StacksTransactionSkipped(ref _r) => "StacksTransactionSkipped",
-            Error::Yield(_) => "Yield",
         }
     }
 
