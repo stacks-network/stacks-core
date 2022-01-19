@@ -210,12 +210,14 @@ pub enum PeerNetworkWorkState {
 pub enum MempoolSyncState {
     /// Picking an outbound peer
     PickOutboundPeer,
-    /// Resolving its data URL to a SocketAddr
-    ResolveURL(UrlString, DNSRequest),
-    /// Sending the request for mempool transactions
-    SendQuery(UrlString, SocketAddr),
-    /// Receiving the mempool response
-    RecvResponse(usize),
+    /// Resolving its data URL to a SocketAddr. Contains the data URL, DNS request handle, and
+    /// mempool page ID
+    ResolveURL(UrlString, DNSRequest, Txid),
+    /// Sending the request for mempool transactions. Contains the data URL, resolved socket, and
+    /// mempool page.
+    SendQuery(UrlString, SocketAddr, Txid),
+    /// Receiving the mempool response. Contains the URL, socket address, and event ID
+    RecvResponse(UrlString, SocketAddr, usize),
 }
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
@@ -3153,6 +3155,7 @@ impl PeerNetwork {
     fn mempool_sync_pick_outbound_peer(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
+        page_id: &Txid,
     ) -> Result<Option<MempoolSyncState>, net_error> {
         if self.peers.len() == 0 {
             debug!("No peers connected; cannot do mempool sync");
@@ -3196,7 +3199,7 @@ impl PeerNetwork {
         }
 
         if let Some(url) = mempool_sync_data_url {
-            self.mempool_sync_begin_resolve_data_url(url, dns_client_opt)
+            self.mempool_sync_begin_resolve_data_url(url, dns_client_opt, page_id)
         } else {
             debug!("No peer has a data URL, so no mempool sync can happen");
             Ok(None)
@@ -3212,6 +3215,7 @@ impl PeerNetwork {
         &self,
         url_str: UrlString,
         dns_client_opt: &mut Option<&mut DNSClient>,
+        page_id: &Txid,
     ) -> Result<Option<MempoolSyncState>, net_error> {
         // start resolving
         let url = url_str.parse_to_block_url()?;
@@ -3225,7 +3229,11 @@ impl PeerNetwork {
 
         // bare IP address?
         if let Some(addr) = PeerNetwork::try_get_url_ip(&url_str)? {
-            return Ok(Some(MempoolSyncState::SendQuery(url_str, addr)));
+            return Ok(Some(MempoolSyncState::SendQuery(
+                url_str,
+                addr,
+                page_id.clone(),
+            )));
         } else if let Some(url::Host::Domain(domain)) = url.host() {
             if let Some(ref mut dns_client) = dns_client_opt {
                 // begin DNS query
@@ -3243,6 +3251,7 @@ impl PeerNetwork {
                 return Ok(Some(MempoolSyncState::ResolveURL(
                     url_str,
                     DNSRequest::new(domain.to_string(), port, 0),
+                    page_id.clone(),
                 )));
             } else {
                 // can't proceed -- no DNS client
@@ -3311,11 +3320,13 @@ impl PeerNetwork {
         addr: &SocketAddr,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
+        page_id: Txid,
     ) -> Result<(bool, Option<usize>), net_error> {
         let sync_data = mempool.make_mempool_sync_data()?;
         let request = HttpRequestType::MemPoolQuery(
             HttpRequestMetadata::from_host(PeerHost::from_socketaddr(addr)),
             sync_data,
+            Some(page_id),
         );
 
         let event_id = self.connect_or_send_http_request(
@@ -3331,21 +3342,21 @@ impl PeerNetwork {
     /// Receive the mempool sync response.
     /// Return Ok(true, ..) if we're done with the mempool sync.
     /// Return Ok(false, ..) if we have more work to do.
-    /// Returns transactions if we're done, and we got transactions
+    /// Returns the page ID of the next request to make, and the list of transactions we got
     fn mempool_sync_recv_response(
         &mut self,
         event_id: usize,
-    ) -> Result<(bool, Option<Vec<StacksTransaction>>), net_error> {
+    ) -> Result<(bool, Option<Txid>, Option<Vec<StacksTransaction>>), net_error> {
         PeerNetwork::with_http(self, |_, http| {
             match http.get_conversation(event_id) {
                 None => {
                     if http.is_connecting(event_id) {
                         debug!("Mempool sync event {} is not connected yet", event_id,);
-                        return Ok((false, None));
+                        return Ok((false, None, None));
                     } else {
                         // conversation died
                         debug!("Mempool sync peer hung up");
-                        return Ok((true, None));
+                        return Ok((true, None, None));
                     }
                 }
                 Some(ref mut convo) => {
@@ -3356,15 +3367,15 @@ impl PeerNetwork {
                                 "Mempool sync event {} still waiting for a response",
                                 event_id
                             );
-                            return Ok((false, None));
+                            return Ok((false, None, None));
                         }
                         Some(http_response) => match http_response {
-                            HttpResponseType::MemPoolTxs(_, txs) => {
-                                return Ok((true, Some(txs)));
+                            HttpResponseType::MemPoolTxs(_, page_id_opt, txs) => {
+                                return Ok((true, page_id_opt, Some(txs)));
                             }
                             _ => {
                                 warn!("Mempool sync request received {:?}", &http_response);
-                                return Ok((true, None));
+                                return Ok((true, None, None));
                             }
                         },
                     }
@@ -3411,7 +3422,7 @@ impl PeerNetwork {
                 MempoolSyncState::PickOutboundPeer => {
                     // 1. pick a random outbound conversation.
                     if let Some(next_state) =
-                        self.mempool_sync_pick_outbound_peer(dns_client_opt)?
+                        self.mempool_sync_pick_outbound_peer(dns_client_opt, &Txid([0u8; 32]))?
                     {
                         // success! can advance to either resolve a URL or to send a query
                         self.mempool_state = next_state;
@@ -3421,7 +3432,7 @@ impl PeerNetwork {
                         return Ok((true, None));
                     }
                 }
-                MempoolSyncState::ResolveURL(ref url_str, ref dns_request) => {
+                MempoolSyncState::ResolveURL(ref url_str, ref dns_request, ref page_id) => {
                     // 2. resolve its data URL
                     match self.mempool_sync_resolve_data_url(
                         url_str,
@@ -3430,7 +3441,8 @@ impl PeerNetwork {
                     )? {
                         (false, Some(addr)) => {
                             // success! advance
-                            self.mempool_state = MempoolSyncState::SendQuery(url_str.clone(), addr);
+                            self.mempool_state =
+                                MempoolSyncState::SendQuery(url_str.clone(), addr, page_id.clone());
                         }
                         (false, None) => {
                             // try again later
@@ -3443,12 +3455,20 @@ impl PeerNetwork {
                         }
                     }
                 }
-                MempoolSyncState::SendQuery(ref url, ref addr) => {
+                MempoolSyncState::SendQuery(ref url, ref addr, ref page_id) => {
                     // 3. ask for the remote peer's mempool's novel txs
-                    match self.mempool_sync_send_query(url, addr, mempool, chainstate)? {
+                    match self.mempool_sync_send_query(
+                        url,
+                        addr,
+                        mempool,
+                        chainstate,
+                        page_id.clone(),
+                    )? {
                         (false, Some(event_id)) => {
                             // success! advance
-                            self.mempool_state = MempoolSyncState::RecvResponse(event_id);
+                            debug!("Query {} for mempool transactions at {}", url, page_id);
+                            self.mempool_state =
+                                MempoolSyncState::RecvResponse(url.clone(), addr.clone(), event_id);
                         }
                         (false, None) => {
                             // try again later
@@ -3461,23 +3481,38 @@ impl PeerNetwork {
                         }
                     }
                 }
-                MempoolSyncState::RecvResponse(ref event_id) => {
+                MempoolSyncState::RecvResponse(ref url, ref addr, ref event_id) => {
                     match self.mempool_sync_recv_response(*event_id)? {
-                        (true, Some(txs)) => {
+                        (true, next_page_id_opt, Some(txs)) => {
                             // done! got data
-                            self.mempool_sync_reset();
-                            return Ok((true, Some(txs)));
+                            let ret = match next_page_id_opt {
+                                Some(next_page_id) => {
+                                    // get the next page
+                                    self.mempool_state = MempoolSyncState::SendQuery(
+                                        url.clone(),
+                                        addr.clone(),
+                                        next_page_id,
+                                    );
+                                    false
+                                }
+                                None => {
+                                    // done
+                                    self.mempool_sync_reset();
+                                    true
+                                }
+                            };
+                            return Ok((ret, Some(txs)));
                         }
-                        (true, None) => {
+                        (true, _, None) => {
                             // done! did not get data
                             self.mempool_sync_reset();
                             return Ok((true, None));
                         }
-                        (false, None) => {
+                        (false, _, None) => {
                             // still receiving; try again later
                             return Ok((false, None));
                         }
-                        (false, Some(_)) => {
+                        (false, _, Some(_)) => {
                             // should never happen
                             if cfg!(test) {
                                 panic!("Reached invalid state in {:?}, aborting...", &cur_state);
