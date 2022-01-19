@@ -2631,19 +2631,19 @@ impl ConversationHttp {
     }
 
     /// Make progress on outbound requests.
-    /// Return true if the connection should be kept alive after all messages are drained.
-    /// If we process a request with "Connection: close", then return false (indicating that the
-    /// connection should be severed once the conversation is drained)
+    /// Return true if we are yielding prematurely, but have more data.
+    /// Return false if not.
     fn send_outbound_responses(
         &mut self,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
-    ) -> Result<(), net_error> {
+    ) -> Result<bool, net_error> {
         // send out streamed responses in the order they were requested
         let mut drained_handle = false;
         let mut drained_stream = false;
         let mut broken = false;
         let mut do_keep_alive = true;
+        let mut yielded = false;
 
         test_debug!(
             "{:?}: {} HTTP replies pending",
@@ -2691,6 +2691,41 @@ impl ConversationHttp {
                                     }
                                     drained_stream = true;
                                 }
+                            }
+                            Err(chain_error::Yield(nw)) => {
+                                // got some data, but don't try this stream again.
+                                test_debug!("streamed {} bytes, and will yield", nw);
+                                if nw == 0 {
+                                    // EOF -- finish chunk and stop sending.
+                                    if !encoder.corked() {
+                                        encoder.flush().map_err(|e| {
+                                            test_debug!("Write error on encoder flush: {:?}", &e);
+                                            net_error::WriteError(e)
+                                        })?;
+
+                                        encoder.cork();
+
+                                        test_debug!("stream indicates EOF");
+                                    }
+
+                                    // try moving some data to the connection only once we're done
+                                    // streaming
+                                    match reply.try_flush() {
+                                        Ok(res) => {
+                                            test_debug!("Streamed reply is drained");
+                                            drained_handle = res;
+                                        }
+                                        Err(e) => {
+                                            // dead
+                                            warn!("Broken HTTP connection: {:?}", &e);
+                                            broken = true;
+                                        }
+                                    }
+                                    drained_stream = true;
+                                }
+
+                                // try again later
+                                yielded = true;
                             }
                             Err(e) => {
                                 // broken -- terminate the stream.
@@ -2742,7 +2777,7 @@ impl ConversationHttp {
             }
         }
 
-        Ok(())
+        Ok(yielded)
     }
 
     pub fn try_send_recv_response(
@@ -2809,14 +2844,15 @@ impl ConversationHttp {
     }
 
     /// Make progress on in-flight messages.
+    /// Return true if we have more data to send but we're done for now; false if not.
     pub fn try_flush(
         &mut self,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
-    ) -> Result<(), net_error> {
-        self.send_outbound_responses(mempool, chainstate)?;
+    ) -> Result<bool, net_error> {
+        let yielded = self.send_outbound_responses(mempool, chainstate)?;
         self.recv_inbound_response()?;
-        Ok(())
+        Ok(yielded)
     }
 
     /// Is the connection idle?
@@ -2960,7 +2996,7 @@ impl ConversationHttp {
         let mut total_sz = 0;
         loop {
             // prime the Write
-            self.try_flush(mempool, chainstate)?;
+            let yielded = self.try_flush(mempool, chainstate)?;
 
             let sz = match self.connection.send_data(w) {
                 Ok(sz) => sz,
@@ -2974,6 +3010,11 @@ impl ConversationHttp {
             if sz > 0 {
                 self.last_response_timestamp = get_epoch_time_secs();
             } else {
+                break;
+            }
+
+            if yielded {
+                // we're done generating data from the stream for now, but we have more.
                 break;
             }
         }
