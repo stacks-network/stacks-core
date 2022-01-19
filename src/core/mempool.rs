@@ -1816,6 +1816,7 @@ impl MemPoolDB {
         count: u64,
     ) -> Result<u64, ChainstateError> {
         let mut num_written = 0;
+        let mut num_txs = 0;
         while num_written < count {
             if query.num_txs >= query.max_txs {
                 // don't serve more than this many txs
@@ -1847,6 +1848,7 @@ impl MemPoolDB {
                     query.tx_buf_ptr = 0;
                     query.tx_buf.clear();
                     query.num_txs += 1;
+                    num_txs += 1;
 
                     next_tx
                         .consensus_serialize(&mut query.tx_buf)
@@ -1864,6 +1866,13 @@ impl MemPoolDB {
                         "No more txs in query after {:?}",
                         &query.last_randomized_txid
                     );
+                    break;
+                }
+
+                if num_written > 0 && num_txs > 1 {
+                    // if we can send at least one transaction, or at least one byte, by the time
+                    // we finish sending a transaction, then stop early in order to limit the
+                    // amount of I/O that happens in a stream.
                     break;
                 }
             }
