@@ -530,15 +530,26 @@ impl StreamCursor {
         }))
     }
 
-    pub fn new_tx_stream(tx_query: MemPoolSyncData, max_txs: u64, height: u64) -> StreamCursor {
+    pub fn new_tx_stream(
+        tx_query: MemPoolSyncData,
+        max_txs: u64,
+        height: u64,
+        page_id_opt: Option<Txid>,
+    ) -> StreamCursor {
+        let last_randomized_txid = page_id_opt.unwrap_or_else(|| {
+            let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+            Txid(random_bytes)
+        });
+
         StreamCursor::MempoolTxs(TxStreamData {
             tx_query,
-            last_randomized_txid: Txid([0u8; 32]),
+            last_randomized_txid: last_randomized_txid,
             tx_buf: vec![],
             tx_buf_ptr: 0,
             num_txs: 0,
             max_txs: max_txs,
             height: height,
+            corked: false,
         })
     }
 
