@@ -1717,9 +1717,14 @@ fn test_stream_txs() {
     };
 
     loop {
-        let nw = mempool
-            .stream_txs(&mut buf, &mut tx_stream_data, 10)
-            .unwrap();
+        let nw = match mempool.stream_txs(&mut buf, &mut tx_stream_data, 10) {
+            Ok(nw) => nw,
+            Err(ChainstateError::Yield(nw)) => nw,
+            Err(e) => {
+                error!("Failed to stream_to: {:?}", &e);
+                panic!();
+            }
+        };
         if nw == 0 {
             break;
         }
