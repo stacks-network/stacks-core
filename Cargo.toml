@@ -22,6 +22,7 @@ path = "src/lib.rs"
 name = "blockstack-core"
 path = "src/main.rs"
 
+
 [[bin]]
 name = "clarity-cli"
 path = "src/clarity_cli.rs"
@@ -29,6 +30,10 @@ path = "src/clarity_cli.rs"
 [[bin]]
 name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
+
+[[bin]]
+name = "mempool-analyzer"
+path = "src/mempool_analyzer.rs"
 
 [[bench]]
 name = "marf_bench"
