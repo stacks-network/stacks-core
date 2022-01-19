@@ -465,7 +465,7 @@ impl std::default::Default for ConnectionOptions {
             max_buffered_microblocks: 10,
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
             mempool_max_tx_query: MAX_BLOOM_COUNTER_TXS.into(),
-            mempool_sync_timeout: 60, // how long a mempool sync can go for
+            mempool_sync_timeout: 120, // how long a mempool sync can go for
 
             // no faults on by default
             disable_neighbor_walk: false,
