@@ -76,7 +76,7 @@ use blockstack_lib::{
 
 fn main() {
     let argv: Vec<String> = env::args().collect();
-    if argv.len() < 1 {
+    if argv.len() < 2 {
         eprintln!(
             "Usage: {} <working-dir> [min-fee [max-time]]
 
@@ -91,8 +91,8 @@ simulating a miner.
     }
 
     let start = get_epoch_time_ms();
-    let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
-    let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
+    let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[1]);
+    let chain_state_path = format!("{}/mainnet/chainstate/", &argv[1]);
 
     let mut min_fee = u64::max_value();
     let mut max_time = u64::max_value();
@@ -158,6 +158,7 @@ simulating a miner.
         &coinbase_tx,
         settings,
         None,
+        u64::MAX,
     );
 
     let stop = get_epoch_time_ms();

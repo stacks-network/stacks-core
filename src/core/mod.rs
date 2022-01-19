@@ -72,7 +72,7 @@ pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 //  from the mempool. 20% is chosen as a heuristic here to allow for large transactions to be
 //  attempted, but if they cannot be included in an otherwise mostly empty block, not to consider
 //  them again.
-pub const TX_BLOCK_LIMIT_PROPORTION_HEURISTIC: u64 = 20;
+pub const TX_BLOCK_LIMIT_PROPORTION_HEURISTIC: u64 = 200000000000;
 
 pub const GENESIS_EPOCH: StacksEpochId = StacksEpochId::Epoch20;
 

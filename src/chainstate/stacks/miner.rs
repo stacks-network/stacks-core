@@ -587,7 +587,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     /// # Pre-Checks
     /// - skip if the `anchor_mode` rules out micro-blocks
     /// - skip if 'tx.txid()` is already in `considered`
-    /// - skip if adding the block would result in a block size bigger than `MAX_EPOCH_SIZE`
+    /// - skip if adding the block would result in a block size bigger than `max_epoch_size`
     ///
     /// # Error Handling
     /// - If the error when processing a tx is `CostOverflowError`, reset the cost of the block.
@@ -597,7 +597,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         tx_len: u64,
         considered: &mut HashSet<Txid>,
         bytes_so_far: u64,
+        max_epoch_size: u64,
     ) -> Result<TransactionResult, Error> {
+        info!("max_epoch_size {}", max_epoch_size);
         if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
             && tx.anchor_mode != TransactionAnchorMode::Any
         {
@@ -617,7 +619,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         } else {
             considered.insert(tx.txid());
         }
-        if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if bytes_so_far + tx_len >= max_epoch_size.into() {
             info!(
                 "Adding microblock tx {} would exceed epoch data size",
                 &tx.txid()
@@ -673,6 +675,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         &mut self,
         txs_and_lens: Vec<(StacksTransaction, u64)>,
         miner_key: &Secp256k1PrivateKey,
+        max_epoch_size: u64,
     ) -> Result<StacksMicroblock, Error> {
         let mut txs_included = vec![];
 
@@ -699,6 +702,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 tx_len,
                 &mut considered,
                 bytes_so_far,
+                max_epoch_size,
             ) {
                 Ok(tx_result) => {
                     tx_events.push(tx_result.convert_to_event());
@@ -753,6 +757,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         mem_pool: &mut MemPoolDB,
         miner_key: &Secp256k1PrivateKey,
         event_dispatcher: &dyn MemPoolEventDispatcher,
+        max_epoch_size: u64,
     ) -> Result<StacksMicroblock, Error> {
         let mut txs_included = vec![];
         let mempool_settings = self.settings.mempool_settings.clone();
@@ -811,6 +816,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             mempool_tx.metadata.len,
                             &mut considered,
                             bytes_so_far,
+                            max_epoch_size,
                         ) {
                             Ok(tx_result) => {
                                 tx_events.push(tx_result.convert_to_event());
@@ -1096,9 +1102,10 @@ impl StacksBlockBuilder {
         &mut self,
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
+        max_epoch_size: u64,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
-        match self.try_mine_tx_with_len(clarity_tx, tx, tx_len, &BlockLimitFunction::NO_LIMIT_HIT) {
+        match self.try_mine_tx_with_len(clarity_tx, tx, tx_len, &BlockLimitFunction::NO_LIMIT_HIT, max_epoch_size) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
             TransactionResult::Skipped(TransactionSkipped { error, .. })
             | TransactionResult::ProcessingError(TransactionError { error, .. }) => Err(error),
@@ -1113,8 +1120,9 @@ impl StacksBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
+        max_epoch_size: u64,
     ) -> TransactionResult {
-        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if self.bytes_so_far + tx_len >= max_epoch_size.into() {
             return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
         }
 
@@ -1282,11 +1290,11 @@ impl StacksBlockBuilder {
             .map_err(Error::CodecError)?;
         let tx_len = tx_bytes.len() as u64;
 
-        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if self.bytes_so_far + tx_len >= max_epoch_size.into() {
             warn!(
                 "Epoch size is {} >= {}",
                 self.bytes_so_far + tx_len,
-                MAX_EPOCH_SIZE
+                max_epoch_size
             );
         }
 
@@ -1652,7 +1660,7 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.drain(..) {
-            match builder.try_mine_tx(&mut epoch_tx, &tx) {
+            match builder.try_mine_tx(&mut epoch_tx, &tx, MAX_EPOCH_SIZE) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -1789,6 +1797,7 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        max_epoch_size: u64,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;
@@ -1834,7 +1843,7 @@ impl StacksBlockBuilder {
         let mut tx_events = Vec::new();
         tx_events.push(
             builder
-                .try_mine_tx(&mut epoch_tx, coinbase_tx)?
+                .try_mine_tx(&mut epoch_tx, coinbase_tx, max_epoch_size)?
                 .convert_to_event(),
         );
 
@@ -1904,6 +1913,7 @@ impl StacksBlockBuilder {
                             &txinfo.tx,
                             txinfo.metadata.len,
                             &block_limit_hit,
+                            max_epoch_size,
                         );
                         tx_events.push(tx_result.convert_to_event());
 
