@@ -1,14 +1,14 @@
 ;; The .exit-at-rc contract
 ;; Error codes
-(define-constant ERR_AMOUNT_NOT_POSITIVE 2) ;; not testable
-(define-constant ERR_PREVIOUS_VOTE_VALID 7) ;; g
-(define-constant ERR_ALREADY_VETOED 9) ;; g
-(define-constant ERR_UNAUTHORIZED_CALLER 10)  ;; g
-(define-constant ERR_VOTER_NOT_STACKING 13) ;; wip
-(define-constant ERR_BURN_BLOCK_HEIGHT_TOO_LOW 14)  ;; not testable
-(define-constant ERR_FETCHING_BLOCK_INFO 16) ;; not testable
+(define-constant ERR_AMOUNT_NOT_POSITIVE 2)
+(define-constant ERR_PREVIOUS_VOTE_VALID 7)
+(define-constant ERR_ALREADY_VETOED 9)
+(define-constant ERR_UNAUTHORIZED_CALLER 10)
+(define-constant ERR_VOTER_NOT_STACKING 13)
+(define-constant ERR_BURN_BLOCK_HEIGHT_TOO_LOW 14)
+(define-constant ERR_FETCHING_BLOCK_INFO 16)
 (define-constant ERR_NOT_ALLOWED 19)
-(define-constant ERR_INVALID_PROPOSED_RC 21)  ;; g
+(define-constant ERR_INVALID_PROPOSED_RC 21)
 
 ;; Constants
 (define-constant ABSOLUTE_MINIMUM_EXIT_RC u25)
@@ -86,14 +86,14 @@
     (burn-height-to-reward-cycle burn-block-height))
 
 
-;; base cycle number for vote (some(15), some(16), some(17), none, none, none ...)
-;; vote info (20 20 20 20 ...)
-;; amount (10 10 10 ...)
+;; For a specific reward cycle, this function tried to add "amount" number of votes for the proposed exit reward cycle.
+;; reminder: votes are specific to reward cycles, since vote longetivity is tied to the voter's stacking duration.
 (define-private (add-to-rc-proposal-map (cycle-opt (optional uint)) (proposed-rc uint) (amount uint))
     (begin
         (match cycle-opt
             cycle (match (map-get? rc-proposal-votes {proposed-rc: proposed-rc, curr-rc: cycle})
                               existing-votes (map-set rc-proposal-votes {proposed-rc: proposed-rc, curr-rc: cycle} {votes: (+ amount (get votes existing-votes)) })
+
                               ;; no existing state
                               (map-insert rc-proposal-votes {proposed-rc: proposed-rc, curr-rc: cycle} {votes: amount})
                           )
@@ -102,6 +102,9 @@
     )
 )
 
+;; Used to construct a list of the reward cycles that a voter's vote would be valid for.
+;; Ex: if a user starts stacking at RC 18 for 3 cycles, the output of this function would be:
+;;     [ (some 18), (some 19), (some 20), none, none, none, none, none, none, none, none, none ]
 (define-private (get-voting-reward-cycles (index uint) (lock-period uint) (first-reward-cycle uint))
     (begin
         (if (< index lock-period)
@@ -111,7 +114,10 @@
     )
 )
 
-;; TODO - fill in boot code address for contract-call
+;; TODO - fill in real address for contract-call once known
+;; A stacking voter with no outstanding vote can call this function with their proposed exit reward cycle to vote for it.
+;; This function enforces bounds on the vote (can't be above/below specific values).
+;; If a vote is accepted, the voter can only re-vote when they stack again.
 (define-public (vote-for-exit-rc (proposed-exit-rc uint))
     (let (
         (stacker-info (unwrap! (contract-call? .pox get-stacker-info tx-sender) (err ERR_VOTER_NOT_STACKING)))
@@ -158,6 +164,8 @@
     )
 )
 
+;; This function is used by miners to veto a proposed exit reward cycle. The veto period is active the reward cycle
+;; after a vote is confirmed.
 (define-public (veto-exit-rc (proposed-exit-rc uint))
     (let (
         (current-reward-cycle (unwrap-panic (current-pox-reward-cycle)))
