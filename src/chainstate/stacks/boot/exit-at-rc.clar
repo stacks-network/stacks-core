@@ -7,6 +7,7 @@
 (define-constant ERR_VOTER_NOT_STACKING 13) ;; wip
 (define-constant ERR_BURN_BLOCK_HEIGHT_TOO_LOW 14)  ;; not testable
 (define-constant ERR_FETCHING_BLOCK_INFO 16) ;; not testable
+(define-constant ERR_NOT_ALLOWED 19)
 (define-constant ERR_INVALID_PROPOSED_RC 21)  ;; g
 
 ;; Constants
@@ -14,11 +15,19 @@
 (define-constant MAXIMUM_RC_BUFFER_FROM_PRESENT u25)
 (define-constant MINIMUM_RC_BUFFER_FROM_PRESENT u6)
 
-;; TEMP
-(define-read-only (get-rc-proposal-votes (rc uint) (curr uint))
-    (default-to
-        u0
-        (get votes (map-get? rc-proposal-votes { proposed-rc: rc, curr-rc: curr })))
+;; Data vars
+(define-data-var pox-reward-cycle-length uint POX_REWARD_CYCLE_LENGTH)
+(define-data-var first-burnchain-block-height uint FIRST_BURNCHAIN_BLOCK_HEIGHT)
+(define-data-var configured bool false)
+
+;; This function can only be called once, when it boots up
+(define-public (set-burnchain-parameters (first-burn-height uint) (reward-cycle-length uint))
+    (begin
+        (asserts! (not (var-get configured)) (err ERR_NOT_ALLOWED))
+        (var-set first-burnchain-block-height first-burn-height)
+        (var-set pox-reward-cycle-length reward-cycle-length)
+        (var-set configured true)
+        (ok true))
 )
 
 (define-map rc-proposal-votes
@@ -60,14 +69,14 @@
 (define-private (burn-height-to-reward-cycle (height uint))
     (let
         (
-            (first-burnchain-block-height (var-get FIRST_BURNCHAIN_BLOCK_HEIGHT))
-            (pox-reward-cycle-length (var-get POX_REWARD_CYCLE_LENGTH))
+            (local-first-burnchain-block-height (var-get first-burnchain-block-height))
+            (local-pox-reward-cycle-length (var-get pox-reward-cycle-length))
         )
 
-        (asserts! (> height first-burnchain-block-height) (err ERR_BURN_BLOCK_HEIGHT_TOO_LOW))
-        (asserts! (> pox-reward-cycle-length u0) (err ERR_AMOUNT_NOT_POSITIVE))
+        (asserts! (> height local-first-burnchain-block-height) (err ERR_BURN_BLOCK_HEIGHT_TOO_LOW))
+        (asserts! (> local-pox-reward-cycle-length u0) (err ERR_AMOUNT_NOT_POSITIVE))
 
-        (ok (/ (- height first-burnchain-block-height) pox-reward-cycle-length))
+        (ok (/ (- height local-first-burnchain-block-height) local-pox-reward-cycle-length))
     )
 )
 

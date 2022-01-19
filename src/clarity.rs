@@ -782,6 +782,21 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
             params.as_slice(),
         )
         .unwrap();
+
+    let exit_at_rc_contract = boot_code_id("exit-at-rc", mainnet);
+    let sender = PrincipalData::from(exit_at_rc_contract.clone());
+    let params = vec![
+        SymbolicExpression::atom_value(Value::UInt(0)), // first burnchain block height
+        SymbolicExpression::atom_value(Value::UInt(pox_params.reward_cycle_length as u128)),
+    ];
+    vm_env
+        .execute_transaction(
+            sender,
+            exit_at_rc_contract,
+            "set-burnchain-parameters",
+            params.as_slice(),
+        )
+        .unwrap();
 }
 
 pub fn add_costs(result: &mut serde_json::Value, costs: bool, runtime: ExecutionCost) {

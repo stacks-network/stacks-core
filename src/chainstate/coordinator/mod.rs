@@ -72,8 +72,10 @@ use core::{
     POX_REWARD_CYCLE_LENGTH,
 };
 use std::iter::FromIterator;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use util;
-use util::db::Error::NotFoundError;
+use util::db::Error::{Corruption, NotFoundError};
 use util::sleep_ms;
 use vm::costs::LimitedCostTracker;
 use vm::database::ClarityDatabase;
@@ -198,6 +200,7 @@ pub struct ChainsCoordinator<
     reward_set_provider: R,
     notifier: N,
     atlas_config: AtlasConfig,
+    should_keep_running: Arc<AtomicBool>,
 }
 
 #[derive(Debug)]
@@ -301,6 +304,7 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
         atlas_config: AtlasConfig,
         cost_estimator: Option<&mut CE>,
         fee_estimator: Option<&mut FE>,
+        should_keep_running: Arc<AtomicBool>,
     ) where
         T: BlockEventDispatcher,
     {
@@ -334,6 +338,7 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
             cost_estimator,
             fee_estimator,
             atlas_config,
+            should_keep_running,
         };
 
         loop {
@@ -421,6 +426,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             notifier: (),
             attachments_tx,
             atlas_config: AtlasConfig::default(false),
+            should_keep_running: Arc::new(AtomicBool::new(true)),
         }
     }
 }
@@ -643,29 +649,21 @@ impl<
             // at this point, we need to figure out if the sortition we are
             //  about to process is the first block in the exit reward cycle.
             if let Some(chain_tip) = self.canonical_chain_tip {
-                // let canonical_sortition_tip = self.canonical_sortition_tip.as_ref().expect(
-                //     "FAIL: processing a new Stacks block, but don't have a canonical sortition tip",
-                // );
-                // let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
-
                 let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
                     self.sortition_db.conn(),
                     &chain_tip,
                 )?;
-                let first_reward_cycle_in_epoch = self
-                    .burnchain
-                    .block_height_to_reward_cycle(BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT)
-                    .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
-                info!(
-                    "EARC: exit info is: {:?}; EARC: reward height is: {:?}",
-                    exit_info_opt, first_reward_cycle_in_epoch
-                );
+
                 if let Some(exit_info) = exit_info_opt {
                     if let Some(exit_reward_cycle) = exit_info.curr_exit_at_reward_cycle {
+                        let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
+                        let curr_epoch =
+                            StacksEpoch::get_current_epoch(&epochs, header.block_height);
                         let first_reward_cycle_in_epoch = self
                             .burnchain
-                            .block_height_to_reward_cycle(BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT)
+                            .block_height_to_reward_cycle(curr_epoch.start_height)
                             .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
+
                         let curr_reward_cycle = self
                             .burnchain
                             .block_height_to_reward_cycle(header.block_height)
@@ -681,7 +679,10 @@ impl<
                                        "exit_reward_cycle" => exit_reward_cycle,
                                        "current_reward_cycle" => curr_reward_cycle);
                             sleep_ms(30000);
-                            std::process::exit(0);
+                            self.should_keep_running.store(false, Ordering::SeqCst);
+                            // sleep_ms(30000);
+                            // std::process::exit(0);
+                            return Ok(());
                         }
                     }
                 }

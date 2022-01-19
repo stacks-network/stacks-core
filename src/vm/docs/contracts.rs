@@ -146,6 +146,21 @@ If your name is in a namespace where names do not expire, then you never need to
         ("resolve-principal", "Returns the registered name that a principal owns if there is one. A principal can only own one name at a time.")
     ];
 
+    let exit_contract_descriptions = vec![
+        (
+            "vote-for-exit-rc",
+            "Stackers call this function with a specific exit proposal. When \
+        their STX unlocks, they are eligible to vote again. The vote must also fall into a \
+        valid range (greater than the minimum exit reward cycle, and within a particular range\
+        dependent on the current reward cycle.",
+        ),
+        (
+            "veto-exit-rc",
+            "Block miners call this function during the veto period for a specific \
+        exit proposal to veto the proposal.",
+        ),
+    ];
+
     let pox_skip_display = vec![
         "set-burnchain-parameters",
         "minimal-can-stack-stx",
@@ -158,6 +173,14 @@ If your name is in a namespace where names do not expire, then you never need to
         "namespace-revoke-function-price-edition",
         "check-name-ops-preconditions",
         "is-name-in-grace-period",
+    ];
+
+    let exit_contract_skip_display = vec![
+        "set-burnchain-parameters",
+        "burn-height-to-reward-cycle",
+        "current-pox-reward-cycle",
+        "add-to-rc-proposal-map",
+        "get-voting-reward-cycles",
     ];
 
     HashMap::from_iter(vec![
@@ -173,6 +196,13 @@ If your name is in a namespace where names do not expire, then you never need to
             ContractSupportDocs {
                 descriptions: HashMap::from_iter(bns_descriptions.into_iter()),
                 skip_func_display: HashSet::from_iter(bns_skip_display.into_iter()),
+            },
+        ),
+        (
+            "exit-at-rc",
+            ContractSupportDocs {
+                descriptions: HashMap::from_iter(exit_contract_descriptions.into_iter()),
+                skip_func_display: HashSet::from_iter(exit_contract_skip_display.into_iter()),
             },
         ),
     ])
@@ -227,12 +257,6 @@ fn produce_docs() -> BTreeMap<String, ContractRef> {
             mem_type_check_with_db(content, contract_name, &mut analysis_db)
                 .expect("BUG: failed to type check boot contract");
 
-        // let contract_identifier = QualifiedContractIdentifier::local(contract_name).unwrap();
-        // println!(
-        //     "main - stored {}: {}",
-        //     contract_name,
-        //     analysis_db.has_contract(&contract_identifier)
-        // );
         if let Some(contract_support) = support_docs.get(*contract_name) {
             let ContractAnalysis {
                 public_function_types,

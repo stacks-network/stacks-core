@@ -1,3 +1,3 @@
 ;; exit-at-rc mainnet constants
-(define-data-var FIRST_BURNCHAIN_BLOCK_HEIGHT uint u666050)
-(define-data-var POX_REWARD_CYCLE_LENGTH uint u2100)
+(define-constant FIRST_BURNCHAIN_BLOCK_HEIGHT u666050)
+(define-constant POX_REWARD_CYCLE_LENGTH u2100)

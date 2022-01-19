@@ -82,6 +82,7 @@ use stacks::net::RPCFeeEstimateResponse;
 use stacks::vm::ClarityName;
 use stacks::vm::ContractName;
 use std::convert::TryFrom;
+use std::sync::atomic::AtomicBool;
 
 pub fn neon_integration_test_conf() -> (Config, StacksAddress, StacksPrivateKey) {
     let mut conf = super::new_test_conf();
@@ -370,6 +371,10 @@ pub fn next_block_and_wait(
     while blocks_processed.load(Ordering::SeqCst) <= current {
         if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
             error!("Timed out waiting for block to process, trying to continue test");
+            return false;
+        }
+        if !btc_controller.should_keep_running() {
+            eprintln!("Exiting `next_block_and_wait` since should_keep_running is false.");
             return false;
         }
         thread::sleep(Duration::from_millis(100));
@@ -6195,6 +6200,10 @@ fn atlas_stress_integration_test() {
 /// should grow faster for lower values of `window_size`, because a bigger window slows down the
 /// growth.
 fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value: f64) {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
     let max_contract_src = r#"
 ;; define counter variable
 (define-data-var counter int 0)
@@ -6231,11 +6240,26 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
         amount: 10000000000,
     });
     test_observer::spawn();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(200);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -6683,26 +6707,24 @@ fn exit_at_rc_integration_test() {
         events_keys: vec![EventKeyType::AnyEvent],
     });
 
-    // 2B for minimum stack threshold to be met
-    let first_bal = 4_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let second_bal = 3_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let third_bal = 3_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let total_bal = 4_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    // let second_bal = 3_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    // let third_bal = 3_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let half_stacked_bal = 500_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    // let stacked_bal = third_total_liquid_supply as u128 * (core::MICROSTACKS_PER_STACKS as u128);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
-        amount: first_bal,
+        amount: total_bal,
     });
 
     conf.initial_balances.push(InitialBalance {
         address: spender_2_addr.clone(),
-        amount: second_bal,
+        amount: total_bal,
     });
 
     conf.initial_balances.push(InitialBalance {
         address: spender_3_addr.clone(),
-        amount: third_bal,
+        amount: total_bal,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -6713,7 +6735,6 @@ fn exit_at_rc_integration_test() {
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
 
-    // todo - maybe need to simplify pox constants
     // reward cycle length = 15, so 10 reward cycle slots + 5 prepare-phase burns
     let reward_cycle_len = 15;
     let prepare_phase_len = 5;
@@ -6728,11 +6749,12 @@ fn exit_at_rc_integration_test() {
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
+    let btc_should_keep_running = Arc::new(AtomicBool::new(true));
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
-        None,
+        Some(btc_should_keep_running.clone()),
     );
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -6746,7 +6768,10 @@ fn exit_at_rc_integration_test() {
     let client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
+    thread::spawn(move || {
+        run_loop.start(Some(burnchain_config), 0);
+        btc_should_keep_running.store(false, Ordering::SeqCst);
+    });
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -6769,23 +6794,19 @@ fn exit_at_rc_integration_test() {
 
     // and our potential spenders:
     let account = get_account(&http_origin, &spender_addr);
-    assert_eq!(account.balance, first_bal as u128);
+    assert_eq!(account.balance, total_bal as u128);
     assert_eq!(account.nonce, 0);
 
     let account = get_account(&http_origin, &spender_2_addr);
-    assert_eq!(account.balance, second_bal as u128);
+    assert_eq!(account.balance, total_bal as u128);
     assert_eq!(account.nonce, 0);
 
     let account = get_account(&http_origin, &spender_3_addr);
-    assert_eq!(account.balance, third_bal as u128);
+    assert_eq!(account.balance, total_bal as u128);
     assert_eq!(account.nonce, 0);
 
     let pox_info = get_pox_info(&http_origin);
     assert_eq!(pox_info.next_cycle.stacked_ustx, 0);
-    println!(
-        "total liquid supply: {}, sort_height: {}",
-        pox_info.total_liquid_supply_ustx, sort_height
-    );
 
     // TODO (hack) instantiate the sortdb in the burnchain
     let _ = btc_regtest_controller.sortdb_mut();
@@ -6825,8 +6846,6 @@ fn exit_at_rc_integration_test() {
         sort_height = channel.get_sortitions_processed();
     }
 
-    let pox_info = get_pox_info(&http_origin);
-
     let blocks_observed = test_observer::get_blocks();
     assert!(
         blocks_observed.len() >= 2,
@@ -6849,19 +6868,14 @@ fn exit_at_rc_integration_test() {
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-                eprintln!("{}", contract_call.function_name.as_str());
                 if contract_call.function_name.as_str() == "stack-stx" {
                     let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
                     let parsed =
                         <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
-                    // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
-                    // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
-                    // cycle length of 15 blocks, is a burnchain height of 300)
                     let pattern_str = format!(
                         r#"\(ok \(tuple \(lock-amount u{}\) \(stacker {}\) \(unlock-burn-height u270\)\)\)"#,
                         half_stacked_bal, "[0-9A-Z].*"
                     );
-                    println!("{:?}", parsed.to_string());
                     let pattern = Regex::new(&pattern_str).unwrap();
                     assert!(pattern.is_match(&parsed.to_string()));
                     tested_stacking += 1;
@@ -6894,14 +6908,6 @@ fn exit_at_rc_integration_test() {
         // let's push the vote transaction
         submit_tx(&http_origin, &vote_tx);
     }
-
-    println!(
-        "2) cycle #: {}, is stack active: {:?}, min stack threshold: {:?}, curr stacked: {:?}",
-        pox_info.current_cycle.id,
-        pox_info.current_cycle.is_pox_active,
-        pox_info.current_cycle.min_threshold_ustx,
-        pox_info.next_cycle.stacked_ustx
-    );
 
     // mine blocks until the start of the next reward cycle
     sort_height = channel.get_sortitions_processed();
@@ -6948,15 +6954,6 @@ fn exit_at_rc_integration_test() {
     assert_eq!(
         tested_voting, 3,
         "Should have observed 3 vote-for-exit-rc transactions"
-    );
-
-    let pox_info = get_pox_info(&http_origin);
-    println!(
-        "3) cycle #: {}, is stack active: {:?}, min stack threshold: {:?}, curr stacked: {:?}",
-        pox_info.current_cycle.id,
-        pox_info.current_cycle.is_pox_active,
-        pox_info.current_cycle.min_threshold_ustx,
-        pox_info.next_cycle.stacked_ustx
     );
 
     // check the sortdb state
@@ -7034,15 +7031,11 @@ fn exit_at_rc_integration_test() {
                     let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
                     let parsed =
                         <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
-                    // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
-                    // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
-                    // cycle length of 15 blocks, is a burnchain height of 300)
                     let pattern_str = format!(
                         r#"\(ok \(tuple \(lock-amount u{}\) \(stacker {}\) \(unlock-burn-height u390\)\)\)"#,
                         half_stacked_bal * 2,
                         "[0-9A-Z].*"
                     );
-                    println!("{:?}", parsed.to_string());
                     let pattern = Regex::new(&pattern_str).unwrap();
                     assert!(pattern.is_match(&parsed.to_string()));
                     tested_stacking += 1;
@@ -7175,6 +7168,7 @@ fn exit_at_rc_integration_test() {
         eprintln!("Sort height: {}", sort_height);
     }
 
+    // verify that pox is active
     let pox_info = get_pox_info(&http_origin);
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
     assert_eq!(pox_info.current_cycle.stacked_ustx, 3000000000000000);
@@ -7220,7 +7214,6 @@ fn exit_at_rc_integration_test() {
 
     // check sortdb - vote threshold met (>=50% of stacked stx involved in vote) - curr_exit_proposal should be set
     let sort_db = btc_regtest_controller.sortdb_ref();
-
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
     let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
@@ -7242,7 +7235,7 @@ fn exit_at_rc_integration_test() {
             &[Value::UInt(30)],
         );
 
-        // okay, let's push that stacking transaction!
+        // okay, let's push that veto transaction!
         submit_tx(&http_origin, &veto_tx);
         nonce += 2;
 
@@ -7261,7 +7254,6 @@ fn exit_at_rc_integration_test() {
     assert_eq!(exit_rc_info.curr_exit_proposal, None);
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
 
-    // TODO - maybe delete
     // mine blocks until the start of the next reward cycle
     sort_height = channel.get_sortitions_processed();
     while sort_height < ((25 * pox_constants.reward_cycle_length) + 1).into() {
@@ -7344,9 +7336,6 @@ fn exit_at_rc_integration_test() {
     ////////////////////////////////////////////////////////////////////////////////////////////
     // VOTE FAIL: enough STX stacked, unanimous vote for rc below minimum buffer
     test_observer::clear();
-    // let pox_info = get_pox_info(&http_origin);
-    // assert_eq!(pox_info.current_cycle.is_pox_active, false);
-    // assert_eq!(pox_info.current_cycle.id, 26);
     sort_height = channel.get_sortitions_processed();
     for (i, sk) in [spender_sk, spender_2_sk, spender_3_sk].iter().enumerate() {
         let stack_amount = if i == 0 {
@@ -7410,14 +7399,10 @@ fn exit_at_rc_integration_test() {
                     let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
                     let parsed =
                         <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
-                    // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
-                    // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
-                    // cycle length of 15 blocks, is a burnchain height of 300)
                     let pattern_str = format!(
                         r#"\(ok \(tuple \(lock-amount u{}\) \(stacker {}\) \(unlock-burn-height u525\)\)\)"#,
                         "[0-9].*", "[0-9A-Z].*"
                     );
-                    println!("{:?}", parsed.to_string());
                     let pattern = Regex::new(&pattern_str).unwrap();
                     assert!(pattern.is_match(&parsed.to_string()));
                     tested_stacking += 1;
@@ -7763,15 +7748,11 @@ fn exit_at_rc_integration_test() {
                     let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
                     let parsed =
                         <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
-                    // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
-                    // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
-                    // cycle length of 15 blocks, is a burnchain height of 300)
                     let pattern_str = format!(
                         r#"\(ok \(tuple \(lock-amount u{}\) \(stacker {}\) \(unlock-burn-height u600\)\)\)"#,
                         half_stacked_bal * 2,
                         "[0-9A-Z].*"
                     );
-                    println!("{:?}", parsed.to_string());
                     let pattern = Regex::new(&pattern_str).unwrap();
                     assert!(pattern.is_match(&parsed.to_string()));
                     tested_stacking += 1;
@@ -7789,10 +7770,6 @@ fn exit_at_rc_integration_test() {
         eprintln!("Sort height: {}", sort_height);
     }
     let pox_info = get_pox_info(&http_origin);
-    println!(
-        "min threshold ustx: {}, amount stacked: {}",
-        pox_info.current_cycle.min_threshold_ustx, pox_info.current_cycle.stacked_ustx
-    );
     assert_eq!(pox_info.current_cycle.stacked_ustx, 3000000000000000);
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
 
@@ -7862,8 +7839,6 @@ fn exit_at_rc_integration_test() {
         tested_voting, 3,
         "Should have observed 3 vote-for-exit-rc transactions (from spender 1, 2, and 3)"
     );
-
-    // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // check sortdb - vote threshold met (>=50% of stacked stx involved in vote) - curr_exit_proposal should be set
     let sort_db = btc_regtest_controller.sortdb_ref();
@@ -7942,15 +7917,11 @@ fn exit_at_rc_integration_test() {
                     let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
                     let parsed =
                         <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
-                    // should unlock at height 300 (we're in reward cycle 13, lockup starts in reward cycle
-                    // 14, and goes for 6 blocks, so we unlock in reward cycle 20, which with a reward
-                    // cycle length of 15 blocks, is a burnchain height of 300)
                     let pattern_str = format!(
                         r#"\(ok \(tuple \(lock-amount u{}\) \(stacker {}\) \(unlock-burn-height u675\)\)\)"#,
                         half_stacked_bal * 2,
                         "[0-9A-Z].*"
                     );
-                    println!("{:?}", parsed.to_string());
                     let pattern = Regex::new(&pattern_str).unwrap();
                     assert!(pattern.is_match(&parsed.to_string()));
                     tested_stacking += 1;
@@ -8049,7 +8020,7 @@ fn exit_at_rc_integration_test() {
     assert_eq!(exit_rc_info.curr_exit_proposal, Some(53));
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, Some(49));
 
-    // veto the proposal with the miner_account for the next reward cycle
+    // veto the proposal with the miner_account for the next reward cycle, but only 4 times
     let mut nonce = 457;
     for i in 0..4 {
         let veto_tx = make_contract_call(
@@ -8062,7 +8033,7 @@ fn exit_at_rc_integration_test() {
             &[Value::UInt(53)],
         );
 
-        // okay, let's push that stacking transaction!
+        // okay, let's push that veto transaction!
         submit_tx(&http_origin, &veto_tx);
         nonce += 2;
 
@@ -8087,36 +8058,19 @@ fn exit_at_rc_integration_test() {
     assert_eq!(exit_rc_info.curr_exit_proposal, None);
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, Some(53));
 
-    // mine blocks through reward cycle 53; node should exit
+    // mine blocks; node should exit in this loop
     while sort_height < ((55 * pox_constants.reward_cycle_length) + 1).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
+
+        // The run loop should terminate at RC 53
+        if !btc_regtest_controller.should_keep_running() {
+            test_observer::clear();
+            channel.stop_chains_coordinator();
+            return;
+        }
     }
 
     panic!("Should not have reached this line; node should exit once it gets to RC 53");
-
-    test_observer::clear();
-    channel.stop_chains_coordinator();
 }
-
-// // mine until the end of the current reward cycle.
-// sort_height = channel.get_sortitions_processed();
-// while sort_height < ((15 * pox_constants.reward_cycle_length) - 1).into() {
-//     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-//     sort_height = channel.get_sortitions_processed();
-//     eprintln!("Sort height: {}", sort_height);
-// }
-
-// should have progressed the chain, though!
-// get the canonical chain tip
-// let path = format!("{}/v2/info", &http_origin);
-// let tip_info = client
-//     .get(&path)
-//     .send()
-//     .unwrap()
-//     .json::<RPCPeerInfoData>()
-//     .unwrap();
-//
-// eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
-// assert_eq!(tip_info.stacks_tip_height, 66);

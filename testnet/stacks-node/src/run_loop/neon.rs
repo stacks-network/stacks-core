@@ -440,6 +440,7 @@ impl RunLoop {
         let mut coordinator_dispatcher = self.event_dispatcher.clone();
         let (attachments_tx, attachments_rx) = sync_channel(1);
 
+        let should_keep_running_clone = should_keep_running.clone();
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
             .spawn(move || {
@@ -455,6 +456,7 @@ impl RunLoop {
                     moved_atlas_config,
                     cost_estimator.as_deref_mut(),
                     fee_estimator.as_deref_mut(),
+                    should_keep_running_clone,
                 );
             })
             .expect("FATAL: failed to start chains coordinator thread");

@@ -487,7 +487,7 @@ impl BitcoinRegtestController {
         Ok((burnchain_tip, burnchain_height))
     }
 
-    fn should_keep_running(&self) -> bool {
+    pub fn should_keep_running(&self) -> bool {
         match self.should_keep_running {
             Some(ref should_keep_running) => should_keep_running.load(Ordering::SeqCst),
             _ => true,

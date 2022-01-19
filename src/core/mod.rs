@@ -244,6 +244,14 @@ impl StacksEpoch {
         None
     }
 
+    /// Get the current epoch
+    pub fn get_current_epoch(epochs: &[StacksEpoch], height: u64) -> StacksEpoch {
+        let epoch_index = StacksEpoch::find_epoch(&epochs, height)
+            .expect(&format!("BUG: block {} is not in a known epoch", &height));
+        let epoch = epochs[epoch_index].clone();
+        epoch
+    }
+
     #[cfg(test)]
     pub fn unit_test_pre_2_05(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(

@@ -70,7 +70,6 @@ pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, Cont
     }
 }
 
-#[cfg(test)]
 pub fn mem_type_check_with_db(
     snippet: &str,
     name: &str,
@@ -101,12 +100,15 @@ pub fn mem_type_check_with_db(
         Err((e, _)) => Err(e),
     };
 
-    analysis_db.execute(|db| -> Result<(), ()> {
-        // ensures contract => contract hash exists in MARF (in normal operation, this is called by
-        // the Clarity DB)
-        db.test_insert_contract_hash(&contract_identifier);
-        Ok(())
-    });
+    #[cfg(test)]
+    {
+        analysis_db.execute(|db| -> Result<(), ()> {
+            // ensures contract => contract hash exists in MARF (in normal operation, this is called by
+            // the Clarity DB)
+            db.test_insert_contract_hash(&contract_identifier);
+            Ok(())
+        });
+    }
 
     res
 }
