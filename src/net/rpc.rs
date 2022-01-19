@@ -2087,6 +2087,7 @@ impl ConversationHttp {
         chainstate: &StacksChainState,
         query: MemPoolSyncData,
         max_txs: u64,
+        page_id: Option<Txid>,
     ) -> Result<Option<StreamCursor>, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let response = HttpResponseType::MemPoolTxStream(response_metadata);
@@ -2094,7 +2095,7 @@ impl ConversationHttp {
             .get_stacks_chain_tip(sortdb)?
             .map(|blk| blk.height)
             .unwrap_or(0);
-        let stream = Some(StreamCursor::new_tx_stream(query, max_txs, height));
+        let stream = Some(StreamCursor::new_tx_stream(query, max_txs, height, page_id));
         response.send(http, fd).and_then(|_| Ok(stream))
     }
 
@@ -2545,7 +2546,7 @@ impl ConversationHttp {
                 }
                 None
             }
-            HttpRequestType::MemPoolQuery(ref _md, ref query) => {
+            HttpRequestType::MemPoolQuery(ref _md, ref query, ref page_id_opt) => {
                 ConversationHttp::handle_mempool_query(
                     &mut self.connection.protocol,
                     &mut reply,
@@ -2554,6 +2555,7 @@ impl ConversationHttp {
                     chainstate,
                     query.clone(),
                     network.connection_opts.mempool_max_tx_query,
+                    page_id_opt.clone(),
                 )?
             }
             HttpRequestType::OptionsPreflight(ref _md, ref _path) => {
@@ -2631,19 +2633,16 @@ impl ConversationHttp {
     }
 
     /// Make progress on outbound requests.
-    /// Return true if we are yielding prematurely, but have more data.
-    /// Return false if not.
     fn send_outbound_responses(
         &mut self,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
-    ) -> Result<bool, net_error> {
+    ) -> Result<(), net_error> {
         // send out streamed responses in the order they were requested
         let mut drained_handle = false;
         let mut drained_stream = false;
         let mut broken = false;
         let mut do_keep_alive = true;
-        let mut yielded = false;
 
         test_debug!(
             "{:?}: {} HTTP replies pending",
@@ -2691,41 +2690,6 @@ impl ConversationHttp {
                                     }
                                     drained_stream = true;
                                 }
-                            }
-                            Err(chain_error::Yield(nw)) => {
-                                // got some data, but don't try this stream again.
-                                test_debug!("streamed {} bytes, and will yield", nw);
-                                if nw == 0 {
-                                    // EOF -- finish chunk and stop sending.
-                                    if !encoder.corked() {
-                                        encoder.flush().map_err(|e| {
-                                            test_debug!("Write error on encoder flush: {:?}", &e);
-                                            net_error::WriteError(e)
-                                        })?;
-
-                                        encoder.cork();
-
-                                        test_debug!("stream indicates EOF");
-                                    }
-
-                                    // try moving some data to the connection only once we're done
-                                    // streaming
-                                    match reply.try_flush() {
-                                        Ok(res) => {
-                                            test_debug!("Streamed reply is drained");
-                                            drained_handle = res;
-                                        }
-                                        Err(e) => {
-                                            // dead
-                                            warn!("Broken HTTP connection: {:?}", &e);
-                                            broken = true;
-                                        }
-                                    }
-                                    drained_stream = true;
-                                }
-
-                                // try again later
-                                yielded = true;
                             }
                             Err(e) => {
                                 // broken -- terminate the stream.
@@ -2776,8 +2740,7 @@ impl ConversationHttp {
                 self.keep_alive = false;
             }
         }
-
-        Ok(yielded)
+        Ok(())
     }
 
     pub fn try_send_recv_response(
@@ -2844,15 +2807,14 @@ impl ConversationHttp {
     }
 
     /// Make progress on in-flight messages.
-    /// Return true if we have more data to send but we're done for now; false if not.
     pub fn try_flush(
         &mut self,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
-    ) -> Result<bool, net_error> {
-        let yielded = self.send_outbound_responses(mempool, chainstate)?;
+    ) -> Result<(), net_error> {
+        self.send_outbound_responses(mempool, chainstate)?;
         self.recv_inbound_response()?;
-        Ok(yielded)
+        Ok(())
     }
 
     /// Is the connection idle?
@@ -2930,7 +2892,7 @@ impl ConversationHttp {
                         self.handle_request(req, network, sortdb, chainstate, mempool, handler_args)
                     })?;
 
-                    debug!("Processed HTTPRequest"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis());
+                    debug!("Processed HTTPRequest"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
 
                     if let Some(msg) = msg_opt {
                         ret.push(msg);
@@ -2996,7 +2958,7 @@ impl ConversationHttp {
         let mut total_sz = 0;
         loop {
             // prime the Write
-            let yielded = self.try_flush(mempool, chainstate)?;
+            self.try_flush(mempool, chainstate)?;
 
             let sz = match self.connection.send_data(w) {
                 Ok(sz) => sz,
@@ -3010,11 +2972,6 @@ impl ConversationHttp {
             if sz > 0 {
                 self.last_response_timestamp = get_epoch_time_secs();
             } else {
-                break;
-            }
-
-            if yielded {
-                // we're done generating data from the stream for now, but we have more.
                 break;
             }
         }
@@ -3253,10 +3210,15 @@ impl ConversationHttp {
     }
 
     /// Make a new request for mempool contents
-    pub fn new_mempool_query(&self, query: MemPoolSyncData) -> HttpRequestType {
+    pub fn new_mempool_query(
+        &self,
+        query: MemPoolSyncData,
+        page_id_opt: Option<Txid>,
+    ) -> HttpRequestType {
         HttpRequestType::MemPoolQuery(
             HttpRequestMetadata::from_host(self.peer_host.clone()),
             query,
+            page_id_opt,
         )
     }
 }
@@ -5732,13 +5694,16 @@ mod test {
              ref mut convo_client,
              ref mut peer_server,
              ref mut convo_server| {
-                convo_client.new_mempool_query(MemPoolSyncData::TxTags([0u8; 32], vec![]))
+                convo_client.new_mempool_query(
+                    MemPoolSyncData::TxTags([0u8; 32], vec![]),
+                    Some(Txid([0u8; 32])),
+                )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
                 println!("{:?}", http_response);
                 match http_response {
-                    HttpResponseType::MemPoolTxs(_, txs) => {
+                    HttpResponseType::MemPoolTxs(_, _, txs) => {
                         // got everything
                         assert_eq!(txs.len(), 10);
                         true
@@ -5764,17 +5729,20 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 // empty bloom filter
-                convo_client.new_mempool_query(MemPoolSyncData::BloomFilter(BloomFilter::new(
-                    BLOOM_COUNTER_ERROR_RATE,
-                    MAX_BLOOM_COUNTER_TXS,
-                    BloomNodeHasher::new(&[0u8; 32]),
-                )))
+                convo_client.new_mempool_query(
+                    MemPoolSyncData::BloomFilter(BloomFilter::new(
+                        BLOOM_COUNTER_ERROR_RATE,
+                        MAX_BLOOM_COUNTER_TXS,
+                        BloomNodeHasher::new(&[0u8; 32]),
+                    )),
+                    Some(Txid([0u8; 32])),
+                )
             },
             |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
                 let req_md = http_request.metadata().clone();
                 println!("{:?}", http_response);
                 match http_response {
-                    HttpResponseType::MemPoolTxs(_, txs) => {
+                    HttpResponseType::MemPoolTxs(_, _, txs) => {
                         // got everything
                         assert_eq!(txs.len(), 10);
                         true
