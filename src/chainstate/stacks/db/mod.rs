@@ -549,12 +549,15 @@ pub struct TxStreamData {
     /// serialized transaction buffer that's being sent
     pub tx_buf: Vec<u8>,
     pub tx_buf_ptr: usize,
-    /// number of transactions sent so far
+    /// number of transactions visited in the DB so far
     pub num_txs: u64,
-    /// maximum we can send
+    /// maximum we can visit in the query
     pub max_txs: u64,
     /// height of the chain at time of query
     pub height: u64,
+    /// Are we done sending transactions, and are now in the process of sending the trailing page
+    /// ID?
+    pub corked: bool,
 }
 
 pub const CHAINSTATE_VERSION: &'static str = "2";
