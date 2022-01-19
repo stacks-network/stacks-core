@@ -1,5 +1,9 @@
 use std::cmp;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(test)]
+use std::sync::atomic::AtomicU64;
+
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
