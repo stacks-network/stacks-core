@@ -1808,7 +1808,8 @@ impl MemPoolDB {
         Ok((ret, next_last_randomized_txid))
     }
 
-    /// Stream transaction data
+    /// Stream transaction data.
+    /// Send back one transaction at a time.
     pub fn stream_txs<W: Write>(
         &self,
         fd: &mut W,
@@ -1873,7 +1874,7 @@ impl MemPoolDB {
                     // if we can send at least one transaction, or at least one byte, by the time
                     // we finish sending a transaction, then stop early in order to limit the
                     // amount of I/O that happens in a stream.
-                    break;
+                    return Err(ChainstateError::Yield(num_written));
                 }
             }
         }
