@@ -323,10 +323,11 @@ impl ClarityInstance {
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            let block_limit = ExecutionCost::max_value();
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
-                    epoch.block_limit.clone(),
+                    block_limit,
                     &mut clarity_db,
                     epoch.epoch_id,
                 )
