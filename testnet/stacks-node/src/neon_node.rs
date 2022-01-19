@@ -5,10 +5,7 @@ use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::{thread, thread::JoinHandle};
 
 use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
@@ -22,9 +19,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
-use stacks::chainstate::stacks::db::{
-    ChainStateBootData, ClarityTx, StacksChainState, MINER_REWARD_MATURITY,
-};
+use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
 use stacks::chainstate::stacks::{
@@ -57,7 +52,6 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::sleep_ms;
 use stacks::util::strings::{UrlString, VecDisplay};
 use stacks::util::vrf::VRFPublicKey;
 use stacks::vm::costs::ExecutionCost;
@@ -67,7 +61,6 @@ use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
-use crate::syncctl::PoxSyncWatchdogComms;
 use crate::ChainTip;
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
@@ -126,7 +119,7 @@ fn fault_injection_long_tenure() {
                     "Fault injection: sleeping for {} milliseconds to simulate a long tenure",
                     tenure_time
                 );
-                sleep_ms(tenure_time);
+                stacks::util::sleep_ms(tenure_time);
             }
             Err(_) => {
                 error!("Parse error for STX_TEST_SLOW_TENURE");
@@ -1211,9 +1204,7 @@ impl StacksNode {
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     ) -> StacksNode {
         let config = runloop.config().clone();
-        let event_dispatcher = runloop.get_event_dispatcher();
         let miner = runloop.is_miner();
-        let should_keep_running = runloop.get_termination_switch();
         let burnchain = runloop.get_burnchain();
         let atlas_config = AtlasConfig::default(config.is_mainnet());
         let mut keychain = Keychain::default(config.node.seed.clone());
@@ -2049,7 +2040,10 @@ impl StacksNode {
             burn_block.block_height,
         );
 
-        // last chance -- confirm that the stacks tip is unchanged (since it could have taken long
+        let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
+            .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
+
+        // last chance -- confirm that the stacks tip and burnchain tip are unchanged (since it could have taken long
         // enough to build this block that another block could have arrived).
         if let Some(stacks_tip) = chain_state
             .get_stacks_chain_tip(burn_db)
@@ -2057,9 +2051,10 @@ impl StacksNode {
         {
             if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
                 || parent_consensus_hash != stacks_tip.consensus_hash
+                || cur_burn_chain_tip.sortition_id != burn_block.sortition_id
             {
                 debug!(
-                    "Cancel block-commit for block {} tx-count {} height {} off of {}/{} with microblock parent {} (seq {}) in burn block {} ({}); attempt {}.  New tip is {}/{}",
+                    "Cancel block-commit for block {} tx-count {} height {} off of {}/{} with microblock parent {} (seq {}) in burn block {} ({}) sortition {}; attempt {}.  New tip is {}/{}, sortition {}",
                     &anchored_block.block_hash(),
                     anchored_block.txs.len(),
                     anchored_block.header.total_work.work,
@@ -2069,9 +2064,11 @@ impl StacksNode {
                     &anchored_block.header.parent_microblock_sequence,
                     &burn_block.burn_header_hash,
                     burn_block.block_height,
+                    burn_block.sortition_id,
                     attempt,
                     stacks_tip.anchored_block_hash,
-                    stacks_tip.consensus_hash
+                    stacks_tip.consensus_hash,
+                    cur_burn_chain_tip.sortition_id
                 );
                 return None;
             }
