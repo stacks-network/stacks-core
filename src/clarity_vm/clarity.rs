@@ -325,13 +325,8 @@ impl ClarityInstance {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             let block_limit = ExecutionCost::max_value();
             Some(
-                LimitedCostTracker::new(
-                    self.mainnet,
-                    block_limit,
-                    &mut clarity_db,
-                    epoch.epoch_id,
-                )
-                .expect("FAIL: problem instantiating cost tracking"),
+                LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db, epoch.epoch_id)
+                    .expect("FAIL: problem instantiating cost tracking"),
             )
         };
 

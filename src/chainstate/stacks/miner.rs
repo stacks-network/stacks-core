@@ -1105,7 +1105,13 @@ impl StacksBlockBuilder {
         max_epoch_size: u64,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
-        match self.try_mine_tx_with_len(clarity_tx, tx, tx_len, &BlockLimitFunction::NO_LIMIT_HIT, max_epoch_size) {
+        match self.try_mine_tx_with_len(
+            clarity_tx,
+            tx,
+            tx_len,
+            &BlockLimitFunction::NO_LIMIT_HIT,
+            max_epoch_size,
+        ) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
             TransactionResult::Skipped(TransactionSkipped { error, .. })
             | TransactionResult::ProcessingError(TransactionError { error, .. }) => Err(error),
@@ -1878,7 +1884,8 @@ impl StacksBlockBuilder {
                         let update_estimator = to_consider.update_estimate;
 
                         if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
-                            return Ok(false);
+                            panic!("didn't want to get here");
+                            // return Ok(false);
                         }
                         if get_epoch_time_ms() >= deadline {
                             debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
@@ -1887,19 +1894,22 @@ impl StacksBlockBuilder {
 
                         // skip transactions early if we can
                         if considered.contains(&txinfo.tx.txid()) {
-                            return Ok(true);
+                            panic!("didn't want to get here");
+                            // return Ok(true);
                         }
 
                         if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
                             if *nonce >= txinfo.tx.get_origin_nonce() {
-                                return Ok(true);
+                                panic!("didn't want to get here");
+                                // return Ok(true);
                             }
                         }
                         if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
                             if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
                                 if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
                                     if *nonce >= sponsor_nonce {
-                                        return Ok(true);
+                                        panic!("didn't want to get here");
+                                        // return Ok(true);
                                     }
                                 }
                             }
