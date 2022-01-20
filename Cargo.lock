@@ -2589,6 +2589,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "pico-args",
+ "postgres",
  "rand 0.7.2",
  "reqwest",
  "ring",

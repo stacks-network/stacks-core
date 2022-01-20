@@ -5,6 +5,7 @@ authors = ["Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2018"
 
 [dependencies]
+postgres = "0.19"
 lazy_static = "1.4.0"
 pico-args = "0.3.1"
 rand = "=0.7.2"

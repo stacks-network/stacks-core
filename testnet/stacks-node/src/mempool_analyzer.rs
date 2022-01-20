@@ -20,6 +20,9 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
+extern crate postgres;
+use postgres::{Client, Error, NoTls};
+
 #[macro_use]
 extern crate stacks;
 
@@ -32,13 +35,14 @@ use std::process;
 use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
 
+use cost_estimates::metrics::UnitMetric;
 use stacks::burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use stacks::cost_estimates::UnitEstimator;
-use cost_estimates::metrics::UnitMetric;
 
 use stacks::burnchains::bitcoin::indexer::{BitcoinIndexerConfig, BitcoinIndexerRuntime};
 use stacks::burnchains::bitcoin::spv;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::Txid;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::ChainStateBootData;
 use stacks::chainstate::stacks::index::marf::MarfConnection;
@@ -46,6 +50,7 @@ use stacks::chainstate::stacks::index::marf::MARF;
 use stacks::chainstate::stacks::miner::*;
 use stacks::chainstate::stacks::*;
 use stacks::codec::StacksMessageCodec;
+use stacks::core::mempool::*;
 use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId};
 use stacks::types::chainstate::{StacksBlockHeader, StacksBlockId};
 use stacks::types::proof::ClarityMarfTrieId;
@@ -69,15 +74,22 @@ use stacks::{
     net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
     vm::representations::UrlString,
 };
-use stacks::core::mempool::*;
-use stacks::burnchains::Txid;
 
+struct MemPoolEventDispatcherImpl {
+    client: Client,
+}
 
-struct MemPoolEventDispatcherImpl {}
+impl MemPoolEventDispatcher {
+    fn new() -> MemPoolEventDispatcher {
+        let client =
+            Client::connect("postgresql://postgres:postgres@localhost/library", NoTls).expect("");
+        return MemPoolEventDispatcher { client };
+    }
+}
 
-impl MemPoolEventDispatcher  for MemPoolEventDispatcherImpl {
-    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason) {
-        warn!   ("hi");
+impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
+    fn mempool_txs_dropped(&self, _txids: Vec<Txid>, _reason: MemPoolDropReason) {
+        panic!("`mempool_txs_dropped` was not expected in this workflow.");
     }
     fn mined_block_event(
         &self,
@@ -88,14 +100,27 @@ impl MemPoolEventDispatcher  for MemPoolEventDispatcherImpl {
         confirmed_microblock_cost: &ExecutionCost,
         tx_results: Vec<TransactionEvent>,
     ) {
+        self.client
+            .batch_execute(
+                "
+        INSTER INTO author (
+            id              SERIAL PRIMARY KEY,
+            name            VARCHAR NOT NULL,
+            country         VARCHAR NOT NULL
+            )
+    ",
+            )
+            .expect("");
     }
     fn mined_microblock_event(
         &self,
-        microblock: &StacksMicroblock,
-        tx_results: Vec<TransactionEvent>,
-        anchor_block_consensus_hash: ConsensusHash,
-        anchor_block: BlockHeaderHash,
-    ) {}
+        _microblock: &StacksMicroblock,
+        _tx_results: Vec<TransactionEvent>,
+        _anchor_block_consensus_hash: ConsensusHash,
+        _anchor_block: BlockHeaderHash,
+    ) {
+        panic!("`mined_microblock_event` was not expected in this workflow.");
+    }
 }
 
 fn main() {

@@ -52,8 +52,8 @@ use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 use crate::types::proof::TrieHash;
-use chainstate::stacks::db::blocks::SetupBlockResult;
 use burnchains::Txid;
+use chainstate::stacks::db::blocks::SetupBlockResult;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
@@ -212,8 +212,7 @@ pub enum TransactionEvent {
 }
 
 impl TransactionEvent {
-    pub fn toString(&self) {
-    }
+    pub fn toString(&self) {}
 }
 
 impl TransactionResult {
