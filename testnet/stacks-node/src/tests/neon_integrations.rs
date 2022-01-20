@@ -374,7 +374,7 @@ pub fn next_block_and_wait(
             return false;
         }
         if !btc_controller.should_keep_running() {
-            eprintln!("Exiting `next_block_and_wait` since should_keep_running is false.");
+            println!("Exiting `next_block_and_wait` since should_keep_running is false.");
             return false;
         }
         thread::sleep(Duration::from_millis(100));
@@ -6748,6 +6748,9 @@ fn exit_at_rc_integration_test() {
         (67 * reward_cycle_len).into(),
     );
     burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config
+        .exit_contract_constants
+        .absolute_minimum_exit_rc = 25;
 
     let btc_should_keep_running = Arc::new(AtomicBool::new(true));
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
@@ -6771,6 +6774,7 @@ fn exit_at_rc_integration_test() {
     thread::spawn(move || {
         run_loop.start(Some(burnchain_config), 0);
         btc_should_keep_running.store(false, Ordering::SeqCst);
+        info!("AFTER STORE");
     });
 
     // give the run loop some time to start up!
@@ -7222,6 +7226,7 @@ fn exit_at_rc_integration_test() {
     assert_eq!(exit_rc_info.curr_exit_proposal, Some(30));
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
 
+    println!("PAVI: ABOUT TO START VETO");
     // veto the proposal with the miner_account for the next reward cycle
     let mut nonce = 144;
     while sort_height < ((24 * pox_constants.reward_cycle_length) + 1).into() {
@@ -7245,7 +7250,6 @@ fn exit_at_rc_integration_test() {
 
     // check sortdb - veto threshold met (>=80% of blocks in rc had veto) - curr_exit_at_reward_cycle should not be set
     let sort_db = btc_regtest_controller.sortdb_ref();
-
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
     let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
@@ -8022,7 +8026,7 @@ fn exit_at_rc_integration_test() {
 
     // veto the proposal with the miner_account for the next reward cycle, but only 4 times
     let mut nonce = 457;
-    for i in 0..4 {
+    for _ in 0..4 {
         let veto_tx = make_contract_call(
             &miner_privk,
             nonce,
@@ -8066,8 +8070,9 @@ fn exit_at_rc_integration_test() {
 
         // The run loop should terminate at RC 53
         if !btc_regtest_controller.should_keep_running() {
+            info!("about to terminate");
             test_observer::clear();
-            channel.stop_chains_coordinator();
+            info!("stop cc");
             return;
         }
     }

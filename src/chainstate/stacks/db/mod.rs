@@ -30,6 +30,7 @@ use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
 use burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::ExitContractConstants;
 use burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use chainstate::burn::db::sortdb::BlockHeaderCache;
 use chainstate::burn::db::sortdb::*;
@@ -797,6 +798,7 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub pox_constants: PoxConstants,
+    pub exit_contract_constants: ExitContractConstants,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
     pub get_bulk_initial_lockups:
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountLockup>>>>,
@@ -820,6 +822,7 @@ impl ChainStateBootData {
             first_burnchain_block_timestamp: burnchain.first_block_timestamp,
             initial_balances,
             pox_constants: burnchain.pox_constants.clone(),
+            exit_contract_constants: burnchain.exit_contract_constants.clone(),
             post_flight_callback,
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
@@ -1414,13 +1417,19 @@ impl StacksChainState {
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
 
-            // Setup burnchain parameters for pox contract
+            // Setup burnchain parameters for exit-at-rc contract
+            let exit_contract_constants = &boot_data.exit_contract_constants;
             let contract = util::boot::boot_code_id("exit-at-rc", mainnet);
             let sender = PrincipalData::from(contract.clone());
             let params = vec![
                 Value::UInt(boot_data.first_burnchain_block_height as u128),
                 Value::UInt(pox_constants.reward_cycle_length as u128),
+                Value::UInt(exit_contract_constants.absolute_minimum_exit_rc as u128),
             ];
+            info!(
+                "in INSTALL BOOT CODE; {}",
+                exit_contract_constants.absolute_minimum_exit_rc
+            );
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(
                     &sender,

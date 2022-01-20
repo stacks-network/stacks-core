@@ -140,6 +140,11 @@ pub const POX_THRESHOLD_STEPS_USTX: u128 = 10_000 * (MICROSTACKS_PER_STACKS as u
 
 pub const POX_MAX_NUM_CYCLES: u8 = 12;
 
+// Constants for the exit at reward cycle contract
+pub const EXIT_RC_ABSOLUTE_MINIMUM_EXIT_RC: u64 = 33;
+pub const EXIT_RC_MINIMUM_RC_BUFFER_FROM_PRESENT: u64 = 6;
+pub const EXIT_RC_MAXIMUM_RC_BUFFER_FROM_PRESENT: u64 = 25;
+
 // Stacks 1.0 did not allow smart contracts so all limits are 0.
 pub const BLOCK_LIMIT_MAINNET_10: ExecutionCost = ExecutionCost {
     write_length: 0,

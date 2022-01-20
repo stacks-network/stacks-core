@@ -6,6 +6,7 @@ use std::sync::{atomic::AtomicBool, Arc};
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
+use stacks::burnchains::ExitContractConstants;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
@@ -298,6 +299,12 @@ impl Node {
             (_, BitcoinNetworkType::Testnet) => PoxConstants::testnet_default(),
             (_, BitcoinNetworkType::Regtest) => PoxConstants::regtest_default(),
         };
+        let exit_contract_constants = match config.burnchain.get_bitcoin_network() {
+            (_, BitcoinNetworkType::Mainnet) => ExitContractConstants::mainnet_default(),
+            (_, BitcoinNetworkType::Testnet) | (_, BitcoinNetworkType::Regtest) => {
+                ExitContractConstants::testnet_default()
+            }
+        };
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
@@ -305,6 +312,7 @@ impl Node {
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
             pox_constants,
+            exit_contract_constants,
             post_flight_callback: Some(boot_block_exec),
             get_bulk_initial_lockups: Some(Box::new(move || {
                 get_account_lockups(use_test_genesis_data)

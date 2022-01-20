@@ -336,26 +336,23 @@ impl ExitContractConstants {
         veto_confirmation_percent: u8,
         vote_confirmation_percent: u8,
         percent_stacked_stx_for_valid_vote: u8,
-        absolute_minimum_exit_rc: u64,
-        minimum_rc_buffer_from_present: u64,
-        maximum_rc_buffer_from_present: u64,
     ) -> ExitContractConstants {
         ExitContractConstants {
             veto_confirmation_percent,
             vote_confirmation_percent,
             percent_stacked_stx_for_valid_vote,
-            absolute_minimum_exit_rc,
-            minimum_rc_buffer_from_present,
-            maximum_rc_buffer_from_present,
+            absolute_minimum_exit_rc: EXIT_RC_ABSOLUTE_MINIMUM_EXIT_RC,
+            minimum_rc_buffer_from_present: EXIT_RC_MINIMUM_RC_BUFFER_FROM_PRESENT,
+            maximum_rc_buffer_from_present: EXIT_RC_MAXIMUM_RC_BUFFER_FROM_PRESENT,
         }
     }
 
     pub fn mainnet_default() -> ExitContractConstants {
-        ExitContractConstants::new(80, 50, 50, 50, 4, 52)
+        ExitContractConstants::new(80, 50, 50)
     }
 
     pub fn testnet_default() -> ExitContractConstants {
-        ExitContractConstants::new(80, 50, 50, 15, 4, 52)
+        ExitContractConstants::new(80, 50, 50)
     }
 }
 

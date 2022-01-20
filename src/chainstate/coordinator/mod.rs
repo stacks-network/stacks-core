@@ -668,13 +668,12 @@ impl<
                             .burnchain
                             .block_height_to_reward_cycle(header.block_height)
                             .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
-                        info!("EARC: curr reward cycle: {}, exit reward cycle: {}, first_reward_cycle_in_epoch: {}", curr_reward_cycle, exit_reward_cycle, first_reward_cycle_in_epoch);
                         if curr_reward_cycle >= exit_reward_cycle
                             && exit_reward_cycle > first_reward_cycle_in_epoch
                         {
                             // the burnchain has reached the exit reward cycle (as voted in the
                             // "exit-at-rc" contract)
-                            info!("EARC: Reached the exit reward cycle that was voted on in the \
+                            info!("Reached the exit reward cycle that was voted on in the \
                                 'exit-at-rc' contract, ignoring subsequent burn blocks";
                                        "exit_reward_cycle" => exit_reward_cycle,
                                        "current_reward_cycle" => curr_reward_cycle);
@@ -752,7 +751,7 @@ impl<
         self.chain_state_db
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
                 conn.with_clarity_db_readonly(|db| {
-                    // TODO - get contract ID manually
+                    // TODO - get correct contract ID once contract is published
                     let exit_at_rc_contract = boot_code_id("exit-at-rc", false);
 
                     // from map rc-proposal-vetoes, use key pair (proposed_rc, curr_rc) to get the # of vetos
@@ -826,8 +825,6 @@ impl<
         // Check what value is stored for the current exit at rc.
         // If there is an existing exit rc, make sure the minimum rc we consider for the votes is
         // greater than it.
-        // let mut sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
-        // let curr_exit_at_rc_opt = sortdb_handle.get_exit_at_reward_cycle().unwrap_or(None);
         if let Some(curr_exit_at_rc) = curr_exit_at_rc_opt {
             min_rc = min_rc.max(curr_exit_at_rc + 1);
         }
@@ -842,16 +839,15 @@ impl<
         let invalid_reward_cycles: HashSet<u64> =
             HashSet::from_iter(invalid_reward_cycles.into_iter());
 
-        // let ic = self.sortition_db.index_conn();
-        // let mut clarity_db = self.get_clarity_db(&ic)?;
-
         let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
         let stacks_block_id = StacksBlockId::new(
             &stacks_tip.canonical_stacks_tip_consensus_hash,
             &stacks_tip.canonical_stacks_tip_hash,
         );
         println!(
-            "canonical: {:?}, bhh: {:?}, height: {:?}",
+            "PAVI: invalid cycle: {:?}, min_rc: {:?}, canonical: {:?}, bhh: {:?}, height: {:?}",
+            invalid_reward_cycles,
+            min_rc,
             stacks_tip.canonical_stacks_tip_consensus_hash,
             stacks_tip.canonical_stacks_tip_hash,
             stacks_tip.block_height
@@ -860,7 +856,7 @@ impl<
         self.chain_state_db
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
                 conn.with_clarity_db_readonly(|db| {
-                    // TODO - get contract ID manually
+                    // TODO - get correct contract ID once contract is published
                     let exit_at_rc_contract = boot_code_id("exit-at-rc", false);
 
                     for proposed_exit_rc in min_rc..max_rc {
@@ -931,19 +927,10 @@ impl<
             prev_rc_cycle,
             &self.burnchain,
             &stacks_tip,
-        );
-        // TODO: remove match & return error with `?`
-        match is_pox_active {
-            Err(e) => println!("tv: err getting pox active: {:?}", e),
-            Ok(active) => {
-                if !active {
-                    // PoX
-                    println!("tv: pox not active");
-                    return Ok(None);
-                }
-            }
+        )?;
+        if !is_pox_active {
+            return Ok(None);
         }
-        println!("tv: pox is active");
 
         let stacked_stx = self.chain_state_db.get_total_ustx_stacked(
             &self.sortition_db,
@@ -958,14 +945,6 @@ impl<
                 .percent_stacked_stx_for_valid_vote as u128)
             + 99)
             / 100;
-        println!(
-            "cc: stacked: {}, min for vote: {}, percent: {}",
-            stacked_stx,
-            min_stx_for_valid_vote,
-            self.burnchain
-                .exit_contract_constants
-                .percent_stacked_stx_for_valid_vote as u128
-        );
 
         // map of rc to num votes (equiv to the STX stacked)
         // this map only includes valid votes
@@ -1193,12 +1172,14 @@ impl<
                     }
 
                     // compute and store information relating to exiting at a reward cycle
+                    let current_block_height = block_receipt.header.burn_header_height as u64;
                     let current_reward_cycle = self
                         .burnchain
-                        .block_height_to_reward_cycle(
-                            block_receipt.header.burn_header_height as u64,
-                        )
+                        .block_height_to_reward_cycle(current_block_height)
                         .ok_or_else(|| DBError::NotFoundError)?;
+                    let start_height_of_current_cycle = self
+                        .burnchain
+                        .reward_cycle_to_block_height(current_reward_cycle);
                     let mut current_exit_at_rc = None;
                     let mut current_proposal = None;
                     // get parent stacks block id
@@ -1217,7 +1198,6 @@ impl<
                         self.sortition_db.conn(),
                         &parent_stacks_block,
                     )?;
-                    // TODO: should I add panic if exit_info_opt is None when the parent block is not genesis block
 
                     if let Some(parent_exit_info) = exit_info_opt {
                         info!("cc: parent block info is non-None");
@@ -1232,10 +1212,10 @@ impl<
                                 )?;
                                 // if veto fails, record exit block height
                                 if !veto_passed {
-                                    println!("cc: veto did not pass for {}", curr_exit_proposal);
+                                    info!("cc: veto did not pass for {}", curr_exit_proposal);
                                     current_exit_at_rc = Some(curr_exit_proposal);
                                 } else {
-                                    println!("cc: storing veto info for {}", curr_exit_proposal);
+                                    info!("cc: storing veto info for {}", curr_exit_proposal);
                                     // record the veto in the table `exit_at_reward_cycle_veto_info`
                                     let sortdb_handle = self
                                         .sortition_db
@@ -1266,6 +1246,11 @@ impl<
                         if current_exit_at_rc == None {
                             current_exit_at_rc = parent_exit_info.curr_exit_at_reward_cycle;
                         }
+                    } else {
+                        warn!(
+                            "BlockExitRewardCycleInfo not found for this block: {:?}",
+                            &parent_stacks_block
+                        );
                     }
 
                     let exit_info = BlockExitRewardCycleInfo {

@@ -17,6 +17,7 @@ use stacks::deps::ctrlc::SignalId;
 
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
+use stacks::burnchains::ExitContractConstants;
 use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
@@ -412,6 +413,7 @@ impl RunLoop {
             first_burnchain_block_height: burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain_config.first_block_timestamp,
             pox_constants: burnchain_config.pox_constants.clone(),
+            exit_contract_constants: burnchain_config.exit_contract_constants.clone(),
             get_bulk_initial_lockups: Some(Box::new(move || {
                 get_account_lockups(use_test_genesis_data)
             })),
@@ -759,5 +761,6 @@ impl RunLoop {
                 }
             }
         }
+        info!("end of start");
     }
 }

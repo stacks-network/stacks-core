@@ -52,8 +52,8 @@ use vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use vm::types::{PrincipalData, QualifiedContractIdentifier};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 
-use burnchains::PoxConstants;
 use burnchains::Txid;
+use burnchains::{ExitContractConstants, PoxConstants};
 
 use chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET};
 use util::boot::{boot_code_addr, boot_code_id};
@@ -715,6 +715,7 @@ fn consume_arg(
     }
 }
 
+// Only called by `invoke_command` in clarity.rs
 fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) {
     let mainnet = header_db.is_mainnet();
     let boot_code = if mainnet {
@@ -785,9 +786,15 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
 
     let exit_at_rc_contract = boot_code_id("exit-at-rc", mainnet);
     let sender = PrincipalData::from(exit_at_rc_contract.clone());
+    let exit_params = if mainnet {
+        ExitContractConstants::mainnet_default()
+    } else {
+        ExitContractConstants::testnet_default()
+    };
     let params = vec![
         SymbolicExpression::atom_value(Value::UInt(0)), // first burnchain block height
         SymbolicExpression::atom_value(Value::UInt(pox_params.reward_cycle_length as u128)),
+        SymbolicExpression::atom_value(Value::UInt(exit_params.absolute_minimum_exit_rc as u128)),
     ];
     vm_env
         .execute_transaction(

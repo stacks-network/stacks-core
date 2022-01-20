@@ -135,7 +135,6 @@ impl SqliteConnection {
     ) -> Option<String> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 2] = [&bhh, &key];
-        println!("key: {:?}, block hash: {:?}", key, bhh);
         match conn
             .query_row(
                 "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",

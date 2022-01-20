@@ -292,6 +292,11 @@ pub fn setup_states(
                     &[
                         Value::UInt(burnchain.first_block_height as u128),
                         Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
+                        Value::UInt(
+                            burnchain_config
+                                .exit_contract_constants
+                                .absolute_minimum_exit_rc as u128,
+                        ),
                     ],
                     |_, _| false,
                 )

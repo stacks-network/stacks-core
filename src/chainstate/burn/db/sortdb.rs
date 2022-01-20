@@ -3650,7 +3650,7 @@ impl SortitionDB {
         minimum_reward_cycle: u64,
     ) -> Result<Vec<u64>, db_error> {
         let qry =
-            "SELECT * FROM exit_at_reward_cycle_veto_info WHERE vetoed_exit_at_reward_cycle > ?";
+            "SELECT * FROM exit_at_reward_cycle_veto_info WHERE vetoed_exit_at_reward_cycle >= ?";
         query_rows(conn, qry, &[&u64_to_sql(minimum_reward_cycle)?])
     }
 
@@ -3659,7 +3659,7 @@ impl SortitionDB {
         minimum_reward_cycle: u64,
     ) -> Result<Vec<u64>, db_error> {
         let qry =
-            "SELECT * FROM exit_at_reward_cycle_proposal_info WHERE proposed_exit_at_reward_cycle > ?";
+            "SELECT * FROM exit_at_reward_cycle_proposal_info WHERE proposed_exit_at_reward_cycle >= ?";
         query_rows(conn, qry, &[&u64_to_sql(minimum_reward_cycle)?])
     }
 }

@@ -11,21 +11,23 @@
 (define-constant ERR_INVALID_PROPOSED_RC 21)
 
 ;; Constants
-(define-constant ABSOLUTE_MINIMUM_EXIT_RC u25)
+(define-constant ABSOLUTE_MINIMUM_EXIT_RC u33)
 (define-constant MAXIMUM_RC_BUFFER_FROM_PRESENT u25)
 (define-constant MINIMUM_RC_BUFFER_FROM_PRESENT u6)
 
 ;; Data vars
 (define-data-var pox-reward-cycle-length uint POX_REWARD_CYCLE_LENGTH)
 (define-data-var first-burnchain-block-height uint FIRST_BURNCHAIN_BLOCK_HEIGHT)
+(define-data-var absolute-minimum-exit-rc uint ABSOLUTE_MINIMUM_EXIT_RC)
 (define-data-var configured bool false)
 
 ;; This function can only be called once, when it boots up
-(define-public (set-burnchain-parameters (first-burn-height uint) (reward-cycle-length uint))
+(define-public (set-burnchain-parameters (first-burn-height uint) (reward-cycle-length uint) (min-exit-rc uint))
     (begin
         (asserts! (not (var-get configured)) (err ERR_NOT_ALLOWED))
         (var-set first-burnchain-block-height first-burn-height)
         (var-set pox-reward-cycle-length reward-cycle-length)
+        (var-set absolute-minimum-exit-rc min-exit-rc)
         (var-set configured true)
         (ok true))
 )
@@ -138,7 +140,7 @@
         (asserts! (> amount-stacked u0) (err ERR_AMOUNT_NOT_POSITIVE))
 
         ;; Check that the proposed exit rc is allowable
-        (asserts! (>= proposed-exit-rc ABSOLUTE_MINIMUM_EXIT_RC) (err ERR_INVALID_PROPOSED_RC))
+        (asserts! (>= proposed-exit-rc (var-get absolute-minimum-exit-rc)) (err ERR_INVALID_PROPOSED_RC))
         (asserts! (>= proposed-exit-rc (+ current-reward-cycle MINIMUM_RC_BUFFER_FROM_PRESENT)) (err ERR_INVALID_PROPOSED_RC))
         (asserts! (<= proposed-exit-rc (+ current-reward-cycle MAXIMUM_RC_BUFFER_FROM_PRESENT)) (err ERR_INVALID_PROPOSED_RC))
 
