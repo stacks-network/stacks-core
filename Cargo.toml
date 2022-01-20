@@ -32,10 +32,6 @@ path = "src/clarity_cli.rs"
 name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
-[[bin]]
-name = "mempool-analyzer"
-path = "src/mempool_analyzer.rs"
-
 [[bench]]
 name = "marf_bench"
 harness = false
