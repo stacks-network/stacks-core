@@ -73,6 +73,33 @@ use blockstack_lib::{
     net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
     vm::representations::UrlString,
 };
+use core::mempool::*;
+use burnchains::Txid;
+
+
+struct MemPoolEventDispatcherImpl {}
+
+impl MemPoolEventDispatcher  for MemPoolEventDispatcherImpl {
+    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason) {
+    }
+    fn mined_block_event(
+        &self,
+        target_burn_height: u64,
+        block: &StacksBlock,
+        block_size_bytes: u64,
+        consumed: &ExecutionCost,
+        confirmed_microblock_cost: &ExecutionCost,
+        tx_results: Vec<TransactionEvent>,
+    ) {
+    }
+    fn mined_microblock_event(
+        &self,
+        microblock: &StacksMicroblock,
+        tx_results: Vec<TransactionEvent>,
+        anchor_block_consensus_hash: ConsensusHash,
+        anchor_block: BlockHeaderHash,
+    ) {}
+}
 
 fn main() {
     let argv: Vec<String> = env::args().collect();

@@ -53,6 +53,7 @@ use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 use crate::types::proof::TrieHash;
 use chainstate::stacks::db::blocks::SetupBlockResult;
+use burnchains::Txid;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
@@ -208,6 +209,11 @@ pub enum TransactionEvent {
     /// Transaction wasn't ready to be be processed, but might succeed later.
     /// The bool represents whether mempool propagation should halt or continue
     Skipped(TransactionSkippedEvent),
+}
+
+impl TransactionEvent {
+    pub fn toString(&self) {
+    }
 }
 
 impl TransactionResult {
