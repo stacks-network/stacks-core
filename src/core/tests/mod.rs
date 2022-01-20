@@ -1494,7 +1494,7 @@ fn test_find_next_missing_transactions() {
     );
 
     assert_eq!(txs.len(), 0);
-    assert!(next_page_opt.is_none());
+    assert!(next_page_opt.is_some());
 
     // all txs returned for an empty txtag set
     let ts_before = get_epoch_time_ms();
@@ -1537,7 +1537,7 @@ fn test_find_next_missing_transactions() {
     );
 
     assert_eq!(txs.len(), 0);
-    assert!(next_page_opt.is_none());
+    assert!(next_page_opt.is_some());
 
     let mut empty_bloom_conn = setup_bloom_counter("find_next_missing_txs_empty");
     let mut empty_tx = tx_begin_immediate(&mut empty_bloom_conn).unwrap();
