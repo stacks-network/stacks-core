@@ -2166,7 +2166,7 @@ impl PeerNetwork {
                 // did we run to completion?
                 if let Some(txs) = txs_opt {
                     debug!(
-                        "{:?}: obtained {} transactions from mempool sync",
+                        "{:?}: Mempool sync obtained {} transactions from mempool sync, and done receiving",
                         &self.local_peer,
                         txs.len()
                     );
@@ -2178,8 +2178,19 @@ impl PeerNetwork {
                     return Ok(None);
                 }
             }
-            (false, _) => {
-                return Ok(None);
+            (false, txs_opt) => {
+                // did we get some transactions, but have more to get?
+                if let Some(txs) = txs_opt {
+                    debug!(
+                        "{:?}: Mempool sync obtained {} transactions from mempool sync, but have more",
+                        &self.local_peer,
+                        txs.len()
+                    );
+
+                    return Ok(Some(txs));
+                } else {
+                    return Ok(None);
+                }
             }
         }
     }
@@ -3347,15 +3358,18 @@ impl PeerNetwork {
         &mut self,
         event_id: usize,
     ) -> Result<(bool, Option<Txid>, Option<Vec<StacksTransaction>>), net_error> {
-        PeerNetwork::with_http(self, |_, http| {
+        PeerNetwork::with_http(self, |network, http| {
             match http.get_conversation(event_id) {
                 None => {
                     if http.is_connecting(event_id) {
-                        debug!("Mempool sync event {} is not connected yet", event_id,);
+                        debug!(
+                            "{:?}: Mempool sync event {} is not connected yet",
+                            &network.local_peer, event_id
+                        );
                         return Ok((false, None, None));
                     } else {
                         // conversation died
-                        debug!("Mempool sync peer hung up");
+                        debug!("{:?}: Mempool sync peer hung up", &network.local_peer);
                         return Ok((true, None, None));
                     }
                 }
@@ -3364,17 +3378,21 @@ impl PeerNetwork {
                         None => {
                             // still waiting
                             debug!(
-                                "Mempool sync event {} still waiting for a response",
-                                event_id
+                                "{:?}: Mempool sync event {} still waiting for a response",
+                                &network.local_peer, event_id
                             );
                             return Ok((false, None, None));
                         }
                         Some(http_response) => match http_response {
                             HttpResponseType::MemPoolTxs(_, page_id_opt, txs) => {
+                                debug!("{:?}: Mempool sync received response for {} txs, next page {:?}", &network.local_peer, txs.len(), &page_id_opt);
                                 return Ok((true, page_id_opt, Some(txs)));
                             }
                             _ => {
-                                warn!("Mempool sync request received {:?}", &http_response);
+                                warn!(
+                                    "{:?}: Mempool sync request received {:?}",
+                                    &network.local_peer, &http_response
+                                );
                                 return Ok((true, None, None));
                             }
                         },
@@ -3395,8 +3413,8 @@ impl PeerNetwork {
     ) -> Result<(bool, Option<Vec<StacksTransaction>>), net_error> {
         if get_epoch_time_secs() <= self.mempool_sync_deadline {
             debug!(
-                "Wait until {} to do a mempool sync",
-                self.mempool_sync_deadline
+                "{:?}: Wait until {} to do a mempool sync",
+                &self.local_peer, self.mempool_sync_deadline
             );
             return Ok((true, None));
         }
@@ -3407,7 +3425,10 @@ impl PeerNetwork {
                 get_epoch_time_secs() + self.connection_opts.mempool_sync_timeout;
         } else {
             if get_epoch_time_secs() > self.mempool_sync_timeout {
-                debug!("Mempool sync took too long; terminating");
+                debug!(
+                    "{:?}: Mempool sync took too long; terminating",
+                    &self.local_peer
+                );
                 self.mempool_sync_reset();
                 return Ok((true, None));
             }
@@ -3417,7 +3438,10 @@ impl PeerNetwork {
         // Once we get blocked, return.
         loop {
             let cur_state = self.mempool_state.clone();
-            debug!("Mempool sync state is {:?}", &cur_state);
+            debug!(
+                "{:?}: Mempool sync state is {:?}",
+                &self.local_peer, &cur_state
+            );
             match cur_state {
                 MempoolSyncState::PickOutboundPeer => {
                     // 1. pick a random outbound conversation.
@@ -3457,6 +3481,10 @@ impl PeerNetwork {
                 }
                 MempoolSyncState::SendQuery(ref url, ref addr, ref page_id) => {
                     // 3. ask for the remote peer's mempool's novel txs
+                    debug!(
+                        "{:?}: Mempool sync will query {} for mempool transactions at {}",
+                        &self.local_peer, url, page_id
+                    );
                     match self.mempool_sync_send_query(
                         url,
                         addr,
@@ -3466,7 +3494,7 @@ impl PeerNetwork {
                     )? {
                         (false, Some(event_id)) => {
                             // success! advance
-                            debug!("Query {} for mempool transactions at {}", url, page_id);
+                            debug!("{:?}: Mempool sync query {} for mempool transactions at {} on event {}", &self.local_peer, url, page_id, event_id);
                             self.mempool_state =
                                 MempoolSyncState::RecvResponse(url.clone(), addr.clone(), event_id);
                         }
@@ -3484,6 +3512,13 @@ impl PeerNetwork {
                 MempoolSyncState::RecvResponse(ref url, ref addr, ref event_id) => {
                     match self.mempool_sync_recv_response(*event_id)? {
                         (true, next_page_id_opt, Some(txs)) => {
+                            debug!(
+                                "{:?}: Mempool sync received {} transactions; next page is {:?}",
+                                &self.local_peer,
+                                txs.len(),
+                                &next_page_id_opt
+                            );
+
                             // done! got data
                             let ret = match next_page_id_opt {
                                 Some(next_page_id) => {
@@ -5917,6 +5952,199 @@ mod test {
             for tx in peer_2_mempool_txs {
                 assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
                 assert!(old_txs.get(&tx.tx.txid()).is_none());
+            }
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_mempool_sync_2_peers_paginated() {
+        with_timeout(600, || {
+            // peer 1 gets some transactions; verify peer 2 gets them all
+            let mut peer_1_config =
+                TestPeerConfig::new("test_mempool_sync_2_peers_paginated", 2214, 2215);
+            let mut peer_2_config =
+                TestPeerConfig::new("test_mempool_sync_2_peers_paginated", 2216, 2217);
+
+            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+
+            peer_1_config.connection_opts.mempool_sync_interval = 1;
+            peer_2_config.connection_opts.mempool_sync_interval = 1;
+
+            let num_txs = 1024;
+            let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+            let addrs: Vec<_> = pks.iter().map(|pk| to_addr(pk)).collect();
+            let initial_balances: Vec<_> = addrs
+                .iter()
+                .map(|a| (a.to_account_principal(), 1000000000))
+                .collect();
+
+            peer_1_config.initial_balances = initial_balances.clone();
+            peer_2_config.initial_balances = initial_balances.clone();
+
+            let mut peer_1 = TestPeer::new(peer_1_config);
+            let mut peer_2 = TestPeer::new(peer_2_config);
+
+            let num_blocks = 10;
+            let first_stacks_block_height = {
+                let sn = SortitionDB::get_canonical_burn_chain_tip(
+                    &peer_1.sortdb.as_ref().unwrap().conn(),
+                )
+                .unwrap();
+                sn.block_height + 1
+            };
+
+            for i in 0..num_blocks {
+                let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
+
+                peer_1.next_burnchain_block(burn_ops.clone());
+                peer_2.next_burnchain_block(burn_ops.clone());
+
+                peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+            }
+
+            let addr = StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: Hash160([0xff; 20]),
+            };
+
+            // fill peer 1 with lots of transactions
+            let mut txs = HashMap::new();
+            let mut peer_1_mempool = peer_1.mempool.take().unwrap();
+            let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
+            for i in 0..num_txs {
+                let pk = &pks[i];
+                let mut tx = StacksTransaction {
+                    version: TransactionVersion::Testnet,
+                    chain_id: 0x80000000,
+                    auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+                    anchor_mode: TransactionAnchorMode::Any,
+                    post_condition_mode: TransactionPostConditionMode::Allow,
+                    post_conditions: vec![],
+                    payload: TransactionPayload::TokenTransfer(
+                        addr.to_account_principal(),
+                        123,
+                        TokenTransferMemo([0u8; 34]),
+                    ),
+                };
+                tx.set_tx_fee(1000);
+                tx.set_origin_nonce(0);
+
+                let mut tx_signer = StacksTransactionSigner::new(&tx);
+                tx_signer.sign_origin(&pk).unwrap();
+
+                let tx = tx_signer.get_tx().unwrap();
+
+                let txid = tx.txid();
+                let tx_bytes = tx.serialize_to_vec();
+                let origin_addr = tx.origin_address();
+                let origin_nonce = tx.get_origin_nonce();
+                let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+                let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+                let tx_fee = tx.get_tx_fee();
+
+                txs.insert(tx.txid(), tx.clone());
+
+                // should succeed
+                MemPoolDB::try_add_tx(
+                    &mut mempool_tx,
+                    peer_1.chainstate(),
+                    &ConsensusHash([0x1 + (num_blocks as u8); 20]),
+                    &BlockHeaderHash([0x2 + (num_blocks as u8); 32]),
+                    txid.clone(),
+                    tx_bytes,
+                    tx_fee,
+                    num_blocks,
+                    &origin_addr,
+                    origin_nonce,
+                    &sponsor_addr,
+                    sponsor_nonce,
+                    None,
+                )
+                .unwrap();
+
+                eprintln!("Added {} {}", i, &txid);
+            }
+            mempool_tx.commit().unwrap();
+            peer_1.mempool = Some(peer_1_mempool);
+
+            let num_burn_blocks = {
+                let sn = SortitionDB::get_canonical_burn_chain_tip(
+                    peer_1.sortdb.as_ref().unwrap().conn(),
+                )
+                .unwrap();
+                sn.block_height + 1
+            };
+
+            let mut round = 0;
+            let mut peer_1_mempool_txs = 0;
+            let mut peer_2_mempool_txs = 0;
+
+            while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
+                if let Ok(mut result) = peer_1.step() {
+                    let lp = peer_1.network.local_peer.clone();
+                    peer_1
+                        .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                            relayer.process_network_result(
+                                &lp,
+                                &mut result,
+                                sortdb,
+                                chainstate,
+                                mempool,
+                                false,
+                                None,
+                                None,
+                            )
+                        })
+                        .unwrap();
+                }
+
+                if let Ok(mut result) = peer_2.step() {
+                    let lp = peer_2.network.local_peer.clone();
+                    peer_2
+                        .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                            relayer.process_network_result(
+                                &lp,
+                                &mut result,
+                                sortdb,
+                                chainstate,
+                                mempool,
+                                false,
+                                None,
+                                None,
+                            )
+                        })
+                        .unwrap();
+                }
+
+                round += 1;
+
+                let mp = peer_1.mempool.take().unwrap();
+                peer_1_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
+                peer_1.mempool.replace(mp);
+
+                let mp = peer_2.mempool.take().unwrap();
+                peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
+                peer_2.mempool.replace(mp);
+
+                info!(
+                    "Peer 1: {}, Peer 2: {}",
+                    peer_1_mempool_txs, peer_2_mempool_txs
+                );
+            }
+
+            info!("Completed mempool sync in {} step(s)", round);
+
+            let mp = peer_2.mempool.take().unwrap();
+            let peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap();
+            peer_2.mempool.replace(mp);
+
+            // peer 2 has all the recent txs
+            // peer 2 has none of the old ones
+            for tx in peer_2_mempool_txs {
+                assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
             }
         });
     }
