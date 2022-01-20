@@ -1777,6 +1777,10 @@ impl MemPoolDB {
         let mut num_rows_visited = 0;
         let mut last_txid = None;
         while let Some(row) = rows.next()? {
+            if num_rows_visited >= max_run {
+                break;
+            }
+
             let txid = Txid::from_column(row, "txid")?;
             last_txid = Some(txid.clone());
             num_rows_visited += 1;
@@ -1869,7 +1873,7 @@ impl MemPoolDB {
                         .last_randomized_txid
                         .consensus_serialize(&mut query.tx_buf)
                         .map_err(ChainstateError::CodecError)?;
-                    break;
+                    continue;
                 }
 
                 // load next
@@ -1879,7 +1883,7 @@ impl MemPoolDB {
                         query.height,
                         &query.last_randomized_txid,
                         1,
-                        MAX_BLOOM_COUNTER_TXS as u64,
+                        query.max_txs.saturating_sub(query.num_txs),
                     )?;
 
                 test_debug!(
@@ -1923,11 +1927,10 @@ impl MemPoolDB {
                         .last_randomized_txid
                         .consensus_serialize(&mut query.tx_buf)
                         .map_err(ChainstateError::CodecError)?;
-                    break;
                 } else if next_last_randomized_txid_opt.is_none() {
                     // no more transactions
                     test_debug!(
-                        "No more txs to send after {:?}",
+                        "No more txs to send after {:?}; corking stream",
                         &query.last_randomized_txid
                     );
 
