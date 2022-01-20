@@ -1060,7 +1060,10 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
                             message_eof = true;
                             0
                         }
-                        Ok(read_len) => read_len,
+                        Ok(read_len) => {
+                            test_debug!("Connection message pipe returned {} bytes", read_len);
+                            read_len
+                        }
                         Err(ioe) => match ioe.kind() {
                             io::ErrorKind::WouldBlock => {
                                 // no data consumed, but we may need to make a break for it
@@ -1090,12 +1093,13 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
 
                     self.socket_out_buf.extend_from_slice(&buf[0..nr_input]);
 
-                    if nr_input > 0 {
-                        trace!(
-                            "Connection buffered {} bytes from pipe ({} total, ptr = {})",
+                    if nr_input >= 0 {
+                        test_debug!(
+                            "Connection buffered {} bytes from pipe ({} total, ptr = {}, blocked = {})",
                             nr_input,
                             self.socket_out_buf.len(),
-                            self.socket_out_ptr
+                            self.socket_out_ptr,
+                            blocked
                         );
                     }
                     nr_input
@@ -1136,7 +1140,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
 
                 self.socket_out_ptr += num_written;
 
-                trace!(
+                test_debug!(
                     "Connection wrote {} bytes to socket (buffer len = {}, ptr = {})",
                     num_written,
                     self.socket_out_buf.len(),
@@ -1157,7 +1161,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
             }
         }
 
-        trace!(
+        test_debug!(
             "Connection send_bytes finished: blocked = {}, disconnected = {}",
             blocked,
             disconnected
