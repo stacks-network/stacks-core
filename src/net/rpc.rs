@@ -165,9 +165,10 @@ impl fmt::Display for ConversationHttp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "http:id={},request={:?}",
+            "http:id={},request={:?},peer={:?}",
             self.conn_id,
-            self.pending_request.is_some()
+            self.pending_request.is_some(),
+            &self.peer_addr
         )
     }
 }
@@ -176,9 +177,10 @@ impl fmt::Debug for ConversationHttp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "http:id={},request={:?}",
+            "http:id={},request={:?},peer={:?}",
             self.conn_id,
-            self.pending_request.is_some()
+            self.pending_request.is_some(),
+            &self.peer_addr
         )
     }
 }
@@ -2095,6 +2097,13 @@ impl ConversationHttp {
             .get_stacks_chain_tip(sortdb)?
             .map(|blk| blk.height)
             .unwrap_or(0);
+
+        test_debug!(
+            "Begin mempool stream from height {} page_id {:?} for up to {} txs",
+            height,
+            &page_id,
+            max_txs
+        );
         let stream = Some(StreamCursor::new_tx_stream(query, max_txs, height, page_id));
         response.send(http, fd).and_then(|_| Ok(stream))
     }
@@ -2649,6 +2658,8 @@ impl ConversationHttp {
             &self,
             self.reply_streams.len()
         );
+        let _self_str = format!("{}", &self);
+
         match self.reply_streams.front_mut() {
             Some((ref mut reply, ref mut stream_opt, ref keep_alive)) => {
                 do_keep_alive = *keep_alive;
@@ -2661,30 +2672,41 @@ impl ConversationHttp {
                         match stream.stream_to(mempool, chainstate, &mut encoder, STREAM_CHUNK_SIZE)
                         {
                             Ok(nw) => {
-                                test_debug!("streamed {} bytes", nw);
+                                test_debug!("{}: Streamed {} bytes", &_self_str, nw);
                                 if nw == 0 {
                                     // EOF -- finish chunk and stop sending.
                                     if !encoder.corked() {
                                         encoder.flush().map_err(|e| {
-                                            test_debug!("Write error on encoder flush: {:?}", &e);
+                                            test_debug!(
+                                                "{}: Write error on encoder flush: {:?}",
+                                                &_self_str,
+                                                &e
+                                            );
                                             net_error::WriteError(e)
                                         })?;
 
                                         encoder.cork();
 
-                                        test_debug!("stream indicates EOF");
+                                        test_debug!("{}: Stream indicates EOF", &_self_str);
                                     }
 
                                     // try moving some data to the connection only once we're done
                                     // streaming
                                     match reply.try_flush() {
                                         Ok(res) => {
-                                            test_debug!("Streamed reply is drained");
+                                            test_debug!(
+                                                "{}: Streamed reply is drained?: {}",
+                                                &_self_str,
+                                                res
+                                            );
                                             drained_handle = res;
                                         }
                                         Err(e) => {
                                             // dead
-                                            warn!("Broken HTTP connection: {:?}", &e);
+                                            warn!(
+                                                "{}: Broken HTTP connection: {:?}",
+                                                &_self_str, &e
+                                            );
                                             broken = true;
                                         }
                                     }
@@ -2696,7 +2718,10 @@ impl ConversationHttp {
                                 // For example, if we're streaming an unconfirmed block or
                                 // microblock, the data can get moved to the chunk store out from
                                 // under the stream.
-                                warn!("Failed to send to HTTP connection: {:?}", &e);
+                                warn!(
+                                    "{}: Failed to send to HTTP connection: {:?}",
+                                    &_self_str, &e
+                                );
                                 broken = true;
                             }
                         }
@@ -2708,12 +2733,12 @@ impl ConversationHttp {
                         // try moving some data to the connection
                         match reply.try_flush() {
                             Ok(res) => {
-                                test_debug!("Reply is drained");
+                                test_debug!("{}: Reply is drained", &_self_str);
                                 drained_handle = res;
                             }
                             Err(e) => {
                                 // dead
-                                warn!("Broken HTTP connection: {:?}", &e);
+                                warn!("{}: Broken HTTP connection: {:?}", &_self_str, &e);
                                 broken = true;
                             }
                         }
