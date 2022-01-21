@@ -156,7 +156,7 @@ fn main() {
     let argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
         eprintln!(
-            "Usage: {} <working-dir> [min-fee [max-time]]
+            "Usage: {} <working-dir>
 
 Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block
 assembly, but does not attempt to broadcast a block commit. This is useful for determining
@@ -172,15 +172,8 @@ simulating a miner.
     let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[1]);
     let chain_state_path = format!("{}/mainnet/chainstate/", &argv[1]);
 
-    let mut min_fee = u64::max_value();
-    let mut max_time = u64::max_value();
-
-    if argv.len() >= 3 {
-        min_fee = argv[2].parse().expect("Could not parse min_fee");
-    }
-    if argv.len() >= 4 {
-        max_time = argv[3].parse().expect("Could not parse max_time");
-    }
+    let min_fee = u64::max_value();
+    let max_time = u64::max_value();
 
     let sort_db = SortitionDB::open(&sort_db_path, false)
         .expect(&format!("Failed to open {}", &sort_db_path));
