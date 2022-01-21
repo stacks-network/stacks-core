@@ -132,7 +132,11 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
                 .unwrap()
                 .execute(
                     "INSERT INTO mempool_tx_attempt (tx_id, status, comment) VALUES ($1, $2, $3)",
-                    &[&"id3", &"status3", &"comment3"],
+                    &[
+                        &tuple.tx_id.to_string(),
+                        &tuple.status_code,
+                        &tuple.reason.to_string(),
+                    ],
                 )
                 .expect("tried to insert");
         }
@@ -163,8 +167,6 @@ simulating a miner.
         );
         process::exit(1);
     }
-
-    let dispatcher = MemPoolEventDispatcherImpl::new();
 
     let start = get_epoch_time_ms();
     let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[1]);
@@ -223,6 +225,7 @@ simulating a miner.
     settings.max_miner_time_ms = max_time;
     settings.mempool_settings.min_tx_fee = min_fee;
 
+    let dispatcher = MemPoolEventDispatcherImpl::new();
     let result = StacksBlockBuilder::build_anchored_block(
         &chain_state,
         &sort_db.index_conn(),
@@ -233,7 +236,7 @@ simulating a miner.
         Hash160([0; 20]),
         &coinbase_tx,
         settings,
-        None,
+        Some(&dispatcher),
         u64::MAX,
     );
 
