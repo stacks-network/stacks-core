@@ -464,8 +464,8 @@ impl std::default::Default for ConnectionOptions {
             max_buffered_blocks: 1,
             max_buffered_microblocks: 10,
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
-            mempool_max_tx_query: 128, // maximum number of transactions to return
-            mempool_sync_timeout: 120, // how long a mempool sync can go for
+            mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
+            mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -1093,15 +1093,13 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
 
                     self.socket_out_buf.extend_from_slice(&buf[0..nr_input]);
 
-                    if nr_input >= 0 {
-                        test_debug!(
-                            "Connection buffered {} bytes from pipe ({} total, ptr = {}, blocked = {})",
-                            nr_input,
-                            self.socket_out_buf.len(),
-                            self.socket_out_ptr,
-                            blocked
-                        );
-                    }
+                    test_debug!(
+                        "Connection buffered {} bytes from pipe ({} total, ptr = {}, blocked = {})",
+                        nr_input,
+                        self.socket_out_buf.len(),
+                        self.socket_out_ptr,
+                        blocked
+                    );
                     nr_input
                 }
                 None => {
