@@ -220,6 +220,8 @@ pub enum Error {
     NotFoundError,
     /// Transient error (akin to EAGAIN)
     Transient(String),
+    /// Expected end-of-stream, but had more data
+    ExpectedEndOfStream
 }
 
 impl From<codec_error> for Error {
@@ -317,6 +319,7 @@ impl fmt::Display for Error {
             Error::ConnectionCycle => write!(f, "Tried to connect to myself"),
             Error::NotFoundError => write!(f, "Requested data not found"),
             Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
+            Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream")
         }
     }
 }
@@ -376,6 +379,7 @@ impl error::Error for Error {
             Error::ConnectionCycle => None,
             Error::NotFoundError => None,
             Error::Transient(ref _s) => None,
+            Error::ExpectedEndOfStream => None,
         }
     }
 }
