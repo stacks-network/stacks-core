@@ -1584,9 +1584,9 @@ fn microblock_integration_test() {
     });
 
     conf.node.mine_microblocks = true;
-    conf.node.wait_time_for_microblocks = 10_000;
     conf.node.microblock_frequency = 1_000;
-    conf.node.microblock_attempt_time_ms = 120_000;
+    conf.miner.microblock_attempt_time_ms = 120_000;
+    conf.node.wait_time_for_microblocks = 0;
 
     test_observer::spawn();
 
@@ -2406,7 +2406,7 @@ fn size_check_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 5000;
     conf.node.microblock_frequency = 5000;
-    conf.node.microblock_attempt_time_ms = 120_000;
+    conf.miner.microblock_attempt_time_ms = 120_000;
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
@@ -2583,7 +2583,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 5_000;
     conf.node.microblock_frequency = 5_000;
-    conf.node.microblock_attempt_time_ms = 120_000;
+    conf.miner.microblock_attempt_time_ms = 120_000;
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
@@ -2778,7 +2778,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 1000;
     conf.node.microblock_frequency = 1000;
-    conf.node.microblock_attempt_time_ms = 120_000;
+    conf.miner.microblock_attempt_time_ms = 120_000;
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
 
@@ -2969,7 +2969,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 5_000;
     conf.node.microblock_frequency = 1_000;
-    conf.node.microblock_attempt_time_ms = 120_000;
+    conf.miner.microblock_attempt_time_ms = 120_000;
     conf.node.max_microblocks = 65536;
     conf.burnchain.max_rbf = 1000000;
 
@@ -3238,7 +3238,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 0;
     conf.node.microblock_frequency = 15000;
-    conf.node.microblock_attempt_time_ms = 120_000;
+    conf.miner.microblock_attempt_time_ms = 120_000;
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
@@ -6585,7 +6585,9 @@ fn test_flash_block_skip_tenure() {
         return;
     }
 
-    let (conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account) = neon_integration_test_conf();
+    conf.miner.microblock_attempt_time_ms = 5_000;
+    conf.node.wait_time_for_microblocks = 0;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -6620,10 +6622,12 @@ fn test_flash_block_skip_tenure() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // fault injection: force tenures to take 30 seconds
-    std::env::set_var("STX_TEST_SLOW_TENURE".to_string(), "30000".to_string());
+    // fault injection: force tenures to take 11 seconds
+    std::env::set_var("STX_TEST_SLOW_TENURE".to_string(), "11000".to_string());
 
-    for _i in 0..5 {
+    for i in 0..10 {
+        // build one bitcoin block every 10 seconds
+        eprintln!("Build bitcoin block +{}", i);
         btc_regtest_controller.build_next_block(1);
         sleep_ms(10000);
     }
