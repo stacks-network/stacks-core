@@ -131,9 +131,10 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
                 .lock()
                 .unwrap()
                 .execute(
-                    "INSERT INTO mempool_tx_attempt (tx_id, status, comment) VALUES ($1, $2, $3)",
+                    "INSERT INTO mempool_tx_attempt (tx_id, batch_time, status_code, reason) VALUES ($1, $2, $3, $4)",
                     &[
                         &tuple.tx_id.to_string(),
+                        &0i32,
                         &tuple.status_code,
                         &tuple.reason.to_string(),
                     ],
