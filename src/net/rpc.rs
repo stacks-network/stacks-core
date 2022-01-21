@@ -2090,7 +2090,7 @@ impl ConversationHttp {
         query: MemPoolSyncData,
         max_txs: u64,
         page_id: Option<Txid>,
-    ) -> Result<Option<StreamCursor>, net_error> {
+    ) -> Result<StreamCursor, net_error> {
         let response_metadata = HttpResponseMetadata::from(req);
         let response = HttpResponseType::MemPoolTxStream(response_metadata);
         let height = chainstate
@@ -2098,13 +2098,14 @@ impl ConversationHttp {
             .map(|blk| blk.height)
             .unwrap_or(0);
 
-        test_debug!(
-            "Begin mempool stream from height {} page_id {:?} for up to {} txs",
-            height,
-            &page_id,
-            max_txs
+        debug!(
+            "Begin mempool query";
+            "page_id" => %page_id.map(|txid| format!("{}", &txid)).unwrap_or("(none".to_string()),
+            "block_height" => height,
+            "max_txs" => max_txs
         );
-        let stream = Some(StreamCursor::new_tx_stream(query, max_txs, height, page_id));
+
+        let stream = StreamCursor::new_tx_stream(query, max_txs, height, page_id);
         response.send(http, fd).and_then(|_| Ok(stream))
     }
 
@@ -2556,7 +2557,7 @@ impl ConversationHttp {
                 None
             }
             HttpRequestType::MemPoolQuery(ref _md, ref query, ref page_id_opt) => {
-                ConversationHttp::handle_mempool_query(
+                Some(ConversationHttp::handle_mempool_query(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
@@ -2565,7 +2566,7 @@ impl ConversationHttp {
                     query.clone(),
                     network.connection_opts.mempool_max_tx_query,
                     page_id_opt.clone(),
-                )?
+                )?)
             }
             HttpRequestType::OptionsPreflight(ref _md, ref _path) => {
                 let response_metadata = HttpResponseMetadata::from(&req);
