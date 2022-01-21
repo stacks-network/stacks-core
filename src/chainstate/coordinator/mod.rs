@@ -656,6 +656,7 @@ impl<
 
                 if let Some(exit_info) = exit_info_opt {
                     if let Some(exit_reward_cycle) = exit_info.curr_exit_at_reward_cycle {
+                        // get the first reward cycle in this epoch
                         let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
                         let curr_epoch =
                             StacksEpoch::get_current_epoch(&epochs, header.block_height);
@@ -679,8 +680,6 @@ impl<
                                        "current_reward_cycle" => curr_reward_cycle);
                             sleep_ms(30000);
                             self.should_keep_running.store(false, Ordering::SeqCst);
-                            // sleep_ms(30000);
-                            // std::process::exit(0);
                             return Ok(());
                         }
                     }
