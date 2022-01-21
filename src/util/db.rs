@@ -265,6 +265,7 @@ macro_rules! impl_byte_array_from_column {
 }
 
 /// Load the path of the database from the connection
+#[cfg(test)]
 fn get_db_path(conn: &Connection) -> Result<String, Error> {
     let sql = "PRAGMA database_list";
     let path: Result<Option<String>, sqlite_error> =
