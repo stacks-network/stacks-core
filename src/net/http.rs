@@ -3836,9 +3836,7 @@ impl HttpResponseType {
                     if expect_eof {
                         // this should have failed
                         test_debug!("Expected EOF; got transaction {}", tx.txid());
-                        return Err(net_error::DeserializeError(
-                            "Expected end-of-stream".to_string(),
-                        ));
+                        return Err(net_error::ExpectedEndOfStream);
                     }
 
                     test_debug!("Read transaction {}", tx.txid());
@@ -3856,9 +3854,7 @@ impl HttpResponseType {
                                         pos,
                                         retry_reader.position()
                                     );
-                                    return Err(net_error::DeserializeError(
-                                        "Expected end-of-stream".to_string(),
-                                    ));
+                                    return Err(net_error::ExpectedEndOfStream);
                                 }
                             } else {
                                 // couldn't read a full transaction.  This is possibly a page ID, whose
@@ -3875,9 +3871,7 @@ impl HttpResponseType {
                     codec_error::DeserializeError(_) => {
                         if expect_eof {
                             // this should have failed due to EOF
-                            return Err(net_error::DeserializeError(
-                                "Expected end-of-stream".to_string(),
-                            ));
+                            return Err(net_error::ExpectedEndOfStream);
                         }
 
                         // failed to parse a transaction.  This is possibly a page ID.
