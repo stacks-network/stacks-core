@@ -822,9 +822,7 @@ fn spawn_peer(
     Ok(server_thread)
 }
 
-fn get_last_sortition(
-    last_sortition: &Arc<Mutex<Option<BlockSnapshot>>>,
-) -> Option<BlockSnapshot> {
+fn get_last_sortition(last_sortition: &Arc<Mutex<Option<BlockSnapshot>>>) -> Option<BlockSnapshot> {
     match last_sortition.lock() {
         Ok(sort_opt) => sort_opt.clone(),
         Err(_) => {
@@ -836,7 +834,7 @@ fn get_last_sortition(
 
 fn set_last_sortition(
     last_sortition: &mut Arc<Mutex<Option<BlockSnapshot>>>,
-    block_snapshot: BlockSnapshot
+    block_snapshot: BlockSnapshot,
 ) {
     match last_sortition.lock() {
         Ok(mut sortition_opt) => {

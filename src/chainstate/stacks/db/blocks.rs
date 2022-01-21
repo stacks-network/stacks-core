@@ -2134,6 +2134,7 @@ impl StacksChainState {
                     let block_bench_start = get_epoch_time_ms();
                     let mut parent_microblock_hash = None;
 
+                    // TODO: just do a stat? cache this?
                     match StacksChainState::load_block_header(
                         &self.blocks_path,
                         &consensus_hash,
@@ -2161,6 +2162,7 @@ impl StacksChainState {
 
                     let mblock_bench_begin = get_epoch_time_ms();
                     if let Some(parent_microblock) = parent_microblock_hash {
+                        // TODO: can we cache this?
                         if self.has_processed_microblocks_at_tail(
                             &index_block_hash,
                             &parent_microblock,

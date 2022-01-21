@@ -1889,7 +1889,7 @@ impl MemPoolDB {
                     "num_txs" => query.num_txs,
                     "max_txs" => query.max_txs
                 );
-                
+
                 query.num_txs += num_rows_visited;
                 if let Some(next_tx) = next_txs.pop() {
                     query.tx_buf_ptr = 0;
