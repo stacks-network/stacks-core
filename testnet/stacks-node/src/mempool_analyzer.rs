@@ -124,6 +124,7 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
         _confirmed_microblock_cost: &ExecutionCost,
         tx_results: Vec<TransactionEvent>,
     ) {
+        let epoch_ms = get_epoch_time_ms() as i32;
         for tx_event in tx_results {
             let tuple = mempool_tx_row_from_event(&tx_event);
 
@@ -134,7 +135,7 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
                     "INSERT INTO mempool_tx_attempt (tx_id, batch_time, status_code, reason) VALUES ($1, $2, $3, $4)",
                     &[
                         &tuple.tx_id.to_string(),
-                        &0i32,
+                        &epoch_ms,
                         &tuple.status_code,
                         &tuple.reason.to_string(),
                     ],
