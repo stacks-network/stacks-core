@@ -113,7 +113,7 @@ fn mempool_tx_row_from_event(event: &TransactionEvent) -> MempoolTxRow {
 
 impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
     fn mempool_txs_dropped(&self, _txids: Vec<Txid>, _reason: MemPoolDropReason) {
-        panic!("`mempool_txs_dropped` was not expected in this workflow.");
+        warn!("`mempool_txs_dropped` was not expected in this workflow.");
     }
     fn mined_block_event(
         &self,
@@ -148,7 +148,7 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
         _anchor_block_consensus_hash: ConsensusHash,
         _anchor_block: BlockHeaderHash,
     ) {
-        panic!("`mined_microblock_event` was not expected in this workflow.");
+        warn!("`mined_microblock_event` was not expected in this workflow.");
     }
 }
 
@@ -156,7 +156,7 @@ fn main() {
     let argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
         eprintln!(
-            "Usage: {} <working-dir> [min-fee [max-time]]
+            "Usage: {} <working-dir> [max-time]
 
 Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block
 assembly, but does not attempt to broadcast a block commit. This is useful for determining
@@ -172,14 +172,11 @@ simulating a miner.
     let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[1]);
     let chain_state_path = format!("{}/mainnet/chainstate/", &argv[1]);
 
-    let mut min_fee = u64::max_value();
+    let min_fee = u64::max_value();
     let mut max_time = u64::max_value();
 
     if argv.len() >= 3 {
-        min_fee = argv[2].parse().expect("Could not parse min_fee");
-    }
-    if argv.len() >= 4 {
-        max_time = argv[3].parse().expect("Could not parse max_time");
+        max_time = argv[2].parse().expect("Could not parse max_time");
     }
 
     let sort_db = SortitionDB::open(&sort_db_path, false)
