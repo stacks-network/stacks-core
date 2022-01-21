@@ -574,7 +574,7 @@ impl RunLoop {
             let remote_chain_height = burnchain.get_headers_height();
 
             // wait for the p2p state-machine to do at least one pass
-            debug!("Wait until we reach steady-state before processing more burnchain blocks (chain height is {}, we are at {})...", remote_chain_height, burnchain_height);
+            debug!("Wait until Stacks block downloads reach a quiescent state before processing more burnchain blocks"; "remote_chain_height" => remote_chain_height, "local_chain_height" => burnchain_height);
 
             // wait until it's okay to process the next reward cycle's sortitions
             let ibd = match self.get_pox_watchdog().pox_sync_wait(
