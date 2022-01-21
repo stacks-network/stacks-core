@@ -6,7 +6,7 @@ COPY . .
 
 WORKDIR /src/testnet/stacks-node
 
-RUN rustup override set nightly && \
+RUN rustup override set nightly-2022-01-14 && \
     rustup component add llvm-tools-preview && \
     cargo install grcov
 
