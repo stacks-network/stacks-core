@@ -99,9 +99,8 @@ enum RelayerDirective {
 pub struct StacksNode {
     config: Config,
     relay_channel: SyncSender<RelayerDirective>,
-    last_sortition_mutex: Arc<Mutex<Option<BlockSnapshot>>>,
+    last_sortition: Arc<Mutex<Option<BlockSnapshot>>>,
     burnchain_signer: BurnchainSigner,
-    last_burn_block: Option<BlockSnapshot>,
     is_miner: bool,
     pub atlas_config: AtlasConfig,
     leader_key_registration_state: LeaderKeyRegistrationState,
@@ -123,6 +122,7 @@ fn fault_injection_long_tenure() {
             }
             Err(_) => {
                 error!("Parse error for STX_TEST_SLOW_TENURE");
+                panic!();
             }
         },
         _ => {}
@@ -823,9 +823,9 @@ fn spawn_peer(
 }
 
 fn get_last_sortition(
-    last_sortition_mutex: &Arc<Mutex<Option<BlockSnapshot>>>,
+    last_sortition: &Arc<Mutex<Option<BlockSnapshot>>>,
 ) -> Option<BlockSnapshot> {
-    match last_sortition_mutex.lock() {
+    match last_sortition.lock() {
         Ok(sort_opt) => sort_opt.clone(),
         Err(_) => {
             error!("Sortition mutex poisoned!");
@@ -834,13 +834,28 @@ fn get_last_sortition(
     }
 }
 
+fn set_last_sortition(
+    last_sortition: &mut Arc<Mutex<Option<BlockSnapshot>>>,
+    block_snapshot: BlockSnapshot
+) {
+    match last_sortition.lock() {
+        Ok(mut sortition_opt) => {
+            sortition_opt.replace(block_snapshot);
+        }
+        Err(_) => {
+            error!("Sortition mutex poisoned!");
+            panic!();
+        }
+    };
+}
+
 fn spawn_miner_relayer(
     runloop: &RunLoop,
     mut relayer: Relayer,
     local_peer: LocalPeer,
     mut keychain: Keychain,
     relay_channel: Receiver<RelayerDirective>,
-    last_sortition_mutex: Arc<Mutex<Option<BlockSnapshot>>>,
+    last_sortition: Arc<Mutex<Option<BlockSnapshot>>>,
     coord_comms: CoordinatorChannels,
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
 ) -> Result<JoinHandle<()>, NetError> {
@@ -1048,7 +1063,7 @@ fn spawn_miner_relayer(
                     }
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
-                    if let Some(cur_sortition) = get_last_sortition(&last_sortition_mutex) {
+                    if let Some(cur_sortition) = get_last_sortition(&last_sortition) {
                         if last_burn_block.sortition_id != cur_sortition.sortition_id {
                             debug!("Drop stale RunTenure for {}: current sortition is for {}", &last_burn_block.burn_header_hash, &cur_sortition.burn_header_hash);
                             counters.bump_missed_tenures();
@@ -1069,7 +1084,7 @@ fn spawn_miner_relayer(
                         // no burnchain change, so only re-run block tenure every so often in order
                         // to give microblocks a chance to collect
                         if issue_timestamp_ms < last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128) {
-                            debug!("Relayer: will NOT run tenure since issuance at {} is too fresh (wait until {})", issue_timestamp_ms, (last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128)) / 1000);
+                            debug!("Relayer: will NOT run tenure since issuance at {} is too fresh (wait until {} + {} = {})", issue_timestamp_ms / 1000, last_tenure_issue_time / 1000, config.node.wait_time_for_microblocks / 1000, (last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128)) / 1000);
                             continue;
                         }
                     }
@@ -1091,6 +1106,7 @@ fn spawn_miner_relayer(
                         "last_burn_header_hash" => %burn_header_hash
                     );
 
+                    let tenure_begin = get_epoch_time_ms();
                     fault_injection_long_tenure();
 
                     let mut last_mined_blocks_vec = last_mined_blocks
@@ -1120,6 +1136,7 @@ fn spawn_miner_relayer(
                     last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
 
                     last_tenure_issue_time = get_epoch_time_ms();
+                    debug!("Relayer: RunTenure finished at {} (in {}ms)", last_tenure_issue_time, last_tenure_issue_time.saturating_sub(tenure_begin));
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
                     rotate_vrf_and_register(
@@ -1135,7 +1152,7 @@ fn spawn_miner_relayer(
                         // stale request
                         continue;
                     }
-                    if let Some(cur_sortition) = get_last_sortition(&last_sortition_mutex) {
+                    if let Some(cur_sortition) = get_last_sortition(&last_sortition) {
                         if burnchain_tip.sortition_id != cur_sortition.sortition_id {
                             debug!("Drop stale RunMicroblockTenure for {}/{}: current sortition is for {} ({})", &burnchain_tip.consensus_hash, &burnchain_tip.winning_stacks_block_hash, &cur_sortition.consensus_hash, &cur_sortition.burn_header_hash);
                             continue;
@@ -1371,7 +1388,8 @@ impl StacksNode {
         // setup the relayer channel
         let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
 
-        let last_sortition_mutex = Arc::new(Mutex::new(None));
+        let last_burn_block = last_burn_block.map(|x| x.block_snapshot);
+        let last_sortition = Arc::new(Mutex::new(last_burn_block));
 
         let burnchain_signer = keychain.get_burnchain_signer();
         match monitoring::set_burnchain_signer(burnchain_signer.clone()) {
@@ -1402,7 +1420,7 @@ impl StacksNode {
             local_peer,
             keychain,
             relay_recv,
-            last_sortition_mutex.clone(),
+            last_sortition.clone(),
             coord_comms,
             shared_unconfirmed_txs.clone(),
         )
@@ -1423,15 +1441,12 @@ impl StacksNode {
         info!("Start HTTP server on: {}", &config.node.rpc_bind);
         info!("Start P2P server on: {}", &config.node.p2p_bind);
 
-        let last_burn_block = last_burn_block.map(|x| x.block_snapshot);
-
         let is_miner = miner;
 
         StacksNode {
             config,
             relay_channel: relay_send,
-            last_sortition_mutex,
-            last_burn_block,
+            last_sortition,
             burnchain_signer,
             is_miner,
             atlas_config,
@@ -1449,7 +1464,7 @@ impl StacksNode {
             return true;
         }
 
-        if let Some(burnchain_tip) = self.last_burn_block.clone() {
+        if let Some(burnchain_tip) = get_last_sortition(&self.last_sortition) {
             match self.leader_key_registration_state {
                 LeaderKeyRegistrationState::Active(ref key) => {
                     debug!(
@@ -1491,24 +1506,15 @@ impl StacksNode {
             return true;
         }
 
-        if let Some(ref snapshot) = &self.last_burn_block {
+        if let Some(snapshot) = get_last_sortition(&self.last_sortition) {
             debug!(
-                "Tenure: Notify sortition! Last snapshot is {}/{} ({}) sortition {}",
-                &snapshot.consensus_hash,
-                &snapshot.burn_header_hash,
-                &snapshot.winning_stacks_block_hash,
-                &snapshot.sortition_id
+                "Tenure: Notify sortition!";
+                "consensus_hash" => %snapshot.consensus_hash,
+                "burn_block_hash" => %snapshot.burn_header_hash,
+                "winning_stacks_block_hash" => %snapshot.winning_stacks_block_hash,
+                "burn_block_height" => &snapshot.block_height,
+                "sortition_id" => %snapshot.sortition_id
             );
-            // pass along latest sortition
-            match self.last_sortition_mutex.lock() {
-                Ok(mut sortition_opt) => {
-                    sortition_opt.replace(snapshot.clone());
-                }
-                Err(_) => {
-                    error!("Sortition mutex poisoned!");
-                    panic!();
-                }
-            };
             if snapshot.sortition {
                 return self
                     .relay_channel
@@ -2054,21 +2060,23 @@ impl StacksNode {
                 || cur_burn_chain_tip.sortition_id != burn_block.sortition_id
             {
                 debug!(
-                    "Cancel block-commit for block {} tx-count {} height {} off of {}/{} with microblock parent {} (seq {}) in burn block {} ({}) sortition {}; attempt {}.  New tip is {}/{}, sortition {}",
-                    &anchored_block.block_hash(),
-                    anchored_block.txs.len(),
-                    anchored_block.header.total_work.work,
-                    &parent_consensus_hash,
-                    &anchored_block.header.parent_block,
-                    &anchored_block.header.parent_microblock,
-                    &anchored_block.header.parent_microblock_sequence,
-                    &burn_block.burn_header_hash,
-                    burn_block.block_height,
-                    burn_block.sortition_id,
-                    attempt,
-                    stacks_tip.anchored_block_hash,
-                    stacks_tip.consensus_hash,
-                    cur_burn_chain_tip.sortition_id
+                    "Cancel block-commit; chain tip(s) have changed";
+                    "block_hash" => %anchored_block.block_hash(),
+                    "tx_count" => anchored_block.txs.len(),
+                    "target_height" => %anchored_block.header.total_work.work,
+                    "parent_consensus_hash" => %parent_consensus_hash,
+                    "parent_block_hash" => %anchored_block.header.parent_block,
+                    "parent_microblock_hash" => %anchored_block.header.parent_microblock,
+                    "parent_microblock_seq" => anchored_block.header.parent_microblock_sequence,
+                    "old_tip_burn_block_hash" => %burn_block.burn_header_hash,
+                    "old_tip_burn_block_height" => burn_block.block_height,
+                    "old_tip_burn_block_sortition_id" => %burn_block.sortition_id,
+                    "attempt" => attempt,
+                    "new_stacks_tip_block_hash" => %stacks_tip.anchored_block_hash,
+                    "new_stacks_tip_consensus_hash" => %stacks_tip.consensus_hash,
+                    "new_tip_burn_block_height" => cur_burn_chain_tip.block_height,
+                    "new_tip_burn_block_sortition_id" => %cur_burn_chain_tip.sortition_id,
+                    "new_burn_block_sortition_id" => %cur_burn_chain_tip.sortition_id
                 );
                 return None;
             }
@@ -2076,17 +2084,18 @@ impl StacksNode {
 
         let mut op_signer = keychain.generate_op_signer();
         debug!(
-            "Submit block-commit for block {} tx-count {} height {} off of {}/{} with microblock parent {} (seq {}) in burn block {} ({}); attempt {}",
-            &anchored_block.block_hash(),
-            anchored_block.txs.len(),
-            anchored_block.header.total_work.work,
-            &parent_consensus_hash,
-            &anchored_block.header.parent_block,
-            &anchored_block.header.parent_microblock,
-            &anchored_block.header.parent_microblock_sequence,
-            &burn_block.burn_header_hash,
-            burn_block.block_height,
-            attempt
+            "Submit block-commit";
+            "block_hash" => %anchored_block.block_hash(),
+            "tx_count" => anchored_block.txs.len(),
+            "target_height" => anchored_block.header.total_work.work,
+            "parent_consensus_hash" => %parent_consensus_hash,
+            "parent_block_hash" => %anchored_block.header.parent_block,
+            "parent_microblock_hash" => %anchored_block.header.parent_microblock,
+            "parent_microblock_seq" => anchored_block.header.parent_microblock_sequence,
+            "tip_burn_block_hash" => %burn_block.burn_header_hash,
+            "tip_burn_block_height" => burn_block.block_height,
+            "tip_burn_block_sortition_id" => %burn_block.sortition_id,
+            "attempt" => attempt
         );
 
         let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
@@ -2192,8 +2201,7 @@ impl StacksNode {
 
         // no-op on UserBurnSupport ops are not supported / produced at this point.
 
-        self.last_burn_block = Some(block_snapshot);
-
+        set_last_sortition(&mut self.last_sortition, block_snapshot);
         last_sortitioned_block.map(|x| x.0)
     }
 
