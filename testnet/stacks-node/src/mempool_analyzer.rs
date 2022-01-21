@@ -74,7 +74,7 @@ impl MemPoolEventDispatcherImpl {
 #[derive(Debug)]
 struct MempoolTxRow {
     pub tx_id: Txid,
-    pub status_code: u64,
+    pub status_code: i32,
     pub reason: String,
 }
 
@@ -129,7 +129,7 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
             comment
             ) values ($1, $2, $3)
             ",
-                    &[&tuple.tx_id, &tuple.status_code, &tuple.reason],
+                    &[&tuple.tx_id.to_string(), &tuple.status_code, &tuple.reason],
                 )
                 .expect("");
         }
