@@ -71,26 +71,11 @@ lazy_static! {
     );
 }
 
-fn write_tx_to_postgres(tx_event: &TransactionEvent) {
-    let tuple = mempool_tx_row_from_event(tx_event);
-
-    client
-        .lock()
-        .unwrap()
-        .execute(
-            "INSERT INTO mempool_tx_attempt (tx_id, status, comment) VALUES ($1, $2, $3)",
-            &[&"id3", &"status3", &"comment3"],
-        )
-        .expect("tried to insert");
-}
-
-struct MemPoolEventDispatcherImpl {
-    tx_output_fn: fn(&TransactionEvent) -> (),
-}
+struct MemPoolEventDispatcherImpl {}
 
 impl MemPoolEventDispatcherImpl {
-    fn new(tx_output_fn: fn(&TransactionEvent) -> ()) -> MemPoolEventDispatcherImpl {
-        return MemPoolEventDispatcherImpl { tx_output_fn };
+    fn new() -> MemPoolEventDispatcherImpl {
+        return MemPoolEventDispatcherImpl {};
     }
 }
 
@@ -140,7 +125,16 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
         tx_results: Vec<TransactionEvent>,
     ) {
         for tx_event in tx_results {
-            (self.tx_output_fn)(&tx_event);
+            let tuple = mempool_tx_row_from_event(&tx_event);
+
+            client
+                .lock()
+                .unwrap()
+                .execute(
+                    "INSERT INTO mempool_tx_attempt (tx_id, status, comment) VALUES ($1, $2, $3)",
+                    &[&"id3", &"status3", &"comment3"],
+                )
+                .expect("tried to insert");
         }
     }
     fn mined_microblock_event(
@@ -170,7 +164,7 @@ simulating a miner.
         process::exit(1);
     }
 
-    let dispatcher = MemPoolEventDispatcherImpl::new(write_tx_to_postgres);
+    let dispatcher = MemPoolEventDispatcherImpl::new();
 
     let start = get_epoch_time_ms();
     let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[1]);
