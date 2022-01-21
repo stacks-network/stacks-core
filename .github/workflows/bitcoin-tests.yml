@@ -81,11 +81,13 @@ jobs:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
         run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-      - uses: codecov/codecov-action@v2
+      - name: Coveralls Parallel
+        uses: coverallsapp/github-action@master
         with:
-          files: ./coverage-output/lcov.info
-          name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
+          github-token: ${{ secrets.github_token }}
+          flag-name: ${{ matrix.test-name }}
+          path-to-lcov: ./coverage-output/lcov.info
+          parallel: true
   atlas-test:
     if: ${{ true }}
     runs-on: ubuntu-latest
@@ -111,8 +113,10 @@ jobs:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
         run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-      - uses: codecov/codecov-action@v2
+      - name: Coveralls Parallel
+        uses: coverallsapp/github-action@master
         with:
-          files: ./coverage-output/lcov.info
-          name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
+          github-token: ${{ secrets.github_token }}
+          flag-name: ${{ matrix.test-name }}
+          path-to-lcov: ./coverage-output/lcov.info
+          parallel: true

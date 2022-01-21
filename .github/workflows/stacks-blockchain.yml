@@ -48,11 +48,13 @@ jobs:
         run: |
           rm .dockerignore
           docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
-      - uses: codecov/codecov-action@v2
+      - name: Coveralls Parallel
+        uses: coverallsapp/github-action@master
         with:
-          files: ./coverage-output/lcov.info
-          name: large_genesis
-          fail_ci_if_error: true
+          github-token: ${{ secrets.github_token }}
+          flag-name: large_genesis
+          path-to-lcov: ./coverage-output/lcov.info
+          parallel: true
 
   # Run unit tests with code coverage
   unit-tests:
@@ -66,11 +68,25 @@ jobs:
         run: |
           rm .dockerignore
           docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
-      - uses: codecov/codecov-action@v2
+      - name: Coveralls Parallel
+        uses: coverallsapp/github-action@master
         with:
-          files: ./coverage-output/lcov.info
-          name: unit_tests
-          fail_ci_if_error: true
+          github-token: ${{ secrets.github_token }}
+          flag-name: unit_tests
+          path-to-lcov: ./coverage-output/lcov.info
+          parallel: true
+
+  coveralls-finished:
+    needs:
+      - unit-tests
+      - full-genesis
+    runs-on: ubuntu-latest
+    steps:
+    - name: Coveralls Finished
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.github_token }}
+        parallel-finished: true
 
   open-api-validation:
     runs-on: ubuntu-latest
