@@ -59,15 +59,26 @@ use stacks::{
     vm::representations::UrlString,
 };
 
+fn write_tx_to_postgres(tx_event: &TransactionEvent) {
+    let tuple = mempool_tx_row_from_event(tx_event);
+    let mut client = Client::connect(
+        "postgresql://postgres:postgres@localhost/temp_database",
+        NoTls,
+    ).expect("couldnt start climate");
+
+     client.execute(
+         "INSERT INTO mempool_tx_attempt (tx_id, status, comment) VALUES ($1, $2, $3)",
+         &[&"id3", &"status3", &"comment3"],
+     ).expect("tried to insert");
+}
+
 struct MemPoolEventDispatcherImpl {
-    client: Client,
+    tx_output_fn: fn(&TransactionEvent) -> (),
 }
 
 impl MemPoolEventDispatcherImpl {
-    fn new() -> MemPoolEventDispatcherImpl {
-        let client =
-            Client::connect("postgresql://postgres:postgres@localhost/library", NoTls).expect("");
-        return MemPoolEventDispatcherImpl { client };
+    fn new(tx_output_fn:fn(&TransactionEvent) -> ()) -> MemPoolEventDispatcherImpl {
+        return MemPoolEventDispatcherImpl { tx_output_fn };
     }
 }
 
@@ -117,21 +128,7 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
         tx_results: Vec<TransactionEvent>,
     ) {
         for tx_event in tx_results {
-            let tuple = mempool_tx_row_from_event(&tx_event);
-            info!("{:?}", &tuple);
-
-            self.client
-                .execute(
-                    "
-        INSTER INTO author (
-            tx_id,
-            status,
-            comment
-            ) values ($1, $2, $3)
-            ",
-                    &[&tuple.tx_id.to_string(), &tuple.status_code, &tuple.reason],
-                )
-                .expect("");
+            (self.tx_output_fn)(&tx_event);
         }
     }
     fn mined_microblock_event(
