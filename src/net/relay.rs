@@ -941,7 +941,9 @@ impl Relayer {
                 debug!(
                     "Received downloaded block for {}/{}",
                     &new_dled_block_ch,
-                    &block_data.block_hash()
+                    &block_data.block_hash();
+                    "consensus_hash" => %new_dled_block_ch,
+                    "block_hash" => %block_data.block_hash()
                 );
                 new_blocks.insert(new_dled_block_ch, block_data);
             }
@@ -953,7 +955,9 @@ impl Relayer {
                 debug!(
                     "Received p2p-pushed block for {}/{}",
                     &new_pushed_block_ch,
-                    &block_data.block_hash()
+                    &block_data.block_hash();
+                    "consensus_hash" => %new_pushed_block_ch,
+                    "block_hash" => %block_data.block_hash()
                 );
                 new_blocks.insert(new_pushed_block_ch, block_data);
             }
