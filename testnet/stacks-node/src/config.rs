@@ -362,9 +362,6 @@ impl Config {
                     microblock_frequency: node
                         .microblock_frequency
                         .unwrap_or(default_node_config.microblock_frequency),
-                    microblock_attempt_time_ms: node
-                        .microblock_attempt_time_ms
-                        .unwrap_or(default_node_config.microblock_attempt_time_ms),
                     max_microblocks: node
                         .max_microblocks
                         .unwrap_or(default_node_config.max_microblocks),
@@ -510,6 +507,9 @@ impl Config {
                 subsequent_attempt_time_ms: miner
                     .subsequent_attempt_time_ms
                     .unwrap_or(miner_default_config.subsequent_attempt_time_ms),
+                microblock_attempt_time_ms: miner
+                    .microblock_attempt_time_ms
+                    .unwrap_or(miner_default_config.microblock_attempt_time_ms),
                 probability_pick_no_estimate_tx: miner
                     .probability_pick_no_estimate_tx
                     .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),
@@ -868,7 +868,7 @@ impl Config {
     ) -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: if microblocks {
-                self.node.microblock_attempt_time_ms
+                self.miner.microblock_attempt_time_ms
             } else if attempt <= 1 {
                 // first attempt to mine a block -- do so right away
                 self.miner.first_attempt_time_ms
@@ -879,7 +879,7 @@ impl Config {
             mempool_settings: MemPoolWalkSettings {
                 min_tx_fee: self.miner.min_tx_fee,
                 max_walk_time_ms: if microblocks {
-                    self.node.microblock_attempt_time_ms
+                    self.miner.microblock_attempt_time_ms
                 } else if attempt <= 1 {
                     // first attempt to mine a block -- do so right away
                     self.miner.first_attempt_time_ms
@@ -1046,7 +1046,6 @@ pub struct NodeConfig {
     pub mock_mining: bool,
     pub mine_microblocks: bool,
     pub microblock_frequency: u64,
-    pub microblock_attempt_time_ms: u64,
     pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
     pub prometheus_bind: Option<String>,
@@ -1318,7 +1317,6 @@ impl NodeConfig {
             mock_mining: false,
             mine_microblocks: true,
             microblock_frequency: 30_000,
-            microblock_attempt_time_ms: 30_000,
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
             prometheus_bind: None,
@@ -1408,6 +1406,7 @@ pub struct MinerConfig {
     pub min_tx_fee: u64,
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
+    pub microblock_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
 }
 
@@ -1417,6 +1416,7 @@ impl MinerConfig {
             min_tx_fee: 1,
             first_attempt_time_ms: 1_000,
             subsequent_attempt_time_ms: 30_000,
+            microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
         }
     }
@@ -1481,7 +1481,6 @@ pub struct NodeConfigFile {
     pub mock_mining: Option<bool>,
     pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
-    pub microblock_attempt_time_ms: Option<u64>,
     pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
     pub prometheus_bind: Option<String>,
@@ -1519,6 +1518,7 @@ pub struct MinerConfigFile {
     pub min_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
+    pub microblock_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
 }
 
