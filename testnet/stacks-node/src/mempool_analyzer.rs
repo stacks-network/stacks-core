@@ -1,19 +1,3 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 #![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
@@ -79,11 +63,43 @@ struct MemPoolEventDispatcherImpl {
     client: Client,
 }
 
-impl MemPoolEventDispatcher {
-    fn new() -> MemPoolEventDispatcher {
+impl MemPoolEventDispatcherImpl {
+    fn new() -> MemPoolEventDispatcherImpl {
         let client =
             Client::connect("postgresql://postgres:postgres@localhost/library", NoTls).expect("");
-        return MemPoolEventDispatcher { client };
+        return MemPoolEventDispatcherImpl { client };
+    }
+}
+
+#[derive(Debug)]
+struct MempoolTxRow {
+    pub tx_id: Txid,
+    pub status_code: u64,
+    pub reason: String,
+}
+
+fn mempool_tx_row_from_event(event: &TransactionEvent) -> MempoolTxRow {
+    match event {
+        TransactionEvent::Success(TransactionSuccessEvent {
+            txid,
+            fee: _,
+            execution_cost: _,
+            result: _,
+        }) => MempoolTxRow {
+            tx_id: txid.clone(),
+            status_code: 0,
+            reason: "".to_string(),
+        },
+        TransactionEvent::ProcessingError(TransactionErrorEvent { txid, error }) => MempoolTxRow {
+            tx_id: txid.clone(),
+            status_code: 1,
+            reason: error.to_string(),
+        },
+        TransactionEvent::Skipped(TransactionSkippedEvent { txid, error }) => MempoolTxRow {
+            tx_id: txid.clone(),
+            status_code: 2,
+            reason: error.to_string(),
+        },
     }
 }
 
@@ -93,24 +109,30 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
     }
     fn mined_block_event(
         &self,
-        target_burn_height: u64,
-        block: &StacksBlock,
-        block_size_bytes: u64,
-        consumed: &ExecutionCost,
-        confirmed_microblock_cost: &ExecutionCost,
+        _target_burn_height: u64,
+        _block: &StacksBlock,
+        _block_size_bytes: u64,
+        _consumed: &ExecutionCost,
+        _confirmed_microblock_cost: &ExecutionCost,
         tx_results: Vec<TransactionEvent>,
     ) {
-        self.client
-            .batch_execute(
-                "
+        for tx_event in tx_results {
+            let tuple = mempool_tx_row_from_event(&tx_event);
+            info!("{:?}", &tuple);
+
+            self.client
+                .execute(
+                    "
         INSTER INTO author (
-            id              SERIAL PRIMARY KEY,
-            name            VARCHAR NOT NULL,
-            country         VARCHAR NOT NULL
-            )
-    ",
-            )
-            .expect("");
+            tx_id,
+            status,
+            comment
+            ) values ($1, $2, $3)
+            ",
+                    &[&tuple.tx_id, &tuple.status_code, &tuple.reason],
+                )
+                .expect("");
+        }
     }
     fn mined_microblock_event(
         &self,

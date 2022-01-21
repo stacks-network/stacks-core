@@ -211,10 +211,6 @@ pub enum TransactionEvent {
     Skipped(TransactionSkippedEvent),
 }
 
-impl TransactionEvent {
-    pub fn toString(&self) {}
-}
-
 impl TransactionResult {
     /// Logs a queryable message for the case where `txid` has succeeded.
     pub fn log_transaction_success(tx: &StacksTransaction) {
