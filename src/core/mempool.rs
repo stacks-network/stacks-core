@@ -1855,8 +1855,8 @@ impl MemPoolDB {
 
                 if query.num_txs >= query.max_txs {
                     // no more space in this stream
-                    test_debug!(
-                        "No more space in this query after {:?}",
+                    debug!(
+                        "No more space in this query after {:?}. Corking tx stream.",
                         &query.last_randomized_txid
                     );
 
@@ -1865,10 +1865,6 @@ impl MemPoolDB {
                     query.tx_buf.clear();
                     query.corked = true;
 
-                    test_debug!(
-                        "Cork tx stream with next page {}",
-                        &query.last_randomized_txid
-                    );
                     query
                         .last_randomized_txid
                         .consensus_serialize(&mut query.tx_buf)
@@ -1886,13 +1882,14 @@ impl MemPoolDB {
                         query.max_txs.saturating_sub(query.num_txs),
                     )?;
 
-                test_debug!(
-                    "Visited {} rows from {}, num_txs = {}, max txs = {}",
-                    num_rows_visited,
-                    &query.last_randomized_txid,
-                    query.num_txs,
-                    query.max_txs
+                debug!(
+                    "Streaming mempool propagation stepped";
+                    "rows_visited" => num_rows_visited,
+                    "last_rand_txid" => %query.last_randomized_txid,
+                    "num_txs" => query.num_txs,
+                    "max_txs" => query.max_txs
                 );
+                
                 query.num_txs += num_rows_visited;
                 if let Some(next_tx) = next_txs.pop() {
                     query.tx_buf_ptr = 0;
