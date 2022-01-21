@@ -59,25 +59,12 @@ use stacks::{
     vm::representations::UrlString,
 };
 
-fn write_tx_to_postgres(tx_event: &TransactionEvent) {
-    let tuple = mempool_tx_row_from_event(tx_event);
-    let mut client = Client::connect(
-        "postgresql://postgres:postgres@localhost/temp_database",
-        NoTls,
-    ).expect("couldnt start climate");
-
-     client.execute(
-         "INSERT INTO mempool_tx_attempt (tx_id, status, comment) VALUES ($1, $2, $3)",
-         &[&"id3", &"status3", &"comment3"],
-     ).expect("tried to insert");
-}
-
 struct MemPoolEventDispatcherImpl {
     tx_output_fn: fn(&TransactionEvent) -> (),
 }
 
 impl MemPoolEventDispatcherImpl {
-    fn new(tx_output_fn:fn(&TransactionEvent) -> ()) -> MemPoolEventDispatcherImpl {
+    fn new(tx_output_fn: fn(&TransactionEvent) -> ()) -> MemPoolEventDispatcherImpl {
         return MemPoolEventDispatcherImpl { tx_output_fn };
     }
 }
@@ -157,6 +144,22 @@ simulating a miner.
         );
         process::exit(1);
     }
+    let mut client = Client::connect(
+        "postgresql://postgres:postgres@localhost/temp_database",
+        NoTls,
+    )
+    .expect("couldnt start climate");
+
+    let write_tx_to_postgres = |tx_event: &TransactionEvent| {
+        let tuple = mempool_tx_row_from_event(tx_event);
+
+        client
+            .execute(
+                "INSERT INTO mempool_tx_attempt (tx_id, status, comment) VALUES ($1, $2, $3)",
+                &[&"id3", &"status3", &"comment3"],
+            )
+            .expect("tried to insert");
+    };
 
     let start = get_epoch_time_ms();
     let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[1]);
