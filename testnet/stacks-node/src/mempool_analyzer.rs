@@ -181,98 +181,99 @@ simulating a miner.
         max_time = argv[2].parse().expect("Could not parse max_time");
     }
 
-    let sort_db = SortitionDB::open(&sort_db_path, false)
-        .expect(&format!("Failed to open {}", &sort_db_path));
-    let chain_id = core::CHAIN_ID_MAINNET;
-    let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
-        .expect("Failed to open stacks chain state");
-    let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
-        .expect("Failed to get sortition chain tip");
+    // Infinite loop. Kill by terminating externally.
+    loop {
+        let sort_db = SortitionDB::open(&sort_db_path, false)
+            .expect(&format!("Failed to open {}", &sort_db_path));
+        let chain_id = core::CHAIN_ID_MAINNET;
+        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
+            .expect("Failed to open stacks chain state");
+        let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+            .expect("Failed to get sortition chain tip");
 
-    let estimator = Box::new(UnitEstimator);
-    let metric = Box::new(UnitMetric);
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
 
-    let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
-        .expect("Failed to open mempool db");
+        let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
+            .expect("Failed to open mempool db");
 
-    let stacks_block = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
-    let parent_header = StacksChainState::get_anchored_block_header_info(
-        chain_state.db(),
-        &stacks_block.consensus_hash,
-        &stacks_block.anchored_block_hash,
-    )
-    .expect("Failed to load chain tip header info")
-    .expect("Failed to load chain tip header info");
+        let stacks_block = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
+        let parent_header = StacksChainState::get_anchored_block_header_info(
+            chain_state.db(),
+            &stacks_block.consensus_hash,
+            &stacks_block.anchored_block_hash,
+        )
+        .expect("Failed to load chain tip header info")
+        .expect("Failed to load chain tip header info");
 
-    let sk = StacksPrivateKey::new();
-    let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
-    tx_auth.set_origin_nonce(0);
+        let sk = StacksPrivateKey::new();
+        let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
+        tx_auth.set_origin_nonce(0);
 
-    let mut coinbase_tx = StacksTransaction::new(
-        TransactionVersion::Mainnet,
-        tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
-    );
-
-    coinbase_tx.chain_id = chain_id;
-    coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
-    let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
-    tx_signer.sign_origin(&sk).unwrap();
-    let coinbase_tx = tx_signer.get_tx().unwrap();
-
-    let mut settings = BlockBuilderSettings::limited();
-    settings.max_miner_time_ms = max_time;
-    settings.mempool_settings.min_tx_fee = min_fee;
-
-    let dispatcher = MemPoolEventDispatcherImpl::new();
-    let result = StacksBlockBuilder::build_anchored_block(
-        &chain_state,
-        &sort_db.index_conn(),
-        &mut mempool_db,
-        &parent_header,
-        chain_tip.total_burn,
-        VRFProof::empty(),
-        Hash160([0; 20]),
-        &coinbase_tx,
-        settings,
-        Some(&dispatcher),
-        u64::MAX,
-    );
-
-    let stop = get_epoch_time_ms();
-
-    println!(
-        "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
-        if result.is_ok() {
-            "Successfully"
-        } else {
-            "Failed to"
-        },
-        parent_header.block_height + 1,
-        StacksBlockHeader::make_index_block_hash(
-            &parent_header.consensus_hash,
-            &parent_header.anchored_header.block_hash()
-        ),
-        &parent_header.consensus_hash,
-        &parent_header.anchored_header.block_hash(),
-        stop.saturating_sub(start),
-        min_fee,
-        max_time
-    );
-
-    if let Ok((block, execution_cost, size)) = result {
-        let mut total_fees = 0;
-        for tx in block.txs.iter() {
-            total_fees += tx.get_tx_fee();
-        }
-        println!(
-            "Block {}: {} uSTX, {} bytes, cost {:?}",
-            block.block_hash(),
-            total_fees,
-            size,
-            &execution_cost
+        let mut coinbase_tx = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            tx_auth,
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
         );
-    }
 
-    process::exit(0);
+        coinbase_tx.chain_id = chain_id;
+        coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
+        tx_signer.sign_origin(&sk).unwrap();
+        let coinbase_tx = tx_signer.get_tx().unwrap();
+
+        let mut settings = BlockBuilderSettings::limited();
+        settings.max_miner_time_ms = max_time;
+        settings.mempool_settings.min_tx_fee = min_fee;
+
+        let dispatcher = MemPoolEventDispatcherImpl::new();
+        let result = StacksBlockBuilder::build_anchored_block(
+            &chain_state,
+            &sort_db.index_conn(),
+            &mut mempool_db,
+            &parent_header,
+            chain_tip.total_burn,
+            VRFProof::empty(),
+            Hash160([0; 20]),
+            &coinbase_tx,
+            settings,
+            Some(&dispatcher),
+            u64::MAX,
+        );
+
+        let stop = get_epoch_time_ms();
+
+        println!(
+            "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
+            if result.is_ok() {
+                "Successfully"
+            } else {
+                "Failed to"
+            },
+            parent_header.block_height + 1,
+            StacksBlockHeader::make_index_block_hash(
+                &parent_header.consensus_hash,
+                &parent_header.anchored_header.block_hash()
+            ),
+            &parent_header.consensus_hash,
+            &parent_header.anchored_header.block_hash(),
+            stop.saturating_sub(start),
+            min_fee,
+            max_time
+        );
+
+        if let Ok((block, execution_cost, size)) = result {
+            let mut total_fees = 0;
+            for tx in block.txs.iter() {
+                total_fees += tx.get_tx_fee();
+            }
+            println!(
+                "Block {}: {} uSTX, {} bytes, cost {:?}",
+                block.block_hash(),
+                total_fees,
+                size,
+                &execution_cost
+            );
+        }
+    }
 }
