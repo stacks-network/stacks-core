@@ -20,9 +20,8 @@ name = "blockstack_lib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "postgres"
-path = "src/postgres.rs"
-
+name = "blockstack-core"
+path = "src/main.rs"
 
 [[bin]]
 name = "clarity-cli"
