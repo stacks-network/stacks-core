@@ -164,6 +164,35 @@ pub mod test_observer {
 
     async fn handle_mined_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
         let mut mined_blocks = MINED_BLOCKS.lock().unwrap();
+        // assert that the mined transaction events have string-y txids
+        block
+            .as_object()
+            .expect("Expected JSON object for mined block event")
+            .get("tx_events")
+            .expect("Expected tx_events key in mined block event")
+            .as_array()
+            .expect("Expected tx_events key to be an array in mined block event")
+            .iter()
+            .for_each(|txevent| {
+                let txevent_obj = txevent.as_object().expect("TransactionEvent should be object");
+                let inner_obj = if let Some(inner_obj) = txevent_obj.get("Success") {
+                    inner_obj
+                } else if let Some(inner_obj) = txevent_obj.get("ProcessingError") {
+                    inner_obj
+                } else if let Some(inner_obj) = txevent_obj.get("Skipped") {
+                    inner_obj
+                } else {
+                    panic!("TransactionEvent object should have one of Success, ProcessingError, or Skipped")
+                };
+                inner_obj
+                    .as_object()
+                    .expect("TransactionEvent should be an object")
+                    .get("txid")
+                    .expect("Should have txid key")
+                    .as_str()
+                    .expect("Expected txid to be a string");
+            });
+
         mined_blocks.push(serde_json::from_value(block).unwrap());
         Ok(warp::http::StatusCode::OK)
     }
