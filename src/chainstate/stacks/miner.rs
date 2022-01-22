@@ -1928,6 +1928,14 @@ impl StacksBlockBuilder {
                         );
                         tx_events.push(tx_result.convert_to_event());
 
+                        let current_time = get_epoch_time_ms();
+                        let seconds_elapsed = (current_time - ts_start) as f64 / 1000f64;
+                        let fraction = seconds_elapsed / num_considered as f64;
+                        info!(
+                            "num_considered {} seconds_elapsed {} fraction {}",
+                            num_considered, seconds_elapsed, fraction
+                        );
+
                         match tx_result {
                             TransactionResult::Success(TransactionSuccess { receipt, .. }) => {
                                 num_txs += 1;

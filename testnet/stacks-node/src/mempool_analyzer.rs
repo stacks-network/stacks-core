@@ -180,6 +180,7 @@ simulating a miner.
     if argv.len() >= 3 {
         max_time = argv[2].parse().expect("Could not parse max_time");
     }
+    info!("max_time {}", max_time);
 
     // Infinite loop. Kill by terminating externally.
     loop {
