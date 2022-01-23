@@ -86,6 +86,7 @@ use crate::monitoring;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
 use crate::util::db::table_exists;
 use chainstate::stacks::miner::TransactionEvent;
+use std::time::Duration;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
@@ -1016,6 +1017,9 @@ impl MemPoolDB {
         let mut rng = rand::thread_rng();
         let mut remember_start_with_estimate = None;
 
+        let mut consider_total = Duration::ZERO;
+        let mut todo_total = Duration::ZERO;
+
         loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
                 debug!("Mempool iteration deadline exceeded";
@@ -1027,7 +1031,10 @@ impl MemPoolDB {
                 tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob
             });
 
-            match self.get_next_tx_to_consider(start_with_no_estimate)? {
+            let consider_start = Instant::now();
+            let next_to_consider = self.get_next_tx_to_consider(start_with_no_estimate)?;
+            let consider_duration = consider_start.elapsed();
+            match next_to_consider {
                 ConsiderTransactionResult::NoTransactions => {
                     debug!("No more transactions to consider in mempool");
                     break;
@@ -1064,7 +1071,22 @@ impl MemPoolDB {
                            "size" => consider.tx.metadata.len);
                     total_considered += 1;
 
-                    if !todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
+                    let todo_start = Instant::now();
+                    let todo_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut())?;
+                    let todo_duration = todo_start.elapsed();
+
+                    info!(
+                        "consider_duration {:?} todo_duration {:?}",
+                        &consider_duration, &todo_duration
+                    );
+
+                    consider_total += consider_duration;
+                    todo_total += todo_duration;
+                    info!(
+                        "consider_total {:?} todo_total {:?}",
+                        &consider_total, &todo_total
+                    );
+                    if !todo_result {
                         debug!("Mempool iteration early exit from iterator");
                         break;
                     }

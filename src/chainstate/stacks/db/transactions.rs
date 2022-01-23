@@ -1130,15 +1130,21 @@ impl StacksChainState {
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
 
+        let pre_start = Instant::now();
         StacksChainState::process_transaction_precheck(&clarity_block.config, tx)?;
 
         let mut transaction = clarity_block.connection().start_transaction_processing();
         let (origin_account, payer_account) =
             StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
 
+        let consider_duration = consider_start.elapsed();
+
+        let process_start = Instant::now();
         let tx_receipt =
             StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
+        let consider_duration = consider_start.elapsed();
 
+        let post_start = Instant::now();
         let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
         let fee = tx.get_tx_fee();
         StacksChainState::pay_transaction_fee(&mut transaction, fee, new_payer_account)?;
@@ -1156,6 +1162,7 @@ impl StacksChainState {
                 payer_account.nonce,
             );
         }
+        let consider_duration = consider_start.elapsed();
 
         transaction.commit();
 
