@@ -13,6 +13,9 @@ extern crate stacks;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+extern crate pprof;
+
+use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::process;
@@ -183,7 +186,6 @@ simulating a miner.
     info!("max_time {}", max_time);
 
     // Infinite loop. Kill by terminating externally.
-    loop {
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
         let chain_id = core::CHAIN_ID_MAINNET;
@@ -228,6 +230,8 @@ simulating a miner.
         settings.mempool_settings.min_tx_fee = min_fee;
 
         let dispatcher = MemPoolEventDispatcherImpl::new();
+
+        let guard = pprof::ProfilerGuard::new(100).unwrap();
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,
             &sort_db.index_conn(),
@@ -276,5 +280,11 @@ simulating a miner.
                 &execution_cost
             );
         }
-    }
+        if let Ok(report) = guard.report().build() {
+    info!("creating report");
+    let file = File::create("flamegraph.svg").unwrap();
+    report.flamegraph(file).unwrap();
+} else {
+    info!("could not create report");
+}
 }

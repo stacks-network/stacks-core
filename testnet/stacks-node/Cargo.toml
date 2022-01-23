@@ -5,6 +5,7 @@ authors = ["Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2018"
 
 [dependencies]
+pprof = { version = "0.4", features = ["flamegraph"] }
 postgres = "0.19"
 lazy_static = "1.4.0"
 pico-args = "0.3.1"
@@ -47,3 +48,6 @@ monitoring_prom = ["stacks/monitoring_prom"]
 slog_json = ["stacks/slog_json"]
 prod-genesis-chainstate = []
 default = []
+
+[profile.release]
+debug = true
