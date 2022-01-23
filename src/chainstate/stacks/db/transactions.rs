@@ -56,6 +56,8 @@ use vm::types::{
 };
 
 use crate::types::chainstate::StacksMicroblockHeader;
+use std::time::Instant;
+use std::time::Duration;
 
 // make it possible to have a set of Values
 impl std::hash::Hash for Value {
@@ -1137,12 +1139,12 @@ impl StacksChainState {
         let (origin_account, payer_account) =
             StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
 
-        let consider_duration = consider_start.elapsed();
+        let pre_duration = pre_start.elapsed();
 
         let process_start = Instant::now();
         let tx_receipt =
             StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
-        let consider_duration = consider_start.elapsed();
+        let process_duration = process_start.elapsed();
 
         let post_start = Instant::now();
         let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
@@ -1162,8 +1164,9 @@ impl StacksChainState {
                 payer_account.nonce,
             );
         }
-        let consider_duration = consider_start.elapsed();
+        let post_duration = post_start.elapsed();
 
+        warn!("pre_duration {:?} process_duration {:?} post_duration {:?}", &pre_duration, &process_duration, &post_duration);
         transaction.commit();
 
         Ok((fee, tx_receipt))
@@ -7532,3 +7535,4 @@ pub mod test {
         conn.commit_block();
     }
 }
+
