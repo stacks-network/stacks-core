@@ -58,6 +58,13 @@ use vm::types::{
 use crate::types::chainstate::StacksMicroblockHeader;
 use std::time::Instant;
 use std::time::Duration;
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref pre_total: Mutex<Duration> = Mutex::new( Duration::ZERO);
+    static ref process_total: Mutex<Duration> = Mutex::new( Duration::ZERO);
+    static ref post_total: Mutex<Duration> = Mutex::new( Duration::ZERO);
+}
 
 // make it possible to have a set of Values
 impl std::hash::Hash for Value {

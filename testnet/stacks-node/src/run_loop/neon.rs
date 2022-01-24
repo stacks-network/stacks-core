@@ -300,6 +300,7 @@ impl RunLoop {
         let moved_atlas_config = atlas_config.clone();
         let moved_config = self.config.clone();
 
+        // Thread
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
             .spawn(move || {
@@ -422,6 +423,7 @@ impl RunLoop {
         );
 
         let mut last_block_height = 0;
+        // Thread
         loop {
             // Orchestrating graceful termination
             if !should_keep_running.load(Ordering::SeqCst) {

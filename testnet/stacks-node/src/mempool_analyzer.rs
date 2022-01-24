@@ -231,20 +231,30 @@ simulating a miner.
 
     let dispatcher = MemPoolEventDispatcherImpl::new();
 
-    let guard = pprof::ProfilerGuard::new(100).unwrap();
-    let result = StacksBlockBuilder::build_anchored_block(
-        &chain_state,
-        &sort_db.index_conn(),
-        &mut mempool_db,
-        &parent_header,
-        chain_tip.total_burn,
-        VRFProof::empty(),
-        Hash160([0; 20]),
-        &coinbase_tx,
-        settings,
-        Some(&dispatcher),
-        u64::MAX,
-    );
+    let result = {
+        let guard = pprof::ProfilerGuard::new(100).unwrap();
+        let r = StacksBlockBuilder::build_anchored_block(
+            &chain_state,
+            &sort_db.index_conn(),
+            &mut mempool_db,
+            &parent_header,
+            chain_tip.total_burn,
+            VRFProof::empty(),
+            Hash160([0; 20]),
+            &coinbase_tx,
+            settings,
+            Some(&dispatcher),
+            u64::MAX,
+        );
+        if let Ok(report) = guard.report().build() {
+            info!("creating report");
+            let file = File::create("flamegraph.svg").unwrap();
+            report.flamegraph(file).unwrap();
+        } else {
+            info!("could not create report");
+        }
+        r
+    };
 
     let stop = get_epoch_time_ms();
 
@@ -279,12 +289,5 @@ simulating a miner.
             size,
             &execution_cost
         );
-    }
-    if let Ok(report) = guard.report().build() {
-        info!("creating report");
-        let file = File::create("flamegraph.svg").unwrap();
-        report.flamegraph(file).unwrap();
-    } else {
-        info!("could not create report");
     }
 }
