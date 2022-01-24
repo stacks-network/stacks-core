@@ -600,6 +600,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);",
     "CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
+    "CREATE INDEX block_headers_burn_header_height ON block_headers(burn_header_height);",
     r#"
     -- scheduled payments
     -- no designated primary key since there can be duplicate entries
@@ -655,7 +656,10 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                      orphaned INT NOT NULL,
                                      PRIMARY KEY(anchored_block_hash,consensus_hash,microblock_hash)
     );"#,
+    "CREATE INDEX staging_microblocks_processed ON staging_microblocks(processed);",
+    "CREATE INDEX staging_microblocks_orphaned ON staging_microblocks(orphaned);",
     "CREATE INDEX staging_microblocks_index_hash ON staging_microblocks(index_block_hash);",
+    "CREATE INDEX staging_microblocks_index_hash_processed ON staging_microblocks(index_block_hash,processed);",
     "CREATE INDEX staging_microblocks_index_hash_orphaned ON staging_microblocks(index_block_hash,orphaned);",
     r#"
     -- Staging microblocks data
@@ -696,6 +700,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "CREATE INDEX parent_blocks ON staging_blocks(parent_anchored_block_hash);",
     "CREATE INDEX parent_consensus_hashes ON staging_blocks(parent_consensus_hash);",
     "CREATE INDEX index_block_hashes ON staging_blocks(index_block_hash);",
+    "CREATE INDEX height_stacks_blocks ON staging_blocks(height);",
     r#"
     -- users who burned in support of a block
     CREATE TABLE staging_user_burn_support(anchored_block_hash TEXT NOT NULL,
