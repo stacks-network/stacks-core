@@ -1802,7 +1802,7 @@ fn test_stream_txs() {
         assert!(tx_set.contains(&tx.txid()));
     }
 
-    // verify that we can stream through pagination
+    // verify that we can stream through pagination, with an empty tx tags
     let mut page_id = Txid([0u8; 32]);
     let mut decoded_txs = vec![];
     loop {
@@ -1875,5 +1875,146 @@ fn test_stream_txs() {
     assert_eq!(tx_set.len(), decoded_txs.len());
     for tx in decoded_txs {
         assert!(tx_set.contains(&tx.txid()));
+    }
+
+    // verify that we can stream through pagination, with a full bloom filter
+    let mut page_id = Txid([0u8; 32]);
+    let all_txs_tags: Vec<_> = txs
+        .iter()
+        .map(|tx| TxTag::from(&[0u8; 32], &tx.txid()))
+        .collect();
+    loop {
+        let stream = StreamCursor::new_tx_stream(
+            MemPoolSyncData::TxTags([0u8; 32], all_txs_tags.clone()),
+            1,
+            block_height,
+            Some(page_id),
+        );
+
+        let mut tx_stream_data = if let StreamCursor::MempoolTxs(stream_data) = stream {
+            stream_data
+        } else {
+            unreachable!();
+        };
+
+        let mut buf = vec![];
+        loop {
+            let nw = match mempool.stream_txs(&mut buf, &mut tx_stream_data, 10) {
+                Ok(nw) => nw,
+                Err(e) => {
+                    error!("Failed to stream_to: {:?}", &e);
+                    panic!();
+                }
+            };
+            if nw == 0 {
+                break;
+            }
+        }
+
+        // buf decodes to an empty list of txs, plus page ID
+        let mut ptr = &buf[..];
+        test_debug!("Decode {}", to_hex(ptr));
+        let (next_txs, next_page) = HttpResponseType::decode_tx_stream(&mut ptr, None).unwrap();
+
+        assert_eq!(next_txs.len(), 0);
+
+        if let Some(next_page) = next_page {
+            page_id = next_page;
+        } else {
+            break;
+        }
+    }
+}
+
+#[test]
+fn test_decode_tx_stream() {
+    let addr = StacksAddress {
+        version: 1,
+        bytes: Hash160([0xff; 20]),
+    };
+    let mut txs = vec![];
+    for _i in 0..10 {
+        let pk = StacksPrivateKey::new();
+        let mut tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0x80000000,
+            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TokenTransfer(
+                addr.to_account_principal(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        };
+        tx.set_tx_fee(1000);
+        tx.set_origin_nonce(0);
+        txs.push(tx);
+    }
+
+    // valid empty tx stream
+    let empty_stream = [0x11u8; 32];
+    let (next_txs, next_page) =
+        HttpResponseType::decode_tx_stream(&mut empty_stream.as_ref(), None).unwrap();
+    assert_eq!(next_txs.len(), 0);
+    assert_eq!(next_page, Some(Txid([0x11; 32])));
+
+    // valid tx stream with a page id at the end
+    let mut tx_stream: Vec<u8> = vec![];
+    for tx in txs.iter() {
+        tx.consensus_serialize(&mut tx_stream).unwrap();
+    }
+    tx_stream.extend_from_slice(&[0x22; 32]);
+
+    let (next_txs, next_page) =
+        HttpResponseType::decode_tx_stream(&mut &tx_stream[..], None).unwrap();
+    assert_eq!(next_txs, txs);
+    assert_eq!(next_page, Some(Txid([0x22; 32])));
+
+    // valid tx stream with _no_ page id at the end
+    let mut partial_stream: Vec<u8> = vec![];
+    txs[0].consensus_serialize(&mut partial_stream).unwrap();
+    let (next_txs, next_page) =
+        HttpResponseType::decode_tx_stream(&mut &partial_stream[..], None).unwrap();
+    assert_eq!(next_txs.len(), 1);
+    assert_eq!(next_txs[0], txs[0]);
+    assert!(next_page.is_none());
+
+    // garbage tx stream
+    let garbage_stream = [0xff; 256];
+    let err = HttpResponseType::decode_tx_stream(&mut garbage_stream.as_ref(), None);
+    match err {
+        Err(NetError::ExpectedEndOfStream) => {}
+        x => {
+            error!("did not fail: {:?}", &x);
+            panic!();
+        }
+    }
+
+    // tx stream that is too short
+    let short_stream = [0x33u8; 33];
+    let err = HttpResponseType::decode_tx_stream(&mut short_stream.as_ref(), None);
+    match err {
+        Err(NetError::ExpectedEndOfStream) => {}
+        x => {
+            error!("did not fail: {:?}", &x);
+            panic!();
+        }
+    }
+
+    // tx stream has a tx, a page ID, and then another tx
+    let mut interrupted_stream = vec![];
+    txs[0].consensus_serialize(&mut interrupted_stream).unwrap();
+    interrupted_stream.extend_from_slice(&[0x00u8; 32]);
+    txs[1].consensus_serialize(&mut interrupted_stream).unwrap();
+
+    let err = HttpResponseType::decode_tx_stream(&mut &interrupted_stream[..], None);
+    match err {
+        Err(NetError::ExpectedEndOfStream) => {}
+        x => {
+            error!("did not fail: {:?}", &x);
+            panic!();
+        }
     }
 }
