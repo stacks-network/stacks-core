@@ -129,7 +129,7 @@ jobs:
 
   call-docker-platforms-workflow:
     if: ${{ github.event.inputs.tag != '' }}
-    uses: ${{ repository.name }}/.github/workflows/docker-platforms.yml@master
+    uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master
     with:
       tag: ${{ github.event.inputs.tag }}
     secrets:
