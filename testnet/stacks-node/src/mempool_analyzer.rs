@@ -233,7 +233,7 @@ simulating a miner.
     let dispatcher = MemPoolEventDispatcherImpl::new();
 
     let result = {
-        let guard = pprof::ProfilerGuard::new(100).unwrap();
+        let guard = pprof::ProfilerGuard::new(1000).unwrap();
         let r = StacksBlockBuilder::build_anchored_block(
             &chain_state,
             &sort_db.index_conn(),
