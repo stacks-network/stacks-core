@@ -1750,7 +1750,7 @@ impl MemPoolDB {
         max_run: u64,
     ) -> Result<(Vec<StacksTransaction>, Option<Txid>, u64), db_error> {
         let mut ret = vec![];
-        let sql = "SELECT mempool.txid as txid, mempool.tx as tx \
+        let sql = "SELECT mempool.txid AS txid, mempool.tx AS tx, randomized_txids.hashed_txid AS hashed_txid \
                    FROM mempool JOIN randomized_txids \
                    ON mempool.txid = randomized_txids.txid \
                    WHERE randomized_txids.hashed_txid > ?1 \
@@ -1775,21 +1775,24 @@ impl MemPoolDB {
         let mut stmt = self.conn().prepare(sql)?;
         let mut rows = stmt.query(args)?;
         let mut num_rows_visited = 0;
-        let mut last_txid = None;
+        let mut next_page = None;
         while let Some(row) = rows.next()? {
             if num_rows_visited >= max_run {
                 break;
             }
 
             let txid = Txid::from_column(row, "txid")?;
-            last_txid = Some(txid.clone());
             num_rows_visited += 1;
 
+            let hashed_txid = Txid::from_column(row, "hashed_txid")?;
             test_debug!(
-                "Consider txid {} at or after {}",
+                "Consider txid {} ({}) at or after {}",
                 &txid,
+                &hashed_txid,
                 last_randomized_txid
             );
+            next_page = Some(hashed_txid);
+
             let contains = match data {
                 MemPoolSyncData::BloomFilter(ref bf) => bf.contains_raw(&txid.0),
                 MemPoolSyncData::TxTags(ref seed, ..) => {
@@ -1812,14 +1815,7 @@ impl MemPoolDB {
             }
         }
 
-        // find next page, if needed
-        let next_last_randomized_txid = if let Some(last_txid) = last_txid {
-            self.get_randomized_txid(&last_txid)?
-        } else {
-            None
-        };
-
-        Ok((ret, next_last_randomized_txid, num_rows_visited))
+        Ok((ret, next_page, num_rows_visited))
     }
 
     /// Stream transaction data.
@@ -1873,13 +1869,14 @@ impl MemPoolDB {
                 }
 
                 // load next
-                let (mut next_txs, next_last_randomized_txid_opt, num_rows_visited) = self
+                let remaining = query.max_txs.saturating_sub(query.num_txs);
+                let (next_txs, next_last_randomized_txid_opt, num_rows_visited) = self
                     .find_next_missing_transactions(
                         &query.tx_query,
                         query.height,
                         &query.last_randomized_txid,
                         1,
-                        query.max_txs.saturating_sub(query.num_txs),
+                        remaining,
                     )?;
 
                 debug!(
@@ -1891,22 +1888,33 @@ impl MemPoolDB {
                 );
 
                 query.num_txs += num_rows_visited;
-                if let Some(next_tx) = next_txs.pop() {
+                if next_txs.len() > 0 {
                     query.tx_buf_ptr = 0;
                     query.tx_buf.clear();
 
-                    next_tx
-                        .consensus_serialize(&mut query.tx_buf)
-                        .map_err(ChainstateError::CodecError)?;
-
+                    for next_tx in next_txs.iter() {
+                        next_tx
+                            .consensus_serialize(&mut query.tx_buf)
+                            .map_err(ChainstateError::CodecError)?;
+                    }
                     if let Some(next_last_randomized_txid) = next_last_randomized_txid_opt {
                         query.last_randomized_txid = next_last_randomized_txid;
                     } else {
-                        test_debug!("No more txs after {}", &next_tx.txid());
+                        test_debug!(
+                            "No more txs after {}",
+                            &next_txs
+                                .last()
+                                .map(|tx| tx.txid())
+                                .unwrap_or(Txid([0u8; 32]))
+                        );
                         break;
                     }
                 } else if let Some(next_txid) = next_last_randomized_txid_opt {
-                    test_debug!("No rows returned for {}", &query.last_randomized_txid);
+                    test_debug!(
+                        "No rows returned for {}; cork tx stream with next page {}",
+                        &query.last_randomized_txid,
+                        &next_txid
+                    );
 
                     // no rows found
                     query.last_randomized_txid = next_txid;
@@ -1916,10 +1924,6 @@ impl MemPoolDB {
                     query.tx_buf.clear();
                     query.corked = true;
 
-                    test_debug!(
-                        "Cork tx stream with next page {}",
-                        &query.last_randomized_txid
-                    );
                     query
                         .last_randomized_txid
                         .consensus_serialize(&mut query.tx_buf)
