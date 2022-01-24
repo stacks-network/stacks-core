@@ -129,7 +129,8 @@ jobs:
 
   call-docker-platforms-workflow:
     if: ${{ github.event.inputs.tag != '' }}
-    uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master
+    uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@feat/multi-platform-images
+    # uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master TEMP - enable this before merging
     with:
       tag: ${{ github.event.inputs.tag }}
     secrets:
