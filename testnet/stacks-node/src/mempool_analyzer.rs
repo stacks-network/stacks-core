@@ -63,6 +63,7 @@ use stacks::{
     vm::representations::UrlString,
 };
 use std::sync::Mutex;
+use crate::pprof::protos::Message;
 
 lazy_static! {
     static ref client: Mutex<Client> = Mutex::new(
@@ -253,6 +254,20 @@ simulating a miner.
         } else {
             info!("could not create report");
         }
+        match guard.report().build() {
+            Ok(report) => {
+                info!("making protobuf report");
+                let mut file = File::create("profile.pb").unwrap();
+                let profile = report.pprof().unwrap();
+
+                let mut content = Vec::new();
+                profile.encode(&mut content).unwrap();
+                file.write_all(&content).unwrap();
+            }
+            Err(_) => {
+                info!("failed to make protobuf report");
+            }
+        };
         r
     };
 

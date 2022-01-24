@@ -56,14 +56,14 @@ use vm::types::{
 };
 
 use crate::types::chainstate::StacksMicroblockHeader;
-use std::time::Instant;
-use std::time::Duration;
 use std::sync::Mutex;
+use std::time::Duration;
+use std::time::Instant;
 
 lazy_static! {
-    static ref pre_total: Mutex<Duration> = Mutex::new( Duration::ZERO);
-    static ref process_total: Mutex<Duration> = Mutex::new( Duration::ZERO);
-    static ref post_total: Mutex<Duration> = Mutex::new( Duration::ZERO);
+    static ref pre_total: Mutex<Duration> = Mutex::new(Duration::ZERO);
+    static ref process_total: Mutex<Duration> = Mutex::new(Duration::ZERO);
+    static ref post_total: Mutex<Duration> = Mutex::new(Duration::ZERO);
 }
 
 // make it possible to have a set of Values
@@ -1173,7 +1173,10 @@ impl StacksChainState {
         }
         let post_duration = post_start.elapsed();
 
-        warn!("pre_duration {:?} process_duration {:?} post_duration {:?}", &pre_duration, &process_duration, &post_duration);
+        warn!(
+            "pre_duration {:?} process_duration {:?} post_duration {:?}",
+            &pre_duration, &process_duration, &post_duration
+        );
         transaction.commit();
 
         Ok((fee, tx_receipt))
@@ -7542,4 +7545,3 @@ pub mod test {
         conn.commit_block();
     }
 }
-
