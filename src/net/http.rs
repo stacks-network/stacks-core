@@ -3859,6 +3859,7 @@ impl HttpResponseType {
                             } else {
                                 // couldn't read a full transaction.  This is possibly a page ID, whose
                                 // 32 bytes decode to the prefix of a well-formed transaction.
+                                test_debug!("Try to read page ID trailer after ReadError");
                                 page_id = HttpResponseType::parse_mempool_query_page_id(
                                     pos,
                                     &mut retry_reader,
@@ -3868,13 +3869,15 @@ impl HttpResponseType {
                         }
                         _ => Err(e),
                     },
-                    codec_error::DeserializeError(_) => {
+                    codec_error::DeserializeError(_msg) => {
                         if expect_eof {
                             // this should have failed due to EOF
+                            test_debug!("Expected EOF; got DeserializeError '{}'", &_msg);
                             return Err(net_error::ExpectedEndOfStream);
                         }
 
                         // failed to parse a transaction.  This is possibly a page ID.
+                        test_debug!("Try to read page ID trailer after ReadError");
                         page_id =
                             HttpResponseType::parse_mempool_query_page_id(pos, &mut retry_reader)?;
 
