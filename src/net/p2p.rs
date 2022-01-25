@@ -300,6 +300,8 @@ pub struct PeerNetwork {
     pub attachments_downloader: Option<AttachmentsDownloader>,
 
     // outstanding request to perform a mempool sync
+    // * mempool_sync_deadline is when the next mempool sync must start
+    // * mempool_sync_timeout is when the current mempool sync must stop
     mempool_state: MempoolSyncState,
     mempool_sync_deadline: u64,
     mempool_sync_timeout: u64,
