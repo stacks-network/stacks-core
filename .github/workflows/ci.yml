@@ -128,11 +128,12 @@ jobs:
           path: ${{ matrix.platform }}.zip
 
   call-docker-platforms-workflow:
-    if: ${{ github.event.inputs.tag != '' }}
+    # if: ${{ github.event.inputs.tag != '' }} TEMP - uncomment after test
     uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@feat/multi-platform-images
     # uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master TEMP - enable this before merging
     with:
-      tag: ${{ github.event.inputs.tag }}
+      tag: test-tag-123
+      # tag: ${{ github.event.inputs.tag }} TEMP - uncomment after test
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
