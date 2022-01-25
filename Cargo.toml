@@ -23,6 +23,10 @@ name = "blockstack-core"
 path = "src/main.rs"
 
 [[bin]]
+name = "marf"
+path = "src/marf.rs"
+
+[[bin]]
 name = "clarity-cli"
 path = "src/clarity_cli.rs"
 
