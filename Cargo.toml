@@ -47,6 +47,7 @@ name = "block_limits"
 harness = false
 
 [dependencies]
+redis = "0.20.0"
 rand = "=0.7.2"
 rand_chacha = "=0.2.2"
 serde = "1"

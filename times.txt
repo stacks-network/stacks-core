@@ -1,0 +1,3 @@
+map elapsed 157.399µs
+redis elapsed 532.695158ms
+sql elapsed 15.266292842s

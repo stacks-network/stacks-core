@@ -1,5 +1,7 @@
+extern crate redis;
 extern crate rusqlite;
 
+use redis::Commands;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -20,6 +22,18 @@ fn main() {
     {
         let elapsed = map_start.elapsed();
         eprintln!("map elapsed {:?}", &elapsed);
+    }
+
+    let client = redis::Client::open("redis://127.0.0.1/").expect("couldn't ocnnect");
+    let mut con = client.get_connection().expect("coulnd't connect");
+    let redis_start = Instant::now();
+    let _: () = con.set("my_key", "test_data").unwrap();
+    for _i in 1..10001 {
+        let _rv: String = con.get("my_key").unwrap();
+    }
+    {
+        let elapsed = redis_start.elapsed();
+        eprintln!("redis elapsed {:?}", &elapsed);
     }
 
     let sql_start = Instant::now();
