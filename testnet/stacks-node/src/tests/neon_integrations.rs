@@ -1614,7 +1614,7 @@ fn microblock_integration_test() {
 
     conf.node.mine_microblocks = true;
     conf.node.microblock_frequency = 1_000;
-    conf.miner.microblock_attempt_time_ms = 120_000;
+    conf.miner.microblock_attempt_time_ms = 1_000;
     conf.node.wait_time_for_microblocks = 0;
 
     test_observer::spawn();
@@ -1683,14 +1683,18 @@ fn microblock_integration_test() {
     // now let's mine a couple blocks, and then check the sender's nonce.
     // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(10_000);
+
     // this one will contain the sortition from above anchor block,
     //    which *should* have also confirmed the microblock.
     info!("Wait for second block");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(10_000);
 
     // I guess let's push another block for good measure?
     info!("Wait for third block");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(10_000);
 
     info!("Test microblock");
 
