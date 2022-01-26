@@ -73,23 +73,30 @@ use crate::util::secp256k1::MessageSignature;
 use types::chainstate::BurnchainHeaderHash;
 
 /// Groups together functions that map an epoch with its limits.
-trait BlockLimitsFunctions {
+///
+/// This would either be:
+///   1) production: pick based on the consensus rules
+///   2) non-production tools: e.g., build an "infinite block"
+///   3) tests: mock out different settings
+pub trait BlockLimitsBundle {
     /// Limit for length of output.
-    fn contract_length_limit(&self) -> u32;
+    fn output_length_limit(&self) -> u32;
 
-    /// 5-dimensional compute cost.
-//    fn block_limit(&self, clarity_db:ClarityDB, epoch_id:StacksEpochId, is_mainnet:bool) -> ExecutionCost;
-    fn block_limit(&self, is_mainnet:bool) -> ExecutionCost;
+    /// 5-dimensional compute cost. Implementations can either pass on the cost from the
+    /// `StacksEpoch`.
+    /// Note: We have to look up the StacksEpoch anyway to get the epoch id from the height. 
+    /// So, we didn't pick an interface that would required looking it up again.
+    fn execution_block_limit(&self, stacks_epoch:&StacksEpoch) -> ExecutionCost;
 }
 
-struct InfiniteBlockLimits {}
+pub struct InfiniteBlockLimits {}
 
-impl BlockLimitsFunctions for InfiniteBlockLimits {
-    fn contract_length_limit(&self) -> u32 {
+impl BlockLimitsBundle for InfiniteBlockLimits {
+    fn output_length_limit(&self) -> u32 {
         u32::MAX
     }
 
-    fn block_limit(&self, is_mainnet:bool) -> ExecutionCost {
+    fn execution_block_limit(&self, _stacks_epoch:&StacksEpoch) -> ExecutionCost {
         ExecutionCost { 
     write_length: u64::MAX,
     write_count: u64::MAX,
@@ -360,14 +367,26 @@ impl ClarityInstance {
         next: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
-        limits_fn: &'a dyn BlockLimitsFunctions,
+        limits_bundle: &'a dyn BlockLimitsBundle,
     ) -> ClarityBlockConnection<'a> {
         let bt = backtrace::Backtrace::new();
         info!("bt {:?}", &bt);
         let mut datastore = self.datastore.begin(current, next);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
-        let cost_track = limits_fns.block_limits(&epoch);
+        let block_limit = limits_bundle.execution_block_limit(&epoch);
+        let cost_track = {
+            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            Some(
+                LimitedCostTracker::new(
+                    self.mainnet,
+                    block_limit,
+                    &mut clarity_db,
+                    epoch.epoch_id,
+                )
+                .expect("FAIL: problem instantiating cost tracking"),
+            )
+        };
 
         ClarityBlockConnection {
             datastore,
