@@ -612,6 +612,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         tx_len: u64,
         considered: &mut HashSet<Txid>,
         bytes_so_far: u64,
+        block_limits_fn:& dyn  BlockLimitsFunctions,
     ) -> Result<TransactionResult, Error> {
         if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
             && tx.anchor_mode != TransactionAnchorMode::Any
@@ -632,6 +633,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         } else {
             considered.insert(tx.txid());
         }
+
+        let max_epoch_size = block_limits_fn.contract_length_limit();
+
         if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             info!(
                 "Adding microblock tx {} would exceed epoch data size",
@@ -1813,10 +1817,13 @@ impl StacksBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         max_epoch_size: u32,
+        block_limits_fns: BlockLimitsFunctions, // generate block limits
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
+        // Set up basic things.
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;
 
+        // Make sure coinbase payload is good.
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
         } else {
             return Err(Error::MemPoolError(
@@ -1837,6 +1844,7 @@ impl StacksBlockBuilder {
 
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
+        // What is a block builder?
         let mut builder = StacksBlockBuilder::make_block_builder(
             chainstate.mainnet,
             parent_stacks_header,

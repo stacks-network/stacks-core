@@ -239,7 +239,7 @@ simulating a miner.
             &coinbase_tx,
             settings,
             Some(&dispatcher),
-            u32::MAX,
+            limits_fn,
         );
 
         let stop = get_epoch_time_ms();
