@@ -448,14 +448,18 @@ impl FromRow<StacksEpoch> for StacksEpoch {
 impl FromRow<BlockExitRewardCycleInfo> for BlockExitRewardCycleInfo {
     fn from_row<'a>(row: &'a Row) -> Result<BlockExitRewardCycleInfo, db_error> {
         let block_id = StacksBlockId::from_column(row, "block_id")?;
+        let parent_block_id = StacksBlockId::from_column(row, "parent_block_id")?;
         let block_reward_cycle = u64::from_column(row, "block_reward_cycle")?;
+        let stacks_block_height_in_cycle = u64::from_column(row, "stacks_block_height_in_cycle")?;
         let curr_exit_proposal = Option::<u64>::from_column(row, "curr_exit_proposal")?;
         let curr_exit_at_reward_cycle =
             Option::<u64>::from_column(row, "curr_exit_at_reward_cycle")?;
 
         let exit_cycle_info = BlockExitRewardCycleInfo {
             block_id,
+            parent_block_id,
             block_reward_cycle,
+            stacks_block_height_in_cycle,
             curr_exit_proposal,
             curr_exit_at_reward_cycle,
         };
@@ -621,12 +625,15 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     CREATE TABLE exit_at_reward_cycle_info (
         block_id TEXT NOT NULL,
+        parent_block_id TEXT NOT NULL,
         block_reward_cycle INTEGER NOT NULL,
+        stacks_block_height_in_cycle INTEGER NOT NULL,
         curr_exit_proposal INTEGER,
         curr_exit_at_reward_cycle INTEGER,
 
         PRIMARY KEY(block_id)
     );"#,
+    "CREATE INDEX exit_reward_cycle_block_ids ON exit_at_reward_cycle_info(block_id);",
     r#"
     CREATE TABLE exit_at_reward_cycle_veto_info(
         vetoed_exit_at_reward_cycle INTEGER NOT NULL,
@@ -3784,10 +3791,12 @@ impl<'a> SortitionHandleTx<'a> {
         &self,
         exit_at_reward_cycle_info: BlockExitRewardCycleInfo,
     ) -> Result<(), db_error> {
-        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_id, block_reward_cycle) VALUES (?, ?)";
+        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_id, parent_block_id, block_reward_cycle, stacks_block_height_in_cycle) VALUES (?, ?, ?, ?)";
         let args: &[&dyn ToSql] = &[
             &exit_at_reward_cycle_info.block_id,
+            &exit_at_reward_cycle_info.parent_block_id,
             &u64_to_sql(exit_at_reward_cycle_info.block_reward_cycle)?,
+            &u64_to_sql(exit_at_reward_cycle_info.stacks_block_height_in_cycle)?,
         ];
         self.execute(sql, args)?;
 
@@ -3808,6 +3817,18 @@ impl<'a> SortitionHandleTx<'a> {
             ];
             self.execute(sql, args)?;
         }
+        Ok(())
+    }
+
+    pub fn update_exit_proposal(
+        &self,
+        block_id: StacksBlockId,
+        exit_proposal: u64,
+    ) -> Result<(), db_error> {
+        let sql = "UPDATE exit_at_reward_cycle_info SET curr_exit_proposal = ? WHERE block_id = ?";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(exit_proposal)?, &block_id];
+        self.execute(sql, args)?;
+
         Ok(())
     }
 

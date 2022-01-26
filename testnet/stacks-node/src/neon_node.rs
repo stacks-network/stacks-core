@@ -31,8 +31,8 @@ use stacks::chainstate::stacks::{
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::core::STACKS_EPOCH_2_05_MARKER;
+use stacks::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_ID};
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
@@ -46,7 +46,8 @@ use stacks::net::{
     Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
 };
 use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockHeader,
+    StacksBlockId, VRFSeed,
 };
 use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;

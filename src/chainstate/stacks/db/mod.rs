@@ -2244,6 +2244,7 @@ pub mod test {
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
             pox_constants: PoxConstants::testnet_default(),
+            exit_contract_constants: ExitContractConstants::testnet_default(),
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
             get_bulk_initial_names: None,
@@ -2297,6 +2298,7 @@ pub mod test {
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
             pox_constants: PoxConstants::testnet_default(),
+            exit_contract_constants: ExitContractConstants::testnet_default(),
             post_flight_callback: None,
             get_bulk_initial_lockups: Some(Box::new(|| {
                 Box::new(GenesisData::new(true).read_lockups().map(|item| {
@@ -2387,6 +2389,7 @@ pub mod test {
             first_burnchain_block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT as u32,
             first_burnchain_block_timestamp: BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
             pox_constants: PoxConstants::mainnet_default(),
+            exit_contract_constants: ExitContractConstants::mainnet_default(),
             post_flight_callback: None,
             get_bulk_initial_lockups: Some(Box::new(|| {
                 Box::new(GenesisData::new(false).read_lockups().map(|item| {

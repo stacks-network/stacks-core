@@ -33,7 +33,7 @@ use std::process;
 use std::{collections::HashMap, env};
 use std::{convert::TryFrom, fs};
 
-use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
+use blockstack_lib::burnchains::{ExitContractConstants, BLOCKSTACK_MAGIC_MAINNET};
 use blockstack_lib::cost_estimates::UnitEstimator;
 use cost_estimates::metrics::UnitMetric;
 use rusqlite::types::ToSql;
@@ -841,6 +841,7 @@ simulating a miner.
             first_burnchain_block_height: first_burnchain_block_height as u32,
             first_burnchain_block_timestamp: 0,
             pox_constants: PoxConstants::regtest_default(),
+            exit_contract_constants: ExitContractConstants::testnet_default(),
             get_bulk_initial_lockups: None,
             get_bulk_initial_balances: None,
             get_bulk_initial_namespaces: None,
