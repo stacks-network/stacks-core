@@ -1111,9 +1111,16 @@ impl StacksBlockBuilder {
         &mut self,
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
+        max_epoch_size: u32,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
-        match self.try_mine_tx_with_len(clarity_tx, tx, tx_len, &BlockLimitFunction::NO_LIMIT_HIT) {
+        match self.try_mine_tx_with_len(
+            clarity_tx,
+            tx,
+            tx_len,
+            &BlockLimitFunction::NO_LIMIT_HIT,
+            max_epoch_size,
+        ) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
             TransactionResult::Skipped(TransactionSkipped { error, .. })
             | TransactionResult::ProcessingError(TransactionError { error, .. }) => Err(error),
@@ -1128,8 +1135,9 @@ impl StacksBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
+        max_epoch_size: u32,
     ) -> TransactionResult {
-        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if self.bytes_so_far + tx_len >= max_epoch_size.into() {
             return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
         }
 
@@ -1667,7 +1675,7 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.drain(..) {
-            match builder.try_mine_tx(&mut epoch_tx, &tx) {
+            match builder.try_mine_tx(&mut epoch_tx, &tx, MAX_EPOCH_SIZE) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -1804,7 +1812,7 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        max_epoch_size: u64,
+        max_epoch_size: u32,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;
@@ -1920,6 +1928,7 @@ impl StacksBlockBuilder {
                             &txinfo.tx,
                             txinfo.metadata.len,
                             &block_limit_hit,
+                            max_epoch_size,
                         );
                         tx_events.push(tx_result.convert_to_event());
 
@@ -5727,7 +5736,7 @@ pub mod test {
         let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
 
         builder
-            .try_mine_tx(clarity_tx, &tx_coinbase_signed)
+            .try_mine_tx(clarity_tx, &tx_coinbase_signed, MAX_EPOCH_SIZE)
             .unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -5762,7 +5771,7 @@ pub mod test {
         let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
 
         builder
-            .try_mine_tx(clarity_tx, &tx_coinbase_signed)
+            .try_mine_tx(clarity_tx, &tx_coinbase_signed, MAX_EPOCH_SIZE)
             .unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -5797,7 +5806,7 @@ pub mod test {
         let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
 
         builder
-            .try_mine_tx(clarity_tx, &tx_coinbase_signed)
+            .try_mine_tx(clarity_tx, &tx_coinbase_signed, MAX_EPOCH_SIZE)
             .unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -5938,7 +5947,7 @@ pub mod test {
         // make a coinbase for this miner
         let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
         builder
-            .try_mine_tx(clarity_tx, &tx_coinbase_signed)
+            .try_mine_tx(clarity_tx, &tx_coinbase_signed, MAX_EPOCH_SIZE)
             .unwrap();
 
         let recipient =
@@ -6016,7 +6025,7 @@ pub mod test {
         // make a coinbase for this miner
         let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
         builder
-            .try_mine_tx(clarity_tx, &tx_coinbase_signed)
+            .try_mine_tx(clarity_tx, &tx_coinbase_signed, MAX_EPOCH_SIZE)
             .unwrap();
 
         // make a smart contract
@@ -6026,7 +6035,7 @@ pub mod test {
             builder.header.total_work.work as usize,
         );
         builder
-            .try_mine_tx(clarity_tx, &tx_contract_signed)
+            .try_mine_tx(clarity_tx, &tx_contract_signed, MAX_EPOCH_SIZE)
             .unwrap();
 
         // make a contract call
@@ -6038,7 +6047,7 @@ pub mod test {
             2,
         );
         builder
-            .try_mine_tx(clarity_tx, &tx_contract_call_signed)
+            .try_mine_tx(clarity_tx, &tx_contract_call_signed, MAX_EPOCH_SIZE)
             .unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -6093,7 +6102,7 @@ pub mod test {
         // make a coinbase for this miner
         let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
         builder
-            .try_mine_tx(clarity_tx, &tx_coinbase_signed)
+            .try_mine_tx(clarity_tx, &tx_coinbase_signed, MAX_EPOCH_SIZE)
             .unwrap();
 
         // make a smart contract
@@ -6103,7 +6112,7 @@ pub mod test {
             builder.header.total_work.work as usize,
         );
         builder
-            .try_mine_tx(clarity_tx, &tx_contract_signed)
+            .try_mine_tx(clarity_tx, &tx_contract_signed, MAX_EPOCH_SIZE)
             .unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -6119,7 +6128,7 @@ pub mod test {
                 2,
             );
             builder
-                .try_mine_tx(clarity_tx, &tx_contract_call_signed)
+                .try_mine_tx(clarity_tx, &tx_contract_call_signed, MAX_EPOCH_SIZE)
                 .unwrap();
 
             // put the contract-call into a microblock
@@ -6180,7 +6189,7 @@ pub mod test {
         // make a coinbase for this miner
         let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
         builder
-            .try_mine_tx(clarity_tx, &tx_coinbase_signed)
+            .try_mine_tx(clarity_tx, &tx_coinbase_signed, MAX_EPOCH_SIZE)
             .unwrap();
 
         // make a smart contract
@@ -6190,7 +6199,7 @@ pub mod test {
             builder.header.total_work.work as usize,
         );
         builder
-            .try_mine_tx(clarity_tx, &tx_contract_signed)
+            .try_mine_tx(clarity_tx, &tx_contract_signed, MAX_EPOCH_SIZE)
             .unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -6206,7 +6215,7 @@ pub mod test {
                 0,
             );
             builder
-                .try_mine_tx(clarity_tx, &tx_contract_call_signed)
+                .try_mine_tx(clarity_tx, &tx_contract_call_signed, MAX_EPOCH_SIZE)
                 .unwrap();
 
             // put the contract-call into a microblock
@@ -6930,6 +6939,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -7058,6 +7068,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -7203,6 +7214,7 @@ pub mod test {
                             ..BlockBuilderSettings::max_value()
                         },
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -7365,6 +7377,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -7600,6 +7613,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
 
@@ -7861,6 +7875,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
 
@@ -8066,6 +8081,7 @@ pub mod test {
                     &coinbase_tx,
                     BlockBuilderSettings::limited(),
                     None,
+                    MAX_EPOCH_SIZE,
                 )
                 .unwrap();
                 (anchored_block.0, vec![])
@@ -8313,6 +8329,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::limited(),
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])
@@ -8473,6 +8490,7 @@ pub mod test {
                             &coinbase_tx,
                             BlockBuilderSettings::limited(),
                             None,
+                            MAX_EPOCH_SIZE,
                         )
                         .unwrap()
                     };
@@ -8582,6 +8600,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
 
@@ -8791,6 +8810,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
 
@@ -8948,7 +8968,7 @@ pub mod test {
                 let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
                 let mut anchored_block = StacksBlockBuilder::build_anchored_block(
-                    chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None,
+                    chainstate, &sortdb.index_conn(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None, MAX_EPOCH_SIZE,
                 ).unwrap();
 
                 if tenure_id == bad_block_tenure {
@@ -9233,6 +9253,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
 
@@ -9503,6 +9524,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
 
@@ -9931,6 +9953,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
+                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
 
@@ -10354,6 +10377,7 @@ pub mod test {
                 &coinbase_tx,
                 BlockBuilderSettings::limited(),
                 None,
+                MAX_EPOCH_SIZE,
             )
             .unwrap();
 

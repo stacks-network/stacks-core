@@ -317,6 +317,8 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
+        let bt = backtrace::Backtrace::new();
+        info!("bt {:?}", &bt);
         let mut datastore = self.datastore.begin(current, next);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
@@ -325,13 +327,8 @@ impl ClarityInstance {
             // DO NOT SUBMIT: fix this.
             let block_limit = ExecutionCost::max_value();
             Some(
-                LimitedCostTracker::new(
-                    self.mainnet,
-                    block_limit,
-                    &mut clarity_db,
-                    epoch.epoch_id,
-                )
-                .expect("FAIL: problem instantiating cost tracking"),
+                LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db, epoch.epoch_id)
+                    .expect("FAIL: problem instantiating cost tracking"),
             )
         };
 

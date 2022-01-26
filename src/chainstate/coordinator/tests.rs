@@ -58,6 +58,7 @@ use crate::types::chainstate::{
 use crate::types::proof::TrieHash;
 use crate::{types, util};
 use chainstate::stacks::boot::COSTS_2_NAME;
+use chainstate::stacks::MAX_EPOCH_SIZE;
 use rand::RngCore;
 use vm::database::BurnStateDB;
 
@@ -471,7 +472,9 @@ fn make_genesis_block_with_recipients(
         .unwrap()
         .0;
 
-    builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
+    builder
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, MAX_EPOCH_SIZE)
+        .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
@@ -686,7 +689,9 @@ fn make_stacks_block_with_input(
         .unwrap()
         .0;
 
-    builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
+    builder
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, MAX_EPOCH_SIZE)
+        .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);

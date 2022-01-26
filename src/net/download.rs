@@ -80,6 +80,7 @@ use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
+use chainstate::stacks::MAX_EPOCH_SIZE;
 
 #[cfg(not(test))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 180;
@@ -3703,6 +3704,7 @@ pub mod test {
                                             &coinbase_tx,
                                             BlockBuilderSettings::max_value(),
                                             None,
+                                            MAX_EPOCH_SIZE,
                                         )
                                         .unwrap();
                                     (anchored_block, vec![])

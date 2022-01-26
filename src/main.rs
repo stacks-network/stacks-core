@@ -73,6 +73,7 @@ use blockstack_lib::{
     net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
     vm::representations::UrlString,
 };
+use chainstate::stacks::MAX_EPOCH_SIZE;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -505,6 +506,7 @@ simulating a miner.
             &coinbase_tx,
             settings,
             None,
+            MAX_EPOCH_SIZE,
         );
 
         let stop = get_epoch_time_ms();
