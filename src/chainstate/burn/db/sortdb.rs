@@ -3532,12 +3532,6 @@ impl SortitionDB {
         conn: &DBConn,
         burn_block_height: u64,
     ) -> Result<Option<StacksEpoch>, db_error> {
-        let bt = backtrace::Backtrace::new();
-        info!("get_stacks_epoch {:?}", &bt);
-        info!(
-            "get_stacks_epoch: burn_block_height {:?}",
-            burn_block_height
-        );
         let sql =
             "SELECT * FROM epochs WHERE start_block_height <= ?1 AND ?2 < end_block_height LIMIT 1";
         let args: &[&dyn ToSql] = &[
@@ -3557,7 +3551,6 @@ impl SortitionDB {
         conn: &DBConn,
         epoch_id: &StacksEpochId,
     ) -> Result<Option<StacksEpoch>, db_error> {
-        info!("get_stacks_epoch_by_epoch_id: epoch_id {:?}", &epoch_id);
         let sql = "SELECT * FROM epochs WHERE epoch_id = ?1 LIMIT 1";
         let args: &[&dyn ToSql] = &[&(*epoch_id as u32)];
         query_row(conn, sql, args)
