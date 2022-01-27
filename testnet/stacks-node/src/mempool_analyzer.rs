@@ -1,3 +1,15 @@
+/// Usage: {} <working-dir> [max-time]
+///
+/// This program can be used to "analyze the mempool".
+///
+/// In particular, it can be used to mine an "unlimited block". That is, it will attempt
+/// to build a block from the transactions in the mempool, but will never run out of
+/// space in the block. Thus, each transaction in the mempool will be tried once.
+///
+/// Note that nonces which are too high initially can become appropriate as blocks are processed.
+///
+/// <working-dir> specifies the `working_dir` from the miner's config file.
+/// [max-time] optionally gives an amount of time to stop mining after, useful for debugging.
 extern crate postgres;
 use postgres::{Client, NoTls};
 
@@ -5,8 +17,8 @@ extern crate stacks;
 
 #[macro_use(slog_info, slog_warn)]
 extern crate slog;
-use std::process;
 use std::env;
+use std::process;
 
 use cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
@@ -17,15 +29,12 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::miner::*;
 use stacks::chainstate::stacks::*;
 use stacks::core::mempool::*;
-use stacks::types::chainstate::{BlockHeaderHash};
-use stacks::types::chainstate::{StacksBlockHeader};
+use stacks::types::chainstate::BlockHeaderHash;
+use stacks::types::chainstate::StacksBlockHeader;
 use stacks::util::get_epoch_time_ms;
 use stacks::*;
 use stacks::{
-    chainstate::{
-        burn::db::sortdb::SortitionDB,
-        stacks::db::{StacksChainState},
-    },
+    chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksChainState},
     core::MemPoolDB,
     util::{hash::Hash160, vrf::VRFProof},
     vm::costs::ExecutionCost,
@@ -84,7 +93,7 @@ fn mempool_tx_row_from_event(event: &TransactionEvent) -> MempoolTxRow {
 
 impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
     fn mempool_txs_dropped(&self, _txids: Vec<Txid>, _reason: MemPoolDropReason) {
-        warn!("`mempool_txs_dropped` was not expected in this workflow.");
+        warn!("`mempool_txs_dropped` was called.");
     }
     fn mined_block_event(
         &self,
@@ -121,7 +130,7 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
         _anchor_block_consensus_hash: ConsensusHash,
         _anchor_block: BlockHeaderHash,
     ) {
-        warn!("`mined_microblock_event` was not expected in this workflow.");
+        panic!("`mined_microblock_event` was not expected in this workflow.");
     }
 }
 
@@ -131,11 +140,17 @@ fn main() {
         eprintln!(
             "Usage: {} <working-dir> [max-time]
 
-Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block
-assembly, but does not attempt to broadcast a block commit. This is useful for determining
-what transactions a given chain state would include in an anchor block, or otherwise
-simulating a miner.
-",
+ This program can be used to \"analyze the mempool\".
+
+ In particular, it can be used to mine an \"unlimited block\". That is, it will attempt
+ to build a block from the transactions in the mempool, but will never run out of
+ space in the block. Thus, each transaction in the mempool will be tried once.
+
+ Note that nonces which are too high initially can become appropriate as blocks are processed.
+
+ <working-dir> specifies the `working_dir` from the miner's config file.
+ [max-time] optionally gives an amount of time to stop mining after, useful for debugging.
+ ",
             argv[0]
         );
         process::exit(1);
