@@ -69,7 +69,6 @@ use crate::ChainTip;
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
-use chainstate::stacks::MAX_EPOCH_SIZE;
 use stacks::monitoring;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
@@ -1900,7 +1899,6 @@ impl InitializedNeonNode {
             &coinbase_tx,
             config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64),
             Some(event_observer),
-            MAX_EPOCH_SIZE,
         ) {
             Ok(block) => block,
             Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {

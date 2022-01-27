@@ -82,7 +82,6 @@ use crate::types::chainstate::{
     StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
 };
 use crate::{types, util};
-use chainstate::stacks::MAX_EPOCH_SIZE;
 use types::chainstate::BurnchainHeaderHash;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -10103,7 +10102,6 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
-                        MAX_EPOCH_SIZE,
                     )
                     .unwrap();
                     (anchored_block.0, vec![])

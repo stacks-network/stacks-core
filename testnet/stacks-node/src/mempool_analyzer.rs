@@ -26,8 +26,6 @@ use stacks::chainstate::stacks::miner::*;
 use stacks::chainstate::stacks::*;
 use stacks::core::mempool::*;
 use stacks::types::chainstate::BlockHeaderHash;
-use stacks::types::chainstate::StacksBlockHeader;
-use stacks::util::get_epoch_time_ms;
 use stacks::*;
 use stacks::{
     chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksChainState},
@@ -37,6 +35,7 @@ use stacks::{
 };
 
 
+/// Prints transaction events to the standard output.
 struct PrintDebugEventDispatcher {}
 
 impl PrintDebugEventDispatcher {
@@ -95,7 +94,6 @@ fn main() {
         process::exit(1);
     }
 
-    let start = get_epoch_time_ms();
     let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[1]);
     let chain_state_path = format!("{}/mainnet/chainstate/", &argv[1]);
 
@@ -164,34 +162,13 @@ fn main() {
         Some(&dispatcher),
     );
 
-    let stop = get_epoch_time_ms();
-
-    println!(
-        "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
-        if result.is_ok() {
-            "Successfully"
-        } else {
-            "Failed to"
-        },
-        parent_header.block_height + 1,
-        StacksBlockHeader::make_index_block_hash(
-            &parent_header.consensus_hash,
-            &parent_header.anchored_header.block_hash()
-        ),
-        &parent_header.consensus_hash,
-        &parent_header.anchored_header.block_hash(),
-        stop.saturating_sub(start),
-        min_fee,
-        max_time
-    );
-
     if let Ok((block, execution_cost, size)) = result {
         let mut total_fees = 0;
         for tx in block.txs.iter() {
             total_fees += tx.get_tx_fee();
         }
         println!(
-            "Block {}: {} uSTX, {} bytes, cost {:?}",
+            "Block {}: {} uSTX fees, {} bytes, cost {:?}",
             block.block_hash(),
             total_fees,
             size,

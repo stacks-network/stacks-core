@@ -73,8 +73,18 @@ use crate::util::secp256k1::MessageSignature;
 use chainstate::stacks::MAX_EPOCH_SIZE;
 use types::chainstate::BurnchainHeaderHash;
 
+/// This struct is used to map the context at a point in time to concrete limits on block
+/// length and execution run-time. This allows the user to either:
+///   1) use default production settings, e.g., read the block limits from the StacksEpoch
+///   2) override defaults with special settings to make a tool, e.g., the mempool analyzer
+///   3) override defaults with special settings for test.
+/// Note: We use a simple interface that can be expanded over time if necessary.
 pub struct BlockLimitsFunctions {
+    /// The length limit of a block.
     pub output_length_limit: u32,
+    /// Function mapping the StacksEpoch to an execution cost.
+    /// Note: We have to look up the StacksEpoch at run-time anyway, so we avoid an interface
+    /// that would require looking it up again.
     pub execution_block_limit_fn: fn(&StacksEpoch) -> ExecutionCost,
 }
 
@@ -94,7 +104,7 @@ pub struct BlockLimitsFunctions {
 pub struct ClarityInstance {
     datastore: MarfedKV,
     mainnet: bool,
-    /// Derive block limits from the given context. Used to override production defaults.
+    /// Derive block limits from the given context. Used to use or override production defaults.
     pub block_limits_fns: BlockLimitsFunctions,
 }
 
@@ -351,8 +361,6 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a> {
-        let bt = backtrace::Backtrace::new();
-        info!("bt {:?}", &bt);
         let mut datastore = self.datastore.begin(current, next);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);

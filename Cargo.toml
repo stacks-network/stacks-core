@@ -10,7 +10,6 @@ repository = "https://github.com/blockstack/stacks-blockchain"
 description = "Reference implementation of the Stacks 2.0 Blockchain"
 keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
-autobins = false
 
 [profile.release]
 debug = true
@@ -44,8 +43,6 @@ name = "block_limits"
 harness = false
 
 [dependencies]
-postgres = "0.19"
-backtrace = "0.3.50"
 rand = "=0.7.2"
 rand_chacha = "=0.2.2"
 serde = "1"
