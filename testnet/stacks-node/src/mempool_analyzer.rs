@@ -58,7 +58,7 @@ impl MemPoolEventDispatcher for PrintDebugEventDispatcher {
         tx_results: Vec<TransactionEvent>,
     ) {
         for tx_event in tx_results {
-            println!("tx_event {:?}", &tx_event);
+            println!("{:?}", &tx_event);
         }
     }
     fn mined_microblock_event(
