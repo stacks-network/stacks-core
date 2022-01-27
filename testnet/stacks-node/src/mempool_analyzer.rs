@@ -1,68 +1,39 @@
-#![allow(unused_imports)]
-#![allow(dead_code)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-
 extern crate postgres;
-use postgres::{Client, Error, NoTls};
+use postgres::{Client, NoTls};
 
-#[macro_use]
 extern crate stacks;
 
-#[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
+#[macro_use(slog_info, slog_warn)]
 extern crate slog;
-
-use std::io;
-use std::io::prelude::*;
 use std::process;
-use std::{collections::HashMap, env};
-use std::{convert::TryFrom, fs};
+use std::env;
 
 use cost_estimates::metrics::UnitMetric;
-use stacks::burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use stacks::cost_estimates::UnitEstimator;
 
-use lazy_static::lazy_static; // 1.4.0
-use stacks::burnchains::bitcoin::indexer::{BitcoinIndexerConfig, BitcoinIndexerRuntime};
-use stacks::burnchains::bitcoin::spv;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use lazy_static::lazy_static;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::ConsensusHash;
-use stacks::chainstate::stacks::db::ChainStateBootData;
-use stacks::chainstate::stacks::index::marf::MarfConnection;
-use stacks::chainstate::stacks::index::marf::MARF;
 use stacks::chainstate::stacks::miner::*;
 use stacks::chainstate::stacks::*;
-use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::*;
-use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId};
-use stacks::types::chainstate::{StacksBlockHeader, StacksBlockId};
-use stacks::types::proof::ClarityMarfTrieId;
+use stacks::types::chainstate::{BlockHeaderHash};
+use stacks::types::chainstate::{StacksBlockHeader};
 use stacks::util::get_epoch_time_ms;
-use stacks::util::hash::{hex_bytes, to_hex};
-use stacks::util::log;
-use stacks::util::retry::LogReader;
 use stacks::*;
 use stacks::{
-    burnchains::{db::BurnchainBlockData, PoxConstants},
     chainstate::{
         burn::db::sortdb::SortitionDB,
-        stacks::db::{StacksChainState, StacksHeaderInfo},
+        stacks::db::{StacksChainState},
     },
     core::MemPoolDB,
-    util::db::sqlite_open,
     util::{hash::Hash160, vrf::VRFProof},
     vm::costs::ExecutionCost,
-};
-use stacks::{
-    net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress},
-    vm::representations::UrlString,
 };
 use std::sync::Mutex;
 
 lazy_static! {
-    static ref client: Mutex<Client> = Mutex::new(
+    static ref CLIENT: Mutex<Client> = Mutex::new(
         Client::connect(
             "postgresql://postgres:postgres@localhost/temp_database",
             NoTls,
@@ -128,7 +99,7 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
         for tx_event in tx_results {
             let tuple = mempool_tx_row_from_event(&tx_event);
 
-            client
+            CLIENT
                 .lock()
                 .unwrap()
                 .execute(
@@ -237,7 +208,6 @@ simulating a miner.
         &coinbase_tx,
         settings,
         Some(&dispatcher),
-        limits_fn,
     );
 
     let stop = get_epoch_time_ms();
