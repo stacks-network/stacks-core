@@ -285,8 +285,8 @@ pub fn production_block_limit_fns() -> BlockLimitsFunctions {
     }
 }
 
-
 impl ClarityInstance {
+    /// Uses production block limits.
     pub fn new(mainnet: bool, datastore: MarfedKV) -> ClarityInstance {
         ClarityInstance {
             datastore,
