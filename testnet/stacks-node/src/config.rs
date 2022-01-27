@@ -507,6 +507,9 @@ impl Config {
                 subsequent_attempt_time_ms: miner
                     .subsequent_attempt_time_ms
                     .unwrap_or(miner_default_config.subsequent_attempt_time_ms),
+                microblock_attempt_time_ms: miner
+                    .microblock_attempt_time_ms
+                    .unwrap_or(miner_default_config.microblock_attempt_time_ms),
                 probability_pick_no_estimate_tx: miner
                     .probability_pick_no_estimate_tx
                     .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),
@@ -715,9 +718,6 @@ impl Config {
                     inv_sync_interval: opts
                         .inv_sync_interval
                         .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval),
-                    full_inv_sync_interval: opts.full_inv_sync_interval.unwrap_or_else(|| {
-                        HELIUM_DEFAULT_CONNECTION_OPTIONS.full_inv_sync_interval
-                    }),
                     inv_reward_cycles: opts.inv_reward_cycles.unwrap_or_else(|| {
                         if burnchain.mode == "mainnet" {
                             HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_reward_cycles
@@ -861,9 +861,15 @@ impl Config {
         self.events_observers.len() > 0
     }
 
-    pub fn make_block_builder_settings(&self, attempt: u64) -> BlockBuilderSettings {
+    pub fn make_block_builder_settings(
+        &self,
+        attempt: u64,
+        microblocks: bool,
+    ) -> BlockBuilderSettings {
         BlockBuilderSettings {
-            max_miner_time_ms: if attempt <= 1 {
+            max_miner_time_ms: if microblocks {
+                self.miner.microblock_attempt_time_ms
+            } else if attempt <= 1 {
                 // first attempt to mine a block -- do so right away
                 self.miner.first_attempt_time_ms
             } else {
@@ -872,7 +878,9 @@ impl Config {
             },
             mempool_settings: MemPoolWalkSettings {
                 min_tx_fee: self.miner.min_tx_fee,
-                max_walk_time_ms: if attempt <= 1 {
+                max_walk_time_ms: if microblocks {
+                    self.miner.microblock_attempt_time_ms
+                } else if attempt <= 1 {
                     // first attempt to mine a block -- do so right away
                     self.miner.first_attempt_time_ms
                 } else {
@@ -1398,6 +1406,7 @@ pub struct MinerConfig {
     pub min_tx_fee: u64,
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
+    pub microblock_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
 }
 
@@ -1405,8 +1414,9 @@ impl MinerConfig {
     pub fn default() -> MinerConfig {
         MinerConfig {
             min_tx_fee: 1,
-            first_attempt_time_ms: 1_000,
-            subsequent_attempt_time_ms: 60_000,
+            first_attempt_time_ms: 5_000,
+            subsequent_attempt_time_ms: 180_000,
+            microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
         }
     }
@@ -1508,6 +1518,7 @@ pub struct MinerConfigFile {
     pub min_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
+    pub microblock_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
 }
 

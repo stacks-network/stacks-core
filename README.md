@@ -337,12 +337,14 @@ wait_time_for_microblocks = 10000
 [miner]
 # Smallest allowed tx fee, in microSTX
 min_tx_fee = 100
-# Time to spend on the first attempt to make a block.
+# Time to spend on the first attempt to make a block, in milliseconds.
 # This can be small, so your node gets a block-commit into the Bitcoin mempool early.
-first_attempt_time_ms: 1000
-# Time to spend on subsequent attempts to make a block.
+first_attempt_time_ms = 1000
+# Time to spend on subsequent attempts to make a block, in milliseconds.
 # This can be bigger -- new block-commits will be RBF'ed.
-subsequent_attempt_time_ms: 60000
+subsequent_attempt_time_ms = 60000
+# Time to spend mining a microblock, in milliseconds.
+microblock_attempt_time_ms = 30000
 ```
 
 You can verify that your node is operating as a miner by checking its log output

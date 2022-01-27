@@ -1245,6 +1245,9 @@ impl Burnchain {
                     start_block + max_blocks
                 );
                 end_block = start_block + max_blocks;
+
+                // make sure we resume at this height next time
+                indexer.drop_headers(end_block.saturating_sub(1))?;
             }
         }
 

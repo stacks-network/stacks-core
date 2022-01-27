@@ -173,6 +173,7 @@ impl DNSResolver {
         if addrs.len() == 0 {
             return DNSResponse::error(req, "DNS resolve error: got zero addresses".to_string());
         }
+        test_debug!("{}:{} resolved to {:?}", &req.host, req.port, &addrs);
         DNSResponse::new(req, Ok(addrs))
     }
 
