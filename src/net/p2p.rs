@@ -6143,8 +6143,6 @@ mod test {
             let peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap();
             peer_2.mempool.replace(mp);
 
-            // peer 2 has all the recent txs
-            // peer 2 has none of the old ones
             for tx in peer_2_mempool_txs {
                 assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
             }

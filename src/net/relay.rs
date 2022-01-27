@@ -617,7 +617,6 @@ impl Relayer {
     }
 
     /// Preprocess all our downloaded blocks.
-    /// Return burn block hashes for the blocks that we got.
     /// Does not fail on invalid blocks; just logs a warning.
     /// Returns the set of consensus hashes for the sortitions that selected these blocks, and the
     /// blocks themselves
@@ -1414,7 +1413,7 @@ impl PeerNetwork {
     fn advertize_to_peer<S>(
         &mut self,
         recipient: &NeighborKey,
-        wanted: &Vec<(ConsensusHash, BurnchainHeaderHash)>,
+        wanted: &[(ConsensusHash, BurnchainHeaderHash)],
         mut msg_builder: S,
     ) -> ()
     where
@@ -1538,55 +1537,38 @@ impl PeerNetwork {
         available: &BlocksAvailableMap,
         blocks: &HashMap<ConsensusHash, StacksBlock>,
     ) -> Result<(), net_error> {
-        let wanted = PeerNetwork::with_inv_state(self, |_network, inv_state| {
-            let mut wanted: Vec<(ConsensusHash, BurnchainHeaderHash, Option<StacksBlock>)> = vec![];
+        PeerNetwork::with_inv_state(self, |network, inv_state| {
             if let Some(stats) = inv_state.block_stats.get(recipient) {
                 for (bhh, (block_height, ch)) in available.iter() {
                     if !stats.inv.has_ith_block(*block_height) {
                         test_debug!(
                             "{:?}: Outbound neighbor {:?} wants block data for {}",
-                            &_network.local_peer,
+                            &network.local_peer,
                             recipient,
                             bhh
                         );
 
                         match blocks.get(ch) {
                             Some(block) => {
-                                wanted.push((
+                                network.push_block_to_peer(
+                                    recipient,
                                     (*ch).clone(),
-                                    (*bhh).clone(),
-                                    Some((*block).clone()),
-                                ));
+                                    (*block).clone(),
+                                );
                             }
                             None => {
-                                wanted.push(((*ch).clone(), (*bhh).clone(), None));
+                                network.advertize_to_peer(
+                                    recipient,
+                                    &[((*ch).clone(), (*bhh).clone())],
+                                    |payload| StacksMessageType::BlocksAvailable(payload),
+                                );
                             }
                         }
                     }
                 }
             }
-            Ok(wanted)
-        })?;
-
-        let mut advertize = vec![];
-        for (ch, bhh, block_opt) in wanted.into_iter() {
-            match block_opt {
-                Some(block) => {
-                    self.push_block_to_peer(recipient, ch, block);
-                }
-                None => {
-                    advertize.push((ch, bhh));
-                }
-            }
-        }
-
-        if advertize.len() > 0 {
-            self.advertize_to_peer(recipient, &advertize, |payload| {
-                StacksMessageType::BlocksAvailable(payload)
-            });
-        }
-
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Announce microblocks that we have to an outbound peer that doesn't have them.
@@ -1598,59 +1580,38 @@ impl PeerNetwork {
         available: &BlocksAvailableMap,
         microblocks: &HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
     ) -> Result<(), net_error> {
-        let wanted = PeerNetwork::with_inv_state(self, |_network, inv_state| {
-            let mut wanted: Vec<(
-                ConsensusHash,
-                BurnchainHeaderHash,
-                Option<(StacksBlockId, Vec<StacksMicroblock>)>,
-            )> = vec![];
+        PeerNetwork::with_inv_state(self, |network, inv_state| {
             if let Some(stats) = inv_state.block_stats.get(recipient) {
                 for (bhh, (block_height, ch)) in available.iter() {
                     if !stats.inv.has_ith_microblock_stream(*block_height) {
                         test_debug!(
                             "{:?}: Outbound neighbor {:?} wants microblock data for {}",
-                            &_network.local_peer,
+                            &network.local_peer,
                             recipient,
                             bhh
                         );
 
                         match microblocks.get(ch) {
-                            Some(mblock_data) => {
-                                wanted.push((
-                                    (*ch).clone(),
-                                    (*bhh).clone(),
-                                    Some((*mblock_data).clone()),
-                                ));
+                            Some((stacks_block_id, mblocks)) => {
+                                network.push_microblocks_to_peer(
+                                    recipient,
+                                    stacks_block_id.clone(),
+                                    mblocks.clone(),
+                                );
                             }
                             None => {
-                                wanted.push(((*ch).clone(), (*bhh).clone(), None));
+                                network.advertize_to_peer(
+                                    recipient,
+                                    &[((*ch).clone(), (*bhh).clone())],
+                                    |payload| StacksMessageType::MicroblocksAvailable(payload),
+                                );
                             }
                         }
                     }
                 }
             }
-            Ok(wanted)
-        })?;
-
-        let mut advertize = vec![];
-        for (ch, bhh, mblock_stream_opt) in wanted.into_iter() {
-            match mblock_stream_opt {
-                Some((stacks_block_id, mblocks)) => {
-                    self.push_microblocks_to_peer(recipient, stacks_block_id, mblocks);
-                }
-                None => {
-                    advertize.push((ch, bhh));
-                }
-            }
-        }
-
-        if advertize.len() > 0 {
-            self.advertize_to_peer(recipient, &advertize, |payload| {
-                StacksMessageType::MicroblocksAvailable(payload)
-            });
-        }
-
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Announce blocks that we have to an inbound peer that might not have them.
