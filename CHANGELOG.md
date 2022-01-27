@@ -47,6 +47,22 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   sync, the p2p state machine will immediately transition from the inventory sync 
   work state to the block downloader work state, and immediately proceed to fetch 
   the available block or microblock stream. (#2862)
+- Nodes will push recently-obtained blocks and microblock streams to outbound
+  neighbors if their cached inventories indicate that they do not yet have them
+(#2986).
+- Nodes will no longer perform full inventory scans on their peers, except
+  during boot-up, in a bid to minimize block-download stalls (#2986).
+- Nodes will process sortitions in parallel to downloading the Stacks blocks for
+  a reward cycle, instead of doing these tasks sequentially (#2986).
+- The node's runloop will coalesce and expire stale requests to mine blocks on
+  top of parent blocks that are no longer the chain tip (#2969).
+- Several database indexes have been updated to avoid table scans, which
+  significantly improves most RPC endpoint speed and cuts node spin-up time in
+half (#2989, #3005).
+- Fixed a rare denial-of-service bug whereby a node that processes a very deep
+  burnchain reorg can get stuck, and be rendered unable to process further
+sortitions.  This has never happened in production, but it can be replicated in
+tests (#2989).
 
 ### Fixed 
 - Updates the lookup key for contracts in the pessimistic cost estimator. Before, contracts

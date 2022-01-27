@@ -371,6 +371,7 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
     );
     "#,
     "CREATE INDEX by_txid ON mempool(txid);",
+    "CREATE INDEX by_height ON mempool(height);",
     "CREATE INDEX by_txid_and_height ON mempool(txid,height);",
     "CREATE INDEX by_sponsor ON mempool(sponsor_address, sponsor_nonce);",
     "CREATE INDEX by_origin ON mempool(origin_address, origin_nonce);",
@@ -417,6 +418,7 @@ const MEMPOOL_SCHEMA_3_BLOOM_STATE: &'static [&'static str] = &[
         hashed_txid TEXT NOT NULL,
         FOREIGN KEY(txid) REFERENCES mempool(txid) ON DELETE CASCADE
     );
+    CREATE INDEX IF NOT EXISTS by_ordered_hashed_txid ON randomized_txids(hashed_txid ASC);
     CREATE INDEX IF NOT EXISTS by_hashed_txid ON randomized_txids(txid,hashed_txid);
     "#,
     r#"
@@ -1738,6 +1740,7 @@ impl MemPoolDB {
     /// (so if some nodes are configured to return fewer than MAX_BLOOM_COUNTER_TXS transactions,
     /// a requesting node will still have a good chance of getting something useful).
     /// Also, return the next value to pass for `last_randomized_txid` to load the next page.
+    /// Also, return the number of rows considered.
     pub fn find_next_missing_transactions(
         &self,
         data: &MemPoolSyncData,
@@ -1745,9 +1748,9 @@ impl MemPoolDB {
         last_randomized_txid: &Txid,
         max_txs: u64,
         max_run: u64,
-    ) -> Result<(Vec<StacksTransaction>, Option<Txid>), db_error> {
+    ) -> Result<(Vec<StacksTransaction>, Option<Txid>, u64), db_error> {
         let mut ret = vec![];
-        let sql = "SELECT mempool.txid as txid, mempool.tx as tx \
+        let sql = "SELECT mempool.txid AS txid, mempool.tx AS tx, randomized_txids.hashed_txid AS hashed_txid \
                    FROM mempool JOIN randomized_txids \
                    ON mempool.txid = randomized_txids.txid \
                    WHERE randomized_txids.hashed_txid > ?1 \
@@ -1771,9 +1774,25 @@ impl MemPoolDB {
 
         let mut stmt = self.conn().prepare(sql)?;
         let mut rows = stmt.query(args)?;
+        let mut num_rows_visited = 0;
+        let mut next_page = None;
         while let Some(row) = rows.next()? {
+            if num_rows_visited >= max_run {
+                break;
+            }
+
             let txid = Txid::from_column(row, "txid")?;
-            test_debug!("Consider txid {}", &txid);
+            num_rows_visited += 1;
+
+            let hashed_txid = Txid::from_column(row, "hashed_txid")?;
+            test_debug!(
+                "Consider txid {} ({}) at or after {}",
+                &txid,
+                &hashed_txid,
+                last_randomized_txid
+            );
+            next_page = Some(hashed_txid);
+
             let contains = match data {
                 MemPoolSyncData::BloomFilter(ref bf) => bf.contains_raw(&txid.0),
                 MemPoolSyncData::TxTags(ref seed, ..) => {
@@ -1796,17 +1815,11 @@ impl MemPoolDB {
             }
         }
 
-        // find next page, if needed
-        let next_last_randomized_txid = if let Some(last_tx) = ret.last() {
-            self.get_randomized_txid(&last_tx.txid())?
-        } else {
-            None
-        };
-
-        Ok((ret, next_last_randomized_txid))
+        Ok((ret, next_page, num_rows_visited))
     }
 
-    /// Stream transaction data
+    /// Stream transaction data.
+    /// Send back one transaction at a time.
     pub fn stream_txs<W: Write>(
         &self,
         fd: &mut W,
@@ -1815,11 +1828,6 @@ impl MemPoolDB {
     ) -> Result<u64, ChainstateError> {
         let mut num_written = 0;
         while num_written < count {
-            if query.num_txs >= query.max_txs {
-                // don't serve more than this many txs
-                break;
-            }
-
             // write out bufferred tx
             let start = query.tx_buf_ptr;
             let end = cmp::min(query.tx_buf.len(), ((start as u64) + count) as usize);
@@ -1832,37 +1840,104 @@ impl MemPoolDB {
             num_written += nw;
 
             if query.tx_buf_ptr >= query.tx_buf.len() {
+                if query.corked {
+                    // we're done
+                    test_debug!(
+                        "Finished streaming txs; last page was {:?}",
+                        &query.last_randomized_txid
+                    );
+                    break;
+                }
+
+                if query.num_txs >= query.max_txs {
+                    // no more space in this stream
+                    debug!(
+                        "No more space in this query after {:?}. Corking tx stream.",
+                        &query.last_randomized_txid
+                    );
+
+                    // send the next page ID
+                    query.tx_buf_ptr = 0;
+                    query.tx_buf.clear();
+                    query.corked = true;
+
+                    query
+                        .last_randomized_txid
+                        .consensus_serialize(&mut query.tx_buf)
+                        .map_err(ChainstateError::CodecError)?;
+                    continue;
+                }
+
                 // load next
-                let (mut next_txs, next_last_randomized_txid_opt) = self
+                let remaining = query.max_txs.saturating_sub(query.num_txs);
+                let (next_txs, next_last_randomized_txid_opt, num_rows_visited) = self
                     .find_next_missing_transactions(
                         &query.tx_query,
                         query.height,
                         &query.last_randomized_txid,
                         1,
-                        MAX_BLOOM_COUNTER_TXS.into(),
+                        remaining,
                     )?;
-                if let Some(next_tx) = next_txs.pop() {
+
+                debug!(
+                    "Streaming mempool propagation stepped";
+                    "rows_visited" => num_rows_visited,
+                    "last_rand_txid" => %query.last_randomized_txid,
+                    "num_txs" => query.num_txs,
+                    "max_txs" => query.max_txs
+                );
+
+                query.num_txs += num_rows_visited;
+                if next_txs.len() > 0 {
                     query.tx_buf_ptr = 0;
                     query.tx_buf.clear();
-                    query.num_txs += 1;
 
-                    next_tx
-                        .consensus_serialize(&mut query.tx_buf)
-                        .map_err(ChainstateError::CodecError)?;
-
+                    for next_tx in next_txs.iter() {
+                        next_tx
+                            .consensus_serialize(&mut query.tx_buf)
+                            .map_err(ChainstateError::CodecError)?;
+                    }
                     if let Some(next_last_randomized_txid) = next_last_randomized_txid_opt {
                         query.last_randomized_txid = next_last_randomized_txid;
                     } else {
-                        test_debug!("No more txs after {}", &next_tx.txid());
+                        test_debug!(
+                            "No more txs after {}",
+                            &next_txs
+                                .last()
+                                .map(|tx| tx.txid())
+                                .unwrap_or(Txid([0u8; 32]))
+                        );
                         break;
                     }
-                } else {
-                    // no more
+                } else if let Some(next_txid) = next_last_randomized_txid_opt {
                     test_debug!(
-                        "No more txs in query after {:?}",
+                        "No rows returned for {}; cork tx stream with next page {}",
+                        &query.last_randomized_txid,
+                        &next_txid
+                    );
+
+                    // no rows found
+                    query.last_randomized_txid = next_txid;
+
+                    // send the next page ID
+                    query.tx_buf_ptr = 0;
+                    query.tx_buf.clear();
+                    query.corked = true;
+
+                    query
+                        .last_randomized_txid
+                        .consensus_serialize(&mut query.tx_buf)
+                        .map_err(ChainstateError::CodecError)?;
+                } else if next_last_randomized_txid_opt.is_none() {
+                    // no more transactions
+                    test_debug!(
+                        "No more txs to send after {:?}; corking stream",
                         &query.last_randomized_txid
                     );
-                    break;
+
+                    query.tx_buf_ptr = 0;
+                    query.tx_buf.clear();
+                    query.corked = true;
                 }
             }
         }
