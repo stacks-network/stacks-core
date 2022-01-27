@@ -48,25 +48,6 @@ struct ParsedData {
 }
 
 impl TransferStxOp {
-    #[cfg(test)]
-    pub fn new(
-        sender: &StacksAddress,
-        recipient: &StacksAddress,
-        transfered_ustx: u128,
-    ) -> TransferStxOp {
-        TransferStxOp {
-            sender: sender.clone(),
-            recipient: recipient.clone(),
-            transfered_ustx,
-            memo: vec![],
-            // to be filled in
-            txid: Txid([0u8; 32]),
-            vtxindex: 0,
-            block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-        }
-    }
-
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
@@ -220,94 +201,5 @@ impl TransferStxOp {
             return Err(op_error::TransferStxSelfSend);
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use address::AddressHashMode;
-    use burnchains::bitcoin::address::*;
-    use burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::*;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::db::*;
-    use chainstate::burn::operations::*;
-    use chainstate::burn::ConsensusHash;
-    use chainstate::burn::*;
-    use chainstate::stacks::StacksPublicKey;
-    use deps::bitcoin::blockdata::transaction::Transaction;
-    use deps::bitcoin::network::serialize::{deserialize, serialize_hex};
-    use util::get_epoch_time_secs;
-    use util::hash::*;
-    use util::vrf::VRFPublicKey;
-
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
-
-    use super::*;
-
-    #[test]
-    fn test_parse_transfer_stx() {
-        let tx = BitcoinTransaction {
-            txid: Txid([0; 32]),
-            vtxindex: 0,
-            opcode: Opcodes::TransferStx as u8,
-            data: vec![1; 77],
-            data_amt: 0,
-            inputs: vec![BitcoinTxInput {
-                keys: vec![],
-                num_required: 0,
-                in_type: BitcoinInputType::Standard,
-                tx_ref: (Txid([0; 32]), 0),
-            }],
-            outputs: vec![
-                BitcoinTxOutput {
-                    units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
-                        network_id: BitcoinNetworkType::Mainnet,
-                        bytes: Hash160([1; 20]),
-                    },
-                },
-                BitcoinTxOutput {
-                    units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
-                        network_id: BitcoinNetworkType::Mainnet,
-                        bytes: Hash160([2; 20]),
-                    },
-                },
-                BitcoinTxOutput {
-                    units: 30,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
-                        network_id: BitcoinNetworkType::Mainnet,
-                        bytes: Hash160([0; 20]),
-                    },
-                },
-            ],
-        };
-
-        let sender = StacksAddress {
-            version: 0,
-            bytes: Hash160([0; 20]),
-        };
-        let op = TransferStxOp::parse_from_tx(
-            16843022,
-            &BurnchainHeaderHash([0; 32]),
-            &BurnchainTransaction::Bitcoin(tx.clone()),
-            &sender,
-        )
-        .unwrap();
-
-        assert_eq!(&op.sender, &sender);
-        assert_eq!(
-            &op.recipient,
-            &StacksAddress::from_bitcoin_address(&tx.outputs[0].address)
-        );
-        assert_eq!(op.transfered_ustx, u128::from_be_bytes([1; 16]));
-        assert_eq!(op.memo, vec![1; 61]);
     }
 }

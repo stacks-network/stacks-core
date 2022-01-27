@@ -376,8 +376,6 @@ impl ConsensusHash {
 mod tests {
     use rusqlite::Connection;
 
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
     use chainstate::burn::db::sortdb::*;
     use util::db::Error as db_error;
     use util::get_epoch_time_secs;
@@ -482,15 +480,7 @@ mod tests {
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
                 let next_index_root = tx
-                    .append_chain_tip_snapshot(
-                        &prev_snapshot,
-                        &snapshot_row,
-                        &vec![],
-                        &vec![],
-                        None,
-                        None,
-                        None,
-                    )
+                    .append_chain_tip_snapshot(&prev_snapshot, &snapshot_row, &vec![], None, None)
                     .unwrap();
                 burn_block_hashes.push(snapshot_row.sortition_id.clone());
                 tx.commit().unwrap();

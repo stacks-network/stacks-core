@@ -66,7 +66,7 @@ fn test_burnstatedb_epoch(
 
 #[test]
 fn test_vm_epoch_switch() {
-    use chainstate::burn::db::sortdb::tests::test_append_snapshot;
+    use chainstate::burn::db::tests::test_append_snapshot;
 
     let mut rng = rand::thread_rng();
     let mut buf = [0u8; 32];

@@ -302,135 +302,19 @@ mod test {
         my_sortition_id: &SortitionId,
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
-        burn_dist: &[BurnSamplePoint],
+        block_commits: &[LeaderBlockCommitOp],
         txids: &Vec<Txid>,
     ) -> Result<BlockSnapshot, db_error> {
-        let total_burn = BurnSamplePoint::get_total_burns(burn_dist);
         BlockSnapshot::make_snapshot(
             sort_tx,
             burnchain,
             my_sortition_id,
             parent_snapshot,
+            block_commits,
             block_header,
-            burn_dist,
             txids,
-            total_burn,
+            Some(1),
             0,
         )
-    }
-
-    #[test]
-    fn make_snapshot_no_sortition() {
-        let first_burn_hash = BurnchainHeaderHash::from_hex(
-            "0000000000000000000000000000000000000000000000000000000000000123",
-        )
-        .unwrap();
-        let first_block_height = 120;
-
-        let burnchain = Burnchain {
-            pox_constants: PoxConstants::test_default(),
-            peer_version: 0x012345678,
-            network_id: 0x9abcdef0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
-            working_dir: "/nope".to_string(),
-            consensus_hash_lifetime: 24,
-            stable_confirmations: 7,
-            first_block_timestamp: 0,
-            first_block_height,
-            initial_reward_start_block: first_block_height,
-            first_block_hash: first_burn_hash.clone(),
-        };
-
-        let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
-
-        let empty_block_header = BurnchainBlockHeader {
-            block_height: first_block_height + 1,
-            block_hash: BurnchainHeaderHash([
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0x01, 0x24,
-            ]),
-            parent_block_hash: first_burn_hash.clone(),
-            num_txs: 0,
-            timestamp: get_epoch_time_secs(),
-        };
-
-        let initial_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
-
-        let snapshot_no_transactions = {
-            let pox_id = PoxId::stubbed();
-            let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
-            let mut ic = SortitionHandleTx::begin(&mut db, &sort_id).unwrap();
-            let sn = test_make_snapshot(
-                &mut ic,
-                &burnchain,
-                &sort_id,
-                &pox_id,
-                &initial_snapshot,
-                &empty_block_header,
-                &vec![],
-                &vec![],
-            )
-            .unwrap();
-            sn
-        };
-
-        assert!(!snapshot_no_transactions.sortition);
-        assert_eq!(snapshot_no_transactions.total_burn, 0);
-
-        let key = LeaderKeyRegisterOp::new_from_secrets(
-            &vec![StacksPrivateKey::new()],
-            1,
-            &AddressHashMode::SerializeP2PKH,
-            &VRFPrivateKey::new(),
-        )
-        .unwrap();
-
-        let empty_burn_point = BurnSamplePoint {
-            burns: 0,
-            range_start: Uint256::from_u64(0),
-            range_end: Uint256([
-                0xFFFFFFFFFFFFFFFF,
-                0xFFFFFFFFFFFFFFFF,
-                0xFFFFFFFFFFFFFFFF,
-                0xFFFFFFFFFFFFFFFF,
-            ]),
-            candidate: LeaderBlockCommitOp::initial(
-                &BlockHeaderHash([1u8; 32]),
-                first_block_height + 1,
-                &VRFSeed::initial(),
-                &key,
-                0,
-                &(Txid([0; 32]), 0),
-                &BurnchainSigner::new_p2pkh(
-                    &StacksPublicKey::from_hex(
-                        "03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77",
-                    )
-                    .unwrap(),
-                ),
-            ),
-            user_burns: vec![],
-        };
-
-        let snapshot_no_burns = {
-            let sort_id = SortitionId::stubbed(&empty_block_header.block_hash);
-            let pox_id = PoxId::stubbed();
-            let mut ic = SortitionHandleTx::begin(&mut db, &sort_id).unwrap();
-            let sn = test_make_snapshot(
-                &mut ic,
-                &burnchain,
-                &sort_id,
-                &pox_id,
-                &initial_snapshot,
-                &empty_block_header,
-                &vec![empty_burn_point.clone()],
-                &vec![key.txid.clone()],
-            )
-            .unwrap();
-            sn
-        };
-
-        assert!(!snapshot_no_burns.sortition);
-        assert_eq!(snapshot_no_transactions.total_burn, 0);
     }
 }

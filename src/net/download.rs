@@ -3692,7 +3692,6 @@ pub mod test {
                                 if let BlockstackOperationType::LeaderBlockCommit(ref mut op) =
                                     burn_op
                                 {
-                                    op.parent_block_ptr = first_block_height;
                                     op.block_header_hash = stacks_block.block_hash();
                                 }
                             }
