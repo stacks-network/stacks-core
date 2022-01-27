@@ -1862,6 +1862,29 @@ fn test_fetch_entry_mismatching_type_signatures() {
 }
 
 #[test]
+fn test_fetch_entry_mismatching_arg_counts() {
+    let cases = [
+        "map-get? kv-store",
+        "map-get? kv-store { key: key } { key: 0 }",
+    ];
+
+    for case in cases.iter() {
+        let contract_src = format!(
+            "(define-map kv-store {{ key: int }} {{ value: int }})
+             (define-private (incompatible-tuple) (tuple (k 1)))
+             (define-private (kv-get (key int))
+                ({}))",
+            case
+        );
+        let res = mem_type_check(&contract_src).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::IncorrectArgumentCount(_, _) => true,
+            _ => false,
+        });
+    }
+}
+
+#[test]
 fn test_fetch_entry_unbound_variables() {
     let cases = ["map-get? kv-store { key: unknown-value }"];
 
@@ -1922,6 +1945,29 @@ fn test_insert_entry_mismatching_type_signatures() {
         let res = mem_type_check(&contract_src).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
+            _ => false,
+        });
+    }
+}
+
+#[test]
+fn test_insert_entry_mismatching_arg_counts() {
+    let cases = [
+        "map-insert kv-store { key: key }",
+        "map-insert kv-store { key: key } { value: value } { value: 0}",
+    ];
+
+    for case in cases.iter() {
+        let contract_src = format!(
+            "(define-map kv-store {{ key: int }} {{ value: int }})
+             (define-private (incompatible-tuple) (tuple (k 1)))
+             (define-private (kv-add (key int) (value int))
+                ({}))",
+            case
+        );
+        let res = mem_type_check(&contract_src).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::IncorrectArgumentCount(_, _) => true,
             _ => false,
         });
     }
@@ -1995,6 +2041,29 @@ fn test_delete_entry_mismatching_type_signatures() {
 }
 
 #[test]
+fn test_delete_entry_mismatching_arg_count() {
+    let cases = [
+        "map-delete kv-store",
+        "map-delete kv-store { key: 1 } false",
+    ];
+
+    for case in cases.iter() {
+        let contract_src = format!(
+            "(define-map kv-store {{ key: int }} {{ value: int }})
+             (define-private (incompatible-tuple) (tuple (k 1)))
+             (define-private (kv-del (key int))
+                ({}))",
+            case
+        );
+        let res = mem_type_check(&contract_src).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::IncorrectArgumentCount(_, _) => true,
+            _ => false,
+        });
+    }
+}
+
+#[test]
 fn test_delete_entry_unbound_variables() {
     let cases = ["map-delete kv-store { key: unknown-value }"];
 
@@ -2057,6 +2126,29 @@ fn test_set_entry_mismatching_type_signatures() {
         let res = mem_type_check(&&contract_src).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
+            _ => false,
+        });
+    }
+}
+
+#[test]
+fn test_set_entry_mismatching_arg_counts() {
+    let cases = [
+        "map-set kv-store",
+        "map-set kv-store { key: key } { value: value } {value: 0}",
+    ];
+
+    for case in cases.iter() {
+        let contract_src = format!(
+            "(define-map kv-store {{ key: int }} {{ value: int }})
+             (define-private (incompatible-tuple) (tuple (k 1)))
+             (define-private (kv-set (key int) (value int))
+                ({}))",
+            case
+        );
+        let res = mem_type_check(&&contract_src).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::IncorrectArgumentCount(_, _) => true,
             _ => false,
         });
     }

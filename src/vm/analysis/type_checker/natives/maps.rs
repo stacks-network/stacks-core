@@ -21,8 +21,7 @@ use vm::functions::tuples;
 
 use super::check_special_tuple_cons;
 use vm::analysis::type_checker::{
-    check_arguments_at_least, no_type, CheckError, CheckErrors, TypeChecker, TypeResult,
-    TypingContext,
+    check_argument_count, no_type, CheckError, CheckErrors, TypeChecker, TypeResult, TypingContext,
 };
 
 use vm::costs::cost_functions::ClarityCostFunction;
@@ -33,7 +32,7 @@ pub fn check_special_fetch_entry(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    check_arguments_at_least(2, args)?;
+    check_argument_count(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
 
@@ -73,7 +72,7 @@ pub fn check_special_delete_entry(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    check_arguments_at_least(2, args)?;
+    check_argument_count(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
 
@@ -106,7 +105,7 @@ fn check_set_or_insert_entry(
     args: &[SymbolicExpression],
     context: &TypingContext,
 ) -> TypeResult {
-    check_arguments_at_least(3, args)?;
+    check_argument_count(3, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
 
