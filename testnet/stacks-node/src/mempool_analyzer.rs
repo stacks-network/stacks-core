@@ -57,6 +57,7 @@ impl MemPoolEventDispatcher for PrintDebugEventDispatcher {
         _confirmed_microblock_cost: &ExecutionCost,
         tx_results: Vec<TransactionEvent>,
     ) {
+        warn!("printing results");
         for tx_event in tx_results {
             println!("{:?}", &tx_event);
         }
