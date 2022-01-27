@@ -78,7 +78,7 @@ use types::chainstate::BurnchainHeaderHash;
 ///   1) production: pick based on the consensus rules
 ///   2) non-production tools: e.g., build an "infinite block"
 ///   3) tests: mock out different settings
-pub trait BlockLimitsBundle {
+pub trait BlockLimitsFunctions {
     /// Limit for length of output.
     fn output_length_limit(&self) -> u32;
 
@@ -91,7 +91,7 @@ pub trait BlockLimitsBundle {
 
 pub struct InfiniteBlockLimits {}
 
-impl BlockLimitsBundle for InfiniteBlockLimits {
+impl BlockLimitsFunctions for InfiniteBlockLimits {
     fn output_length_limit(&self) -> u32 {
         u32::MAX
     }
@@ -139,6 +139,8 @@ impl BlockLimitsBundle for InfiniteBlockLimits {
 pub struct ClarityInstance {
     datastore: MarfedKV,
     mainnet: bool,
+    /// Derive block limits from the given context. Used to override production defaults.
+    pub block_limits_fns:Box<dyn BlockLimitsFunctions>,
 }
 
 ///
@@ -321,7 +323,12 @@ impl ClarityBlockConnection<'_> {
 
 impl ClarityInstance {
     pub fn new(mainnet: bool, datastore: MarfedKV) -> ClarityInstance {
-        ClarityInstance { datastore, mainnet }
+        let block_limits_fns = Box::new(InfiniteBlockLimits {});
+        ClarityInstance { datastore, mainnet, block_limits_fns }
+    }
+
+    pub fn new_with_limits_fns(mainnet: bool, datastore: MarfedKV, block_limits_fns:Box<dyn BlockLimitsFunctions>) -> ClarityInstance {
+        ClarityInstance { datastore, mainnet, block_limits_fns }
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -367,14 +374,13 @@ impl ClarityInstance {
         next: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
-        limits_bundle: &'a dyn BlockLimitsBundle,
     ) -> ClarityBlockConnection<'a> {
         let bt = backtrace::Backtrace::new();
         info!("bt {:?}", &bt);
         let mut datastore = self.datastore.begin(current, next);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
-        let block_limit = limits_bundle.execution_block_limit(&epoch);
+        let block_limit = self.block_limits_fns.execution_block_limit(&epoch);
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
