@@ -10,12 +10,9 @@
 ///
 /// <working-dir> specifies the `working_dir` from the miner's config file.
 /// [max-time] optionally gives an amount of time to stop mining after, useful for debugging.
-extern crate postgres;
-use postgres::{Client, NoTls};
-
 extern crate stacks;
 
-#[macro_use(slog_info, slog_warn)]
+#[macro_use(slog_warn)]
 extern crate slog;
 use std::env;
 use std::process;
@@ -23,7 +20,6 @@ use std::process;
 use cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 
-use lazy_static::lazy_static;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::miner::*;
@@ -39,59 +35,17 @@ use stacks::{
     util::{hash::Hash160, vrf::VRFProof},
     vm::costs::ExecutionCost,
 };
-use std::sync::Mutex;
 
-lazy_static! {
-    static ref CLIENT: Mutex<Client> = Mutex::new(
-        Client::connect(
-            "postgresql://postgres:postgres@localhost/temp_database",
-            NoTls,
-        )
-        .expect("couldnt start climate")
-    );
-}
 
-struct MemPoolEventDispatcherImpl {}
+struct PrintDebugEventDispatcher {}
 
-impl MemPoolEventDispatcherImpl {
-    fn new() -> MemPoolEventDispatcherImpl {
-        return MemPoolEventDispatcherImpl {};
+impl PrintDebugEventDispatcher {
+    fn new() -> PrintDebugEventDispatcher {
+        return PrintDebugEventDispatcher {};
     }
 }
 
-#[derive(Debug)]
-struct MempoolTxRow {
-    pub tx_id: Txid,
-    pub status_code: i32,
-    pub reason: String,
-}
-
-fn mempool_tx_row_from_event(event: &TransactionEvent) -> MempoolTxRow {
-    match event {
-        TransactionEvent::Success(TransactionSuccessEvent {
-            txid,
-            fee: _,
-            execution_cost: _,
-            result: _,
-        }) => MempoolTxRow {
-            tx_id: txid.clone(),
-            status_code: 0,
-            reason: "".to_string(),
-        },
-        TransactionEvent::ProcessingError(TransactionErrorEvent { txid, error }) => MempoolTxRow {
-            tx_id: txid.clone(),
-            status_code: 1,
-            reason: error.to_string(),
-        },
-        TransactionEvent::Skipped(TransactionSkippedEvent { txid, error }) => MempoolTxRow {
-            tx_id: txid.clone(),
-            status_code: 2,
-            reason: error.to_string(),
-        },
-    }
-}
-
-impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
+impl MemPoolEventDispatcher for PrintDebugEventDispatcher {
     fn mempool_txs_dropped(&self, _txids: Vec<Txid>, _reason: MemPoolDropReason) {
         warn!("`mempool_txs_dropped` was called.");
     }
@@ -104,23 +58,8 @@ impl MemPoolEventDispatcher for MemPoolEventDispatcherImpl {
         _confirmed_microblock_cost: &ExecutionCost,
         tx_results: Vec<TransactionEvent>,
     ) {
-        let epoch_ms = get_epoch_time_ms() as i32;
         for tx_event in tx_results {
-            let tuple = mempool_tx_row_from_event(&tx_event);
-
-            CLIENT
-                .lock()
-                .unwrap()
-                .execute(
-                    "INSERT INTO mempool_tx_attempt (tx_id, batch_time, status_code, reason) VALUES ($1, $2, $3, $4)",
-                    &[
-                        &tuple.tx_id.to_string(),
-                        &epoch_ms,
-                        &tuple.status_code,
-                        &tuple.reason.to_string(),
-                    ],
-                )
-                .expect("tried to insert");
+            println!("{:?}", &tx_event);
         }
     }
     fn mined_microblock_event(
@@ -166,7 +105,7 @@ fn main() {
     if argv.len() >= 3 {
         max_time = argv[2].parse().expect("Could not parse max_time");
     }
-    info!("max_time {}", max_time);
+    eprintln!("max_time {}", max_time);
 
     let sort_db = SortitionDB::open(&sort_db_path, false)
         .expect(&format!("Failed to open {}", &sort_db_path));
@@ -211,7 +150,7 @@ fn main() {
     settings.max_miner_time_ms = max_time;
     settings.mempool_settings.min_tx_fee = min_fee;
 
-    let dispatcher = MemPoolEventDispatcherImpl::new();
+    let dispatcher = PrintDebugEventDispatcher::new();
     let result = StacksBlockBuilder::build_anchored_block(
         &chain_state,
         &sort_db.index_conn(),
