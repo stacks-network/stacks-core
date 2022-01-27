@@ -1128,20 +1128,23 @@ impl StacksChainState {
         tx: &StacksTransaction,
         quiet: bool,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
+        info!("Process transaction {} ({})", tx.txid(), tx.payload.name());
 
         StacksChainState::process_transaction_precheck(&clarity_block.config, tx)?;
 
+        info!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let mut transaction = clarity_block.connection().start_transaction_processing();
         let (origin_account, payer_account) =
             StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
 
         let tx_receipt =
             StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
+        info!("Process transaction {} ({})", tx.txid(), tx.payload.name());
 
         let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
         let fee = tx.get_tx_fee();
         StacksChainState::pay_transaction_fee(&mut transaction, fee, new_payer_account)?;
+        info!("Process transaction {} ({})", tx.txid(), tx.payload.name());
 
         // update the account nonces
         StacksChainState::update_account_nonce(
@@ -1159,6 +1162,7 @@ impl StacksChainState {
 
         transaction.commit();
 
+        info!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         Ok((fee, tx_receipt))
     }
 }

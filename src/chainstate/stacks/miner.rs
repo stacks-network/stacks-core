@@ -1178,7 +1178,9 @@ impl StacksBlockBuilder {
                 );
             }
 
-            let (fee, receipt) = match StacksChainState::process_transaction(clarity_tx, tx, quiet)
+            let pt = StacksChainState::process_transaction(clarity_tx, tx, quiet);
+            info!("pt {:?}", &pt);
+            let (fee, receipt) = match pt
             {
                 Ok((fee, receipt)) => (fee, receipt),
                 Err(e) => match e {
