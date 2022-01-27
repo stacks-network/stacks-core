@@ -33,6 +33,11 @@ version = "=0.24.2"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [[bin]]
+name = "mempool-analyzer"
+path = "src/mempool_analyzer.rs"
+
+
+[[bin]]
 name = "stacks-node"
 path = "src/main.rs"
 
