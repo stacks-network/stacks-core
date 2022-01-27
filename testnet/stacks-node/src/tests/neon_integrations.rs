@@ -336,7 +336,7 @@ pub mod test_observer {
     pub fn spawn() {
         clear();
         thread::spawn(|| {
-            let mut rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
+            let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
             rt.block_on(serve());
         });
     }

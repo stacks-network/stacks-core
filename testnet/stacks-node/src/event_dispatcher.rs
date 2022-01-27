@@ -129,7 +129,7 @@ impl EventObserver {
                 let stream = match TcpStream::connect(self.endpoint.clone()).await {
                     Ok(stream) => stream,
                     Err(err) => {
-                        println!("Event dispatcher: connection failed  - {:?}", err);
+                        warn!("Event dispatcher: connection failed  - {:?}", err);
                         return None;
                     }
                 };
@@ -137,7 +137,7 @@ impl EventObserver {
                 match client::connect(stream, req).await {
                     Ok(response) => Some(response),
                     Err(err) => {
-                        println!("Event dispatcher: rpc invokation failed  - {:?}", err);
+                        warn!("Event dispatcher: rpc invokation failed  - {:?}", err);
                         return None;
                     }
                 }
