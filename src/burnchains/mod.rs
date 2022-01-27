@@ -25,7 +25,6 @@ use std::marker::PhantomData;
 use rusqlite::Error as sqlite_error;
 
 use address::AddressHashMode;
-use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::burn::operations::Error as op_error;
@@ -38,23 +37,13 @@ use util::db::Error as db_error;
 use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 
-use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use crate::types::proof::TrieHash;
 
-use self::bitcoin::indexer::{
-    BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
-    BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST, BITCOIN_REGTEST_NAME,
-    BITCOIN_TESTNET as BITCOIN_NETWORK_ID_TESTNET, BITCOIN_TESTNET_NAME,
-};
-use self::bitcoin::Error as btc_error;
-use self::bitcoin::{
-    BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
-};
-
 /// This module contains drivers and types for all burn chains we support.
-pub mod bitcoin;
+//pub mod bitcoin;
 pub mod burnchain;
 pub mod db;
 pub mod indexer;
@@ -75,6 +64,13 @@ impl MagicBytes {
     pub fn default() -> MagicBytes {
         BLOCKSTACK_MAGIC_MAINNET
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BitcoinNetworkType {
+    Mainnet,
+    Testnet,
+    Regtest,
 }
 
 pub const BLOCKSTACK_MAGIC_MAINNET: MagicBytes = MagicBytes([105, 100]); // 'id'
@@ -105,8 +101,8 @@ impl BurnchainParameters {
     pub fn bitcoin_mainnet() -> BurnchainParameters {
         BurnchainParameters {
             chain_name: "bitcoin".to_string(),
-            network_name: BITCOIN_MAINNET_NAME.to_string(),
-            network_id: BITCOIN_NETWORK_ID_MAINNET,
+            network_name: "mainnet".into(),
+            network_id: 0,
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
             first_block_height: BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
@@ -120,8 +116,8 @@ impl BurnchainParameters {
     pub fn bitcoin_testnet() -> BurnchainParameters {
         BurnchainParameters {
             chain_name: "bitcoin".to_string(),
-            network_name: BITCOIN_TESTNET_NAME.to_string(),
-            network_id: BITCOIN_NETWORK_ID_TESTNET,
+            network_name: "testnet".into(),
+            network_id: 1,
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
             first_block_height: BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
@@ -135,8 +131,8 @@ impl BurnchainParameters {
     pub fn bitcoin_regtest() -> BurnchainParameters {
         BurnchainParameters {
             chain_name: "bitcoin".to_string(),
-            network_name: BITCOIN_REGTEST_NAME.to_string(),
-            network_id: BITCOIN_NETWORK_ID_REGTEST,
+            network_name: "regtest".into(),
+            network_id: 2,
             stable_confirmations: 1,
             consensus_hash_lifetime: 24,
             first_block_height: BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
@@ -148,9 +144,10 @@ impl BurnchainParameters {
     }
 
     pub fn is_testnet(network_id: u32) -> bool {
-        match network_id {
-            BITCOIN_NETWORK_ID_TESTNET | BITCOIN_NETWORK_ID_REGTEST => true,
-            _ => false,
+        if network_id == 0 {
+            false
+        } else {
+            true
         }
     }
 }
@@ -187,90 +184,80 @@ pub struct BurnchainRecipient {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum SubnetStacksEventType {
+    BlockCommit { subnet_block_hash: BlockHeaderHash },
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct SubnetStacksEvent {
+    pub txid: Txid,
+    pub in_block: StacksBlockId,
+    pub opcode: u8,
+    pub event: SubnetStacksEventType,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum BurnchainTransaction {
-    Bitcoin(BitcoinTransaction),
-    // TODO: fill in more types as we support them
+    SubnetBase(SubnetStacksEvent), // TODO: fill in more types as we support them
 }
 
 impl BurnchainTransaction {
     pub fn txid(&self) -> Txid {
         match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.txid.clone(),
+            BurnchainTransaction::SubnetBase(ref tx) => tx.txid.clone(),
         }
     }
 
     pub fn vtxindex(&self) -> u32 {
         match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.vtxindex,
+            BurnchainTransaction::SubnetBase(ref tx) => 0,
         }
     }
 
     pub fn opcode(&self) -> u8 {
         match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.opcode,
+            BurnchainTransaction::SubnetBase(ref tx) => tx.opcode,
         }
     }
 
     pub fn data(&self) -> Vec<u8> {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.data.clone(),
-        }
+        panic!("Not implemented")
     }
 
     pub fn num_signers(&self) -> usize {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.inputs.len(),
-        }
+        panic!("Not implemented")
     }
 
     pub fn get_signers(&self) -> Vec<BurnchainSigner> {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc
-                .inputs
-                .iter()
-                .map(|ref i| BurnchainSigner::from_bitcoin_input(i))
-                .collect(),
-        }
+        panic!("Not implemented")
     }
 
     pub fn get_signer(&self, input: usize) -> Option<BurnchainSigner> {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc
-                .inputs
-                .get(input)
-                .map(|ref i| BurnchainSigner::from_bitcoin_input(i)),
-        }
+        panic!("Not implemented")
     }
 
     pub fn get_input_tx_ref(&self, input: usize) -> Option<&(Txid, u32)> {
-        match self {
-            BurnchainTransaction::Bitcoin(ref btc) => {
-                btc.inputs.get(input).map(|txin| &txin.tx_ref)
-            }
-        }
+        panic!("Not implemented")
     }
 
     pub fn get_recipients(&self) -> Vec<BurnchainRecipient> {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc
-                .outputs
-                .iter()
-                .map(|ref o| BurnchainRecipient::from_bitcoin_output(o))
-                .collect(),
-        }
+        panic!("Not implemented")
     }
 
     pub fn get_burn_amount(&self) -> u64 {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc.data_amt,
-        }
+        0
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct StacksEventBlock {
+    pub current_block: StacksBlockId,
+    pub parent_block: StacksBlockId,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum BurnchainBlock {
-    Bitcoin(BitcoinBlock),
-    // TODO: fill in some more types as we support them
+    StacksEventBlock(StacksEventBlock),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -418,19 +405,7 @@ pub struct BurnchainView {
 /// -- the set of previously-accepted leader VRF keys consumed
 #[derive(Debug, Clone)]
 pub struct BurnchainStateTransition {
-    pub burn_dist: Vec<BurnSamplePoint>,
     pub accepted_ops: Vec<BlockstackOperationType>,
-    pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
-}
-
-/// The burnchain block's state transition's ops:
-/// -- the new burn distribution
-/// -- the sequence of valid blockstack operations that went into it
-/// -- the set of previously-accepted leader VRF keys consumed
-#[derive(Debug, Clone)]
-pub struct BurnchainStateTransitionOps {
-    pub accepted_ops: Vec<BlockstackOperationType>,
-    pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
 }
 
 #[derive(Debug)]
@@ -438,11 +413,11 @@ pub enum Error {
     /// Unsupported burn chain
     UnsupportedBurnchain,
     /// Bitcoin-related error
-    Bitcoin(btc_error),
+    Bitcoin(String),
     /// burn database error
     DBError(db_error),
     /// Download error
-    DownloadError(btc_error),
+    DownloadError(String),
     /// Parse error
     ParseError,
     /// Thread channel error
@@ -494,9 +469,9 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::UnsupportedBurnchain => None,
-            Error::Bitcoin(ref e) => Some(e),
+            Error::Bitcoin(ref e) => None,
             Error::DBError(ref e) => Some(e),
-            Error::DownloadError(ref e) => Some(e),
+            Error::DownloadError(ref e) => None,
             Error::ParseError => None,
             Error::MissingHeaders => None,
             Error::MissingParentBlock => None,
@@ -521,12 +496,6 @@ impl From<db_error> for Error {
 impl From<sqlite_error> for Error {
     fn from(e: sqlite_error) -> Error {
         Error::DBError(db_error::SqliteError(e))
-    }
-}
-
-impl From<btc_error> for Error {
-    fn from(e: btc_error) -> Error {
-        Error::Bitcoin(e)
     }
 }
 

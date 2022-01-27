@@ -96,7 +96,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         context.chain_tip = sortition_id.clone();
         let db_handle = SortitionHandleConn::new(&readonly_marf, context);
         match db_handle.get_block_snapshot_by_height(height as u64) {
-            Ok(Some(x)) => Some(x.burn_header_hash),
+            Ok(Some(x)) => Some(BurnchainHeaderHash(x.burn_header_hash.0)),
             _ => return None,
         }
     }
@@ -127,7 +127,7 @@ impl BurnStateDB for SortitionDBConn<'_> {
     ) -> Option<BurnchainHeaderHash> {
         let db_handle = SortitionHandleConn::open_reader(self, &sortition_id).ok()?;
         match db_handle.get_block_snapshot_by_height(height as u64) {
-            Ok(Some(x)) => Some(x.burn_header_hash),
+            Ok(Some(x)) => Some(BurnchainHeaderHash(x.burn_header_hash.0)),
             _ => return None,
         }
     }

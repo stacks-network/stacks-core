@@ -24,10 +24,6 @@ use address::c32::c32_address;
 use address::c32::c32_address_decode;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
-use burnchains::bitcoin::address::{
-    address_type_to_version_byte, to_b52_version_byte, to_c32_version_byte,
-    version_byte_to_address_type, BitcoinAddress, BitcoinAddressType,
-};
 use burnchains::{Address, BurnchainSigner, PublicKey};
 use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::{
@@ -183,27 +179,27 @@ impl StacksAddress {
     }
 
     /// Convert from a Bitcoin address
-    pub fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress {
-        let btc_version = address_type_to_version_byte(addr.addrtype, addr.network_id);
+    // pub fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress {
+    //     let btc_version = address_type_to_version_byte(addr.addrtype, addr.network_id);
 
-        // should not fail by construction
-        let version = to_c32_version_byte(btc_version)
-            .expect("Failed to decode Bitcoin version byte to Stacks version byte");
-        StacksAddress {
-            version: version,
-            bytes: addr.bytes.clone(),
-        }
-    }
+    //     // should not fail by construction
+    //     let version = to_c32_version_byte(btc_version)
+    //         .expect("Failed to decode Bitcoin version byte to Stacks version byte");
+    //     StacksAddress {
+    //         version: version,
+    //         bytes: addr.bytes.clone(),
+    //     }
+    // }
 
-    pub fn to_b58(self) -> String {
-        let StacksAddress { version, bytes } = self;
-        let btc_version = to_b52_version_byte(version)
-            // fallback to version
-            .unwrap_or(version);
-        let mut all_bytes = vec![btc_version];
-        all_bytes.extend(bytes.0.iter());
-        b58::check_encode_slice(&all_bytes)
-    }
+    // pub fn to_b58(self) -> String {
+    //     let StacksAddress { version, bytes } = self;
+    //     let btc_version = to_b52_version_byte(version)
+    //         // fallback to version
+    //         .unwrap_or(version);
+    //     let mut all_bytes = vec![btc_version];
+    //     all_bytes.extend(bytes.0.iter());
+    //     b58::check_encode_slice(&all_bytes)
+    // }
 
     /// Convert to PrincipalData::Standard(StandardPrincipalData)
     pub fn to_account_principal(&self) -> PrincipalData {
@@ -213,19 +209,19 @@ impl StacksAddress {
         ))
     }
 
-    pub fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
-        let btc_version = to_b52_version_byte(self.version)
-            .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
-        let btc_addr_type = version_byte_to_address_type(btc_version)
-            .expect("BUG: failed to decode Bitcoin version byte")
-            .0;
-        match btc_addr_type {
-            BitcoinAddressType::PublicKeyHash => {
-                BitcoinAddress::to_p2pkh_tx_out(&self.bytes, value)
-            }
-            BitcoinAddressType::ScriptHash => BitcoinAddress::to_p2sh_tx_out(&self.bytes, value),
-        }
-    }
+    // pub fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
+    //     let btc_version = to_b52_version_byte(self.version)
+    //         .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
+    //     let btc_addr_type = version_byte_to_address_type(btc_version)
+    //         .expect("BUG: failed to decode Bitcoin version byte")
+    //         .0;
+    //     match btc_addr_type {
+    //         BitcoinAddressType::PublicKeyHash => {
+    //             BitcoinAddress::to_p2pkh_tx_out(&self.bytes, value)
+    //         }
+    //         BitcoinAddressType::ScriptHash => BitcoinAddress::to_p2sh_tx_out(&self.bytes, value),
+    //     }
+    // }
 }
 
 impl std::fmt::Display for StacksAddress {

@@ -27,16 +27,11 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::burnchains::SubnetStacksEventType;
 use crate::types::chainstate::StacksAddress;
 use crate::types::proof::TrieHash;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
-use burnchains::bitcoin::address::address_type_to_version_byte;
-use burnchains::bitcoin::address::to_c32_version_byte;
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::bitcoin::address::BitcoinAddressType;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
 use burnchains::db::BurnchainDB;
 use burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
@@ -47,11 +42,9 @@ use burnchains::PublicKey;
 use burnchains::Txid;
 use burnchains::{
     BurnchainBlock, BurnchainBlockHeader, BurnchainParameters, BurnchainRecipient, BurnchainSigner,
-    BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction,
-    Error as burnchain_error, PoxConstants,
+    BurnchainStateTransition, BurnchainTransaction, Error as burnchain_error, PoxConstants,
 };
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
-use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
@@ -77,29 +70,11 @@ use util::log;
 use util::vrf::VRFPublicKey;
 
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
-use burnchains::bitcoin::indexer::BitcoinIndexer;
-
-impl BurnchainStateTransitionOps {
-    pub fn noop() -> BurnchainStateTransitionOps {
-        BurnchainStateTransitionOps {
-            accepted_ops: vec![],
-            consumed_leader_keys: vec![],
-        }
-    }
-    pub fn from(o: BurnchainStateTransition) -> BurnchainStateTransitionOps {
-        BurnchainStateTransitionOps {
-            accepted_ops: o.accepted_ops,
-            consumed_leader_keys: o.consumed_leader_keys,
-        }
-    }
-}
 
 impl BurnchainStateTransition {
     pub fn noop() -> BurnchainStateTransition {
         BurnchainStateTransition {
-            burn_dist: vec![],
             accepted_ops: vec![],
-            consumed_leader_keys: vec![],
         }
     }
 
@@ -108,183 +83,26 @@ impl BurnchainStateTransition {
         burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
-        missed_commits: &Vec<MissedBlockCommit>,
-        sunset_end: u64,
     ) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
-        let mut user_burns: Vec<UserBurnSupportOp> = vec![];
         let mut accepted_ops = Vec::with_capacity(block_ops.len());
 
         assert!(Burnchain::ops_are_sorted(block_ops));
 
-        // identify which user burns and block commits are consumed and which are not
-        let mut all_user_burns: HashMap<Txid, UserBurnSupportOp> = HashMap::new();
-        let mut all_block_commits: HashMap<Txid, LeaderBlockCommitOp> = HashMap::new();
-
         // accept all leader keys we found.
         // don't treat block commits and user burn supports just yet.
-        for i in 0..block_ops.len() {
-            match block_ops[i] {
-                BlockstackOperationType::PreStx(_) => {
-                    // PreStx ops don't need to be processed by sort db, so pass.
-                }
-                BlockstackOperationType::StackStx(_) => {
-                    accepted_ops.push(block_ops[i].clone());
-                }
-                BlockstackOperationType::TransferStx(_) => {
-                    accepted_ops.push(block_ops[i].clone());
-                }
-                BlockstackOperationType::LeaderKeyRegister(_) => {
-                    accepted_ops.push(block_ops[i].clone());
-                }
-                BlockstackOperationType::LeaderBlockCommit(ref op) => {
+        for block_op in block_ops.iter() {
+            match block_op {
+                BlockstackOperationType::LeaderBlockCommit(op) => {
                     // we don't yet know which block commits are going to be accepted until we have
                     // the burn distribution, so just account for them for now.
-                    all_block_commits.insert(op.txid.clone(), op.clone());
-                    block_commits.push(op.clone());
-                }
-                BlockstackOperationType::UserBurnSupport(ref op) => {
-                    // we don't know yet which user burns are going to be accepted until we have
-                    // the burn distribution, so just account for them for now.
-                    all_user_burns.insert(op.txid.clone(), op.clone());
-                    user_burns.push(op.clone());
+                    accepted_ops.push(op.clone().into());
                 }
             };
         }
 
-        // find all VRF leader keys that were consumed by the block commits of this block
-        let consumed_leader_keys =
-            sort_tx.get_consumed_leader_keys(&parent_snapshot, &block_commits)?;
-
-        // assemble the commit windows
-        let mut windowed_block_commits = vec![block_commits];
-        let mut windowed_missed_commits = vec![];
-
-        if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1)
-            && parent_snapshot.block_height + 1 <= burnchain.pox_constants.sunset_end
-        {
-            // PoX reward-phase is active!
-            // build a map of intended sortition -> missed commit for the missed commits
-            //   discovered in this block.
-            let mut missed_commits_map: HashMap<_, Vec<_>> = HashMap::new();
-            for missed in missed_commits.iter() {
-                if let Some(commits_at_sortition) =
-                    missed_commits_map.get_mut(&missed.intended_sortition)
-                {
-                    commits_at_sortition.push(missed);
-                } else {
-                    missed_commits_map.insert(missed.intended_sortition.clone(), vec![missed]);
-                }
-            }
-
-            for blocks_back in 0..(MINING_COMMITMENT_WINDOW - 1) {
-                if parent_snapshot.block_height < (blocks_back as u64) {
-                    debug!("Mining commitment window shortened because block height is less than window size";
-                           "block_height" => %parent_snapshot.block_height,
-                           "window_size" => %MINING_COMMITMENT_WINDOW);
-                    break;
-                }
-                let block_height = parent_snapshot.block_height - (blocks_back as u64);
-                let sortition_id = match sort_tx.get_block_snapshot_by_height(block_height)? {
-                    Some(sn) => sn.sortition_id,
-                    None => break,
-                };
-                windowed_block_commits.push(SortitionDB::get_block_commits_by_block(
-                    sort_tx.tx(),
-                    &sortition_id,
-                )?);
-                let mut missed_commits_at_height =
-                    SortitionDB::get_missed_commits_by_intended(sort_tx.tx(), &sortition_id)?;
-                if let Some(missed_commit_in_block) = missed_commits_map.remove(&sortition_id) {
-                    missed_commits_at_height
-                        .extend(missed_commit_in_block.into_iter().map(|x| x.clone()));
-                }
-
-                windowed_missed_commits.push(missed_commits_at_height);
-            }
-        } else {
-            // PoX reward-phase is not active
-            debug!(
-                "Block {} is in a prepare phase or post-PoX sunset, so no windowing will take place",
-                parent_snapshot.block_height + 1
-            );
-
-            assert_eq!(windowed_block_commits.len(), 1);
-            assert_eq!(windowed_missed_commits.len(), 0);
-        }
-
-        // reverse vecs so that windows are in ascending block height order
-        windowed_block_commits.reverse();
-        windowed_missed_commits.reverse();
-
-        // figure out if the PoX sunset finished during the window,
-        // and/or which sortitions must be PoB due to them falling in a prepare phase.
-        let window_end_height = parent_snapshot.block_height + 1;
-        let window_start_height = window_end_height + 1 - (windowed_block_commits.len() as u64);
-        let mut burn_blocks = vec![false; windowed_block_commits.len()];
-
-        // set burn_blocks flags to accomodate prepare phases and PoX sunset
-        for (i, b) in burn_blocks.iter_mut().enumerate() {
-            if sunset_end <= window_start_height + (i as u64) {
-                // past PoX sunset, so must burn
-                *b = true;
-            } else if burnchain.is_in_prepare_phase(window_start_height + (i as u64)) {
-                // must burn
-                *b = true;
-            } else {
-                // must not burn
-                *b = false;
-            }
-        }
-
-        // calculate the burn distribution from these operations.
-        // The resulting distribution will contain the user burns that match block commits
-        let burn_dist = BurnSamplePoint::make_min_median_distribution(
-            windowed_block_commits,
-            windowed_missed_commits,
-            burn_blocks,
-        );
-
-        // find out which user burns and block commits we're going to take
-        for i in 0..burn_dist.len() {
-            let burn_point = &burn_dist[i];
-
-            // taking this commit in this sample point
-            accepted_ops.push(BlockstackOperationType::LeaderBlockCommit(
-                burn_point.candidate.clone(),
-            ));
-            all_block_commits.remove(&burn_point.candidate.txid);
-
-            // taking each user burn in this sample point
-            for j in 0..burn_point.user_burns.len() {
-                accepted_ops.push(BlockstackOperationType::UserBurnSupport(
-                    burn_point.user_burns[j].clone(),
-                ));
-                all_user_burns.remove(&burn_point.user_burns[j].txid);
-            }
-        }
-
-        // accepted_ops contains all accepted commits and user burns now.
-        // only rejected ones remain in all_user_burns and all_block_commits
-        for op in all_block_commits.values() {
-            warn!(
-                "REJECTED({}) block commit {} at {},{}: Committed to an already-consumed VRF key",
-                op.block_height, &op.txid, op.block_height, op.vtxindex
-            );
-        }
-
-        for op in all_user_burns.values() {
-            warn!("REJECTED({}) user burn support {} at {},{}: No matching block commit in this block", op.block_height, &op.txid, op.block_height, op.vtxindex);
-        }
-
-        accepted_ops.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
-
-        Ok(BurnchainStateTransition {
-            burn_dist,
-            accepted_ops,
-            consumed_leader_keys,
-        })
+        Ok(BurnchainStateTransition { accepted_ops })
     }
 }
 
@@ -298,114 +116,35 @@ impl BurnchainSigner {
         }
     }
 
-    pub fn from_bitcoin_input(inp: &BitcoinTxInput) -> BurnchainSigner {
-        match inp.in_type {
-            BitcoinInputType::Standard => {
-                if inp.num_required == 1 && inp.keys.len() == 1 {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                } else {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2SH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                }
-            }
-            BitcoinInputType::SegwitP2SH => {
-                if inp.num_required == 1 && inp.keys.len() == 1 {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2WPKH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                } else {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2WSH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn to_bitcoin_address(&self, network_type: BitcoinNetworkType) -> String {
-        let addr_type = match &self.hash_mode {
-            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
-                BitcoinAddressType::PublicKeyHash
-            }
-            _ => BitcoinAddressType::ScriptHash,
-        };
-        BitcoinAddress::from_bytes(network_type, addr_type, &self.to_address_bits())
-            .unwrap()
-            .to_string()
-    }
-
     pub fn to_address_bits(&self) -> Vec<u8> {
         let h = public_keys_to_address_hash(&self.hash_mode, self.num_sigs, &self.public_keys);
         h.as_bytes().to_vec()
     }
 }
 
-impl BurnchainRecipient {
-    pub fn from_bitcoin_output(o: &BitcoinTxOutput) -> BurnchainRecipient {
-        let stacks_addr = StacksAddress::from_bitcoin_address(&o.address);
-        BurnchainRecipient {
-            address: stacks_addr,
-            amount: o.units,
-        }
-    }
-}
-
 impl BurnchainBlock {
     pub fn block_height(&self) -> u64 {
-        match *self {
-            BurnchainBlock::Bitcoin(ref data) => data.block_height,
-        }
+        panic!("Not implemented")
     }
 
     pub fn block_hash(&self) -> BurnchainHeaderHash {
-        match *self {
-            BurnchainBlock::Bitcoin(ref data) => data.block_hash.clone(),
-        }
+        panic!("Not implemented")
     }
 
     pub fn parent_block_hash(&self) -> BurnchainHeaderHash {
-        match *self {
-            BurnchainBlock::Bitcoin(ref data) => data.parent_block_hash.clone(),
-        }
+        panic!("Not implemented")
     }
 
     pub fn txs(&self) -> Vec<BurnchainTransaction> {
-        match *self {
-            BurnchainBlock::Bitcoin(ref data) => data
-                .txs
-                .iter()
-                .map(|ref tx| BurnchainTransaction::Bitcoin((*tx).clone()))
-                .collect(),
-        }
+        panic!("Not implemented")
     }
 
     pub fn timestamp(&self) -> u64 {
-        match *self {
-            BurnchainBlock::Bitcoin(ref data) => data.timestamp,
-        }
+        panic!("Not implemented")
     }
 
     pub fn header(&self) -> BurnchainBlockHeader {
-        match *self {
-            BurnchainBlock::Bitcoin(ref data) => BurnchainBlockHeader {
-                block_height: data.block_height,
-                block_hash: data.block_hash.clone(),
-                parent_block_hash: data.parent_block_hash.clone(),
-                num_txs: data.txs.len() as u64,
-                timestamp: data.timestamp,
-            },
-        }
+        panic!("Not implemented")
     }
 }
 
@@ -680,129 +419,24 @@ impl Burnchain {
         burnchain_db: &BurnchainDB,
         block_header: &BurnchainBlockHeader,
         burn_tx: &BurnchainTransaction,
-        pre_stx_op_map: &HashMap<Txid, PreStxOp>,
     ) -> Option<BlockstackOperationType> {
-        match burn_tx.opcode() {
-            x if x == Opcodes::LeaderKeyRegister as u8 => {
-                match LeaderKeyRegisterOp::from_tx(block_header, burn_tx) {
-                    Ok(op) => Some(BlockstackOperationType::LeaderKeyRegister(op)),
-                    Err(e) => {
-                        warn!(
-                            "Failed to parse leader key register tx";
-                            "txid" => %burn_tx.txid(),
-                            "data" => %to_hex(&burn_tx.data()),
-                            "error" => ?e,
-                        );
-                        None
-                    }
-                }
+        let result = match burn_tx {
+            BurnchainTransaction::SubnetBase(ref event) => match event.event {
+                SubnetStacksEventType::BlockCommit { .. } => LeaderBlockCommitOp::try_from(event),
+            },
+        };
+
+        match result {
+            Ok(op) => Some(BlockstackOperationType::from(op)),
+            Err(e) => {
+                warn!(
+                    "Failed to parse subnet block operation";
+                    "txid" => %burn_tx.txid(),
+                    "data" => %to_hex(&burn_tx.data()),
+                    "error" => ?e,
+                );
+                None
             }
-            x if x == Opcodes::LeaderBlockCommit as u8 => {
-                match LeaderBlockCommitOp::from_tx(burnchain, block_header, burn_tx) {
-                    Ok(op) => Some(BlockstackOperationType::LeaderBlockCommit(op)),
-                    Err(e) => {
-                        warn!(
-                            "Failed to parse leader block commit tx";
-                            "txid" => %burn_tx.txid(),
-                            "data" => %to_hex(&burn_tx.data()),
-                            "error" => ?e,
-                        );
-                        None
-                    }
-                }
-            }
-            x if x == Opcodes::UserBurnSupport as u8 => {
-                match UserBurnSupportOp::from_tx(block_header, burn_tx) {
-                    Ok(op) => Some(BlockstackOperationType::UserBurnSupport(op)),
-                    Err(e) => {
-                        warn!(
-                            "Failed to parse user burn support tx";
-                            "txid" => %burn_tx.txid(),
-                            "data" => %to_hex(&burn_tx.data()),
-                            "error" => ?e,
-                        );
-                        None
-                    }
-                }
-            }
-            x if x == Opcodes::PreStx as u8 => {
-                match PreStxOp::from_tx(block_header, burn_tx, burnchain.pox_constants.sunset_end) {
-                    Ok(op) => Some(BlockstackOperationType::PreStx(op)),
-                    Err(e) => {
-                        warn!(
-                            "Failed to parse pre stack stx tx";
-                            "txid" => %burn_tx.txid(),
-                            "data" => %to_hex(&burn_tx.data()),
-                            "error" => ?e,
-                        );
-                        None
-                    }
-                }
-            }
-            x if x == Opcodes::TransferStx as u8 => {
-                let pre_stx_txid = TransferStxOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
-                    Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
-                    None => burnchain_db.get_burnchain_op(pre_stx_txid),
-                };
-                if let Some(BlockstackOperationType::PreStx(pre_stx)) = pre_stx_tx {
-                    let sender = &pre_stx.output;
-                    match TransferStxOp::from_tx(block_header, burn_tx, sender) {
-                        Ok(op) => Some(BlockstackOperationType::TransferStx(op)),
-                        Err(e) => {
-                            warn!(
-                                "Failed to parse transfer stx tx";
-                                "txid" => %burn_tx.txid(),
-                                "data" => %to_hex(&burn_tx.data()),
-                                "error" => ?e,
-                            );
-                            None
-                        }
-                    }
-                } else {
-                    warn!(
-                        "Failed to find corresponding input to TransferStxOp";
-                        "txid" => %burn_tx.txid(),
-                        "pre_stx_txid" => %pre_stx_txid
-                    );
-                    None
-                }
-            }
-            x if x == Opcodes::StackStx as u8 => {
-                let pre_stx_txid = StackStxOp::get_sender_txid(burn_tx).ok()?;
-                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
-                    Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
-                    None => burnchain_db.get_burnchain_op(pre_stx_txid),
-                };
-                if let Some(BlockstackOperationType::PreStx(pre_stack_stx)) = pre_stx_tx {
-                    let sender = &pre_stack_stx.output;
-                    match StackStxOp::from_tx(
-                        block_header,
-                        burn_tx,
-                        sender,
-                        burnchain.pox_constants.sunset_end,
-                    ) {
-                        Ok(op) => Some(BlockstackOperationType::StackStx(op)),
-                        Err(e) => {
-                            warn!(
-                                "Failed to parse stack stx tx";
-                                "txid" => %burn_tx.txid(),
-                                "data" => %to_hex(&burn_tx.data()),
-                                "error" => ?e,
-                            );
-                            None
-                        }
-                    }
-                } else {
-                    warn!(
-                        "Failed to find corresponding input to StackStxOp";
-                        "txid" => %burn_tx.txid().to_string(),
-                        "pre_stx_txid" => %pre_stx_txid.to_string()
-                    );
-                    None
-                }
-            }
-            _ => None,
         }
     }
 
@@ -816,40 +450,6 @@ impl Burnchain {
             }
         }
         true
-    }
-
-    /// Verify that there are no duplicate VRF keys registered.
-    /// If a key was registered more than once, take the first one and drop the rest.
-    /// checked_ops must be sorted by vtxindex
-    /// Returns the filtered list of blockstack ops
-    pub fn filter_block_VRF_dups(
-        mut checked_ops: Vec<BlockstackOperationType>,
-    ) -> Vec<BlockstackOperationType> {
-        debug!("Check Blockstack transactions: reject duplicate VRF keys");
-        assert!(Burnchain::ops_are_sorted(&checked_ops));
-
-        let mut all_keys: HashSet<VRFPublicKey> = HashSet::new();
-        checked_ops.retain(|op| {
-            if let BlockstackOperationType::LeaderKeyRegister(data) = op {
-                if all_keys.contains(&data.public_key) {
-                    // duplicate
-                    warn!(
-                        "REJECTED({}) leader key register {} at {},{}: Duplicate VRF key",
-                        data.block_height, &data.txid, data.block_height, data.vtxindex
-                    );
-                    false
-                } else {
-                    // first case
-                    all_keys.insert(data.public_key.clone());
-                    true
-                }
-            } else {
-                // preserve
-                true
-            }
-        });
-
-        checked_ops
     }
 
     /// Top-level entry point to check and process a block.
@@ -1161,280 +761,7 @@ impl Burnchain {
     where
         I: BurnchainIndexer + 'static,
     {
-        self.setup_chainstate(indexer)?;
-        let (_, mut burnchain_db) = self.connect_db(
-            indexer,
-            true,
-            indexer.get_first_block_header_hash()?,
-            indexer.get_first_block_header_timestamp()?,
-        )?;
-        let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
-            error!("Failed to query burn chain tip from burn DB: {}", e);
-            e
-        })?;
-
-        let db_height = burn_chain_tip.block_height;
-
-        // handle reorgs
-        let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
-        if did_reorg {
-            // a reorg happened
-            warn!(
-                "Dropping headers higher than {} due to burnchain reorg",
-                sync_height
-            );
-            indexer.drop_headers(sync_height)?;
-        }
-
-        // get latest headers.
-        debug!("Sync headers from {}", sync_height);
-
-        // fetch all headers, no matter what
-        let mut end_block = indexer.sync_headers(sync_height, None)?;
-        if did_reorg && sync_height > 0 {
-            // a reorg happened, and the last header fetched
-            // is on a smaller fork than the one we just
-            // invalidated. Wait for more blocks.
-            while end_block < db_height {
-                if let Some(ref should_keep_running) = should_keep_running {
-                    if !should_keep_running.load(Ordering::SeqCst) {
-                        return Err(burnchain_error::CoordinatorClosed);
-                    }
-                }
-                let end_height = target_block_height_opt.unwrap_or(0).max(db_height);
-                info!("Burnchain reorg happened at height {} invalidating chain tip {} but only {} headers presents on canonical chain. Retry in 2s", sync_height, db_height, end_block);
-                thread::sleep(Duration::from_millis(2000));
-                end_block = indexer.sync_headers(sync_height, Some(end_height))?;
-            }
-        }
-
-        let mut start_block = sync_height;
-        if db_height < start_block {
-            start_block = db_height;
-        }
-
-        debug!(
-            "Sync'ed headers from {} to {}. DB at {}",
-            sync_height, end_block, db_height
-        );
-
-        if let Some(target_block_height) = target_block_height_opt {
-            // `target_block_height` is used as a hint, but could also be completely off
-            // in certain situations. This function is directly reading the
-            // headers and syncing with the bitcoin-node, and the interval of blocks
-            // to download computed here should be considered as our source of truth.
-            if target_block_height > start_block && target_block_height < end_block {
-                debug!(
-                    "Will download up to max burn block height {}",
-                    target_block_height
-                );
-                end_block = target_block_height;
-            } else {
-                debug!(
-                    "Ignoring target block height {} considered as irrelevant",
-                    target_block_height
-                );
-            }
-        }
-
-        if let Some(max_blocks) = max_blocks_opt {
-            if start_block + max_blocks < end_block {
-                debug!(
-                    "Will download only {} blocks (up to block height {})",
-                    max_blocks,
-                    start_block + max_blocks
-                );
-                end_block = start_block + max_blocks;
-            }
-        }
-
-        if end_block < start_block {
-            // nothing to do -- go get the burnchain block data at that height
-            let mut hdrs = indexer.read_headers(end_block, end_block + 1)?;
-            if let Some(hdr) = hdrs.pop() {
-                debug!("Nothing to do; already have blocks up to {}", end_block);
-                let bhh =
-                    BurnchainHeaderHash::from_bitcoin_hash(&BitcoinSha256dHash(hdr.header_hash()));
-                return burnchain_db
-                    .get_burnchain_block(&bhh)
-                    .map(|block_data| block_data.header);
-            }
-        }
-
-        if start_block == db_height && db_height == end_block {
-            // all caught up
-            return Ok(burn_chain_tip);
-        }
-
-        let total = sync_height - self.first_block_height;
-        let progress = (end_block - self.first_block_height) as f32 / total as f32 * 100.;
-        info!(
-            "Syncing Bitcoin blocks: {:.1}% ({} to {} out of {})",
-            progress, start_block, end_block, sync_height
-        );
-
-        // synchronize
-        let (downloader_send, downloader_recv) = sync_channel(1);
-        let (parser_send, parser_recv) = sync_channel(1);
-        let (db_send, db_recv) = sync_channel(1);
-
-        let mut downloader = indexer.downloader();
-        let mut parser = indexer.parser();
-
-        let myself = self.clone();
-
-        // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
-        // and if so, do nothing.
-        let download_thread: thread::JoinHandle<Result<(), burnchain_error>> =
-            thread::Builder::new()
-                .name("burnchain-downloader".to_string())
-                .spawn(move || {
-                    while let Ok(Some(ipc_header)) = downloader_recv.recv() {
-                        debug!("Try recv next header");
-
-                        match should_keep_running {
-                            Some(ref should_keep_running)
-                                if !should_keep_running.load(Ordering::SeqCst) =>
-                            {
-                                return Err(burnchain_error::CoordinatorClosed);
-                            }
-                            _ => {}
-                        };
-
-                        let download_start = get_epoch_time_ms();
-                        let ipc_block = downloader.download(&ipc_header)?;
-                        let download_end = get_epoch_time_ms();
-
-                        debug!(
-                            "Downloaded block {} in {}ms",
-                            ipc_block.height(),
-                            download_end.saturating_sub(download_start)
-                        );
-
-                        parser_send
-                            .send(Some(ipc_block))
-                            .map_err(|_e| burnchain_error::ThreadChannelError)?;
-                    }
-                    parser_send
-                        .send(None)
-                        .map_err(|_e| burnchain_error::ThreadChannelError)?;
-                    Ok(())
-                })
-                .unwrap();
-
-        let parse_thread: thread::JoinHandle<Result<(), burnchain_error>> = thread::Builder::new()
-            .name("burnchain-parser".to_string())
-            .spawn(move || {
-                while let Ok(Some(ipc_block)) = parser_recv.recv() {
-                    debug!("Try recv next block");
-
-                    let parse_start = get_epoch_time_ms();
-                    let burnchain_block = parser.parse(&ipc_block)?;
-                    let parse_end = get_epoch_time_ms();
-
-                    debug!(
-                        "Parsed block {} in {}ms",
-                        burnchain_block.block_height(),
-                        parse_end.saturating_sub(parse_start)
-                    );
-
-                    db_send
-                        .send(Some(burnchain_block))
-                        .map_err(|_e| burnchain_error::ThreadChannelError)?;
-                }
-                db_send
-                    .send(None)
-                    .map_err(|_e| burnchain_error::ThreadChannelError)?;
-                Ok(())
-            })
-            .unwrap();
-
-        let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
-            thread::Builder::new()
-                .name("burnchain-db".to_string())
-                .spawn(move || {
-                    let mut last_processed = burn_chain_tip;
-                    while let Ok(Some(burnchain_block)) = db_recv.recv() {
-                        debug!("Try recv next parsed block");
-
-                        let block_height = burnchain_block.block_height();
-                        if block_height == 0 {
-                            continue;
-                        }
-
-                        let insert_start = get_epoch_time_ms();
-                        last_processed =
-                            Burnchain::process_block(&myself, &mut burnchain_db, &burnchain_block)?;
-                        if !coord_comm.announce_new_burn_block() {
-                            return Err(burnchain_error::CoordinatorClosed);
-                        }
-                        let insert_end = get_epoch_time_ms();
-
-                        debug!(
-                            "Inserted block {} in {}ms",
-                            burnchain_block.block_height(),
-                            insert_end.saturating_sub(insert_start)
-                        );
-                    }
-                    Ok(last_processed)
-                })
-                .unwrap();
-
-        // feed the pipeline!
-        let input_headers = indexer.read_headers(start_block + 1, end_block + 1)?;
-        let mut downloader_result: Result<(), burnchain_error> = Ok(());
-        for i in 0..input_headers.len() {
-            debug!(
-                "Downloading burnchain block {} out of {}...",
-                start_block + 1 + (i as u64),
-                end_block
-            );
-            if let Err(e) = downloader_send.send(Some(input_headers[i].clone())) {
-                info!(
-                    "Failed to feed burnchain block header {}: {:?}",
-                    start_block + 1 + (i as u64),
-                    &e
-                );
-                downloader_result = Err(burnchain_error::TrySyncAgain);
-                break;
-            }
-        }
-
-        if downloader_result.is_ok() {
-            if let Err(e) = downloader_send.send(None) {
-                info!("Failed to instruct downloader thread to finish: {:?}", &e);
-                downloader_result = Err(burnchain_error::TrySyncAgain);
-            }
-        }
-
-        // join up
-        let _ = download_thread.join().unwrap();
-        let _ = parse_thread.join().unwrap();
-        let block_header = match db_thread.join().unwrap() {
-            Ok(x) => x,
-            Err(e) => {
-                warn!("Failed to join burnchain download thread: {:?}", &e);
-                if let burnchain_error::CoordinatorClosed = e {
-                    return Err(burnchain_error::CoordinatorClosed);
-                } else {
-                    return Err(burnchain_error::TrySyncAgain);
-                }
-            }
-        };
-
-        if block_header.block_height < end_block {
-            warn!(
-                "Try synchronizing the burn chain again: final snapshot {} < {}",
-                block_header.block_height, end_block
-            );
-            return Err(burnchain_error::TrySyncAgain);
-        }
-
-        if let Err(e) = downloader_result {
-            return Err(e);
-        }
-        update_burnchain_height(block_header.block_height as i64);
-        Ok(block_header)
+        panic!("Not implemented")
     }
 }
 

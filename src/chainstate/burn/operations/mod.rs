@@ -23,6 +23,7 @@ use std::io;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::VRFSeed;
 use crate::types::proof::TrieHash;
 use burnchains::Burnchain;
@@ -207,37 +208,12 @@ pub struct PreStxOp {
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct LeaderBlockCommitOp {
-    pub block_header_hash: BlockHeaderHash, // hash of Stacks block header (sha512/256)
-
-    pub new_seed: VRFSeed,     // new seed for this block
-    pub parent_block_ptr: u32, // block height of the block that contains the parent block hash
-    pub parent_vtxindex: u16, // offset in the parent block where the parent block hash can be found
-    pub key_block_ptr: u32,   // pointer to the block that contains the leader key registration
-    pub key_vtxindex: u16,    // offset in the block where the leader key can be found
-    pub memo: Vec<u8>,        // extra unused byte
-
-    /// how many burn tokens (e.g. satoshis) were committed to produce this block
-    pub burn_fee: u64,
-    /// the input transaction, used in mining commitment smoothing
-    pub input: (Txid, u32),
-
-    pub burn_parent_modulus: u8,
-
-    /// the apparent sender of the transaction. note: this
-    ///  is *not* authenticated, and should be used only
-    ///  for informational purposes (e.g., log messages)
-    pub apparent_sender: BurnchainSigner,
-
-    /// PoX/Burn outputs
-    pub commit_outs: Vec<StacksAddress>,
-    /// how much sunset burn this block performed
-    pub sunset_burn: u64,
-
-    // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
-    pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
+    /// Hash of the committed block (anchor block hash)
+    pub block_header_hash: BlockHeaderHash,
+    /// Transaction ID of this commit op
+    pub txid: Txid,
+    /// Hash of the base chain block that produced this commit op.
+    pub burn_header_hash: BurnchainHeaderHash,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
@@ -273,101 +249,55 @@ pub struct UserBurnSupportOp {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BlockstackOperationType {
-    LeaderKeyRegister(LeaderKeyRegisterOp),
     LeaderBlockCommit(LeaderBlockCommitOp),
-    UserBurnSupport(UserBurnSupportOp),
-    PreStx(PreStxOp),
-    StackStx(StackStxOp),
-    TransferStx(TransferStxOp),
+}
+
+impl From<LeaderBlockCommitOp> for BlockstackOperationType {
+    fn from(op: LeaderBlockCommitOp) -> Self {
+        BlockstackOperationType::LeaderBlockCommit(op)
+    }
 }
 
 impl BlockstackOperationType {
-    pub fn opcode(&self) -> Opcodes {
-        match *self {
-            BlockstackOperationType::LeaderKeyRegister(_) => Opcodes::LeaderKeyRegister,
-            BlockstackOperationType::LeaderBlockCommit(_) => Opcodes::LeaderBlockCommit,
-            BlockstackOperationType::UserBurnSupport(_) => Opcodes::UserBurnSupport,
-            BlockstackOperationType::StackStx(_) => Opcodes::StackStx,
-            BlockstackOperationType::PreStx(_) => Opcodes::PreStx,
-            BlockstackOperationType::TransferStx(_) => Opcodes::TransferStx,
-        }
-    }
-
     pub fn txid(&self) -> Txid {
         self.txid_ref().clone()
     }
 
     pub fn txid_ref(&self) -> &Txid {
         match *self {
-            BlockstackOperationType::LeaderKeyRegister(ref data) => &data.txid,
             BlockstackOperationType::LeaderBlockCommit(ref data) => &data.txid,
-            BlockstackOperationType::UserBurnSupport(ref data) => &data.txid,
-            BlockstackOperationType::StackStx(ref data) => &data.txid,
-            BlockstackOperationType::PreStx(ref data) => &data.txid,
-            BlockstackOperationType::TransferStx(ref data) => &data.txid,
         }
     }
 
     pub fn vtxindex(&self) -> u32 {
-        match *self {
-            BlockstackOperationType::LeaderKeyRegister(ref data) => data.vtxindex,
-            BlockstackOperationType::LeaderBlockCommit(ref data) => data.vtxindex,
-            BlockstackOperationType::UserBurnSupport(ref data) => data.vtxindex,
-            BlockstackOperationType::StackStx(ref data) => data.vtxindex,
-            BlockstackOperationType::PreStx(ref data) => data.vtxindex,
-            BlockstackOperationType::TransferStx(ref data) => data.vtxindex,
-        }
+        0
     }
 
     pub fn block_height(&self) -> u64 {
-        match *self {
-            BlockstackOperationType::LeaderKeyRegister(ref data) => data.block_height,
-            BlockstackOperationType::LeaderBlockCommit(ref data) => data.block_height,
-            BlockstackOperationType::UserBurnSupport(ref data) => data.block_height,
-            BlockstackOperationType::StackStx(ref data) => data.block_height,
-            BlockstackOperationType::PreStx(ref data) => data.block_height,
-            BlockstackOperationType::TransferStx(ref data) => data.block_height,
-        }
+        panic!("Not implemented")
     }
 
     pub fn burn_header_hash(&self) -> BurnchainHeaderHash {
         match *self {
-            BlockstackOperationType::LeaderKeyRegister(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::UserBurnSupport(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::StackStx(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::PreStx(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::TransferStx(ref data) => data.burn_header_hash.clone(),
         }
     }
 
     #[cfg(test)]
     pub fn set_block_height(&mut self, height: u64) {
         match self {
-            BlockstackOperationType::LeaderKeyRegister(ref mut data) => data.block_height = height,
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
                 data.set_burn_height(height)
             }
-            BlockstackOperationType::UserBurnSupport(ref mut data) => data.block_height = height,
-            BlockstackOperationType::StackStx(ref mut data) => data.block_height = height,
-            BlockstackOperationType::PreStx(ref mut data) => data.block_height = height,
-            BlockstackOperationType::TransferStx(ref mut data) => data.block_height = height,
         };
     }
 
     #[cfg(test)]
     pub fn set_burn_header_hash(&mut self, hash: BurnchainHeaderHash) {
         match self {
-            BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                data.burn_header_hash = hash
-            }
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
                 data.burn_header_hash = hash
             }
-            BlockstackOperationType::UserBurnSupport(ref mut data) => data.burn_header_hash = hash,
-            BlockstackOperationType::StackStx(ref mut data) => data.burn_header_hash = hash,
-            BlockstackOperationType::PreStx(ref mut data) => data.burn_header_hash = hash,
-            BlockstackOperationType::TransferStx(ref mut data) => data.burn_header_hash = hash,
         };
     }
 }
@@ -375,13 +305,7 @@ impl BlockstackOperationType {
 impl fmt::Display for BlockstackOperationType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            BlockstackOperationType::LeaderKeyRegister(ref op) => write!(f, "{:?}", op),
-            BlockstackOperationType::PreStx(ref op) => write!(f, "{:?}", op),
-            BlockstackOperationType::StackStx(ref op) => write!(f, "{:?}", op),
-
             BlockstackOperationType::LeaderBlockCommit(ref op) => write!(f, "{:?}", op),
-            BlockstackOperationType::UserBurnSupport(ref op) => write!(f, "{:?}", op),
-            BlockstackOperationType::TransferStx(ref op) => write!(f, "{:?}", op),
         }
     }
 }

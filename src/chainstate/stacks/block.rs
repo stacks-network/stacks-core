@@ -242,10 +242,7 @@ impl StacksBlockHeader {
     pub fn validate_burnchain(
         &self,
         burn_chain_tip: &BlockSnapshot,
-        sortition_chain_tip: &BlockSnapshot,
-        leader_key: &LeaderKeyRegisterOp,
         block_commit: &LeaderBlockCommitOp,
-        stacks_chain_tip: &BlockSnapshot,
     ) -> Result<(), Error> {
         // the burn chain tip's sortition must have chosen given block commit
         assert_eq!(
@@ -263,72 +260,6 @@ impl StacksBlockHeader {
                 burn_chain_tip.winning_stacks_block_hash
             );
             debug!("{}", msg);
-            return Err(Error::InvalidStacksBlock(msg));
-        }
-
-        // this header must match the parent header as recorded on the burn chain
-        if self.parent_block != stacks_chain_tip.winning_stacks_block_hash {
-            let msg = format!(
-                "Invalid Stacks block header {}: invalid parent hash: {} != {}",
-                self.block_hash(),
-                self.parent_block,
-                stacks_chain_tip.winning_stacks_block_hash
-            );
-            debug!("{}", msg);
-            return Err(Error::InvalidStacksBlock(msg));
-        }
-
-        // this header's proof must hash to the burn chain tip's VRF seed
-        if !block_commit.new_seed.is_from_proof(&self.proof) {
-            let msg = format!(
-                "Invalid Stacks block header {}: invalid VRF proof: hash({}) != {} (but {})",
-                self.block_hash(),
-                self.proof.to_hex(),
-                block_commit.new_seed,
-                VRFSeed::from_proof(&self.proof)
-            );
-            debug!("{}", msg);
-            return Err(Error::InvalidStacksBlock(msg));
-        }
-
-        // this header must commit to all of the work seen so far in this stacks blockchain fork.
-        if self.total_work.burn != stacks_chain_tip.total_burn {
-            let msg = format!(
-                "Invalid Stacks block header {}: invalid total burns: {} != {}",
-                self.block_hash(),
-                self.total_work.burn,
-                stacks_chain_tip.total_burn
-            );
-            debug!("{}", msg);
-            return Err(Error::InvalidStacksBlock(msg));
-        }
-
-        // this header's VRF proof must have been generated from the last sortition's sortition
-        // hash (which includes the last commit's VRF seed)
-        let valid = match VRF::verify(
-            &leader_key.public_key,
-            &self.proof,
-            &sortition_chain_tip.sortition_hash.as_bytes().to_vec(),
-        ) {
-            Ok(v) => {
-                if !v {
-                    warn!("Failed to verify proof '{}'", &self.proof.to_hex());
-                }
-                v
-            }
-            Err(e) => {
-                warn!(
-                    "Invalid Stacks block header {}: failed to verify VRF proof: {}",
-                    self.block_hash(),
-                    e
-                );
-                false
-            }
-        };
-
-        if !valid {
-            let msg = format!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}", self.block_hash(), leader_key.public_key.to_hex(), burn_chain_tip.sortition_hash);
-            warn!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
         }
 

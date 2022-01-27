@@ -31,7 +31,7 @@ use util::db::{
     u64_to_sql, Error as DBError, FromColumn, FromRow,
 };
 
-use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 use crate::types::proof::ClarityMarfTrieId;
 
 pub struct BurnchainDB {
@@ -305,25 +305,13 @@ impl BurnchainDB {
         );
 
         let mut ops = Vec::new();
-        let mut pre_stx_ops = HashMap::new();
 
         for tx in block.txs().iter() {
-            let result =
-                Burnchain::classify_transaction(burnchain, self, block_header, &tx, &pre_stx_ops);
+            let result = Burnchain::classify_transaction(burnchain, self, block_header, &tx);
             if let Some(classified_tx) = result {
-                if let BlockstackOperationType::PreStx(pre_stx_op) = classified_tx {
-                    pre_stx_ops.insert(pre_stx_op.txid.clone(), pre_stx_op);
-                } else {
-                    ops.push(classified_tx);
-                }
+                ops.push(classified_tx);
             }
         }
-
-        ops.extend(
-            pre_stx_ops
-                .into_iter()
-                .map(|(_, op)| BlockstackOperationType::PreStx(op)),
-        );
 
         ops.sort_by_key(|op| op.vtxindex());
 
@@ -374,9 +362,6 @@ impl BurnchainDB {
 mod tests {
     use std::convert::TryInto;
 
-    use burnchains::bitcoin::address::*;
-    use burnchains::bitcoin::blocks::*;
-    use burnchains::bitcoin::*;
     use burnchains::PoxConstants;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
     use chainstate::burn::*;

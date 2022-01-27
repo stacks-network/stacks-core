@@ -20,7 +20,6 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use address::AddressHashMode;
-use burnchains::bitcoin::address::BitcoinAddress;
 use burnchains::Burnchain;
 use burnchains::{Address, PoxConstants};
 use chainstate::burn::db::sortdb::SortitionDB;
@@ -264,35 +263,7 @@ impl StacksChainState {
         threshold: u128,
         mut addresses: Vec<(StacksAddress, u128)>,
     ) -> Vec<StacksAddress> {
-        let mut reward_set = vec![];
-        // the way that we sum addresses relies on sorting.
-        addresses.sort_by_key(|k| k.0.bytes.0);
-        while let Some((address, mut stacked_amt)) = addresses.pop() {
-            // peak at the next address in the set, and see if we need to sum
-            while addresses.last().map(|x| &x.0) == Some(&address) {
-                let (_, additional_amt) = addresses
-                    .pop()
-                    .expect("BUG: first() returned some, but pop() is none.");
-                stacked_amt = stacked_amt
-                    .checked_add(additional_amt)
-                    .expect("CORRUPTION: Stacker stacked > u128 max amount");
-            }
-            let slots_taken = u32::try_from(stacked_amt / threshold)
-                .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
-            info!(
-                "Slots taken by {} = {}, on stacked_amt = {}, threshold = {}",
-                &address.clone().to_b58(),
-                slots_taken,
-                stacked_amt,
-                threshold
-            );
-            for _i in 0..slots_taken {
-                test_debug!("Add to PoX reward set: {:?}", &address);
-                reward_set.push(address.clone());
-            }
-        }
-        info!("Reward set calculated"; "slots_occuppied" => reward_set.len());
-        reward_set
+        vec![]
     }
 
     pub fn get_threshold_from_participation(

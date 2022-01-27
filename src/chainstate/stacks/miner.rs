@@ -1230,9 +1230,6 @@ impl StacksBlockBuilder {
             parent_microblocks.len()
         );
 
-        let stacking_burn_ops = SortitionDB::get_stack_stx_ops(burn_dbconn.conn(), &burn_tip)?;
-        let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(burn_dbconn.conn(), &burn_tip)?;
-
         let parent_block_cost_opt = if parent_microblocks.is_empty() {
             None
         } else {
@@ -1318,8 +1315,6 @@ impl StacksBlockBuilder {
         );
 
         StacksChainState::process_epoch_transition(&mut tx, burn_tip_height + 1)?;
-        StacksChainState::process_stacking_ops(&mut tx, stacking_burn_ops);
-        StacksChainState::process_transfer_ops(&mut tx, transfer_burn_ops);
 
         Ok((tx, mblock_confirmed_cost))
     }

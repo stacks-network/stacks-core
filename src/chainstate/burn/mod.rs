@@ -40,6 +40,7 @@ use util::log;
 use util::uint::Uint256;
 use util::vrf::VRFProof;
 
+use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
 use crate::types::proof::TrieHash;
 
@@ -251,7 +252,6 @@ impl ConsensusHash {
         opshash: &OpsHash,
         total_burn: u64,
         prev_consensus_hashes: &Vec<ConsensusHash>,
-        pox_id: &PoxId,
     ) -> ConsensusHash {
         // NOTE: unlike stacks v1, we calculate the next consensus hash
         // simply as a hash-chain of the new ops hash, the sequence of
@@ -278,9 +278,6 @@ impl ConsensusHash {
 
             // total burn amount on this fork...
             hasher.input(&burn_bytes);
-
-            // pox-fork bit vector
-            write!(hasher, "{}", pox_id).unwrap();
 
             // previous consensus hashes...
             for ch in prev_consensus_hashes {
@@ -342,7 +339,6 @@ impl ConsensusHash {
         first_block_height: u64,
         this_block_hash: &BurnchainHeaderHash,
         total_burn: u64,
-        pox_id: &PoxId,
     ) -> Result<ConsensusHash, db_error> {
         let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes(
             sort_tx,
@@ -354,7 +350,6 @@ impl ConsensusHash {
             opshash,
             total_burn,
             &prev_consensus_hashes,
-            pox_id,
         ))
     }
 

@@ -47,50 +47,17 @@ impl<'a> SortitionHandleTx<'a> {
         reward_info: Option<&RewardSetInfo>,
     ) -> Result<(), BurnchainError> {
         match blockstack_op {
-            BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                op.check(burnchain, self).map_err(|e| {
-                    warn!(
-                        "REJECTED({}) leader key register {} at {},{}: {:?}",
-                        op.block_height, &op.txid, op.block_height, op.vtxindex, &e
-                    );
-                    BurnchainError::OpError(e)
-                })
-            }
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
                 op.check(burnchain, self, reward_info).map_err(|e| {
                     warn!(
-                        "REJECTED({}) leader block commit {} at {},{}: {:?}",
-                        op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                        "REJECTED burnchain operation";
+                        "op" => "leader_block_commit",
+                        "l1_stacks_block_id" => %op.burn_header_hash,
+                        "txid" => %op.txid,
+                        "commited_block_hash" => %op.block_header_hash,
                     );
                     BurnchainError::OpError(e)
                 })
-            }
-            BlockstackOperationType::UserBurnSupport(ref op) => {
-                op.check(burnchain, self).map_err(|e| {
-                    warn!(
-                        "REJECTED({}) user burn support {} at {},{}: {:?}",
-                        op.block_height, &op.txid, op.block_height, op.vtxindex, &e
-                    );
-                    BurnchainError::OpError(e)
-                })
-            }
-            BlockstackOperationType::StackStx(ref op) => op.check().map_err(|e| {
-                warn!(
-                    "REJECTED({}) stack stx op {} at {},{}: {:?}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
-                );
-                BurnchainError::OpError(e)
-            }),
-            BlockstackOperationType::TransferStx(ref op) => op.check().map_err(|e| {
-                warn!(
-                    "REJECTED({}) transfer stx op {} at {},{}: {:?}",
-                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
-                );
-                BurnchainError::OpError(e)
-            }),
-            BlockstackOperationType::PreStx(_) => {
-                // no check() required for PreStx
-                Ok(())
             }
         }
     }
@@ -106,7 +73,6 @@ impl<'a> SortitionHandleTx<'a> {
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
         this_block_ops: &Vec<BlockstackOperationType>,
-        missed_commits: &Vec<MissedBlockCommit>,
         next_pox_info: Option<RewardCycleInfo>,
         parent_pox: PoxId,
         reward_info: Option<&RewardSetInfo>,
@@ -116,27 +82,13 @@ impl<'a> SortitionHandleTx<'a> {
         let this_block_hash = block_header.block_hash.clone();
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
-        let state_transition = BurnchainStateTransition::from_block_ops(self, burnchain, parent_snapshot, this_block_ops, missed_commits, burnchain.pox_constants.sunset_end)
+        let state_transition = BurnchainStateTransition::from_block_ops(self, burnchain, parent_snapshot, this_block_ops)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
                 e
             })?;
 
-        let total_burn = state_transition
-            .accepted_ops
-            .iter()
-            .fold(Some(0u64), |acc, op| {
-                if let Some(acc) = acc {
-                    let bf = match op {
-                        BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
-                        BlockstackOperationType::UserBurnSupport(ref op) => op.burn_fee,
-                        _ => 0,
-                    };
-                    acc.checked_add(bf)
-                } else {
-                    None
-                }
-            });
+        let total_burn = Some(1);
 
         let txids = state_transition
             .accepted_ops
@@ -144,34 +96,27 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|ref op| op.txid())
             .collect();
 
-        let mut next_pox = parent_pox;
-        if let Some(ref next_pox_info) = next_pox_info {
-            if next_pox_info.is_reward_info_known() {
-                debug!(
-                    "Begin reward-cycle sortition with present anchor block={:?}",
-                    &next_pox_info.selected_anchor_block()
-                );
-                next_pox.extend_with_present_block();
-            } else {
-                info!(
-                    "Begin reward-cycle sortition with absent anchor block={:?}",
-                    &next_pox_info.selected_anchor_block()
-                );
-                next_pox.extend_with_not_present_block();
-            }
-        };
+        let next_sortition_id = SortitionId::new(&this_block_hash, &PoxId::initial());
 
-        let next_sortition_id = SortitionId::new(&this_block_hash, &next_pox);
+        let block_commits: Vec<_> = this_block_ops
+            .iter()
+            .filter_map(|op| {
+                if let BlockstackOperationType::LeaderBlockCommit(ref commit_op) = op {
+                    Some(commit_op.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         // do the cryptographic sortition and pick the next winning block.
         let mut snapshot = BlockSnapshot::make_snapshot(
             self,
             burnchain,
             &next_sortition_id,
-            &next_pox,
             parent_snapshot,
+            &block_commits,
             block_header,
-            &state_transition.burn_dist,
             &txids,
             total_burn,
             initial_mining_bonus_ustx,
@@ -220,8 +165,6 @@ impl<'a> SortitionHandleTx<'a> {
             parent_snapshot,
             &snapshot,
             &state_transition.accepted_ops,
-            missed_commits,
-            next_pox_info,
             reward_info,
             initialize_bonus,
         )?;
@@ -284,23 +227,14 @@ impl<'a> SortitionHandleTx<'a> {
             &self.context.chain_tip
         );
 
-        let mut missed_block_commits = vec![];
-
         // classify and check each transaction
         blockstack_txs.retain(|blockstack_op| {
-            match self.check_transaction(burnchain, blockstack_op, reward_set_info) {
-                Ok(_) => true,
-                Err(BurnchainError::OpError(OpError::MissedBlockCommit(missed_op))) => {
-                    missed_block_commits.push(missed_op);
-                    false
-                }
-                Err(_) => false,
-            }
+            self.check_transaction(burnchain, blockstack_op, reward_set_info)
+                .is_ok()
         });
 
         // block-wide check: no duplicate keys registered
-        let block_ops = Burnchain::filter_block_VRF_dups(blockstack_txs);
-        assert!(Burnchain::ops_are_sorted(&block_ops));
+        assert!(Burnchain::ops_are_sorted(&blockstack_txs));
 
         // process them
         let res = self
@@ -308,8 +242,7 @@ impl<'a> SortitionHandleTx<'a> {
                 burnchain,
                 parent_snapshot,
                 block_header,
-                &block_ops,
-                &missed_block_commits,
+                &blockstack_txs,
                 next_pox_info,
                 parent_pox,
                 reward_set_info,
