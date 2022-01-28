@@ -74,7 +74,7 @@ use types::chainstate::BurnchainHeaderHash;
 
 /// This struct is used to map the context at a point in time to concrete limits on block
 /// length and execution run-time. This allows the user to either:
-///   1) use default production settings, e.g., read the block limits from the StacksEpoch
+///   1) use default production settings, i.e., read the block limits from the StacksEpoch
 ///   2) override defaults with special settings to make a tool, e.g., the mempool analyzer
 ///   3) override defaults with special settings for test.
 /// Note: We use a simple interface that can be expanded over time if necessary.
