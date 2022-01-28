@@ -105,9 +105,18 @@ pub fn increment_btc_blocks_received_counter() {
     prometheus::BTC_BLOCKS_RECEIVED_COUNTER.inc();
 }
 
+#[allow(unused_variables)]
 pub fn set_last_execution_cost_observed(execution_cost: &ExecutionCost) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::LAST_EXECUTION_READ_COUNT.set(execution_cost.read_count);
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::LAST_EXECUTION_WRITE_COUNT.set(execution_cost.write_count);
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::LAST_EXECUTION_READ_LENGTH.set(execution_cost.read_length);
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::LAST_EXECUTION_WRITE_LENGTH.set(execution_cost.write_length);
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::LAST_EXECUTION_RUNTIME.set(execution_cost.runtime);
 }
 
 pub fn increment_btc_ops_sent_counter() {

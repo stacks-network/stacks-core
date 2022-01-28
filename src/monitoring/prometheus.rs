@@ -92,6 +92,26 @@ lazy_static! {
     )).unwrap();
 
     pub static ref LAST_EXECUTION_READ_COUNT: IntGauge = register_int_gauge!(opts!(
+        "execution_cost_read_count",
+        "`execution_cost_read_count` for the last block observed."
+    )).unwrap();
+
+    pub static ref LAST_EXECUTION_WRITE_COUNT: IntGauge = register_int_gauge!(opts!(
+        "execution_cost_write_count",
+        "`execution_cost_write_count` for the last block observed."
+    )).unwrap();
+
+    pub static ref LAST_EXECUTION_READ_LENGTH: IntGauge = register_int_gauge!(opts!(
+        "execution_cost_read_length",
+        "`execution_cost_read_length` for the last block observed."
+    )).unwrap();
+
+    pub static ref LAST_EXECUTION_WRITE_LENGTH: IntGauge = register_int_gauge!(opts!(
+        "execution_cost_write_length",
+        "`execution_cost_write_length` for the last block observed."
+    )).unwrap();
+
+    pub static ref LAST_EXECUTION_RUNTIME: IntGauge = register_int_gauge!(opts!(
         "execution_cost_runtime",
         "`execution_cost_runtime` for the last block observed."
     )).unwrap();
