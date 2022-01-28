@@ -5003,6 +5003,10 @@ impl StacksChainState {
             None,
         )?;
 
+        let block_limit = clarity_tx
+            .block_limit()
+            .unwrap_or(ExecutionCost::max_value());
+
         let (
             scheduled_miner_reward,
             block_execution_cost,
@@ -5241,7 +5245,7 @@ impl StacksChainState {
 
         chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
 
-        set_last_execution_cost_observed(&block_execution_cost);
+        set_last_execution_cost_observed(&block_execution_cost, &block_limit);
 
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip,

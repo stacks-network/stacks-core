@@ -107,15 +107,21 @@ pub fn increment_btc_blocks_received_counter() {
 }
 
 #[allow(unused_variables)]
-pub fn set_last_execution_cost_observed(execution_cost: &ExecutionCost) {
+pub fn set_last_execution_cost_observed(
+    execution_cost: &ExecutionCost,
+    block_limit: &ExecutionCost,
+) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::LAST_BLOCK_READ_COUNT.set(execution_cost.read_count.try_into().unwrap_or(i64::MAX));
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_BLOCK_WRITE_COUNT.set(execution_cost.write_count.try_into().unwrap_or(i64::MAX));
+    prometheus::LAST_BLOCK_WRITE_COUNT
+        .set(execution_cost.write_count.try_into().unwrap_or(i64::MAX));
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_BLOCK_READ_LENGTH.set(execution_cost.read_length.try_into().unwrap_or(i64::MAX));
+    prometheus::LAST_BLOCK_READ_LENGTH
+        .set(execution_cost.read_length.try_into().unwrap_or(i64::MAX));
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_BLOCK_WRITE_LENGTH.set(execution_cost.write_length.try_into().unwrap_or(i64::MAX));
+    prometheus::LAST_BLOCK_WRITE_LENGTH
+        .set(execution_cost.write_length.try_into().unwrap_or(i64::MAX));
     #[cfg(feature = "monitoring_prom")]
     prometheus::LAST_BLOCK_RUNTIME.set(execution_cost.runtime.try_into().unwrap_or(i64::MAX));
 }
