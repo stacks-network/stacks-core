@@ -878,7 +878,7 @@ pub struct StacksBlockBuilder {
     parent_header_hash: BlockHeaderHash,
     parent_microblock_hash: Option<BlockHeaderHash>,
     miner_id: usize,
-    block_limits_fns:BlockLimitsFunctions,
+    block_limits_fns: BlockLimitsFunctions,
 }
 
 // maximum microblock size is 64KB, but note that the current leader has a space budget of

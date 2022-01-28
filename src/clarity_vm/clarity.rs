@@ -287,7 +287,7 @@ impl ClarityBlockConnection<'_> {
 }
 
 // Maximum amount of data a leader can send during its epoch (2MB).
-pub const MAX_EPOCH_SIZE: u32 = 2 * 1024 * 1024;
+const MAX_EPOCH_SIZE: u32 = 2 * 1024 * 1024;
 
 /// `BlockLimitsFunctions` for production. Use `MAX_EPOCH_SIZE` for length limit and get block
 /// limits from `StacksEpoch`.

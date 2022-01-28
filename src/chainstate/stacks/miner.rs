@@ -54,7 +54,6 @@ use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 use crate::types::proof::TrieHash;
 use chainstate::stacks::db::blocks::SetupBlockResult;
-use clarity_vm::clarity::MAX_EPOCH_SIZE;
 use clarity_vm::clarity::ProductionBlockLimitFns;
 
 #[derive(Debug, Clone)]
@@ -603,7 +602,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     /// # Pre-Checks
     /// - skip if the `anchor_mode` rules out micro-blocks
     /// - skip if 'tx.txid()` is already in `considered`
-    /// - skip if adding the block would result in a block size bigger than `MAX_EPOCH_SIZE`
+    /// - skip if adding the block would result in a block size bigger than the block maximum
     ///
     /// # Error Handling
     /// - If the error when processing a tx is `CostOverflowError`, reset the cost of the block.
@@ -635,7 +634,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
             considered.insert(tx.txid());
         }
 
-        let max_epoch_size = self.header_reader.clarity_state.block_limits_fns.output_length_limit;
+        let max_epoch_size = self
+            .header_reader
+            .clarity_state
+            .block_limits_fns
+            .output_length_limit;
         if bytes_so_far + tx_len >= max_epoch_size.into() {
             info!(
                 "Adding microblock tx {} would exceed epoch data size",
@@ -1302,11 +1305,12 @@ impl StacksBlockBuilder {
             .map_err(Error::CodecError)?;
         let tx_len = tx_bytes.len() as u64;
 
-        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        let max_epoch_size = self.block_limits_fns.output_length_limit.into();
+        if self.bytes_so_far + tx_len >= max_epoch_size {
             warn!(
                 "Epoch size is {} >= {}",
                 self.bytes_so_far + tx_len,
-                MAX_EPOCH_SIZE
+                max_epoch_size
             );
         }
 
