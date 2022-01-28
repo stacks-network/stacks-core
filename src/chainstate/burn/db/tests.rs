@@ -1927,6 +1927,20 @@ fn test_set_stacks_block_accepted() {
     last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x04; 32]))
         .unwrap()
         .unwrap();
+    assert_eq!(
+        last_snapshot.burn_header_hash,
+        BurnchainHeaderHash([0x04; 32])
+    );
+    assert_eq!(
+        last_snapshot.canonical_stacks_tip_consensus_hash,
+        ConsensusHash([0x05; 20])
+    );
+    assert_eq!(
+        last_snapshot.canonical_stacks_tip_hash,
+        BlockHeaderHash([0x04; 32])
+    );
+
+
     make_fork_run(&mut db, &last_snapshot, 7, 0x40);
 
     // canonical stacks chain tip is now stacks block 4, since the burn chain fork ending on

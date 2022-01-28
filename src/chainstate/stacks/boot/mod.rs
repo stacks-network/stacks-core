@@ -437,33 +437,6 @@ pub mod test {
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
 
     #[test]
-    fn make_reward_set_units() {
-        let threshold = 1_000;
-        let addresses = vec![
-            (
-                StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(),
-                1500,
-            ),
-            (
-                StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
-                500,
-            ),
-            (
-                StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(),
-                1500,
-            ),
-            (
-                StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
-                400,
-            ),
-        ];
-        assert_eq!(
-            StacksChainState::make_reward_set(threshold, addresses).len(),
-            3
-        );
-    }
-
-    #[test]
     fn get_reward_threshold_units() {
         let test_pox_constants = PoxConstants::new(501, 1, 1, 1, 5, 5000, 10000);
         // when the liquid amount = the threshold step,

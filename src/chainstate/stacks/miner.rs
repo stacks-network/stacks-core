@@ -2102,7 +2102,6 @@ pub mod test {
             miner: &mut TestMiner,
             block_hash: &BlockHeaderHash,
             burn_amount: u64,
-            key_op: &LeaderKeyRegisterOp,
             parent_block_snapshot: Option<&BlockSnapshot>,
         ) -> LeaderBlockCommitOp {
             let block_commit_op = {
@@ -2118,12 +2117,6 @@ pub mod test {
                 )
             };
             block_commit_op
-        }
-
-        pub fn get_last_key(&self, miner: &TestMiner) -> LeaderKeyRegisterOp {
-            let last_vrf_pubkey = miner.last_VRF_public_key().unwrap();
-            let idx = *self.key_ops.get(&last_vrf_pubkey).unwrap();
-            self.prev_keys[idx].clone()
         }
 
         pub fn get_last_anchored_block(&self, miner: &TestMiner) -> Option<StacksBlock> {
@@ -2238,7 +2231,6 @@ pub mod test {
             stacks_block: &StacksBlock,
             microblocks: &Vec<StacksMicroblock>,
             burn_amount: u64,
-            miner_key: &LeaderKeyRegisterOp,
             parent_block_snapshot_opt: Option<&BlockSnapshot>,
         ) -> LeaderBlockCommitOp {
             self.anchored_blocks.push(stacks_block.clone());
@@ -2259,7 +2251,6 @@ pub mod test {
                 miner,
                 &stacks_block.block_hash(),
                 burn_amount,
-                miner_key,
                 parent_block_snapshot_opt,
             );
 
@@ -2280,7 +2271,6 @@ pub mod test {
             sortdb: &SortitionDB,
             miner: &mut TestMiner,
             burn_block: &mut TestBurnchainBlock,
-            miner_key: &LeaderKeyRegisterOp,
             parent_stacks_block: Option<&StacksBlock>,
             burn_amount: u64,
             block_assembler: F,
@@ -2292,15 +2282,7 @@ pub mod test {
                 &SortitionDB,
             ) -> (StacksBlock, Vec<StacksMicroblock>),
         {
-            let proof = miner
-                .make_proof(
-                    &miner_key.public_key,
-                    &burn_block.parent_snapshot.sortition_hash,
-                )
-                .expect(&format!(
-                    "FATAL: no private key for {}",
-                    miner_key.public_key.to_hex()
-                ));
+            let proof = VRFProof::empty();
 
             let (builder, parent_block_snapshot_opt) = match parent_stacks_block {
                 None => {
@@ -2384,7 +2366,6 @@ pub mod test {
                 &stacks_block,
                 &microblocks,
                 burn_amount,
-                miner_key,
                 parent_block_snapshot_opt.as_ref(),
             );
 
@@ -2744,7 +2725,6 @@ pub mod test {
                 fork.next_block(&ic)
             };
 
-            let last_key = node.get_last_key(&miner);
             let parent_block_opt = node.get_last_accepted_anchored_block(&burn_node.sortdb, &miner);
             let last_microblock_header =
                 get_last_microblock_header(&node, &miner, parent_block_opt.as_ref());
@@ -2753,7 +2733,6 @@ pub mod test {
                 &mut burn_node.sortdb,
                 &mut miner,
                 &mut burn_block,
-                &last_key,
                 parent_block_opt.as_ref(),
                 1000,
                 |mut builder, ref mut miner, ref sortdb| {

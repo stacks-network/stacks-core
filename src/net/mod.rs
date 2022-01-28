@@ -3262,22 +3262,12 @@ pub mod test {
             let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
             let parent_microblock_header_opt =
                 get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
-            let last_key = stacks_node.get_last_key(&self.miner);
 
             let network_id = self.config.network_id;
             let chainstate_path = self.chainstate_path.clone();
             let burn_block_height = burn_block.block_height;
 
-            let proof = self
-                .miner
-                .make_proof(
-                    &last_key.public_key,
-                    &burn_block.parent_snapshot.sortition_hash,
-                )
-                .expect(&format!(
-                    "FATAL: no private key for {}",
-                    last_key.public_key.to_hex()
-                ));
+            let proof = VRFProof::empty();
 
             let (stacks_block, microblocks) = tenure_builder(
                 &mut self.miner,
@@ -3295,7 +3285,6 @@ pub mod test {
                 &stacks_block,
                 &microblocks,
                 1000,
-                &last_key,
                 Some(&last_sortition_block),
             );
 
@@ -3327,7 +3316,6 @@ pub mod test {
             let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
             let parent_microblock_header_opt =
                 get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
-            let last_key = stacks_node.get_last_key(&self.miner);
 
             let network_id = self.config.network_id;
             let chainstate_path = self.chainstate_path.clone();
@@ -3337,7 +3325,6 @@ pub mod test {
                 &mut sortdb,
                 &mut self.miner,
                 &mut burn_block,
-                &last_key,
                 parent_block_opt.as_ref(),
                 1000,
                 |mut builder, ref mut miner, ref sortdb| {

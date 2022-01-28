@@ -56,30 +56,6 @@ fn apply_blockstack_txs_safety_checks(
 ) -> () {
     // safety -- make sure these are in order
     blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
-
-    // safety -- no duplicate vtxindex (shouldn't happen but crash if so)
-    if blockstack_txs.len() > 1 {
-        for i in 0..blockstack_txs.len() - 1 {
-            if blockstack_txs[i].vtxindex() == blockstack_txs[i + 1].vtxindex() {
-                panic!(
-                    "FATAL: BUG: duplicate vtxindex {} in block {}",
-                    blockstack_txs[i].vtxindex(),
-                    blockstack_txs[i].block_height()
-                );
-            }
-        }
-    }
-
-    // safety -- block heights all match
-    for tx in blockstack_txs.iter() {
-        if tx.block_height() != block_height {
-            panic!(
-                "FATAL: BUG: block height mismatch: {} != {}",
-                tx.block_height(),
-                block_height
-            );
-        }
-    }
 }
 
 impl FromRow<BurnchainBlockHeader> for BurnchainBlockHeader {

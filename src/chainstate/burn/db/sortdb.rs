@@ -323,8 +323,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     CREATE TABLE snapshot_transition_ops(
       sortition_id TEXT PRIMARY KEY,
-      accepted_ops TEXT NOT NULL,
-      consumed_keys TEXT NOT NULL
+      accepted_ops TEXT NOT NULL
     );"#,
     r#"
     -- all leader keys registered in the blockchain.
@@ -347,24 +346,9 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     CREATE TABLE block_commits(
         txid TEXT NOT NULL,
-        vtxindex INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        burn_header_hash TEXT NOT NULL,
+        l1_block_id TEXT NOT NULL,
+        committed_block_hash TEXT NOT NULL,
         sortition_id TEXT NOT NULL,
-
-        block_header_hash TEXT NOT NULL,
-        new_seed TEXT NOT NULL,
-        parent_block_ptr INTEGER NOT NULL,
-        parent_vtxindex INTEGER NOT NULL,
-        key_block_ptr INTEGER NOT NULL,
-        key_vtxindex INTEGER NOT NULL,
-        memo TEXT,
-        commit_outs TEXT,
-        burn_fee TEXT NOT NULL,     -- use text to encode really big numbers
-        sunset_burn TEXT NOT NULL,     -- use text to encode really big numbers
-        input TEXT NOT NULL,
-        apparent_sender TEXT NOT NULL,
-        burn_parent_modulus INTEGER NOT NULL,
 
         PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
@@ -652,7 +636,11 @@ impl<'a> SortitionHandleTx<'a> {
         burn_header_hash: &BurnchainHeaderHash,
         chain_tip: &SortitionId,
     ) -> Result<Option<BlockSnapshot>, db_error> {
-        let sortition_id = burn_header_hash.into();
+        let sortition_identifier_key = db_keys::sortition_id_for_bhh(burn_header_hash);
+        let sortition_id = match self.get_indexed(&chain_tip, &sortition_identifier_key)? {
+            None => return Ok(None),
+            Some(x) => SortitionId::from_hex(&x).expect("FATAL: bad Sortition ID stored in DB"),
+        };
         SortitionDB::get_block_snapshot(self.tx(), &sortition_id)
     }
 
@@ -662,9 +650,9 @@ impl<'a> SortitionHandleTx<'a> {
     /// Returns None if there is no leader key at this location.
     pub fn get_leader_key_at(
         &mut self,
-        key_block_height: u64,
-        key_vtxindex: u32,
-        tip: &SortitionId,
+        _key_block_height: u64,
+        _key_vtxindex: u32,
+        _tip: &SortitionId,
     ) -> Result<Option<LeaderKeyRegisterOp>, db_error> {
         Ok(None)
     }
@@ -921,10 +909,10 @@ impl<'a> SortitionHandleTx<'a> {
     ///   * The Stacking recipient set is empty (either because this reward cycle has already exhausted the set of addresses or because no one ever Stacked).
     fn pick_recipients(
         &mut self,
-        burnchain: &Burnchain,
-        block_height: u64,
-        reward_set_vrf_seed: &SortitionHash,
-        next_pox_info: Option<&RewardCycleInfo>,
+        _burnchain: &Burnchain,
+        _block_height: u64,
+        _reward_set_vrf_seed: &SortitionHash,
+        _next_pox_info: Option<&RewardCycleInfo>,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
         Ok(None)
     }
@@ -958,8 +946,8 @@ impl<'a> SortitionHandleTx<'a> {
     ///  * potential_ancestor: the stacks block hash of the potential ancestor
     pub fn descended_from(
         &mut self,
-        block_at_burn_height: u64,
-        potential_ancestor: &BlockHeaderHash,
+        _block_at_burn_height: u64,
+        _potential_ancestor: &BlockHeaderHash,
     ) -> Result<bool, db_error> {
         panic!("Not implemented")
     }
@@ -1177,6 +1165,20 @@ impl<'a> SortitionHandleConn<'a> {
         self.get_indexed(&self.context.chain_tip, key)
     }
 
+    /// Return the sortition ID for the burn header hash if and only if it
+    ///  that burn block is in the same fork as this db handle.
+    fn get_sortition_id_for_bhh(
+        &self,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<SortitionId>, db_error> {
+        let sortition_identifier_key = db_keys::sortition_id_for_bhh(burn_header_hash);
+        let sortition_id = match self.get_tip_indexed(&sortition_identifier_key)? {
+            None => return Ok(None),
+            Some(x) => SortitionId::from_hex(&x).expect("FATAL: bad Sortition ID stored in DB"),
+        };
+        Ok(Some(sortition_id))
+    }
+
     /// Uses the handle's current fork identifier to get a block snapshot by
     ///   burnchain block header
     /// If the burn header hash is _not_ in the current fork, then this will return Ok(None)
@@ -1184,7 +1186,11 @@ impl<'a> SortitionHandleConn<'a> {
         &self,
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<BlockSnapshot>, db_error> {
-        let sortition_id = burn_header_hash.into();
+        let sortition_id = match self.get_sortition_id_for_bhh(burn_header_hash)? {
+            None => return Ok(None),
+            Some(x) => x,
+        };
+
         SortitionDB::get_block_snapshot(self.conn(), &sortition_id)
     }
 
@@ -2189,7 +2195,7 @@ impl SortitionDB {
         let parent_snapshot = sortition_db_handle
             .get_block_snapshot(&burn_header.parent_block_hash, &parent_sort_id)?
             .ok_or_else(|| {
-                warn!("Unknown block {:?}", burn_header.parent_block_hash);
+                warn!("Missing block snapshot in sortition"; "burn_hash" => %burn_header.parent_block_hash, "sortition_id" => %parent_sort_id);
                 BurnchainError::MissingParentBlock
             })?;
 
@@ -2570,16 +2576,16 @@ impl SortitionDB {
 
     pub fn is_pox_active(
         &self,
-        burnchain: &Burnchain,
-        block: &BlockSnapshot,
+        _burnchain: &Burnchain,
+        _block: &BlockSnapshot,
     ) -> Result<bool, db_error> {
         Ok(false)
     }
 
     /// Find out how any burn tokens were destroyed in a given block on a given fork.
     pub fn get_block_burn_amount(
-        conn: &Connection,
-        block_snapshot: &BlockSnapshot,
+        _conn: &Connection,
+        _block_snapshot: &BlockSnapshot,
     ) -> Result<u64, db_error> {
         Ok(0)
     }
@@ -2590,7 +2596,7 @@ impl SortitionDB {
         conn: &Connection,
         sortition: &SortitionId,
     ) -> Result<Vec<LeaderBlockCommitOp>, db_error> {
-        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 ORDER BY vtxindex ASC";
+        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1";
         let args: &[&dyn ToSql] = &[sortition];
 
         query_rows(conn, qry, args)
@@ -2714,7 +2720,7 @@ impl SortitionDB {
             }
         };
 
-        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_header_hash = ?2 AND txid = ?3";
+        let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND committed_block_hash = ?2 AND txid = ?3";
         let args: [&dyn ToSql; 3] = [&sortition_id, &block_hash, &winning_txid];
         query_row_panic(conn, qry, &args, || {
             format!("FATAL: multiple block commits for {}", &block_hash)
@@ -3147,13 +3153,13 @@ impl<'a> SortitionHandleTx<'a> {
             {
                 assert_eq!(sn, arrival_sn);
 
-                debug!(
+                info!(
                     "New Stacks anchored block arrived since {}: block {} ({}) ari={} tip={}",
                     parent_tip.burn_header_hash,
                     sn.stacks_block_height,
                     sn.winning_stacks_block_hash,
                     ari,
-                    &parent_tip.burn_header_hash
+                    &sn.burn_header_hash
                 );
                 new_block_arrivals.push((
                     sn.consensus_hash,

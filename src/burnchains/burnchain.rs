@@ -124,27 +124,49 @@ impl BurnchainSigner {
 
 impl BurnchainBlock {
     pub fn block_height(&self) -> u64 {
-        panic!("Not implemented")
+        match self {
+            BurnchainBlock::StacksEventBlock(b) => b.block_height,
+        }
     }
 
     pub fn block_hash(&self) -> BurnchainHeaderHash {
-        panic!("Not implemented")
+        match self {
+            BurnchainBlock::StacksEventBlock(b) => BurnchainHeaderHash(b.current_block.clone().0),
+        }
     }
 
     pub fn parent_block_hash(&self) -> BurnchainHeaderHash {
-        panic!("Not implemented")
+        match self {
+            BurnchainBlock::StacksEventBlock(b) => BurnchainHeaderHash(b.parent_block.clone().0),
+        }
     }
 
     pub fn txs(&self) -> Vec<BurnchainTransaction> {
-        panic!("Not implemented")
+        match self {
+            BurnchainBlock::StacksEventBlock(b) => b
+                .ops
+                .iter()
+                .map(|ev_op| BurnchainTransaction::SubnetBase(ev_op.clone()))
+                .collect(),
+        }
     }
 
     pub fn timestamp(&self) -> u64 {
-        panic!("Not implemented")
+        0
     }
 
     pub fn header(&self) -> BurnchainBlockHeader {
-        panic!("Not implemented")
+        match self {
+            BurnchainBlock::StacksEventBlock(b) => {
+                BurnchainBlockHeader {
+                    block_height: self.block_height(),
+                    block_hash: self.block_hash(),
+                    parent_block_hash: self.parent_block_hash(),
+                    num_txs: b.ops.len() as u64,
+                    timestamp: self.timestamp(),
+                }
+            }
+        }
     }
 }
 

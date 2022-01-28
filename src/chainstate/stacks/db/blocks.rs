@@ -3445,7 +3445,7 @@ impl StacksChainState {
     ) -> Result<(), Error> {
         let parent_sn = {
             let db_handle = sort_ic.as_handle(&snapshot.sortition_id);
-            let sn = match db_handle.get_block_snapshot(&snapshot.parent_burn_header_hash)? {
+            let sn = match db_handle.get_block_snapshot(&snapshot.parent_burn_header_hash).unwrap() {
                 Some(sn) => sn,
                 None => {
                     return Err(Error::NoSuchBlockError);
@@ -3460,10 +3460,10 @@ impl StacksChainState {
             block,
             &parent_sn.consensus_hash,
             5,
-        )?;
+        ).unwrap();
         let block_hash = block.block_hash();
         for mblock in microblocks.iter() {
-            self.preprocess_streamed_microblock(&snapshot.consensus_hash, &block_hash, mblock)?;
+            self.preprocess_streamed_microblock(&snapshot.consensus_hash, &block_hash, mblock).unwrap();
         }
         Ok(())
     }

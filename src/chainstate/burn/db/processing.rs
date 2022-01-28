@@ -73,8 +73,8 @@ impl<'a> SortitionHandleTx<'a> {
         parent_snapshot: &BlockSnapshot,
         block_header: &BurnchainBlockHeader,
         this_block_ops: &Vec<BlockstackOperationType>,
-        next_pox_info: Option<RewardCycleInfo>,
-        parent_pox: PoxId,
+        _next_pox_info: Option<RewardCycleInfo>,
+        _parent_pox: PoxId,
         reward_info: Option<&RewardSetInfo>,
         initial_mining_bonus_ustx: u128,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
@@ -96,7 +96,7 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|ref op| op.txid())
             .collect();
 
-        let next_sortition_id = SortitionId::new(&this_block_hash, &PoxId::initial());
+        let next_sortition_id = SortitionId::from(&this_block_hash);
 
         let block_commits: Vec<_> = this_block_ops
             .iter()
@@ -124,7 +124,7 @@ impl<'a> SortitionHandleTx<'a> {
         .map_err(|e| {
             error!(
                 "TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}",
-                this_block_height, &this_block_hash, e
+                this_block_height, &next_sortition_id, e
             );
             BurnchainError::DBError(e)
         })?;
