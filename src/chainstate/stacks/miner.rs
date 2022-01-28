@@ -54,6 +54,8 @@ use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 use crate::types::proof::TrieHash;
 use chainstate::stacks::db::blocks::SetupBlockResult;
+use clarity_vm::clarity::MAX_EPOCH_SIZE;
+use clarity_vm::clarity::ProductionBlockLimitFns;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
@@ -606,6 +608,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     /// # Error Handling
     /// - If the error when processing a tx is `CostOverflowError`, reset the cost of the block.
     fn mine_next_transaction(
+        &self,
         clarity_tx: &mut ClarityTx<'a>,
         tx: StacksTransaction,
         tx_len: u64,
@@ -631,7 +634,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         } else {
             considered.insert(tx.txid());
         }
-        if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+
+        let max_epoch_size = self.header_reader.clarity_state.block_limits_fns.output_length_limit;
+        if bytes_so_far + tx_len >= max_epoch_size.into() {
             info!(
                 "Adding microblock tx {} would exceed epoch data size",
                 &tx.txid()
@@ -707,7 +712,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let mut result = Ok(());
         for (tx, tx_len) in txs_and_lens.into_iter() {
-            match StacksMicroblockBuilder::mine_next_transaction(
+            match self.mine_next_transaction(
                 &mut clarity_tx,
                 tx.clone(),
                 tx_len,
@@ -819,7 +824,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             return Ok(false);
                         }
 
-                        match StacksMicroblockBuilder::mine_next_transaction(
+                        match self.mine_next_transaction(
                             clarity_tx,
                             mempool_tx.tx.clone(),
                             mempool_tx.metadata.len,
@@ -988,6 +993,7 @@ impl StacksBlockBuilder {
             miner_privkey: StacksPrivateKey::new(), // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
             miner_id: miner_id,
+            block_limits_fns: ProductionBlockLimitFns(),
         }
     }
 
@@ -1128,7 +1134,7 @@ impl StacksBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
     ) -> TransactionResult {
-        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if self.bytes_so_far + tx_len >= self.block_limits_fns.output_length_limit.into() {
             return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
         }
 

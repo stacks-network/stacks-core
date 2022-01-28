@@ -70,7 +70,6 @@ use crate::types::proof::TrieHash;
 use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util::db::Error as db_error;
 use crate::util::secp256k1::MessageSignature;
-use chainstate::stacks::MAX_EPOCH_SIZE;
 use types::chainstate::BurnchainHeaderHash;
 
 /// This struct is used to map the context at a point in time to concrete limits on block
@@ -79,6 +78,7 @@ use types::chainstate::BurnchainHeaderHash;
 ///   2) override defaults with special settings to make a tool, e.g., the mempool analyzer
 ///   3) override defaults with special settings for test.
 /// Note: We use a simple interface that can be expanded over time if necessary.
+#[derive(Clone)]
 pub struct BlockLimitsFunctions {
     /// The length limit of a block.
     pub output_length_limit: u32,
@@ -285,6 +285,9 @@ impl ClarityBlockConnection<'_> {
         }
     }
 }
+
+// Maximum amount of data a leader can send during its epoch (2MB).
+pub const MAX_EPOCH_SIZE: u32 = 2 * 1024 * 1024;
 
 /// `BlockLimitsFunctions` for production. Use `MAX_EPOCH_SIZE` for length limit and get block
 /// limits from `StacksEpoch`.
