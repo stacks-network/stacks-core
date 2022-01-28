@@ -324,7 +324,7 @@ pub fn read_node_type(
     block_id: u32,
     ptr: &TriePtr,
 ) -> Result<(TrieNodeType, TrieHash), Error> {
-    warn!("read_node_type");
+    warn!("read_node_type {:?} {:?}", block_id, ptr);
     let mut blob = conn.blob_open(
         rusqlite::DatabaseName::Main,
         "marf_data",
@@ -340,7 +340,7 @@ pub fn get_node_hash_bytes(
     block_id: u32,
     ptr: &TriePtr,
 ) -> Result<TrieHash, Error> {
-    warn!("get_node_hash_bytes");
+    warn!("get_node_hash_bytes {:?} {:?}", block_id, ptr);
     let mut blob = conn.blob_open(
         rusqlite::DatabaseName::Main,
         "marf_data",
@@ -357,7 +357,7 @@ pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
     bhh: &T,
     ptr: &TriePtr,
 ) -> Result<TrieHash, Error> {
-    warn!("get_node_hash_bytes_by_bhh");
+    warn!("get_node_hash_bytes_by_bhh {:?} {:?}", &bhh, &ptr);
     // map block hash to id
     let row_id: i64 = conn.query_row(
         "SELECT block_id FROM marf_data WHERE block_hash = ?",
