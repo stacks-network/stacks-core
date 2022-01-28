@@ -253,7 +253,6 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         }
     }
 
-    #[cfg(test)]
     fn commit_tx(self) {
         self.storage.commit_tx()
     }
@@ -530,7 +529,6 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    #[cfg(test)]
     pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         let mut tx = self.begin_tx()?;
         tx.begin(chain_tip, next_chain_tip)?;

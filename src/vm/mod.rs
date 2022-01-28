@@ -376,7 +376,6 @@ pub fn eval_all(
 /// database. Only used for testing
 /// This method executes the program in Epoch 2.0 *and* Epoch 2.05 and asserts
 /// that the result is the same before returning the result
-#[cfg(test)]
 pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Value>> {
     let epoch_200_result = execute_in_epoch(program, StacksEpochId::Epoch20, use_mainnet);
     let epoch_205_result = execute_in_epoch(program, StacksEpochId::Epoch2_05, use_mainnet);
@@ -389,12 +388,10 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
 }
 
 /// Execute `program` on the `Testnet`.
-#[cfg(test)]
 pub fn execute(program: &str) -> Result<Option<Value>> {
     execute_on_network(program, false)
 }
 
-#[cfg(test)]
 pub fn execute_in_epoch(
     program: &str,
     epoch: StacksEpochId,
