@@ -106,24 +106,25 @@ pub fn increment_btc_blocks_received_counter() {
     prometheus::BTC_BLOCKS_RECEIVED_COUNTER.inc();
 }
 
+/// Log `execution_cost` as a ratio of `block_limit`.
 #[allow(unused_variables)]
 pub fn set_last_execution_cost_observed(
     execution_cost: &ExecutionCost,
     block_limit: &ExecutionCost,
 ) {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_BLOCK_READ_COUNT.set(execution_cost.read_count.try_into().unwrap_or(i64::MAX));
+    prometheus::LAST_BLOCK_READ_COUNT.set(execution_cost.read_count as f64 / block_limit.read_count as f64);
     #[cfg(feature = "monitoring_prom")]
     prometheus::LAST_BLOCK_WRITE_COUNT
-        .set(execution_cost.write_count.try_into().unwrap_or(i64::MAX));
+        .set(execution_cost.write_count as f64 / block_limit.read_count as f64);
     #[cfg(feature = "monitoring_prom")]
     prometheus::LAST_BLOCK_READ_LENGTH
-        .set(execution_cost.read_length.try_into().unwrap_or(i64::MAX));
+        .set(execution_cost.read_length as f64 / block_limit.read_length as f64);
     #[cfg(feature = "monitoring_prom")]
     prometheus::LAST_BLOCK_WRITE_LENGTH
-        .set(execution_cost.write_length.try_into().unwrap_or(i64::MAX));
+        .set(execution_cost.write_length as f64 / block_limit.write_length as f64);
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_BLOCK_RUNTIME.set(execution_cost.runtime.try_into().unwrap_or(i64::MAX));
+    prometheus::LAST_BLOCK_RUNTIME.set(execution_cost.runtime as f64 / block_limit.runtime as f64);
 }
 
 pub fn increment_btc_ops_sent_counter() {
@@ -419,6 +420,7 @@ pub fn set_burnchain_signer(signer: BurnchainSigner) -> Result<(), SetGlobalBurn
     Ok(())
 }
 
+#[allow(unreachable_code)]
 pub fn get_burnchain_signer() -> Option<BurnchainSigner> {
     #[cfg(feature = "monitoring_prom")]
     {
