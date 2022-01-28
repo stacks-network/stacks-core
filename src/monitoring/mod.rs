@@ -109,15 +109,15 @@ pub fn increment_btc_blocks_received_counter() {
 #[allow(unused_variables)]
 pub fn set_last_execution_cost_observed(execution_cost: &ExecutionCost) {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_EXECUTION_READ_COUNT.set(execution_cost.read_count.try_into().unwrap());
+    prometheus::LAST_BLOCK_READ_COUNT.set(execution_cost.read_count.try_into().unwrap());
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_EXECUTION_WRITE_COUNT.set(execution_cost.write_count.try_into().unwrap());
+    prometheus::LAST_BLOCK_WRITE_COUNT.set(execution_cost.write_count.try_into().unwrap());
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_EXECUTION_READ_LENGTH.set(execution_cost.read_length.try_into().unwrap());
+    prometheus::LAST_BLOCK_READ_LENGTH.set(execution_cost.read_length.try_into().unwrap());
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_EXECUTION_WRITE_LENGTH.set(execution_cost.write_length.try_into().unwrap());
+    prometheus::LAST_BLOCK_WRITE_LENGTH.set(execution_cost.write_length.try_into().unwrap());
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_EXECUTION_RUNTIME.set(execution_cost.runtime.try_into().unwrap());
+    prometheus::LAST_BLOCK_RUNTIME.set(execution_cost.runtime.try_into().unwrap());
 }
 
 pub fn increment_btc_ops_sent_counter() {
