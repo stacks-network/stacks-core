@@ -56,6 +56,12 @@ use util::log;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use crate::types::proof::{TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
+use std::sync::Mutex;
+
+lazy_static! {
+    pub static ref INT_TO_STRING: Mutex<HashMap<u32, String>> = Mutex::new(HashMap::new());
+    pub static ref STRING_TO_INT: Mutex<HashMap<u32, String>> = Mutex::new(HashMap::new());
+}
 
 static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (
@@ -93,6 +99,7 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
 }
 
 pub fn get_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<u32, Error> {
+    warn!("get_block_identifier {:?}", bhh);
     conn.query_row(
         "SELECT block_id FROM marf_data WHERE block_hash = ?",
         &[bhh],
@@ -102,6 +109,7 @@ pub fn get_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result
 }
 
 pub fn get_mined_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<u32, Error> {
+    warn!("get_mined_block_identifier {:?}", bhh);
     conn.query_row(
         "SELECT block_id FROM mined_blocks WHERE block_hash = ?",
         &[bhh],
@@ -114,6 +122,7 @@ pub fn get_confirmed_block_identifier<T: MarfTrieId>(
     conn: &Connection,
     bhh: &T,
 ) -> Result<Option<u32>, Error> {
+    warn!("get_confirmed_block_identifier {:?}", bhh);
     conn.query_row(
         "SELECT block_id FROM marf_data WHERE block_hash = ? AND unconfirmed = 0",
         &[bhh],
@@ -127,6 +136,8 @@ pub fn get_unconfirmed_block_identifier<T: MarfTrieId>(
     conn: &Connection,
     bhh: &T,
 ) -> Result<Option<u32>, Error> {
+    warn!("get_unconfirmed_block_identifier {:?}", bhh);
+    // Map hash (string?) to block_id (int?)
     conn.query_row(
         "SELECT block_id FROM marf_data WHERE block_hash = ? AND unconfirmed = 1",
         &[bhh],
@@ -137,6 +148,8 @@ pub fn get_unconfirmed_block_identifier<T: MarfTrieId>(
 }
 
 pub fn get_block_hash<T: MarfTrieId>(conn: &Connection, local_id: u32) -> Result<T, Error> {
+    warn!("get_block_hash {:?}", local_id);
+    // Map block id to hash
     let result = conn
         .query_row(
             "SELECT block_hash FROM marf_data WHERE block_id = ?",
@@ -155,6 +168,8 @@ pub fn write_trie_blob<T: MarfTrieId>(
     block_hash: &T,
     data: &[u8],
 ) -> Result<u32, Error> {
+    warn!("write_trie_blob {:?}", &block_hash);
+    // Skip write for now.
     let args: &[&dyn ToSql] = &[block_hash, &data, &0];
     let mut s =
         conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed) VALUES (?, ?, ?)")?;
@@ -172,6 +187,8 @@ pub fn write_trie_blob_to_mined<T: MarfTrieId>(
     block_hash: &T,
     data: &[u8],
 ) -> Result<u32, Error> {
+    warn!("write_trie_blob_to_mined {:?}", &block_hash);
+    // skip write for now
     if let Ok(block_id) = get_mined_block_identifier(conn, block_hash) {
         // already exists; update
         let args: &[&dyn ToSql] = &[&data, &block_id];
@@ -200,6 +217,8 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
     block_hash: &T,
     data: &[u8],
 ) -> Result<u32, Error> {
+    warn!("write_trie_blob_to_unconfirmed {:?}", &block_hash);
+    // skip write for now
     if let Ok(Some(_)) = get_confirmed_block_identifier(conn, block_hash) {
         panic!("BUG: tried to overwrite confirmed MARF trie {}", block_hash);
     }
@@ -230,6 +249,8 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
 }
 
 pub fn open_trie_blob<'a>(conn: &'a Connection, block_id: u32) -> Result<Blob<'a>, Error> {
+    warn!("open_trie_blob {:?}", block_id);
+    // get blob from id
     let blob = conn.blob_open(
         rusqlite::DatabaseName::Main,
         "marf_data",
@@ -281,6 +302,7 @@ pub fn read_node_hash_bytes_by_bhh<W: Write, T: MarfTrieId>(
     bhh: &T,
     ptr: &TriePtr,
 ) -> Result<(), Error> {
+    warn!("read_node_hash_bytes_by_bhh");
     let row_id: i64 = conn.query_row(
         "SELECT block_id FROM marf_data WHERE block_hash = ?",
         &[bhh],
@@ -302,6 +324,7 @@ pub fn read_node_type(
     block_id: u32,
     ptr: &TriePtr,
 ) -> Result<(TrieNodeType, TrieHash), Error> {
+    warn!("read_node_type");
     let mut blob = conn.blob_open(
         rusqlite::DatabaseName::Main,
         "marf_data",
@@ -317,6 +340,7 @@ pub fn get_node_hash_bytes(
     block_id: u32,
     ptr: &TriePtr,
 ) -> Result<TrieHash, Error> {
+    warn!("get_node_hash_bytes");
     let mut blob = conn.blob_open(
         rusqlite::DatabaseName::Main,
         "marf_data",
@@ -333,11 +357,15 @@ pub fn get_node_hash_bytes_by_bhh<T: MarfTrieId>(
     bhh: &T,
     ptr: &TriePtr,
 ) -> Result<TrieHash, Error> {
+    warn!("get_node_hash_bytes_by_bhh");
+    // map block hash to id
     let row_id: i64 = conn.query_row(
         "SELECT block_id FROM marf_data WHERE block_hash = ?",
         &[bhh],
         |r| r.get("block_id"),
     )?;
+
+    // get the blob for an id
     let mut blob = conn.blob_open(
         rusqlite::DatabaseName::Main,
         "marf_data",
@@ -408,6 +436,7 @@ pub fn count_blocks(conn: &Connection) -> Result<u32, Error> {
 }
 
 pub fn drop_lock<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<(), Error> {
+    warn!("drop_lock {:?}", &bhh);
     conn.execute(
         "DELETE FROM block_extension_locks WHERE block_hash = ?",
         &[bhh],
@@ -416,7 +445,7 @@ pub fn drop_lock<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<(), Error>
 }
 
 pub fn drop_unconfirmed_trie<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<(), Error> {
-    debug!("Drop unconfirmed trie sqlite blob {}", bhh);
+    warn!("drop_unconfirmed_trie {:?}", bhh);
     conn.execute(
         "DELETE FROM marf_data WHERE block_hash = ? AND unconfirmed = 1",
         &[bhh],
@@ -426,11 +455,13 @@ pub fn drop_unconfirmed_trie<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Resul
 }
 
 pub fn clear_lock_data(conn: &Connection) -> Result<(), Error> {
+    warn!("clear_lock_data");
     conn.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
     Ok(())
 }
 
 pub fn clear_tables(tx: &Transaction) -> Result<(), Error> {
+    warn!("clear_tables");
     tx.execute("DELETE FROM block_extension_locks", NO_PARAMS)?;
     tx.execute("DELETE FROM marf_data", NO_PARAMS)?;
     tx.execute("DELETE FROM mined_blocks", NO_PARAMS)?;
