@@ -678,7 +678,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
                                 parent_anchored_block_hash TEXT NOT NULL,
                                 consensus_hash TEXT NOT NULL,
-                                -- parent_consensus_hash is the consensus hash of the parent sortition of the sortition that chose this block
+                                -- parent_consensus_hash is the consensus hash of the parent sortition that chose this block
                                 parent_consensus_hash TEXT NOT NULL,
                                 parent_microblock_hash TEXT NOT NULL,
                                 parent_microblock_seq INT NOT NULL,
@@ -689,7 +689,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                 processed INT NOT NULL,
                                 commit_burn INT NOT NULL,
                                 sortition_burn INT NOT NULL,
-                                index_block_hash TEXT NOT NULL,           -- used internally; hash of consensus hash and block header
+                                index_block_hash TEXT NOT NULL,           -- used internally; hash of consensus hash and anchored_block_hash
                                 download_time INT NOT NULL,               -- how long the block was in-flight
                                 arrival_time INT NOT NULL,                -- when this block was stored
                                 processed_time INT NOT NULL,              -- when this block was processed
