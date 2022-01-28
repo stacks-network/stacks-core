@@ -91,6 +91,11 @@ lazy_static! {
         "Total number of error logs emitted by node"
     )).unwrap();
 
+    pub static ref LAST_EXECUTION_READ_COUNT: IntGauge = register_int_gauge!(opts!(
+        "execution_cost_runtime",
+        "`execution_cost_runtime` for the last block observed."
+    )).unwrap();
+
     pub static ref ACTIVE_MINERS_COUNT_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_active_miners_total",
         "Total number of active miners"

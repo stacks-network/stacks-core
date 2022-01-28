@@ -34,6 +34,7 @@ use std::sync::Mutex;
 use util::db::sqlite_open;
 use util::db::Error as DatabaseError;
 use util::uint::{Uint256, Uint512};
+use vm::costs::ExecutionCost;
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
@@ -102,6 +103,11 @@ pub fn increment_txs_received_counter() {
 pub fn increment_btc_blocks_received_counter() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::BTC_BLOCKS_RECEIVED_COUNTER.inc();
+}
+
+pub fn set_last_execution_cost_observed(execution_cost: &ExecutionCost) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::LAST_EXECUTION_READ_COUNT.set(execution_cost.read_count);
 }
 
 pub fn increment_btc_ops_sent_counter() {

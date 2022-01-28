@@ -82,6 +82,7 @@ use crate::types::chainstate::{
     StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
 };
 use crate::{types, util};
+use monitoring::set_last_execution_cost_observed;
 use types::chainstate::BurnchainHeaderHash;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -5239,6 +5240,8 @@ impl StacksChainState {
         .expect("FATAL: failed to advance chain tip");
 
         chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
+
+        set_last_execution_cost_observed(&block_execution_cost);
 
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip,
