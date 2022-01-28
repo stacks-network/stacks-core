@@ -10193,7 +10193,9 @@ pub mod test {
             }
             for j in (i + 1)..blocks.len() {
                 assert!(block_inv_all.has_ith_block(j as u16));
-                assert!(block_inv_all.has_ith_microblock_stream(j as u16));
+                if j > i + 1 {
+                    assert!(block_inv_all.has_ith_microblock_stream(j as u16));
+                }
             }
         }
     }
