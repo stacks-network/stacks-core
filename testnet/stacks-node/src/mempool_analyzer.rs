@@ -98,11 +98,11 @@ fn main() {
     let chain_state_path = format!("{}/mainnet/chainstate/", &argv[1]);
 
     let min_fee = u64::max_value();
-    let mut max_time = u64::max_value();
-
-    if argv.len() >= 3 {
-        max_time = argv[2].parse().expect("Could not parse max_time");
-    }
+    let max_time = if argv.len() >= 3 {
+        argv[2].parse().expect("Could not parse max_time")
+    } else {
+        u64::max_value()
+    };
     eprintln!("mempool_analyzer: max_time {}", max_time);
 
     let sort_db = SortitionDB::open(&sort_db_path, false)
