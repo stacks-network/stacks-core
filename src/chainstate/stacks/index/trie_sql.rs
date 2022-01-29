@@ -332,6 +332,7 @@ pub fn read_node_type(
         block_id.into(),
         true,
     )?;
+    warn!("output:read_node_type {}", blob.size());
     read_nodetype(&mut blob, ptr)
 }
 
@@ -348,6 +349,7 @@ pub fn get_node_hash_bytes(
         block_id.into(),
         true,
     )?;
+    warn!("output:get_node_hash_bytes {}", blob.size());
     let hash_buff = bits_read_node_hash_bytes(&mut blob, ptr)?;
     Ok(TrieHash(hash_buff))
 }
