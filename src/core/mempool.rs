@@ -182,6 +182,7 @@ pub enum MemPoolDropReason {
     TOO_EXPENSIVE,
 }
 
+#[derive(Debug, Clone)]
 pub struct ConsiderTransaction {
     /// Transaction to consider in block assembly
     pub tx: MemPoolTxInfo,
@@ -1057,7 +1058,7 @@ impl MemPoolDB {
                     // if we actually consider the chosen transaction,
                     //  compute a new start_with_no_estimate on the next loop
                     remember_start_with_estimate = None;
-                    debug!("Consider mempool transaction";
+                    warn!("Consider mempool transaction";
                            "txid" => %consider.tx.tx.txid(),
                            "origin_addr" => %consider.tx.metadata.origin_address,
                            "sponsor_addr" => %consider.tx.metadata.sponsor_address,
