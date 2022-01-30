@@ -61,6 +61,7 @@ use std::sync::Mutex;
 lazy_static! {
     pub static ref INT_TO_STRING: Mutex<HashMap<u32, String>> = Mutex::new(HashMap::new());
     pub static ref STRING_TO_INT: Mutex<HashMap<u32, String>> = Mutex::new(HashMap::new());
+    pub static ref NODE_TO_BLOB: Mutex<HashMap<String, TrieHash>> = Mutex::new(HashMap::new());
 }
 
 static SQL_MARF_DATA_TABLE: &str = "
@@ -333,7 +334,11 @@ pub fn read_node_type(
         true,
     )?;
     warn!("output:read_node_type {}", blob.size());
-    read_nodetype(&mut blob, ptr)
+    let r: (TrieNodeType, TrieHash) = read_nodetype(&mut blob, ptr)?;
+    let b: TrieHash = r.1.clone();
+    warn!("b {:?}", b);
+    NODE_TO_BLOB.lock().unwrap().insert("".to_string(), b);
+    Ok(r)
 }
 
 pub fn get_node_hash_bytes(
