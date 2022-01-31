@@ -329,18 +329,16 @@ pub fn read_node_type(
     let node_key = format!("{}:{}:{}", &block_id, ptr.ptr(), ptr.id());
     let type_map = NODE_TO_TYPE.lock().unwrap();
     let trie_hash_map = NODE_TO_TRIE_HASH.lock().unwrap();
-    {
-        let cached_type = type_map.get(&node_key);
-        let cached_hash = trie_hash_map.get(&node_key);
-        assert_eq!(cached_type.is_some(), cached_hash.is_some());
-        warn!(
-            "read_node_type {:?} {:?} found_in_cache={},{}",
-            block_id,
-            ptr,
-            cached_type.is_some(),
-            cached_hash.is_some(),
-        );
-    }
+    let cached_type = type_map.get(&node_key);
+    let cached_trie_hash = trie_hash_map.get(&node_key);
+    assert_eq!(cached_type.is_some(), cached_trie_hash.is_some());
+    warn!(
+        "read_node_type {:?} {:?} found_in_cache={}",
+        block_id,
+        ptr,
+        cached_type.is_some(),
+    );
+
     let mut blob = conn.blob_open(
         rusqlite::DatabaseName::Main,
         "marf_data",
@@ -348,10 +346,14 @@ pub fn read_node_type(
         block_id.into(),
         true,
     )?;
-    warn!("output:read_node_type {}", blob.size());
     let (disk_type, disk_trie_hash) = read_nodetype(&mut blob, ptr)?;
-    warn!("disk_type {:?}", &disk_type);
-    warn!("disk_trie_hash {:?}", &disk_trie_hash);
+
+    if cached_type.is_some() {
+        let type_equals = disk_type == *cached_type.unwrap();
+        let trie_hash_equals = disk_trie_hash == *cached_trie_hash.unwrap();
+        warn!("cached hash equals {} {} {:?} {:?} {:?} {:?}", type_equals, trie_hash_equals, &cached_type, &cached_trie_hash, &disk_type, &disk_trie_hash);
+    }
+
     NODE_TO_TYPE.lock().unwrap().insert(node_key.to_string(), disk_type.clone());
     NODE_TO_TRIE_HASH
         .lock()
