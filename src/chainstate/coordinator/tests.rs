@@ -589,11 +589,6 @@ fn make_stacks_block_with_input(
     .unwrap()
     .unwrap();
 
-    let parent_vtxindex =
-        SortitionDB::get_block_winning_vtxindex(sort_db.conn(), &parents_sortition.sortition_id)
-            .unwrap()
-            .unwrap();
-
     eprintln!(
         "Find parents stacks header: {} in sortition {}",
         &parent_block, &parents_sortition.sortition_id
@@ -909,9 +904,9 @@ fn missed_block_commits() {
 
 #[test]
 fn test_simple_setup() {
-    let path = "/tmp/stacks-blockchain-simple-setup";
+    let path = "/tmp/stacks-node-tests/unit-tests/stacks-blockchain-simple-setup";
     // setup a second set of states that won't see the broadcasted blocks
-    let path_blinded = "/tmp/stacks-blockchain-simple-setup.blinded";
+    let path_blinded = "/tmp/stacks-node-tests/unit-tests/stacks-blockchain-simple-setup.blinded";
     let _r = std::fs::remove_dir_all(path);
     let _r = std::fs::remove_dir_all(path_blinded);
 
@@ -945,13 +940,12 @@ fn test_simple_setup() {
     assert_eq!(tip.block_height, 1);
     assert_eq!(tip.sortition, false);
 
-    // at first, sortition_ids shouldn't have diverged
-    //  but once the first reward cycle begins, they should diverge.
-    let mut sortition_ids_diverged = false;
+    // sortition ids in stacks-subnets should never diverge in this test
+    //  (because there are no more PoX reward cycles)
+    let sortition_ids_diverged = false;
     let mut parent = BlockHeaderHash([0; 32]);
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks = vec![];
-    let mut anchor_blocks = vec![];
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
         let mut burnchain = get_burnchain_db(path, None);
         let mut chainstate = get_chainstate(path);
@@ -995,13 +989,12 @@ fn test_simple_setup() {
 
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
-            // the "blinded" sortition db and the one that's processed all the blocks
-            //   should have diverged in sortition_ids now...
-            sortition_ids_diverged = true;
-            // store the anchor block for this sortition for later checking
+            //
             let ic = sort_db.index_handle_at_tip();
-            let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-            anchor_blocks.push(bhh);
+            assert!(
+                ic.get_last_anchor_block_hash().unwrap().is_none(),
+                "There should be no anchor blocks selected in stacks-subnets"
+            );
         }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
@@ -1057,9 +1050,11 @@ fn test_simple_setup() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111",
-                   "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(
+            &pox_id.to_string(),
+            "1",
+            "PoX ID remains 1 in stacks-subnets"
+        );
     }
 
     {
@@ -1067,12 +1062,11 @@ fn test_simple_setup() {
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(
             &pox_id.to_string(),
-            "110000000000",
-            "PoX ID should reflect the initial 'known' reward cycle at genesis"
+            "1",
+            "PoX ID remains 1 in stacks-subnets"
         );
     }
 
-    let mut pox_id_string = "1".to_string();
     // now let's start revealing stacks blocks to the blinded coordinator
     for (sortition_id, block) in stacks_blocks.iter() {
         reveal_block(
@@ -1089,18 +1083,8 @@ fn test_simple_setup() {
         };
 
         let block_hash = block.header.block_hash();
-        if anchor_blocks.contains(&block_hash) {
-            // just processed an anchor block, we should expect to have a pox_id
-            //   that has one more one!
-            pox_id_string.push('1');
-        }
 
-        println!("=> {}", pox_id_string);
-        assert_eq!(
-            pox_id_at_tip.to_string(),
-            // right-pad pox_id_string to 11 characters
-            format!("1{:0<11}", pox_id_string)
-        );
+        assert_eq!(pox_id_at_tip.to_string(), "1");
     }
 }
 

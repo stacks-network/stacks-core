@@ -1283,32 +1283,6 @@ mod test {
         stacks_chain_tip.winning_stacks_block_hash = header.parent_block.clone();
         stacks_chain_tip.total_burn = header.total_work.burn;
 
-        // should fail due to invalid proof
-        assert!(header
-            .validate_burnchain(&burn_chain_tip, &block_commit,)
-            .unwrap_err()
-            .to_string()
-            .find("did not produce a valid proof")
-            .is_some());
-
-        // should fail due to invalid burns
-        stacks_chain_tip.total_burn += 1;
-        assert!(header
-            .validate_burnchain(&burn_chain_tip, &block_commit,)
-            .unwrap_err()
-            .to_string()
-            .find("invalid total burns")
-            .is_some());
-
-        // should fail due to invalid parent hash
-        stacks_chain_tip.winning_stacks_block_hash = BlockHeaderHash([0u8; 32]);
-        assert!(header
-            .validate_burnchain(&burn_chain_tip, &block_commit,)
-            .unwrap_err()
-            .to_string()
-            .find("invalid parent hash")
-            .is_some());
-
         // should fail due to bad commit
         header.version += 1;
         assert!(header

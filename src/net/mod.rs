@@ -1939,7 +1939,15 @@ pub mod test {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
             match self {
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                    Ok(serde_json::to_writer(fd, op).unwrap())
+                    serde_json::to_writer(
+                        fd,
+                        &json!({
+                            "op": "leader_block_commit",
+                            "block_header_hash": op.block_header_hash,
+                        }),
+                    )
+                    .unwrap();
+                    Ok(())
                 }
             }
         }

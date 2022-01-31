@@ -635,11 +635,9 @@ fn process_next_sortition(
     node: &mut TestBurnchainNode,
     fork: &mut TestBurnchainFork,
     miners: &mut Vec<TestMiner>,
-    prev_keys: &Vec<LeaderKeyRegisterOp>,
     block_hashes: &Vec<BlockHeaderHash>,
 ) -> (
     BlockSnapshot,
-    Vec<LeaderKeyRegisterOp>,
     Vec<LeaderBlockCommitOp>,
     Vec<UserBurnSupportOp>,
 ) {
@@ -651,11 +649,8 @@ fn process_next_sortition(
     };
 
     let mut next_commits = vec![];
-    let mut next_prev_keys = vec![];
 
-    if prev_keys.len() > 0 {
-        assert_eq!(miners.len(), prev_keys.len());
-
+    if miners.len() > 0 {
         // make a Stacks block (hash) for each of the prior block's keys
         for j in 0..1 {
             let block_commit_op = {
@@ -680,7 +675,7 @@ fn process_next_sortition(
     let tip_snapshot = node.mine_fork(fork);
 
     // TODO: user burn support
-    (tip_snapshot, next_prev_keys, next_commits, vec![])
+    (tip_snapshot, next_commits, vec![])
 }
 
 fn verify_commits_accepted(
@@ -727,7 +722,6 @@ fn mine_10_stacks_blocks_1_fork() {
         &first_snapshot.index_root,
         0,
     );
-    let mut prev_keys = vec![];
 
     for i in 0..10 {
         let mut next_block_hashes = vec![];
@@ -736,19 +730,10 @@ fn mine_10_stacks_blocks_1_fork() {
             next_block_hashes.push(hash);
         }
 
-        let (next_snapshot, mut next_prev_keys, next_block_commits, next_user_burns) =
-            process_next_sortition(
-                &mut node,
-                &mut fork,
-                &mut miners,
-                &prev_keys,
-                &next_block_hashes,
-            );
+        let (next_snapshot, next_block_commits, next_user_burns) =
+            process_next_sortition(&mut node, &mut fork, &mut miners, &next_block_hashes);
 
         verify_commits_accepted(&mut node, &next_block_commits);
-
-        prev_keys.clear();
-        prev_keys.append(&mut next_prev_keys);
     }
 }
 
@@ -774,7 +759,6 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
         &first_snapshot.index_root,
         0,
     );
-    let mut prev_keys_1 = vec![];
 
     // one fork for 5 blocks...
     for i in 0..5 {
@@ -784,24 +768,13 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
             next_block_hashes.push(hash);
         }
 
-        let (next_snapshot, mut next_prev_keys, next_block_commits, next_user_burns) =
-            process_next_sortition(
-                &mut node,
-                &mut fork_1,
-                &mut miners,
-                &prev_keys_1,
-                &next_block_hashes,
-            );
+        let (next_snapshot, next_block_commits, next_user_burns) =
+            process_next_sortition(&mut node, &mut fork_1, &mut miners, &next_block_hashes);
 
         verify_commits_accepted(&mut node, &next_block_commits);
-
-        prev_keys_1.clear();
-        prev_keys_1.append(&mut next_prev_keys);
     }
 
     let mut fork_2 = fork_1.fork();
-    let mut prev_keys_2 = prev_keys_1[5..].to_vec();
-    prev_keys_1.truncate(5);
 
     let mut miners_1 = vec![];
     let mut miners_2 = vec![];
@@ -836,34 +809,16 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
             next_block_hashes_2.push(hash);
         }
 
-        let (next_snapshot_1, mut next_prev_keys_1, next_block_commits_1, next_user_burns_1) =
-            process_next_sortition(
-                &mut node,
-                &mut fork_1,
-                &mut miners_1,
-                &prev_keys_1,
-                &next_block_hashes_1,
-            );
-        let (next_snapshot_2, mut next_prev_keys_2, next_block_commits_2, next_user_burns_2) =
-            process_next_sortition(
-                &mut node,
-                &mut fork_2,
-                &mut miners_2,
-                &prev_keys_2,
-                &next_block_hashes_2,
-            );
+        let (next_snapshot_1, next_block_commits_1, next_user_burns_1) =
+            process_next_sortition(&mut node, &mut fork_1, &mut miners_1, &next_block_hashes_1);
+        let (next_snapshot_2, next_block_commits_2, next_user_burns_2) =
+            process_next_sortition(&mut node, &mut fork_2, &mut miners_2, &next_block_hashes_2);
 
         assert!(next_snapshot_1.burn_header_hash != next_snapshot_2.burn_header_hash);
 
         verify_commits_accepted(&mut node, &next_block_commits_1);
 
         verify_commits_accepted(&mut node, &next_block_commits_2);
-
-        prev_keys_1.clear();
-        prev_keys_1.append(&mut next_prev_keys_1);
-
-        prev_keys_2.clear();
-        prev_keys_2.append(&mut next_prev_keys_2);
     }
 }
 
@@ -889,7 +844,6 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         &first_snapshot.index_root,
         0,
     );
-    let mut prev_keys_1 = vec![];
 
     // one fork for 5 blocks...
     for i in 0..5 {
@@ -899,24 +853,13 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
             next_block_hashes.push(hash);
         }
 
-        let (snapshot, mut next_prev_keys, next_block_commits, next_user_burns) =
-            process_next_sortition(
-                &mut node,
-                &mut fork_1,
-                &mut miners,
-                &prev_keys_1,
-                &next_block_hashes,
-            );
+        let (snapshot, next_block_commits, next_user_burns) =
+            process_next_sortition(&mut node, &mut fork_1, &mut miners, &next_block_hashes);
 
         verify_commits_accepted(&mut node, &next_block_commits);
-
-        prev_keys_1.clear();
-        prev_keys_1.append(&mut next_prev_keys);
     }
 
     let mut fork_2 = fork_1.fork();
-    let mut prev_keys_2 = prev_keys_1[5..].to_vec();
-    prev_keys_1.truncate(5);
 
     let mut miners_1 = vec![];
     let mut miners_2 = vec![];
@@ -953,22 +896,10 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
             next_block_hashes_2.push(hash);
         }
 
-        let (snapshot_1, mut next_prev_keys_1, next_block_commits_1, next_user_burns_1) =
-            process_next_sortition(
-                &mut node,
-                &mut fork_1,
-                &mut miners_1,
-                &prev_keys_1,
-                &next_block_hashes_1,
-            );
-        let (snapshot_2, mut next_prev_keys_2, next_block_commits_2, next_user_burns_2) =
-            process_next_sortition(
-                &mut node,
-                &mut fork_2,
-                &mut miners_2,
-                &prev_keys_2,
-                &next_block_hashes_2,
-            );
+        let (snapshot_1, next_block_commits_1, next_user_burns_1) =
+            process_next_sortition(&mut node, &mut fork_1, &mut miners_1, &next_block_hashes_1);
+        let (snapshot_2, next_block_commits_2, next_user_burns_2) =
+            process_next_sortition(&mut node, &mut fork_2, &mut miners_2, &next_block_hashes_2);
 
         assert!(snapshot_1.burn_header_hash != snapshot_2.burn_header_hash);
         assert!(snapshot_1.consensus_hash != snapshot_2.consensus_hash);
@@ -985,11 +916,5 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         verify_commits_accepted(&mut node, &next_block_commits_1);
 
         verify_commits_accepted(&mut node, &next_block_commits_2);
-
-        prev_keys_1.clear();
-        prev_keys_1.append(&mut next_prev_keys_1);
-
-        prev_keys_2.clear();
-        prev_keys_2.append(&mut next_prev_keys_2);
     }
 }

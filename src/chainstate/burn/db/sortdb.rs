@@ -1496,7 +1496,7 @@ impl SortitionDB {
         };
 
         let index_path = db_mkdirs(path)?;
-        debug!(
+        info!(
             "Connect/Open {} sortdb as '{}', with index as '{}'",
             if create_flag { "(create)" } else { "" },
             if readwrite { "readwrite" } else { "readonly" },

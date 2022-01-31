@@ -1940,7 +1940,6 @@ fn test_set_stacks_block_accepted() {
         BlockHeaderHash([0x04; 32])
     );
 
-
     make_fork_run(&mut db, &last_snapshot, 7, 0x40);
 
     // canonical stacks chain tip is now stacks block 4, since the burn chain fork ending on

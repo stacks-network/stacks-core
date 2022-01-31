@@ -157,15 +157,13 @@ impl BurnchainBlock {
 
     pub fn header(&self) -> BurnchainBlockHeader {
         match self {
-            BurnchainBlock::StacksEventBlock(b) => {
-                BurnchainBlockHeader {
-                    block_height: self.block_height(),
-                    block_hash: self.block_hash(),
-                    parent_block_hash: self.parent_block_hash(),
-                    num_txs: b.ops.len() as u64,
-                    timestamp: self.timestamp(),
-                }
-            }
+            BurnchainBlock::StacksEventBlock(b) => BurnchainBlockHeader {
+                block_height: self.block_height(),
+                block_hash: self.block_hash(),
+                parent_block_hash: self.parent_block_hash(),
+                num_txs: b.ops.len() as u64,
+                timestamp: self.timestamp(),
+            },
         }
     }
 }
