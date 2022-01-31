@@ -58,10 +58,7 @@ use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use crate::types::proof::{TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
 use std::sync::Mutex;
 
-lazy_static! {
-    pub static ref NODE_TO_TRIE_HASH: Mutex<HashMap<String, TrieHash>> = Mutex::new(HashMap::new());
-    pub static ref NODE_TO_TYPE: Mutex<HashMap<String, TrieNodeType>> = Mutex::new(HashMap::new());
-}
+lazy_static! {}
 
 static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (
@@ -319,16 +316,20 @@ pub fn read_node_hash_bytes_by_bhh<W: Write, T: MarfTrieId>(
     w.write_all(&hash_buff).map_err(|e| e.into())
 }
 
+pub struct MarfCacheBundle {
+    pub node_to_trie_hash: HashMap<String, TrieHash>,
+    pub node_to_type: HashMap<String, TrieNodeType>,
+}
+
 pub fn read_node_type(
     conn: &Connection,
     block_id: u32,
     ptr: &TriePtr,
+    cache_bundle: &mut MarfCacheBundle,
 ) -> Result<(TrieNodeType, TrieHash), Error> {
     let node_key = format!("{}:{}:{}", &block_id, ptr.ptr(), ptr.id());
-    let type_map = NODE_TO_TYPE.lock().unwrap();
-    let trie_hash_map = NODE_TO_TRIE_HASH.lock().unwrap();
-    let cached_type = type_map.get(&node_key);
-    let cached_trie_hash = trie_hash_map.get(&node_key);
+    let cached_type = cache_bundle.node_to_type.get(&node_key);
+    let cached_trie_hash = cache_bundle.node_to_trie_hash.get(&node_key);
     assert_eq!(cached_type.is_some(), cached_trie_hash.is_some());
     warn!(
         "read_node_type {:?} {:?} found_in_cache={}",
@@ -349,13 +350,22 @@ pub fn read_node_type(
     if cached_type.is_some() {
         let type_equals = disk_type == *cached_type.unwrap();
         let trie_hash_equals = disk_trie_hash == *cached_trie_hash.unwrap();
-        warn!("cached hash equals {} {} {:?} {:?} {:?} {:?}", type_equals, trie_hash_equals, &cached_type, &cached_trie_hash, &disk_type, &disk_trie_hash);
+        warn!(
+            "cached hash equals {} {} {:?} {:?} {:?} {:?}",
+            type_equals,
+            trie_hash_equals,
+            &cached_type,
+            &cached_trie_hash,
+            &disk_type,
+            &disk_trie_hash
+        );
     }
 
-    NODE_TO_TYPE.lock().unwrap().insert(node_key.to_string(), disk_type.clone());
-    NODE_TO_TRIE_HASH
-        .lock()
-        .unwrap()
+    cache_bundle
+        .node_to_type
+        .insert(node_key.to_string(), disk_type.clone());
+    cache_bundle
+        .node_to_trie_hash
         .insert(node_key.to_string(), disk_trie_hash.clone());
     Ok((disk_type, disk_trie_hash))
 }

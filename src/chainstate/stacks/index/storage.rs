@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use chainstate::stacks::index::trie_sql::MarfCacheBundle;
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
@@ -1609,8 +1610,12 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         }
 
         // some other block
+        let mut ram_storage = MarfCacheBundle {
+            node_to_trie_hash: HashMap::new(),
+            node_to_type: HashMap::new(),
+        };
         match self.data.cur_block_id {
-            Some(id) => trie_sql::read_node_type(&self.db, id, &clear_ptr),
+            Some(id) => trie_sql::read_node_type(&self.db, id, &clear_ptr, &mut ram_storage),
             None => {
                 debug!("Not found (no file is open)");
                 Err(Error::NotFoundError)
