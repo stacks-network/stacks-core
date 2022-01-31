@@ -326,7 +326,21 @@ pub fn read_node_type(
     block_id: u32,
     ptr: &TriePtr,
 ) -> Result<(TrieNodeType, TrieHash), Error> {
-    warn!("read_node_type {:?} {:?}", block_id, ptr);
+    let node_key = format!("{}:{}:{}", &block_id, ptr.ptr(), ptr.id());
+    let type_map = NODE_TO_TYPE.lock().unwrap();
+    let trie_hash_map = NODE_TO_TRIE_HASH.lock().unwrap();
+    {
+        let cached_type = type_map.get(&node_key);
+        let cached_hash = trie_hash_map.get(&node_key);
+        assert_eq!(cached_type.is_some(), cached_hash.is_some());
+        warn!(
+            "read_node_type {:?} {:?} found_in_cache={},{}",
+            block_id,
+            ptr,
+            cached_type.is_some(),
+            cached_hash.is_some(),
+        );
+    }
     let mut blob = conn.blob_open(
         rusqlite::DatabaseName::Main,
         "marf_data",
@@ -340,8 +354,11 @@ pub fn read_node_type(
     warn!("a {:?}", &a);
     let b: TrieHash = r.1.clone();
     warn!("b {:?}", &b);
-    NODE_TO_TYPE.lock().unwrap().insert("".to_string(), a);
-    NODE_TO_TRIE_HASH.lock().unwrap().insert("".to_string(), b);
+    NODE_TO_TYPE.lock().unwrap().insert(node_key.to_string(), a);
+    NODE_TO_TRIE_HASH
+        .lock()
+        .unwrap()
+        .insert(node_key.to_string(), b);
     Ok(r)
 }
 
