@@ -92,27 +92,27 @@ lazy_static! {
     )).unwrap();
 
     pub static ref LAST_BLOCK_READ_COUNT: Gauge = register_gauge!(opts!(
-        "execution_cost_read_count",
+        "stacks_node_last_block_read_count",
         "`execution_cost_read_count` for the last block observed."
     )).unwrap();
 
     pub static ref LAST_BLOCK_WRITE_COUNT: Gauge = register_gauge!(opts!(
-        "execution_cost_write_count",
+        "stacks_node_last_block_write_count",
         "`execution_cost_write_count` for the last block observed."
     )).unwrap();
 
     pub static ref LAST_BLOCK_READ_LENGTH: Gauge = register_gauge!(opts!(
-        "execution_cost_read_length",
+        "stacks_node_last_block_read_length",
         "`execution_cost_read_length` for the last block observed."
     )).unwrap();
 
     pub static ref LAST_BLOCK_WRITE_LENGTH: Gauge = register_gauge!(opts!(
-        "execution_cost_write_length",
+        "stacks_node_last_block_write_length",
         "`execution_cost_write_length` for the last block observed."
     )).unwrap();
 
     pub static ref LAST_BLOCK_RUNTIME: Gauge = register_gauge!(opts!(
-        "execution_cost_runtime",
+        "stacks_node_last_block_runtime",
         "`execution_cost_runtime` for the last block observed."
     )).unwrap();
 
