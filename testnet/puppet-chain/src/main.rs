@@ -142,27 +142,26 @@ async fn main() -> http_types::Result<()> {
         let should_ignore_txs = config.should_ignore_transactions(effective_block_height - 1);
 
         let stream = stream?;
-        let addr = addr.clone();
 
         if should_ignore_txs {
             // Returns ok
             println!("Buffering request from {}", stream.peer_addr()?);
-            async_h1::accept(&addr, stream.clone(), |_| async {
+            async_h1::accept(stream.clone(), |_| async {
                 Ok(Response::new(StatusCode::Ok))
             })
             .await?;
             // Enqueue request
-            buffered_requests.push_back((addr, stream));
+            buffered_requests.push_back(stream);
         } else {
             // Dequeue all the requests we've been buffering
-            while let Some((addr, stream)) = buffered_requests.pop_front() {
+            while let Some(stream) = buffered_requests.pop_front() {
                 let config = config.clone();
                 task::spawn(async move {
                     println!(
                         "Dequeuing buffered request from {}",
                         stream.peer_addr().unwrap()
                     );
-                    if let Err(err) = accept(addr, stream, &config).await {
+                    if let Err(err) = accept(stream, &config).await {
                         eprintln!("{}", err);
                     }
                 });
@@ -171,7 +170,7 @@ async fn main() -> http_types::Result<()> {
             let config = config.clone();
             task::spawn(async move {
                 println!("Handling request from {}", stream.peer_addr().unwrap());
-                if let Err(err) = accept(addr, stream, &config).await {
+                if let Err(err) = accept(stream, &config).await {
                     eprintln!("{}", err);
                 }
             });
@@ -181,8 +180,8 @@ async fn main() -> http_types::Result<()> {
 }
 
 // Take a TCP stream, and convert it into sequential HTTP request / response pairs.
-async fn accept(addr: String, stream: TcpStream, config: &ConfigFile) -> http_types::Result<()> {
-    async_h1::accept(&addr, stream.clone(), |mut req| async {
+async fn accept(stream: TcpStream, config: &ConfigFile) -> http_types::Result<()> {
+    async_h1::accept(stream.clone(), |mut req| async {
         match (
             req.method(),
             req.url().path(),
@@ -352,12 +351,9 @@ async fn generate_blocks(blocks_count: u64, address: String, config: &ConfigFile
 fn build_request(config: &ConfigFile, body: Vec<u8>) -> Request {
     let url = Url::parse(&format!("http://{}/", config.network.bitcoind_rpc_host)).unwrap();
     let mut req = Request::new(Method::Post, url);
-    req.append_header("Authorization", config.network.authorization_token())
-        .unwrap();
-    req.append_header("Content-Type", "application/json")
-        .unwrap();
-    req.append_header("Host", format!("{}", config.network.bitcoind_rpc_host))
-        .unwrap();
+    req.append_header("Authorization", config.network.authorization_token());
+    req.append_header("Content-Type", "application/json");
+    req.append_header("Host", format!("{}", config.network.bitcoind_rpc_host));
     req.set_body(body);
     req
 }
