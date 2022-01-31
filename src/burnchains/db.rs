@@ -122,7 +122,6 @@ CREATE TABLE burnchain_db_block_headers (
 
     PRIMARY KEY(block_hash)
 );
-CREATE INDEX index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);
 
 CREATE TABLE burnchain_db_block_ops (
     block_hash TEXT NOT NULL,
@@ -131,10 +130,13 @@ CREATE TABLE burnchain_db_block_ops (
     FOREIGN KEY(block_hash) REFERENCES burnchain_db_block_headers(block_hash)
 );
 
-CREATE INDEX index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);
-CREATE INDEX index_burnchain_db_txid ON burnchain_db_block_ops(txid);
-
 CREATE TABLE db_config(version TEXT NOT NULL);";
+
+const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);",
+    "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);",
+    "CREATE INDEX IF NOT EXISTS index_burnchain_db_txid ON burnchain_db_block_ops(txid);",
+];
 
 impl<'a> BurnchainDBTransaction<'a> {
     fn store_burnchain_db_entry(
@@ -220,6 +222,10 @@ impl BurnchainDB {
             let db_tx = db.tx_begin()?;
             db_tx.sql_tx.execute_batch(BURNCHAIN_DB_INITIAL_SCHEMA)?;
 
+            for index in BURNCHAIN_DB_INDEXES.iter() {
+                db_tx.sql_tx.execute_batch(index)?;
+            }
+
             db_tx.sql_tx.execute(
                 "INSERT INTO db_config (version) VALUES (?1)",
                 &[&BURNCHAIN_DB_VERSION],
@@ -258,7 +264,7 @@ impl BurnchainDB {
     pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height DESC, block_hash ASC LIMIT 1";
         let opt = query_row(&self.conn, qry, NO_PARAMS)?;
-        Ok(opt.expect("CORRUPTION: No canonical burnchain tip"))
+        opt.ok_or(BurnchainError::MissingParentBlock)
     }
 
     pub fn get_burnchain_block(
