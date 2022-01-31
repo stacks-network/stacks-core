@@ -59,8 +59,6 @@ use crate::types::proof::{TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
 use std::sync::Mutex;
 
 lazy_static! {
-    pub static ref INT_TO_STRING: Mutex<HashMap<u32, String>> = Mutex::new(HashMap::new());
-    pub static ref STRING_TO_INT: Mutex<HashMap<u32, String>> = Mutex::new(HashMap::new());
     pub static ref NODE_TO_TRIE_HASH: Mutex<HashMap<String, TrieHash>> = Mutex::new(HashMap::new());
     pub static ref NODE_TO_TYPE: Mutex<HashMap<String, TrieNodeType>> = Mutex::new(HashMap::new());
 }
