@@ -483,13 +483,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(sortition_id)
     );"#,
-    "CREATE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
-    "CREATE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
-    "CREATE INDEX snapshots_block_heights ON snapshots(burn_header_hash,block_height);",
-    "CREATE INDEX snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);",
-    "CREATE INDEX snapshots_canonical_chain_tip ON snapshots(pox_valid,block_height DESC,burn_header_hash ASC);",
-    "CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);",
-    "CREATE INDEX arrival_indexes ON snapshots(arrival_index);",
     r#"
     CREATE TABLE snapshot_transition_ops(
       sortition_id TEXT PRIMARY KEY,
@@ -514,9 +507,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
-    r#"
-    CREATE INDEX index_leader_keys_sortition_id_block_height_vtxindex ON leader_keys(sortition_id,block_height,vtxindex);
-    "#,
     r#"
     CREATE TABLE block_commits(
         txid TEXT NOT NULL,
@@ -543,10 +533,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
     r#"
-    CREATE INDEX index_block_commits_sortition_id_vtxindex ON block_commits(sortition_id,vtxindex);
-    CREATE INDEX index_block_commits_sortition_id_block_height_vtxindex ON block_commits(sortition_id,block_height,vtxindex);
-    "#,
-    r#"
     CREATE TABLE user_burn_support(
         txid TEXT NOT NULL,
         vtxindex INTEGER NOT NULL,
@@ -567,11 +553,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
     r#"
-    CREATE INDEX index_user_burn_support_txid ON user_burn_support(txid);
-    CREATE INDEX index_user_burn_support_sortition_id_vtxindex ON user_burn_support(sortition_id,vtxindex);
-    CREATE INDEX index_user_burn_support_sortition_id_hash_160_key_vtxindex_key_block_ptr_vtxindex ON user_burn_support(sortition_id,block_header_hash_160,key_vtxindex,key_block_ptr,vtxindex ASC);
-    "#,
-    r#"
     CREATE TABLE stack_stx (
         txid TEXT NOT NULL,
         vtxindex INTEGER NOT NULL,
@@ -585,9 +566,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(txid)
     );"#,
-    r#"
-    CREATE INDEX index_stack_stx_burn_header_hash ON stack_stx(burn_header_hash);
-    "#,
     r#"
     CREATE TABLE transfer_stx (
         txid TEXT NOT NULL,
@@ -603,9 +581,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         PRIMARY KEY(txid)
     );"#,
     r#"
-    CREATE INDEX index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);
-    "#,
-    r#"
     CREATE TABLE missed_commits (
         txid TEXT NOT NULL,
         input TEXT NOT NULL,
@@ -614,9 +589,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         PRIMARY KEY(txid, intended_sortition_id)
     );"#,
     r#"
-    CREATE INDEX index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);
-    "#,
-    r#"
     CREATE TABLE canonical_accepted_stacks_blocks(
         tip_consensus_hash TEXT NOT NULL,
         consensus_hash TEXT NOT NULL,
@@ -624,7 +596,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         block_height INTEGER NOT NULL,
         PRIMARY KEY(consensus_hash, stacks_block_hash)
     );"#,
-    "CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
     "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
 ];
 
@@ -637,6 +608,26 @@ const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
          network_epoch INTEGER NOT NULL,
          PRIMARY KEY(start_block_height,epoch_id)
      );"#];
+
+const SORTITION_DB_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS snapshots_block_heights ON snapshots(burn_header_hash,block_height);",
+    "CREATE INDEX IF NOT EXISTS snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS snapshots_canonical_chain_tip ON snapshots(pox_valid,block_height DESC,burn_header_hash ASC);",
+    "CREATE INDEX IF NOT EXISTS block_arrivals ON snapshots(arrival_index,burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS arrival_indexes ON snapshots(arrival_index);",
+    "CREATE INDEX IF NOT EXISTS index_leader_keys_sortition_id_block_height_vtxindex ON leader_keys(sortition_id,block_height,vtxindex);",
+    "CREATE INDEX IF NOT EXISTS index_block_commits_sortition_id_vtxindex ON block_commits(sortition_id,vtxindex);",
+    "CREATE INDEX IF NOT EXISTS index_block_commits_sortition_id_block_height_vtxindex ON block_commits(sortition_id,block_height,vtxindex);",
+    "CREATE INDEX IF NOT EXISTS index_user_burn_support_txid ON user_burn_support(txid);",
+    "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_vtxindex ON user_burn_support(sortition_id,vtxindex);",
+    "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_hash_160_key_vtxindex_key_block_ptr_vtxindex ON user_burn_support(sortition_id,block_header_hash_160,key_vtxindex,key_block_ptr,vtxindex ASC);",
+    "CREATE INDEX IF NOT EXISTS index_stack_stx_burn_header_hash ON stack_stx(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);",
+    "CREATE INDEX IF NOT EXISTS canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);"
+];
 
 pub struct SortitionDB {
     pub readwrite: bool,
@@ -2293,6 +2284,9 @@ impl SortitionDB {
             db_tx.execute_batch(row_text)?;
         }
         for row_text in SORTITION_DB_SCHEMA_2 {
+            db_tx.execute_batch(row_text)?;
+        }
+        for row_text in SORTITION_DB_INDEXES {
             db_tx.execute_batch(row_text)?;
         }
 
