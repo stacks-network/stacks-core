@@ -113,7 +113,8 @@ pub fn set_last_execution_cost_observed(
     block_limit: &ExecutionCost,
 ) {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_BLOCK_READ_COUNT.set(execution_cost.read_count as f64 / block_limit.read_count as f64);
+    prometheus::LAST_BLOCK_READ_COUNT
+        .set(execution_cost.read_count as f64 / block_limit.read_count as f64);
     #[cfg(feature = "monitoring_prom")]
     prometheus::LAST_BLOCK_WRITE_COUNT
         .set(execution_cost.write_count as f64 / block_limit.read_count as f64);
