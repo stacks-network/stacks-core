@@ -321,6 +321,15 @@ pub struct MarfCacheBundle {
     pub node_to_type: HashMap<String, TrieNodeType>,
 }
 
+impl MarfCacheBundle {
+    pub fn new() -> MarfCacheBundle {
+        MarfCacheBundle {
+            node_to_trie_hash: HashMap::new(),
+            node_to_type: HashMap::new(),
+        }
+    }
+}
+
 pub fn read_node_type(
     conn: &Connection,
     block_id: u32,
@@ -351,13 +360,9 @@ pub fn read_node_type(
         let type_equals = disk_type == *cached_type.unwrap();
         let trie_hash_equals = disk_trie_hash == *cached_trie_hash.unwrap();
         warn!(
-            "cached hash equals {} {} {:?} {:?} {:?} {:?}",
+            "cached hash equals {} {}",
             type_equals,
             trie_hash_equals,
-            &cached_type,
-            &cached_trie_hash,
-            &disk_type,
-            &disk_trie_hash
         );
     }
 

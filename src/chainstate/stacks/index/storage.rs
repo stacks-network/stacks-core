@@ -672,6 +672,7 @@ pub struct TrieStorageConnection<'a, T: MarfTrieId> {
     pub db_path: &'a str,
     db: SqliteConnection<'a>,
     data: &'a mut TrieStorageTransientData<T>,
+    cache_bundle: MarfCacheBundle,
 
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
@@ -740,7 +741,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             db: SqliteConnection::ConnRef(&self.db),
             db_path: &self.db_path,
             data: &mut self.data,
-
+            cache_bundle: MarfCacheBundle::new(),
             #[cfg(test)]
             test_genesis_block: &mut self.test_genesis_block,
         }
@@ -756,6 +757,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             db: SqliteConnection::Tx(tx),
             db_path: &self.db_path,
             data: &mut self.data,
+            cache_bundle: MarfCacheBundle::new(),
 
             #[cfg(test)]
             test_genesis_block: &mut self.test_genesis_block,
@@ -1609,13 +1611,8 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             }
         }
 
-        // some other block
-        let mut ram_storage = MarfCacheBundle {
-            node_to_trie_hash: HashMap::new(),
-            node_to_type: HashMap::new(),
-        };
         match self.data.cur_block_id {
-            Some(id) => trie_sql::read_node_type(&self.db, id, &clear_ptr, &mut ram_storage),
+            Some(id) => trie_sql::read_node_type(&self.db, id, &clear_ptr, &mut self.cache_bundle),
             None => {
                 debug!("Not found (no file is open)");
                 Err(Error::NotFoundError)
