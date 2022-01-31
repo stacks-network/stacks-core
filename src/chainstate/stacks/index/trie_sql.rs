@@ -147,10 +147,13 @@ pub fn get_unconfirmed_block_identifier<T: MarfTrieId>(
 pub fn get_block_hash<T: MarfTrieId>(
     conn: &Connection,
     local_id: u32,
-    _cache_bundle: &MarfCacheBundle,
+    cache_bundle: &mut MarfCacheBundle,
 ) -> Result<T, Error> {
-    warn!("get_block_hash {:?}", local_id);
     // Map block id to hash
+    //
+    let i32_id = local_id as i32;
+    let hash_opt = cache_bundle.id_to_hash.get(&i32_id);
+    warn!("get_block_hash {:?} found_in_cache={}", local_id, hash_opt.is_some());
     let result = conn
         .query_row(
             "SELECT block_hash FROM marf_data WHERE block_id = ?",
@@ -158,10 +161,15 @@ pub fn get_block_hash<T: MarfTrieId>(
             |row| row.get("block_hash"),
         )
         .optional()?;
-    result.ok_or_else(|| {
+    let output = result.ok_or_else(|| {
         error!("Failed to get block header hash of local ID {}", local_id);
         Error::NotFoundError
-    })
+    })?;
+
+    let string_rep = format!("{:?}", &output);
+    warn!("push:get_block_hash {} {:?}", i32_id, &string_rep);
+    cache_bundle.id_to_hash.insert(i32_id, string_rep);
+    Ok(output)
 }
 
 pub fn write_trie_blob<T: MarfTrieId>(
