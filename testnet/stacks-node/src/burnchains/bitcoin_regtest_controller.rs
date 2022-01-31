@@ -1774,8 +1774,7 @@ impl BitcoinRPCRequest {
         match (&config.burnchain.username, &config.burnchain.password) {
             (Some(username), Some(password)) => {
                 let auth_token = format!("Basic {}", encode(format!("{}:{}", username, password)));
-                req.append_header("Authorization", auth_token)
-                    .expect("Unable to set header");
+                req.append_header("Authorization", auth_token);
             }
             (_, _) => {}
         };
@@ -2015,9 +2014,7 @@ impl BitcoinRPCRequest {
                 return Err(RPCError::Network(format!("RPC Error: {}", err)));
             }
         };
-        request
-            .append_header("Content-Type", "application/json")
-            .expect("Unable to set header");
+        request.append_header("Content-Type", "application/json");
         request.set_body(body);
 
         let mut response = async_std::task::block_on(async move {
