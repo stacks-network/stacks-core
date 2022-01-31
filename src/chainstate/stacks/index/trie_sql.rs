@@ -349,17 +349,15 @@ pub fn read_node_type(
         true,
     )?;
     warn!("output:read_node_type {}", blob.size());
-    let r: (TrieNodeType, TrieHash) = read_nodetype(&mut blob, ptr)?;
-    let a: TrieNodeType = r.0.clone();
-    warn!("a {:?}", &a);
-    let b: TrieHash = r.1.clone();
-    warn!("b {:?}", &b);
-    NODE_TO_TYPE.lock().unwrap().insert(node_key.to_string(), a);
+    let (disk_type, disk_trie_hash) = read_nodetype(&mut blob, ptr)?;
+    warn!("disk_type {:?}", &disk_type);
+    warn!("disk_trie_hash {:?}", &disk_trie_hash);
+    NODE_TO_TYPE.lock().unwrap().insert(node_key.to_string(), disk_type.clone());
     NODE_TO_TRIE_HASH
         .lock()
         .unwrap()
-        .insert(node_key.to_string(), b);
-    Ok(r)
+        .insert(node_key.to_string(), disk_trie_hash.clone());
+    Ok((disk_type, disk_trie_hash))
 }
 
 pub fn get_node_hash_bytes(
