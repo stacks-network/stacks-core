@@ -77,15 +77,16 @@ trait NodeHashReader {
 impl<T: MarfTrieId> BlockMap for TrieFileStorage<T> {
     type TrieId = T;
 
-    fn get_block_hash(&self, id: u32) -> Result<T, Error> {
-        trie_sql::get_block_hash(&self.db, id)
+    fn get_block_hash(&mut self, id: u32) -> Result<T, Error> {
+        trie_sql::get_block_hash(&self.db, id, &mut self.cache_bundle)
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
         if !self.data.block_hash_cache.contains_key(&id) {
-            self.data
-                .block_hash_cache
-                .insert(id, self.get_block_hash(id)?);
+            self.data.block_hash_cache.insert(
+                id,
+                trie_sql::get_block_hash(&self.db, id, &mut self.cache_bundle)?,
+            );
         }
         Ok(&self.data.block_hash_cache[&id])
     }
@@ -94,15 +95,16 @@ impl<T: MarfTrieId> BlockMap for TrieFileStorage<T> {
 impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
     type TrieId = T;
 
-    fn get_block_hash(&self, id: u32) -> Result<T, Error> {
-        trie_sql::get_block_hash(&self.db, id)
+    fn get_block_hash(&mut self, id: u32) -> Result<T, Error> {
+        trie_sql::get_block_hash(&self.db, id, &mut self.cache_bundle)
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
         if !self.data.block_hash_cache.contains_key(&id) {
-            self.data
-                .block_hash_cache
-                .insert(id, self.get_block_hash(id)?);
+            self.data.block_hash_cache.insert(
+                id,
+                trie_sql::get_block_hash(&self.db, id, &mut self.cache_bundle)?,
+            );
         }
         Ok(&self.data.block_hash_cache[&id])
     }
@@ -111,8 +113,8 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
 impl<'a, T: MarfTrieId> BlockMap for TrieStorageTransaction<'a, T> {
     type TrieId = T;
 
-    fn get_block_hash(&self, id: u32) -> Result<T, Error> {
-        self.deref().get_block_hash(id)
+    fn get_block_hash(&mut self, id: u32) -> Result<T, Error> {
+        self.deref_mut().get_block_hash(id)
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
@@ -123,13 +125,16 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageTransaction<'a, T> {
 impl<T: MarfTrieId> BlockMap for TrieSqlHashMapCursor<'_, T> {
     type TrieId = T;
 
-    fn get_block_hash(&self, id: u32) -> Result<T, Error> {
-        trie_sql::get_block_hash(&self.db, id)
+    fn get_block_hash(&mut self, id: u32) -> Result<T, Error> {
+        trie_sql::get_block_hash(&self.db, id, &mut self.cache_bundle)
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
         if !self.cache.contains_key(&id) {
-            self.cache.insert(id, self.get_block_hash(id)?);
+            self.cache.insert(
+                id,
+                trie_sql::get_block_hash(&self.db, id, &mut self.cache_bundle)?,
+            );
         }
         Ok(&self.cache[&id])
     }
@@ -617,6 +622,7 @@ pub struct TrieSqlCursor<'a> {
 pub struct TrieSqlHashMapCursor<'a, T: MarfTrieId> {
     db: &'a Connection,
     cache: &'a mut HashMap<u32, T>,
+    cache_bundle: MarfCacheBundle,
 }
 
 impl NodeHashReader for TrieSqlCursor<'_> {
@@ -718,6 +724,7 @@ pub struct TrieFileStorage<T: MarfTrieId> {
 
     db: Connection,
     data: TrieStorageTransientData<T>,
+    cache_bundle: MarfCacheBundle,
 
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
@@ -844,6 +851,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
                 readonly: readonly,
                 unconfirmed: unconfirmed,
             },
+            cache_bundle: MarfCacheBundle::new(),
 
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
@@ -910,6 +918,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
                 unconfirmed: true,
             },
 
+            cache_bundle: MarfCacheBundle::new(),
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
             #[cfg(test)]
@@ -956,6 +965,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                 readonly: true,
                 unconfirmed: true,
             },
+            cache_bundle: MarfCacheBundle::new(),
 
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
@@ -1519,6 +1529,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         let mut map = TrieSqlHashMapCursor {
             db: &self.db,
             cache: &mut self.data.block_hash_cache,
+            cache_bundle: MarfCacheBundle::new(),
         };
 
         if let Some((ref last_extended, ref mut last_extended_trie)) = self.data.last_extended {

@@ -336,7 +336,7 @@ impl error::Error for Error {
 
 pub trait BlockMap {
     type TrieId: MarfTrieId;
-    fn get_block_hash(&self, id: u32) -> Result<Self::TrieId, Error>;
+    fn get_block_hash(&mut self, id: u32) -> Result<Self::TrieId, Error>;
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&Self::TrieId, Error>;
 }
 

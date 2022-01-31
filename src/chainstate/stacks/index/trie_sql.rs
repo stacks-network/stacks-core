@@ -144,7 +144,11 @@ pub fn get_unconfirmed_block_identifier<T: MarfTrieId>(
     .map_err(|e| e.into())
 }
 
-pub fn get_block_hash<T: MarfTrieId>(conn: &Connection, local_id: u32) -> Result<T, Error> {
+pub fn get_block_hash<T: MarfTrieId>(
+    conn: &Connection,
+    local_id: u32,
+    _cache_bundle: &MarfCacheBundle,
+) -> Result<T, Error> {
     warn!("get_block_hash {:?}", local_id);
     // Map block id to hash
     let result = conn
@@ -319,6 +323,7 @@ pub fn read_node_hash_bytes_by_bhh<W: Write, T: MarfTrieId>(
 pub struct MarfCacheBundle {
     pub node_to_trie_hash: HashMap<String, TrieHash>,
     pub node_to_type: HashMap<String, TrieNodeType>,
+    pub id_to_hash: HashMap<i32, String>,
 }
 
 impl MarfCacheBundle {
@@ -326,6 +331,7 @@ impl MarfCacheBundle {
         MarfCacheBundle {
             node_to_trie_hash: HashMap::new(),
             node_to_type: HashMap::new(),
+            id_to_hash: HashMap::new(),
         }
     }
 }
@@ -359,11 +365,7 @@ pub fn read_node_type(
     if cached_type.is_some() {
         let type_equals = disk_type == *cached_type.unwrap();
         let trie_hash_equals = disk_trie_hash == *cached_trie_hash.unwrap();
-        warn!(
-            "cached hash equals {} {}",
-            type_equals,
-            trie_hash_equals,
-        );
+        warn!("cached hash equals {} {}", type_equals, trie_hash_equals,);
     }
 
     cache_bundle
