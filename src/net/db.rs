@@ -323,7 +323,6 @@ const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(slot)
     );"#,
-    "CREATE INDEX peer_address_index ON frontier(network_id,addrbytes,port);",
     r#"
     CREATE TABLE asn4(
         prefix INTEGER NOT NULL,
@@ -359,6 +358,9 @@ const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
 ];
 
+const PEERDB_INDEXES: &'static [&'static str] =
+    &["CREATE INDEX IF NOT EXISTS peer_address_index ON frontier(network_id,addrbytes,port);"];
+
 #[derive(Debug)]
 pub struct PeerDB {
     pub conn: Connection,
@@ -391,6 +393,10 @@ impl PeerDB {
         let mut tx = self.tx_begin()?;
 
         for row_text in PEERDB_INITIAL_SCHEMA {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
+
+        for row_text in PEERDB_INDEXES {
             tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
 
