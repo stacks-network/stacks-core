@@ -860,10 +860,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             return Ok(false);
                         }
 
-                        if considered.contains(&tx.txid()) {
+                        if considered.contains(&mempool_tx.tx.txid()) {
                             return Ok(true);
                         } else {
-                            considered.insert(tx.txid());
+                            considered.insert(mempool_tx.tx.txid());
                         }
 
                         match StacksMicroblockBuilder::mine_next_transaction(
