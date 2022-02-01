@@ -40,6 +40,7 @@ use clarity_vm::clarity::{ClarityConnection, ClarityInstance};
 use core::mempool::*;
 use core::*;
 use net::Error as net_error;
+use serde::Deserialize;
 use util::get_epoch_time_ms;
 use util::hash::MerkleTree;
 use util::hash::Sha512Trunc256Sum;
@@ -159,6 +160,7 @@ pub struct TransactionSkipped {
 /// Represents an event for a successful transaction. This transaction should be added to the block.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionSuccessEvent {
+    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
     pub fee: u64,
     pub execution_cost: ExecutionCost,
@@ -168,6 +170,7 @@ pub struct TransactionSuccessEvent {
 /// Represents an event for a failed transaction. Something went wrong when processing this transaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionErrorEvent {
+    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
     pub error: String,
 }
@@ -175,8 +178,19 @@ pub struct TransactionErrorEvent {
 /// Represents an event for a transaction that was skipped, but might succeed later.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionSkippedEvent {
+    #[serde(deserialize_with = "hex_deserialize", serialize_with = "hex_serialize")]
     pub txid: Txid,
     pub error: String,
+}
+
+fn hex_serialize<S: serde::Serializer>(txid: &Txid, s: S) -> Result<S::Ok, S::Error> {
+    let inst = txid.to_hex();
+    s.serialize_str(inst.as_str())
+}
+
+fn hex_deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Txid, D::Error> {
+    let inst_str = String::deserialize(d)?;
+    Txid::from_hex(&inst_str).map_err(serde::de::Error::custom)
 }
 
 /// `TransactionResult` represents the outcome of transaction processing.
@@ -519,7 +533,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         })
     }
 
-    fn make_next_microblock(
+    /// Produce the next microblock in the stream, unconditionally, from the given txs.
+    /// No validity checking will be done.
+    pub fn make_next_microblock(
         &mut self,
         txs: Vec<StacksTransaction>,
         miner_key: &Secp256k1PrivateKey,

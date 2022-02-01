@@ -530,15 +530,26 @@ impl StreamCursor {
         }))
     }
 
-    pub fn new_tx_stream(tx_query: MemPoolSyncData, max_txs: u64, height: u64) -> StreamCursor {
+    pub fn new_tx_stream(
+        tx_query: MemPoolSyncData,
+        max_txs: u64,
+        height: u64,
+        page_id_opt: Option<Txid>,
+    ) -> StreamCursor {
+        let last_randomized_txid = page_id_opt.unwrap_or_else(|| {
+            let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+            Txid(random_bytes)
+        });
+
         StreamCursor::MempoolTxs(TxStreamData {
             tx_query,
-            last_randomized_txid: Txid([0u8; 32]),
+            last_randomized_txid: last_randomized_txid,
             tx_buf: vec![],
             tx_buf_ptr: 0,
             num_txs: 0,
             max_txs: max_txs,
             height: height,
+            corked: false,
         })
     }
 
@@ -2123,6 +2134,7 @@ impl StacksChainState {
                     let block_bench_start = get_epoch_time_ms();
                     let mut parent_microblock_hash = None;
 
+                    // TODO: just do a stat? cache this?
                     match StacksChainState::load_block_header(
                         &self.blocks_path,
                         &consensus_hash,
@@ -2150,6 +2162,7 @@ impl StacksChainState {
 
                     let mblock_bench_begin = get_epoch_time_ms();
                     if let Some(parent_microblock) = parent_microblock_hash {
+                        // TODO: can we cache this?
                         if self.has_processed_microblocks_at_tail(
                             &index_block_hash,
                             &parent_microblock,
@@ -4270,12 +4283,13 @@ impl StacksChainState {
         let mut receipts = vec![];
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
-            for tx in microblock.txs.iter() {
+            for (tx_index, tx) in microblock.txs.iter().enumerate() {
                 let (tx_fee, mut tx_receipt) =
                     StacksChainState::process_transaction(clarity_tx, tx, false)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
+                tx_receipt.tx_index = tx_index as u32;
                 fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
                 burns = burns
                     .checked_add(tx_receipt.stx_burned as u128)
@@ -4392,6 +4406,7 @@ impl StacksChainState {
                             contract_analysis: None,
                             execution_cost,
                             microblock_header: None,
+                            tx_index: 0,
                         };
 
                         all_receipts.push(receipt);
@@ -4446,6 +4461,7 @@ impl StacksChainState {
                                 contract_analysis: None,
                                 execution_cost: ExecutionCost::zero(),
                                 microblock_header: None,
+                                tx_index: 0,
                             }),
                             Err(e) => {
                                 info!("TransferStx burn op processing error.";
@@ -4467,18 +4483,21 @@ impl StacksChainState {
     fn process_block_transactions(
         clarity_tx: &mut ClarityTx,
         block: &StacksBlock,
+        mut tx_index: u32,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         for tx in block.txs.iter() {
-            let (tx_fee, tx_receipt) =
+            let (tx_fee, mut tx_receipt) =
                 StacksChainState::process_transaction(clarity_tx, tx, false)?;
             fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
+            tx_receipt.tx_index = tx_index;
             burns = burns
                 .checked_add(tx_receipt.stx_burned as u128)
                 .expect("Burns overflow");
             receipts.push(tx_receipt);
+            tx_index += 1;
         }
         Ok((fees, burns, receipts))
     }
@@ -5068,7 +5087,11 @@ impl StacksChainState {
 
             // process anchored block
             let (block_fees, block_burns, txs_receipts) =
-                match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
+                match StacksChainState::process_block_transactions(
+                    &mut clarity_tx,
+                    &block,
+                    microblock_txs_receipts.len() as u32,
+                ) {
                     Err(e) => {
                         let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
                         warn!("{}", &msg);

@@ -122,15 +122,14 @@ impl EventObserver {
 
             let body = body.clone();
             let mut req = Request::new(Method::Post, url.clone());
-            req.append_header("Content-Type", "application/json")
-                .expect("Unable to set header");
+            req.append_header("Content-Type", "application/json");
             req.set_body(body);
 
             let response = async_std::task::block_on(async {
                 let stream = match TcpStream::connect(self.endpoint.clone()).await {
                     Ok(stream) => stream,
                     Err(err) => {
-                        println!("Event dispatcher: connection failed  - {:?}", err);
+                        warn!("Event dispatcher: connection failed  - {:?}", err);
                         return None;
                     }
                 };
@@ -138,7 +137,7 @@ impl EventObserver {
                 match client::connect(stream, req).await {
                     Ok(response) => Some(response),
                     Err(err) => {
-                        println!("Event dispatcher: rpc invokation failed  - {:?}", err);
+                        warn!("Event dispatcher: rpc invokation failed  - {:?}", err);
                         return None;
                     }
                 }

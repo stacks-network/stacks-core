@@ -122,6 +122,7 @@ CREATE TABLE burnchain_db_block_headers (
 
     PRIMARY KEY(block_hash)
 );
+CREATE INDEX index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);
 
 CREATE TABLE burnchain_db_block_ops (
     block_hash TEXT NOT NULL,
@@ -129,6 +130,9 @@ CREATE TABLE burnchain_db_block_ops (
     txid TEXT NOT NULL,
     FOREIGN KEY(block_hash) REFERENCES burnchain_db_block_headers(block_hash)
 );
+
+CREATE INDEX index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);
+CREATE INDEX index_burnchain_db_txid ON burnchain_db_block_ops(txid);
 
 CREATE TABLE db_config(version TEXT NOT NULL);";
 

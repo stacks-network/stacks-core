@@ -38,7 +38,6 @@ pub use self::burnchains::{
 pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
-pub use self::neon_node::{InitializedNeonNode, NeonGenesisNode};
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
