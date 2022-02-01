@@ -1884,10 +1884,15 @@ pub mod test {
     use rand::RngCore;
 
     use address::*;
-    use burnchains::burnchain::*;
+    use burnchains::Burnchain;
+    use burnchains::PoxConstants;
+    use burnchains::BurnchainBlock;
+    use burnchains::StacksEventBlock;
+    use burnchains::BurnchainBlockHeader;
+    use burnchains::BurnchainView;
     use burnchains::db::BurnchainDB;
+    use burnchains::burnchain::*;
     use burnchains::test::*;
-    use burnchains::*;
     use chainstate::burn::db::sortdb;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::*;

@@ -2079,7 +2079,6 @@ pub mod test {
 
     use chainstate::stacks::db::*;
     use chainstate::stacks::*;
-    use stx_genesis::GenesisData;
     use vm::tests::TEST_BURN_STATE_DB;
 
     use crate::util::boot::boot_code_test_addr;

@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+/// This module contains drivers and types for all burn chains we support.
+
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::default::Default;
@@ -42,11 +44,12 @@ use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use crate::types::proof::TrieHash;
 
-/// This module contains drivers and types for all burn chains we support.
-//pub mod bitcoin;
 pub mod burnchain;
 pub mod db;
 pub mod indexer;
+/// Stacks events parser used to construct the L1 subnet operations
+/// used for feeding subnets "sortition"
+pub mod events;
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid(pub [u8; 32]);

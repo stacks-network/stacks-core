@@ -17,6 +17,7 @@ use util::hash::*;
 use util::secp256k1::*;
 use util::vrf::*;
 
+use crate::burnchains::events::NewBlock;
 use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 
 use super::*;
@@ -916,5 +917,15 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
         verify_commits_accepted(&mut node, &next_block_commits_1);
 
         verify_commits_accepted(&mut node, &next_block_commits_2);
+    }
+}
+
+
+#[test]
+fn general_parsing() {
+    let test_events = include_str!("./test_events_sample.jsons").lines();
+    for test_event in test_events {
+        let _new_block: NewBlock = serde_json::from_str(test_event)
+            .expect("Failed to parse events JSON");
     }
 }
