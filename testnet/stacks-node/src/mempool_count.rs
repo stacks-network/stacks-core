@@ -1,15 +1,8 @@
-/// Usage: {} <working-dir> [max-time]
+/// Usage: {} <working-dir>
 ///
-/// This program can be used to "analyze the mempool".
+/// This program can be used to count the mempool.
 ///
-/// In particular, it can be used to mine an "unlimited block". That is, it will attempt
-/// to build a block from the transactions in the mempool, but will never run out of
-/// space in the block. Thus, each transaction in the mempool will be tried once.
-///
-/// Note that nonces which are too high initially can become appropriate as blocks are processed.
-///
-/// <working-dir> specifies the `working_dir` from the miner's config file.
-/// [max-time] optionally gives an amount of time to stop mining after, useful for debugging.
+/// For each transaction in the mempool this script will check the appropriateness of the nonce.
 extern crate stacks;
 
 #[macro_use(slog_info)]
@@ -32,7 +25,10 @@ fn main() {
     let argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
         eprintln!(
-            "Usage: {} <working-dir> [max-time]
+            "Usage: {} <working-dir>
+This program can be used to count the mempool.
+
+For each transaction in the mempool this script will check the appropriateness of the nonce.
  ",
             argv[0]
         );
