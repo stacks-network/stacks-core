@@ -655,9 +655,7 @@ impl MemPoolDB {
         MemPoolDB::apply_schema_migrations(&mut tx)?;
 
         // add all indexes
-        for cmd in MEMPOOL_INDEXES {
-            tx.execute_batch(cmd).map_err(db_error::SqliteError)?;
-        }
+        MemPoolDB::add_indexes(&mut tx)?;
 
         tx.commit().map_err(db_error::SqliteError)?;
         Ok(())
@@ -700,6 +698,14 @@ impl MemPoolDB {
                     panic!("Unknown schema version {}", version);
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Add indexes
+    fn add_indexes(tx: &mut DBTx) -> Result<(), db_error> {
+        for cmd in MEMPOOL_INDEXES {
+            tx.execute_batch(cmd).map_err(db_error::SqliteError)?;
         }
         Ok(())
     }
@@ -794,6 +800,7 @@ impl MemPoolDB {
         } else {
             let mut tx = tx_begin_immediate(&mut conn)?;
             MemPoolDB::apply_schema_migrations(&mut tx)?;
+            MemPoolDB::add_indexes(&mut tx)?;
             tx.commit().map_err(db_error::SqliteError)?;
         }
 

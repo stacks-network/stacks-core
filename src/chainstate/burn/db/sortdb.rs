@@ -2126,6 +2126,9 @@ impl SortitionDB {
         }
 
         db.check_schema_version_and_update(epochs)?;
+        if readwrite {
+            db.add_indexes()?;
+        }
         Ok(db)
     }
 
@@ -2286,9 +2289,6 @@ impl SortitionDB {
         for row_text in SORTITION_DB_SCHEMA_2 {
             db_tx.execute_batch(row_text)?;
         }
-        for row_text in SORTITION_DB_INDEXES {
-            db_tx.execute_batch(row_text)?;
-        }
 
         SortitionDB::validate_and_insert_epochs(&db_tx, epochs_ref)?;
 
@@ -2312,6 +2312,8 @@ impl SortitionDB {
         )?;
 
         db_tx.commit()?;
+
+        self.add_indexes()?;
         Ok(())
     }
 
@@ -2509,6 +2511,15 @@ impl SortitionDB {
             Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
             Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
         }
+    }
+
+    fn add_indexes(&mut self) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        for row_text in SORTITION_DB_INDEXES {
+            tx.execute_batch(row_text)?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 }
 

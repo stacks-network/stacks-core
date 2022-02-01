@@ -122,16 +122,21 @@ pub struct AtlasDB {
 }
 
 impl AtlasDB {
+    fn add_indexes(&mut self) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        for row_text in ATLASDB_INDEXES {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     fn instantiate(&mut self) -> Result<(), db_error> {
         let genesis_attachments = self.atlas_config.genesis_attachments.take();
 
         let tx = self.tx_begin()?;
 
         for row_text in ATLASDB_INITIAL_SCHEMA {
-            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
-        }
-
-        for row_text in ATLASDB_INDEXES {
             tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
 
@@ -158,6 +163,7 @@ impl AtlasDB {
 
         tx.commit().map_err(db_error::SqliteError)?;
 
+        self.add_indexes()?;
         Ok(())
     }
 
@@ -213,6 +219,9 @@ impl AtlasDB {
         };
         if create_flag {
             db.instantiate()?;
+        }
+        if readwrite {
+            db.add_indexes()?;
         }
         Ok(db)
     }

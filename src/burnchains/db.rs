@@ -183,6 +183,15 @@ impl<'a> BurnchainDBTransaction<'a> {
 }
 
 impl BurnchainDB {
+    fn add_indexes(&mut self) -> Result<(), BurnchainError> {
+        let db_tx = self.tx_begin()?;
+        for index in BURNCHAIN_DB_INDEXES.iter() {
+            db_tx.sql_tx.execute_batch(index)?;
+        }
+        db_tx.commit()?;
+        Ok(())
+    }
+
     pub fn connect(
         path: &str,
         first_block_height: u64,
@@ -222,10 +231,6 @@ impl BurnchainDB {
             let db_tx = db.tx_begin()?;
             db_tx.sql_tx.execute_batch(BURNCHAIN_DB_INITIAL_SCHEMA)?;
 
-            for index in BURNCHAIN_DB_INDEXES.iter() {
-                db_tx.sql_tx.execute_batch(index)?;
-            }
-
             db_tx.sql_tx.execute(
                 "INSERT INTO db_config (version) VALUES (?1)",
                 &[&BURNCHAIN_DB_VERSION],
@@ -243,6 +248,9 @@ impl BurnchainDB {
             db_tx.commit()?;
         }
 
+        if readwrite {
+            db.add_indexes()?;
+        }
         Ok(db)
     }
 
@@ -253,7 +261,12 @@ impl BurnchainDB {
             OpenFlags::SQLITE_OPEN_READ_ONLY
         };
         let conn = sqlite_open(path, open_flags, true)?;
-        Ok(BurnchainDB { conn })
+        let mut db = BurnchainDB { conn };
+
+        if readwrite {
+            db.add_indexes()?;
+        }
+        Ok(db)
     }
 
     fn tx_begin<'a>(&'a mut self) -> Result<BurnchainDBTransaction<'a>, BurnchainError> {

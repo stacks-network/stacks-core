@@ -858,9 +858,7 @@ impl StacksChainState {
                 StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
             }
 
-            for cmd in CHAINSTATE_INDEXES {
-                tx.execute_batch(cmd)?;
-            }
+            StacksChainState::add_indexes(&tx)?;
         }
 
         dbtx.instantiate_index()?;
@@ -939,6 +937,13 @@ impl StacksChainState {
         Ok(())
     }
 
+    fn add_indexes<'a>(tx: &DBTx<'a>) -> Result<(), Error> {
+        for cmd in CHAINSTATE_INDEXES {
+            tx.execute_batch(cmd)?;
+        }
+        Ok(())
+    }
+
     fn open_db(
         mainnet: bool,
         chain_id: u32,
@@ -953,6 +958,7 @@ impl StacksChainState {
             let mut marf = StacksChainState::open_index(index_path)?;
             let tx = marf.storage_tx()?;
             StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
+            StacksChainState::add_indexes(&tx)?;
             tx.commit()?;
             Ok(marf)
         }
@@ -972,6 +978,7 @@ impl StacksChainState {
         } else {
             let mut marf = StacksChainState::open_index(index_path)?;
             let tx = marf.storage_tx()?;
+            StacksChainState::add_indexes(&tx)?;
             tx.commit()?;
             Ok(marf)
         }

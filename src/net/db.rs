@@ -396,10 +396,6 @@ impl PeerDB {
             tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
         }
 
-        for row_text in PEERDB_INDEXES {
-            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
-        }
-
         tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
             &[&PEERDB_VERSION],
@@ -445,6 +441,16 @@ impl PeerDB {
 
         tx.commit().map_err(db_error::SqliteError)?;
 
+        self.add_indexes()?;
+        Ok(())
+    }
+
+    fn add_indexes(&mut self) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        for row_text in PEERDB_INDEXES {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -593,6 +599,9 @@ impl PeerDB {
 
                 tx.commit()?;
             }
+        }
+        if readwrite {
+            db.add_indexes()?;
         }
         Ok(db)
     }
