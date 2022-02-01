@@ -60,7 +60,6 @@ use crate::types::chainstate::{
 };
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 use crate::types::proof::{TrieHash, TRIEHASH_ENCODED_SIZE};
-use clarity_vm::clarity::BlockLimitsFunctions;
 
 pub mod address;
 pub mod auth;
@@ -878,8 +877,10 @@ pub struct StacksBlockBuilder {
     parent_header_hash: BlockHeaderHash,
     parent_microblock_hash: Option<BlockHeaderHash>,
     miner_id: usize,
-    block_limits_fns: BlockLimitsFunctions,
 }
+
+// maximum amount of data a leader can send during its epoch (2MB)
+pub const MAX_EPOCH_SIZE: u32 = 2 * 1024 * 1024;
 
 // maximum microblock size is 64KB, but note that the current leader has a space budget of
 // $MAX_EPOCH_SIZE bytes (so the average microblock size needs to be 4kb if there are 256 of them)

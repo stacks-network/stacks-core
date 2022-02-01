@@ -72,22 +72,6 @@ use crate::util::db::Error as db_error;
 use crate::util::secp256k1::MessageSignature;
 use types::chainstate::BurnchainHeaderHash;
 
-/// This struct is used to map the context at a point in time to concrete limits on block
-/// length and execution run-time. This allows the user to either:
-///   1) use default production settings, i.e., read the block limits from the StacksEpoch
-///   2) override defaults with special settings to make a tool, e.g., the mempool analyzer
-///   3) override defaults with special settings for test.
-/// Note: We use a simple interface that can be expanded over time if necessary.
-#[derive(Clone)]
-pub struct BlockLimitsFunctions {
-    /// The length limit of a block.
-    pub output_length_limit: u32,
-    /// Function mapping the StacksEpoch to an execution cost.
-    /// Note: We have to look up the StacksEpoch at run-time anyway, so we avoid an interface
-    /// that would require looking it up again.
-    pub execution_block_limit_fn: fn(&StacksEpoch) -> ExecutionCost,
-}
-
 ///
 /// A high-level interface for interacting with the Clarity VM.
 ///
@@ -104,8 +88,6 @@ pub struct BlockLimitsFunctions {
 pub struct ClarityInstance {
     datastore: MarfedKV,
     mainnet: bool,
-    /// Derive block limits from the given context. Used to use or override production defaults.
-    pub block_limits_fns: BlockLimitsFunctions,
 }
 
 ///
@@ -286,52 +268,9 @@ impl ClarityBlockConnection<'_> {
     }
 }
 
-// Maximum amount of data a leader can send during its epoch (2MB).
-const MAX_EPOCH_SIZE: u32 = 2 * 1024 * 1024;
-
-/// `BlockLimitsFunctions` for production. Use `MAX_EPOCH_SIZE` for length limit and get block
-/// limits from `StacksEpoch`.
-pub fn ProductionBlockLimitFns() -> BlockLimitsFunctions {
-    BlockLimitsFunctions {
-        output_length_limit: MAX_EPOCH_SIZE,
-        execution_block_limit_fn: |epoch: &StacksEpoch| epoch.block_limit.clone(),
-    }
-}
-
-/// Creates an "unlimited" block size. This can be used for analyzing the mempool.
-pub fn UnlimitedBlockLimitFns() -> BlockLimitsFunctions {
-    BlockLimitsFunctions {
-        output_length_limit: u32::MAX,
-        execution_block_limit_fn: |_epoch: &StacksEpoch| ExecutionCost {
-            write_length: u64::MAX,
-            write_count: u64::MAX,
-            read_length: u64::MAX,
-            read_count: u64::MAX,
-            runtime: u64::MAX,
-        },
-    }
-}
-
 impl ClarityInstance {
-    /// Uses production block limits.
     pub fn new(mainnet: bool, datastore: MarfedKV) -> ClarityInstance {
-        ClarityInstance {
-            datastore,
-            mainnet,
-            block_limits_fns: ProductionBlockLimitFns(),
-        }
-    }
-
-    pub fn new_with_limits_fns(
-        mainnet: bool,
-        datastore: MarfedKV,
-        block_limits_fns: BlockLimitsFunctions,
-    ) -> ClarityInstance {
-        ClarityInstance {
-            datastore,
-            mainnet,
-            block_limits_fns,
-        }
+        ClarityInstance { datastore, mainnet }
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -381,12 +320,16 @@ impl ClarityInstance {
         let mut datastore = self.datastore.begin(current, next);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
-        let block_limit = (self.block_limits_fns.execution_block_limit_fn)(&epoch).clone();
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
-                LimitedCostTracker::new(self.mainnet, block_limit, &mut clarity_db, epoch.epoch_id)
-                    .expect("FAIL: problem instantiating cost tracking"),
+                LimitedCostTracker::new(
+                    self.mainnet,
+                    epoch.block_limit.clone(),
+                    &mut clarity_db,
+                    epoch.epoch_id,
+                )
+                .expect("FAIL: problem instantiating cost tracking"),
             )
         };
 

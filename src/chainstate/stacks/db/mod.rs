@@ -84,8 +84,6 @@ use crate::types::chainstate::{
 };
 use crate::types::proof::{ClarityMarfTrieId, TrieHash};
 use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
-use clarity_vm::clarity::BlockLimitsFunctions;
-use clarity_vm::clarity::ProductionBlockLimitFns;
 use vm::Value;
 
 pub mod accounts;
@@ -1554,22 +1552,6 @@ impl StacksChainState {
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec_with_limits(
-            mainnet,
-            chain_id,
-            path_str,
-            boot_data,
-            ProductionBlockLimitFns(),
-        )
-    }
-
-    pub fn open_and_exec_with_limits(
-        mainnet: bool,
-        chain_id: u32,
-        path_str: &str,
-        boot_data: Option<&mut ChainStateBootData>,
-        block_limit_fns: BlockLimitsFunctions,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::make_chainstate_dirs(path_str)?;
         let path = PathBuf::from(path_str);
         let blocks_path = StacksChainState::blocks_path(path.clone());
@@ -1614,8 +1596,7 @@ impl StacksChainState {
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state =
-            ClarityInstance::new_with_limits_fns(mainnet, vm_state, block_limit_fns);
+        let clarity_state = ClarityInstance::new(mainnet, vm_state);
 
         let mut chainstate = StacksChainState {
             mainnet: mainnet,

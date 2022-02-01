@@ -182,7 +182,6 @@ pub enum MemPoolDropReason {
     TOO_EXPENSIVE,
 }
 
-#[derive(Debug, Clone)]
 pub struct ConsiderTransaction {
     /// Transaction to consider in block assembly
     pub tx: MemPoolTxInfo,
@@ -754,7 +753,6 @@ impl MemPoolDB {
         cost_estimator: Box<dyn CostEstimator>,
         metric: Box<dyn CostMetric>,
     ) -> Result<MemPoolDB, db_error> {
-        info!("chainstate_path {}", &chainstate_path);
         match fs::metadata(chainstate_path) {
             Ok(md) => {
                 if !md.is_dir() {
@@ -882,7 +880,6 @@ impl MemPoolDB {
         &self,
         start_with_no_estimate: bool,
     ) -> Result<ConsiderTransactionResult, db_error> {
-        warn!("start_with_no_estimate {}", start_with_no_estimate);
         let (next_tx, update_estimate): (MemPoolTxInfo, bool) = if start_with_no_estimate {
             match self.get_next_tx_to_consider_no_estimate()? {
                 Some(result) => result,
@@ -903,7 +900,6 @@ impl MemPoolDB {
 
         let mut needs_nonces = vec![];
         if next_tx.metadata.last_known_origin_nonce.is_none() {
-            warn!("last_known_origin_nonce.is_none()");
             needs_nonces.push(next_tx.metadata.origin_address);
         }
         if next_tx.metadata.last_known_sponsor_nonce.is_none() {
@@ -1023,9 +1019,8 @@ impl MemPoolDB {
         let mut remember_start_with_estimate = None;
 
         loop {
-            warn!("settings.max_walk_time_ms {}", settings.max_walk_time_ms);
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
-                warn!("Mempool iteration deadline exceeded";
+                debug!("Mempool iteration deadline exceeded";
                        "deadline_ms" => settings.max_walk_time_ms);
                 break;
             }
@@ -1036,11 +1031,10 @@ impl MemPoolDB {
 
             match self.get_next_tx_to_consider(start_with_no_estimate)? {
                 ConsiderTransactionResult::NoTransactions => {
-                    warn!("ConsiderTransactionResult::NoTransactions");
+                    debug!("No more transactions to consider in mempool");
                     break;
                 }
                 ConsiderTransactionResult::UpdateNonces(addresses) => {
-                    warn!("ConsiderTransactionResult::UpdateNonces({:?})", &addresses);
                     // if we need to update the nonce for the considered transaction,
                     //  use the last value of start_with_no_estimate on the next loop
                     remember_start_with_estimate = Some(start_with_no_estimate);
@@ -1060,11 +1054,10 @@ impl MemPoolDB {
                     }
                 }
                 ConsiderTransactionResult::Consider(consider) => {
-                    warn!("ConsiderTransactionResult::Consider({:?})", &consider);
                     // if we actually consider the chosen transaction,
                     //  compute a new start_with_no_estimate on the next loop
                     remember_start_with_estimate = None;
-                    warn!("Consider mempool transaction";
+                    debug!("Consider mempool transaction";
                            "txid" => %consider.tx.tx.txid(),
                            "origin_addr" => %consider.tx.metadata.origin_address,
                            "sponsor_addr" => %consider.tx.metadata.sponsor_address,
@@ -1074,7 +1067,7 @@ impl MemPoolDB {
                     total_considered += 1;
 
                     if !todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
-                        warn!("Mempool iteration early exit from iterator");
+                        debug!("Mempool iteration early exit from iterator");
                         break;
                     }
 
@@ -1086,7 +1079,7 @@ impl MemPoolDB {
             }
         }
 
-        warn!(
+        debug!(
             "Mempool iteration finished";
             "considered_txs" => total_considered,
             "elapsed_ms" => start_time.elapsed().as_millis()
@@ -1125,6 +1118,7 @@ impl MemPoolDB {
     }
 
     /// Get all transactions across all tips
+    #[cfg(test)]
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool";
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, NO_PARAMS)?;
