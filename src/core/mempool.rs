@@ -182,6 +182,7 @@ pub enum MemPoolDropReason {
     TOO_EXPENSIVE,
 }
 
+#[derive(Debug, Clone)]
 pub struct ConsiderTransaction {
     /// Transaction to consider in block assembly
     pub tx: MemPoolTxInfo,
@@ -880,6 +881,7 @@ impl MemPoolDB {
         &self,
         start_with_no_estimate: bool,
     ) -> Result<ConsiderTransactionResult, db_error> {
+        warn!("start_with_no_estimate {}", start_with_no_estimate);
         let (next_tx, update_estimate): (MemPoolTxInfo, bool) = if start_with_no_estimate {
             match self.get_next_tx_to_consider_no_estimate()? {
                 Some(result) => result,
@@ -900,6 +902,7 @@ impl MemPoolDB {
 
         let mut needs_nonces = vec![];
         if next_tx.metadata.last_known_origin_nonce.is_none() {
+            warn!("last_known_origin_nonce.is_none()");
             needs_nonces.push(next_tx.metadata.origin_address);
         }
         if next_tx.metadata.last_known_sponsor_nonce.is_none() {
@@ -1019,8 +1022,9 @@ impl MemPoolDB {
         let mut remember_start_with_estimate = None;
 
         loop {
+            warn!("settings.max_walk_time_ms {}", settings.max_walk_time_ms);
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
-                debug!("Mempool iteration deadline exceeded";
+                warn!("Mempool iteration deadline exceeded";
                        "deadline_ms" => settings.max_walk_time_ms);
                 break;
             }
@@ -1031,10 +1035,11 @@ impl MemPoolDB {
 
             match self.get_next_tx_to_consider(start_with_no_estimate)? {
                 ConsiderTransactionResult::NoTransactions => {
-                    debug!("No more transactions to consider in mempool");
+                    warn!("ConsiderTransactionResult::NoTransactions");
                     break;
                 }
                 ConsiderTransactionResult::UpdateNonces(addresses) => {
+                    warn!("ConsiderTransactionResult::UpdateNonces({:?})", &addresses);
                     // if we need to update the nonce for the considered transaction,
                     //  use the last value of start_with_no_estimate on the next loop
                     remember_start_with_estimate = Some(start_with_no_estimate);
@@ -1054,10 +1059,11 @@ impl MemPoolDB {
                     }
                 }
                 ConsiderTransactionResult::Consider(consider) => {
+                    warn!("ConsiderTransactionResult::Consider({:?})", &consider);
                     // if we actually consider the chosen transaction,
                     //  compute a new start_with_no_estimate on the next loop
                     remember_start_with_estimate = None;
-                    debug!("Consider mempool transaction";
+                    warn!("Consider mempool transaction";
                            "txid" => %consider.tx.tx.txid(),
                            "origin_addr" => %consider.tx.metadata.origin_address,
                            "sponsor_addr" => %consider.tx.metadata.sponsor_address,
@@ -1067,7 +1073,7 @@ impl MemPoolDB {
                     total_considered += 1;
 
                     if !todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
-                        debug!("Mempool iteration early exit from iterator");
+                        warn!("Mempool iteration early exit from iterator");
                         break;
                     }
 
@@ -1079,7 +1085,7 @@ impl MemPoolDB {
             }
         }
 
-        debug!(
+        warn!(
             "Mempool iteration finished";
             "considered_txs" => total_considered,
             "elapsed_ms" => start_time.elapsed().as_millis()
