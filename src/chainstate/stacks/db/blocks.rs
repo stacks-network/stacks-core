@@ -82,6 +82,7 @@ use crate::types::chainstate::{
     StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
 };
 use crate::{types, util};
+use monitoring::set_last_execution_cost_observed;
 use types::chainstate::BurnchainHeaderHash;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -5008,6 +5009,11 @@ impl StacksChainState {
             None,
         )?;
 
+        let block_limit = clarity_tx.block_limit().unwrap_or_else(|| {
+            warn!("Failed to read transaction block limit");
+            ExecutionCost::max_value()
+        });
+
         let (
             scheduled_miner_reward,
             block_execution_cost,
@@ -5249,6 +5255,8 @@ impl StacksChainState {
         .expect("FATAL: failed to advance chain tip");
 
         chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
+
+        set_last_execution_cost_observed(&block_execution_cost, &block_limit);
 
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip,
