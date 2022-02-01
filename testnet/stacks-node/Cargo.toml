@@ -36,6 +36,10 @@ features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 name = "mempool-analyzer"
 path = "src/mempool_analyzer.rs"
 
+[[bin]]
+name = "mempool-count"
+path = "src/mempool_count.rs"
+
 
 [[bin]]
 name = "stacks-node"
