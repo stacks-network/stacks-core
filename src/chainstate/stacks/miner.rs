@@ -710,7 +710,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             .expect("Microblock already open and processing");
 
         let mut bytes_so_far = self.runtime.bytes_so_far;
-        let mut num_txs = self.runtime.num_mined;
+        let mut num_txs_considered = self.runtime.num_mined;
         let mut tx_events = Vec::new();
 
         let mut result = Ok(());
@@ -728,7 +728,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         TransactionResult::Success(..) => {
                             test_debug!("Include tx {} in microblock", tx.txid());
                             bytes_so_far += tx_len;
-                            num_txs += 1;
+                            num_txs_considered += 1;
                             txs_included.push(tx);
                         }
                         TransactionResult::Skipped(..) | TransactionResult::ProcessingError(..) => {
@@ -757,7 +757,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.bytes_so_far = bytes_so_far;
         self.clarity_tx.replace(clarity_tx);
         self.runtime.considered.replace(considered);
-        self.runtime.num_mined = num_txs;
+        self.runtime.num_mined = num_txs_considered;
 
         match result {
             Err(e) => {
@@ -791,7 +791,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             .expect("Microblock already open and processing");
 
         let mut bytes_so_far = self.runtime.bytes_so_far;
-        let mut num_txs = self.runtime.num_mined;
+        let mut num_txs_considered = self.runtime.num_mined;
         let mut num_selected = 0;
         let mut tx_events = Vec::new();
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
@@ -862,7 +862,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                             mempool_tx.tx.payload.name()
                                         );
                                         txs_included.push(mempool_tx.tx.clone());
-                                        num_txs += 1;
+                                        num_txs_considered += 1;
                                         num_added += 1;
                                         num_selected += 1;
                                         Ok(true)
@@ -904,7 +904,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         self.runtime.bytes_so_far = bytes_so_far;
         self.clarity_tx.replace(clarity_tx);
         self.runtime.considered.replace(considered);
-        self.runtime.num_mined = num_txs;
+        self.runtime.num_mined = num_txs_considered;
 
         match result {
             Ok(_) => {}
@@ -1802,6 +1802,8 @@ impl StacksBlockBuilder {
 
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
+#[allow(unused_variables)]
+#[allow(unused_mut)]
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
         burn_dbconn: &SortitionDBConn,
@@ -1866,7 +1868,7 @@ impl StacksBlockBuilder {
 
         mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
-        let mut considered = HashSet::new(); // txids of all transactions we looked at
+        let mut considered:HashSet<i32> = HashSet::new(); // txids of all transactions we looked at
         let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
         let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
 
@@ -1874,7 +1876,7 @@ impl StacksBlockBuilder {
 
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
         let deadline = ts_start + (max_miner_time_ms as u128);
-        let mut num_txs = 0;
+        let mut num_txs_considered = 0;
 
         debug!(
             "Anchored block transaction selection begins (child of {})",
@@ -1889,123 +1891,7 @@ impl StacksBlockBuilder {
                     tip_height,
                     mempool_settings.clone(),
                     |epoch_tx, to_consider, estimator| {
-                        let txinfo = &to_consider.tx;
-                        let update_estimator = to_consider.update_estimate;
-
-                        if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
-                            return Ok(false);
-                        }
-                        if get_epoch_time_ms() >= deadline {
-                            debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
-                            return Ok(false);
-                        }
-
-                        // skip transactions early if we can
-                        if considered.contains(&txinfo.tx.txid()) {
-                            return Ok(true);
-                        }
-
-                        if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
-                            if *nonce >= txinfo.tx.get_origin_nonce() {
-                                return Ok(true);
-                            }
-                        }
-                        if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
-                            if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
-                                if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
-                                    if *nonce >= sponsor_nonce {
-                                        return Ok(true);
-                                    }
-                                }
-                            }
-                        }
-
-                        considered.insert(txinfo.tx.txid());
-                        num_considered += 1;
-
-                        let tx_result = builder.try_mine_tx_with_len(
-                            epoch_tx,
-                            &txinfo.tx,
-                            txinfo.metadata.len,
-                            &block_limit_hit,
-                        );
-                        tx_events.push(tx_result.convert_to_event());
-
-                        match tx_result {
-                            TransactionResult::Success(TransactionSuccess { receipt, .. }) => {
-                                num_txs += 1;
-                                if update_estimator {
-                                    if let Err(e) = estimator.notify_event(
-                                        &txinfo.tx.payload,
-                                        &receipt.execution_cost,
-                                        &block_limit,
-                                        &stacks_epoch_id,
-                                    ) {
-                                        warn!("Error updating estimator";
-                                              "txid" => %txinfo.metadata.txid,
-                                              "error" => ?e);
-                                    }
-                                }
-                            }
-                            TransactionResult::Skipped(TransactionSkipped { error, .. })
-                            | TransactionResult::ProcessingError(TransactionError {
-                                error, ..
-                            }) => {
-                                match &error {
-                                    Error::StacksTransactionSkipped(_) => {}
-                                    Error::BlockTooBigError => {
-                                        // done mining -- our execution budget is exceeded.
-                                        // Make the block from the transactions we did manage to get
-                                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
-                                        if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                            debug!("Switch to mining stx-transfers only");
-                                            block_limit_hit =
-                                                BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                        } else if block_limit_hit
-                                            == BlockLimitFunction::CONTRACT_LIMIT_HIT
-                                        {
-                                            debug!(
-                                                "Stop mining anchored block due to limit exceeded"
-                                            );
-                                            block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                                            return Ok(false);
-                                        }
-                                    }
-                                    Error::TransactionTooBigError => {
-                                        invalidated_txs.push(txinfo.metadata.txid);
-                                        if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                            block_limit_hit =
-                                                BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                            debug!("Switch to mining stx-transfers only");
-                                        } else if block_limit_hit
-                                            == BlockLimitFunction::CONTRACT_LIMIT_HIT
-                                        {
-                                            debug!(
-                                                "Stop mining anchored block due to limit exceeded"
-                                            );
-                                            block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                                            return Ok(false);
-                                        }
-                                    }
-                                    Error::InvalidStacksTransaction(_, true) => {
-                                        // if we have an invalid transaction that was quietly ignored, don't warn here either
-                                    }
-                                    e => {
-                                        warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
-                                        return Ok(true);
-                                    }
-                                }
-                            }
-                        }
-
-                        mined_origin_nonces
-                            .insert(txinfo.tx.origin_address(), txinfo.tx.get_origin_nonce());
-                        if let (Some(sponsor_addr), Some(sponsor_nonce)) =
-                            (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
-                        {
-                            mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
-                        }
-
+                        num_txs_considered += 1;
                         Ok(true)
                     },
                 );
@@ -2018,7 +1904,7 @@ impl StacksBlockBuilder {
                     break;
                 }
             }
-            debug!("Anchored block transaction selection finished (child of {}): {} transactions selected ({} considered)", &parent_stacks_header.anchored_header.block_hash(), num_txs, considered.len());
+            debug!("Anchored block transaction selection finished (child of {}): {} transactions selected ({} considered)", &parent_stacks_header.anchored_header.block_hash(), num_txs_considered, considered.len());
             intermediate_result
         };
 
