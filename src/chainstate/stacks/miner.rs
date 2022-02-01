@@ -1802,8 +1802,8 @@ impl StacksBlockBuilder {
 
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
-#[allow(unused_variables)]
-#[allow(unused_mut)]
+    #[allow(unused_variables)]
+    #[allow(unused_mut)]
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
         burn_dbconn: &SortitionDBConn,
@@ -1868,7 +1868,7 @@ impl StacksBlockBuilder {
 
         mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
-        let mut considered:HashSet<i32> = HashSet::new(); // txids of all transactions we looked at
+        let mut considered: HashSet<i32> = HashSet::new(); // txids of all transactions we looked at
         let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
         let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
 

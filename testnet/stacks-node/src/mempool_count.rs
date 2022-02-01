@@ -20,12 +20,13 @@ use std::process;
 use cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 
+use crate::util::hash::Hash160;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::StacksBlockBuilder;
 use stacks::clarity_vm::clarity::UnlimitedBlockLimitFns;
 use stacks::core::MemPoolDB;
-use stacks::util::get_epoch_time_ms;
+use stacks::util::vrf::VRFProof;
 use stacks::*;
 
 fn main() {
@@ -39,9 +40,10 @@ fn main() {
         process::exit(1);
     }
 
-    let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[1]);
-
-    let chain_state_path = format!("{}/mainnet/chain_state/", &argv[1]);
+    let base_path = argv[1].clone();
+    info!("base_path {}", &base_path);
+    let sort_db_path = format!("{}/mainnet/burnchain/sortition", &base_path);
+    let chain_state_path = format!("{}/mainnet/chainstate/", &base_path);
 
     let sort_db = SortitionDB::open(&sort_db_path, false)
         .expect(&format!("Failed to open {}", &sort_db_path));
@@ -53,6 +55,8 @@ fn main() {
 
     let mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
         .expect("Failed to open mempool db");
+    let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+        .expect("Failed to get sortition chain tip");
 
     let (mut chain_state, _) = StacksChainState::open_and_exec_with_limits(
         true,
@@ -74,22 +78,26 @@ fn main() {
     let mut builder = StacksBlockBuilder::make_block_builder(
         chain_state.mainnet,
         &parent_header,
-        proof,
-        total_burn,
-        pubkey_hash,
+        VRFProof::empty(),
+        chain_tip.total_burn,
+        Hash160([0; 20]),
     )
     .expect("make builder");
 
-    let ts_start = get_epoch_time_ms();
-
-    let mut miner_epoch_info = builder.pre_epoch_begin(&mut chain_state, burn_dbconn)?;
-    let (mut epoch_tx, confirmed_mblock_cost) = builder
+    let burn_dbconn = &sort_db.index_conn();
+    let mut miner_epoch_info = builder
+        .pre_epoch_begin(&mut chain_state, burn_dbconn)
+        .expect("wft");
+    let (mut clarity_tx, _) = builder
         .epoch_begin(burn_dbconn, &mut miner_epoch_info)
         .expect("should have worked");
 
-    let all_txs = MemPoolDB::get_all_txs(mempool_db.conn());
+    let all_txs = MemPoolDB::get_all_txs(mempool_db.conn()).expect("couldn't get tx's");
     for tx in all_txs {
         info!("tx {:?}", &tx);
-        let min_nonce = StacksChainState::get_account(clarity_tx, &address.clone().into()).nonce;
+        let sender_address = tx.metadata.origin_address;
+        let sender_nonce =
+            StacksChainState::get_account(&mut clarity_tx, &sender_address.clone().into()).nonce;
+        info!("sender_nonce {:?}", &sender_nonce);
     }
 }

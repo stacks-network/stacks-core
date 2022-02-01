@@ -754,6 +754,7 @@ impl MemPoolDB {
         cost_estimator: Box<dyn CostEstimator>,
         metric: Box<dyn CostMetric>,
     ) -> Result<MemPoolDB, db_error> {
+        info!("chainstate_path {}", &chainstate_path);
         match fs::metadata(chainstate_path) {
             Ok(md) => {
                 if !md.is_dir() {
