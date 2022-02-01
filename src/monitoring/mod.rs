@@ -113,19 +113,18 @@ pub fn set_last_execution_cost_observed(
     block_limit: &ExecutionCost,
 ) {
     #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_BLOCK_READ_COUNT
-        .set(execution_cost.read_count as f64 / block_limit.read_count as f64);
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_BLOCK_WRITE_COUNT
-        .set(execution_cost.write_count as f64 / block_limit.read_count as f64);
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_BLOCK_READ_LENGTH
-        .set(execution_cost.read_length as f64 / block_limit.read_length as f64);
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_BLOCK_WRITE_LENGTH
-        .set(execution_cost.write_length as f64 / block_limit.write_length as f64);
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::LAST_BLOCK_RUNTIME.set(execution_cost.runtime as f64 / block_limit.runtime as f64);
+    {
+        prometheus::LAST_BLOCK_READ_COUNT
+            .set(execution_cost.read_count as f64 / block_limit.read_count as f64);
+        prometheus::LAST_BLOCK_WRITE_COUNT
+            .set(execution_cost.write_count as f64 / block_limit.read_count as f64);
+        prometheus::LAST_BLOCK_READ_LENGTH
+            .set(execution_cost.read_length as f64 / block_limit.read_length as f64);
+        prometheus::LAST_BLOCK_WRITE_LENGTH
+            .set(execution_cost.write_length as f64 / block_limit.write_length as f64);
+        prometheus::LAST_BLOCK_RUNTIME
+            .set(execution_cost.runtime as f64 / block_limit.runtime as f64);
+    }
 }
 
 pub fn increment_btc_ops_sent_counter() {

@@ -5009,12 +5009,10 @@ impl StacksChainState {
             None,
         )?;
 
-        let block_limit = clarity_tx
-            .block_limit()
-            .unwrap_or_else(|| {
-                 warn!("Failed to read transaction block limit");
-                 ExecutionCost::max_value()
-            });
+        let block_limit = clarity_tx.block_limit().unwrap_or_else(|| {
+            warn!("Failed to read transaction block limit");
+            ExecutionCost::max_value()
+        });
 
         let (
             scheduled_miner_reward,
