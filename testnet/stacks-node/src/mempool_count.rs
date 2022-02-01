@@ -93,11 +93,25 @@ fn main() {
         .expect("should have worked");
 
     let all_txs = MemPoolDB::get_all_txs(mempool_db.conn()).expect("couldn't get tx's");
+    let mut num_equal = 0;
+    let mut num_too_low = 0;
+    let mut num_too_high = 0;
+
     for tx in all_txs {
-        info!("tx {:?}", &tx);
-        let sender_address = tx.metadata.origin_address;
-        let sender_nonce =
-            StacksChainState::get_account(&mut clarity_tx, &sender_address.clone().into()).nonce;
-        info!("sender_nonce {:?}", &sender_nonce);
+        let supplied_origin_nonce = tx.metadata.origin_nonce;
+        let origin_address = tx.metadata.origin_address;
+        let needed_nonce =
+            StacksChainState::get_account(&mut clarity_tx, &origin_address.clone().into()).nonce;
+        let same = supplied_origin_nonce == needed_nonce;
+        if supplied_origin_nonce == needed_nonce {
+            num_equal += 1;
+        } else if supplied_origin_nonce < needed_nonce {
+            num_too_low += 1;
+        } else if supplied_origin_nonce > needed_nonce {
+            num_too_high += 1;
+        }
+        info!("origin {:?} supplied={} needed={} same={}", &origin_address, supplied_origin_nonce, needed_nonce, same);
     }
+
+    info!("num_equal {} num_too_low {} num_too_high {}", num_equal, num_too_low, num_too_high);
 }
