@@ -482,7 +482,7 @@ impl PeerDB {
     }
 
     fn reset_allows<'a>(tx: &mut Transaction<'a>) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET allowed = -1", NO_PARAMS)
+        tx.execute("UPDATE frontier SET allowed = 0", NO_PARAMS)
             .map_err(db_error::SqliteError)?;
         Ok(())
     }
@@ -2320,7 +2320,7 @@ mod test {
         assert_eq!(n1.denied, i64::MAX);
         assert_eq!(n2.denied, 0); // refreshed; no longer denied
 
-        assert_eq!(n1.allowed, -1);
-        assert_eq!(n2.allowed, -1);
+        assert_eq!(n1.allowed, 0);
+        assert_eq!(n2.allowed, 0);
     }
 }
