@@ -533,7 +533,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         })
     }
 
-    fn make_next_microblock(
+    /// Produce the next microblock in the stream, unconditionally, from the given txs.
+    /// No validity checking will be done.
+    pub fn make_next_microblock(
         &mut self,
         txs: Vec<StacksTransaction>,
         miner_key: &Secp256k1PrivateKey,
