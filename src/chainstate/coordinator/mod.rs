@@ -746,7 +746,7 @@ impl<
             &stacks_tip.canonical_stacks_tip_consensus_hash,
             &stacks_tip.canonical_stacks_tip_hash,
         );
-        let rc_length = self.burnchain.pox_constants.reward_cycle_length;
+        let reward_cycle_length = self.burnchain.pox_constants.reward_cycle_length;
         let veto_pct = self
             .burnchain
             .exit_contract_constants
@@ -790,7 +790,6 @@ impl<
                         proposed_exit_rc, num_vetos
                     );
                     // Check if the percent veto crosses the minimum threshold
-                    let reward_cycle_length = rc_length;
                     let percent_veto = num_vetos * 100 / (reward_cycle_length as u128);
                     let veto_percent_threshold = veto_pct;
 
@@ -855,12 +854,13 @@ impl<
             stacks_tip.canonical_stacks_tip_hash,
             stacks_tip.block_height
         );
+        let is_mainnet = self.burnchain.is_mainnet();
 
         self.chain_state_db
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
                 conn.with_clarity_db_readonly(|db| {
                     // TODO - get correct contract ID once contract is published
-                    let exit_at_rc_contract = boot_code_id("exit-at-rc", false);
+                    let exit_at_rc_contract = boot_code_id("exit-at-rc", is_mainnet);
 
                     for proposed_exit_rc in min_rc..max_rc {
                         if invalid_reward_cycles.contains(&proposed_exit_rc) {
@@ -1245,6 +1245,10 @@ impl<
                             error!("A child block should never have a lower reward cycle than its parent");
                             panic!();
                         }
+                        info!(
+                            "cc: STACKS BLOCK HEIGHT IN CYCLE: {}",
+                            stacks_block_height_in_cycle
+                        );
 
                         // check if it is time to process
                         // RC X -> block 1 in RC Y ->  block 2 in RC Y
@@ -1256,7 +1260,7 @@ impl<
                             stacks_block_height_in_cycle,
                             &parent_exit_info,
                         )? {
-                            info!("cc: rc is greater than parent rc");
+                            info!("cc: ancestor - rc is greater than parent rc");
                             // if reward cycle is diff from parent, first check if there is a veto happening
                             // if veto happening, check veto
                             if let Some(curr_exit_proposal) = ancestor_info.curr_exit_proposal {

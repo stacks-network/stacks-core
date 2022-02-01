@@ -8322,6 +8322,11 @@ fn exit_at_rc_short_reward_cycles_test() {
         eprintln!("Sort height: {}", sort_height);
     }
 
+    // verify that pox is active
+    let pox_info = get_pox_info(&http_origin);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 3000000000000000);
+    assert_eq!(pox_info.current_cycle.is_pox_active, true);
+
     // do voting
     test_observer::clear();
     for sk in [spender_sk, spender_2_sk, spender_3_sk].iter() {
@@ -8341,16 +8346,11 @@ fn exit_at_rc_short_reward_cycles_test() {
 
     // mine blocks until the start of the next reward cycle
     sort_height = channel.get_sortitions_processed();
-    while sort_height < ((26 * pox_constants.reward_cycle_length) + 1).into() {
+    while sort_height < (26 * pox_constants.reward_cycle_length).into() {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height: {}", sort_height);
     }
-
-    // verify that pox is active
-    let pox_info = get_pox_info(&http_origin);
-    assert_eq!(pox_info.current_cycle.stacked_ustx, 3000000000000000);
-    assert_eq!(pox_info.current_cycle.is_pox_active, true);
 
     let blocks_observed = test_observer::get_blocks();
     assert!(
@@ -8391,13 +8391,13 @@ fn exit_at_rc_short_reward_cycles_test() {
         "Should have observed 3 vote-for-exit-rc transaction (from spender 1, 2 & 3)"
     );
 
-    // check sortdb - vote threshold met (>=50% of stacked stx involved in vote) - curr_exit_proposal should be set
+    // check sortdb
     let sort_db = btc_regtest_controller.sortdb_ref();
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
     let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
         .unwrap()
         .unwrap();
-    assert_eq!(exit_rc_info.curr_exit_proposal, Some(34));
+    assert_eq!(exit_rc_info.curr_exit_proposal, None);
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
 }

@@ -282,6 +282,7 @@ pub fn setup_states(
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
 
+            // TODO: update contract identifier
             let contract = util::boot::boot_code_id("exit-at-rc", false);
             let sender = PrincipalData::from(contract.clone());
             clarity_tx.connection().as_transaction(|conn| {
@@ -626,6 +627,7 @@ fn make_stacks_block_with_recipients_and_sunset_burn(
         sunset_burn,
         post_sunset_burn,
         (Txid([0; 32]), 0),
+        None,
     )
 }
 
@@ -646,6 +648,7 @@ fn make_stacks_block_with_input(
     sunset_burn: u64,
     post_sunset_burn: bool,
     input: (Txid, u32),
+    txs_opt: Option<Vec<StacksTransaction>>,
 ) -> (BlockstackOperationType, StacksBlock) {
     let tx_auth = TransactionAuth::from_p2pkh(miner).unwrap();
 
@@ -706,6 +709,17 @@ fn make_stacks_block_with_input(
         .0;
 
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
+    if let Some(txs) = txs_opt {
+        for mut tx in txs {
+            tx.chain_id = 0x80000000;
+            // tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+            let mut tx_signer = StacksTransactionSigner::new(&tx);
+            tx_signer.sign_origin(miner).unwrap();
+
+            let op = tx_signer.get_tx().unwrap();
+            builder.try_mine_tx(&mut epoch_tx, &op).unwrap();
+        }
+    }
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
@@ -852,6 +866,7 @@ fn missed_block_commits() {
                 0,
                 false,
                 last_input.as_ref().unwrap().clone(),
+                None,
             );
             // NOTE: intended for block block_height - 2
             last_input = Some((
@@ -904,6 +919,7 @@ fn missed_block_commits() {
                 0,
                 false,
                 last_input.as_ref().unwrap().clone(),
+                None,
             )
         };
 
@@ -3958,4 +3974,212 @@ fn test_check_chainstate_db_versions() {
         !check_chainstate_db_versions(&[epoch_2_05.clone()], &sortdb_path, &chainstate_path)
             .unwrap()
     );
+}
+
+#[test]
+fn test_exit_at_rc_short_reward_cycle() {
+    let path = "/tmp/stacks-blockchain.test.exit_at_rc_short_reward_cycle";
+    let _r = std::fs::remove_dir_all(path);
+
+    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 1900, 2000));
+
+    let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+
+    let reward_set_size = pox_consts.as_ref().unwrap().reward_slots() as usize;
+    let reward_set: Vec<_> = (0..reward_set_size)
+        .map(|_| p2pkh_from(&StacksPrivateKey::new()))
+        .collect();
+
+    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let rewards = p2pkh_from(&StacksPrivateKey::new());
+    let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let initial_balances = vec![(stacker.clone().into(), balance)];
+
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+        StacksEpochId::Epoch20,
+    );
+
+    let mut coord = make_reward_set_coordinator(path, reward_set, pox_consts.clone());
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    let mut started_first_reward_cycle = false;
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+    let mut anchor_blocks = vec![];
+    let mut reward_recipients = HashSet::new();
+
+    // setup:
+    //   0 - 1 - 2 - 3 - 4 - 5 - 6
+    //    \_ 7   \_ 8 _ 9
+    for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+        let b = get_burnchain(path, pox_consts.clone());
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
+        let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
+            .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
+            .unwrap();
+        if let Some(ref next_block_recipients) = next_block_recipients {
+            for (addr, _) in next_block_recipients.recipients.iter() {
+                eprintln!("At iteration: {}, inserting address ... {}", ix, addr);
+                reward_recipients.insert(addr.clone());
+            }
+        }
+
+        eprintln!("Making block {}", ix);
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let (op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &BlockHeaderHash([0; 32]),
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+            )
+        } else {
+            let parent = stacks_blocks[ix - 1].1.header.block_hash();
+            make_stacks_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+            )
+        };
+        let expected_winner = op.txid();
+        let mut ops = vec![op];
+
+        if ix == 0 {
+            // add a pre-stack-stx op
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
+                output: stacker.clone(),
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 1 {
+            ops.push(BlockstackOperationType::StackStx(StackStxOp {
+                sender: stacker.clone(),
+                reward_addr: rewards.clone(),
+                stacked_ustx: stacked_amt,
+                num_cycles: 12,
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        }
+
+        // check our locked balance
+        if ix > 0 {
+            let stacks_tip =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+            let mut chainstate = get_chainstate(path);
+            let (stacker_balance, burn_height) = chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            (
+                                db.get_account_stx_balance(&stacker.clone().into()),
+                                db.get_current_block_height(),
+                            )
+                        })
+                    },
+                )
+                .unwrap();
+
+            if ix > 2 {
+                assert_eq!(
+                    stacker_balance.amount_unlocked,
+                    (balance as u128) - stacked_amt,
+                    "Lock should be active"
+                );
+                assert_eq!(stacker_balance.amount_locked, stacked_amt);
+            }
+        }
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            ops,
+            vec![].iter_mut(),
+        );
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
+            eprintln!(
+                "Reward cycle start at height={}",
+                new_burnchain_tip.block_height
+            );
+            started_first_reward_cycle = true;
+            // store the anchor block for this sortition for later checking
+            let ic = sort_db.index_handle_at_tip();
+            let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
+            anchor_blocks.push(bhh);
+        }
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        // assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+        eprintln!("Block hash={}, ix={}", &block_hash, ix);
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+    }
+
+    let block_height = eval_at_chain_tip(path, &sort_db, "block-height");
+    assert_eq!(block_height, Value::UInt(10));
 }
