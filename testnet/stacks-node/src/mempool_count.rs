@@ -24,7 +24,6 @@ use crate::util::hash::Hash160;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::StacksBlockBuilder;
-use stacks::clarity_vm::clarity::UnlimitedBlockLimitFns;
 use stacks::core::MemPoolDB;
 use stacks::util::vrf::VRFProof;
 use stacks::*;
@@ -58,12 +57,11 @@ fn main() {
     let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
         .expect("Failed to get sortition chain tip");
 
-    let (mut chain_state, _) = StacksChainState::open_and_exec_with_limits(
+    let (mut chain_state, _) = StacksChainState::open_and_exec(
         true,
         chain_id,
         &chain_state_path,
         None,
-        UnlimitedBlockLimitFns(),
     )
     .expect("Failed to open stacks chain state");
     let stacks_block = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
