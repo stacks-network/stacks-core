@@ -32,6 +32,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   this PR adds to represent this data). (#2862)
 - Adds the /v2/data_var endpoint, which returns a contract's data variable 
   value and a MARF proof of its existence. (#2862)
+- Fixed a bug in the unconfirmed state processing logic that could lead to a
+  denial of service (node crash) for nodes that mine microblocks (#2970)
 
 ### Changed
 - Updated the mined block event. It now includes information on transaction 
