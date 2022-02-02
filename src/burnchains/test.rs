@@ -17,8 +17,14 @@ use util::hash::*;
 use util::secp256k1::*;
 use util::vrf::*;
 
+use crate::burnchains::events::ContractEvent;
 use crate::burnchains::events::NewBlock;
+use crate::burnchains::events::NewBlockTxEvent;
+use crate::burnchains::events::TxEventType;
 use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
+use crate::vm::execute;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::types::StandardPrincipalData;
 
 use super::*;
 
@@ -920,12 +926,118 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
     }
 }
 
-
 #[test]
 fn general_parsing() {
     let test_events = include_str!("./test_events_sample.jsons").lines();
     for test_event in test_events {
-        let _new_block: NewBlock = serde_json::from_str(test_event)
-            .expect("Failed to parse events JSON");
+        let _new_block: NewBlock =
+            serde_json::from_str(test_event).expect("Failed to parse events JSON");
     }
+}
+
+#[test]
+fn create_stacks_events_failures() {
+    let inputs = [
+        ("1", "Expected Clarity type to be tuple"),
+        (
+            r#"{ block-commit: 0x1234567890123456789012345678901212345678901234567890123456789012 }"#,
+            "No 'event' field",
+        ),
+        (r#"{ event: 1 }"#, "Expected 'event' type to be string"),
+        (r#"{ event: "unknown-event" }"#, "Unexpected 'event' string"),
+        (r#"{ event: "block-commit" }"#, "No 'block-commit' field"),
+        (
+            r#"{ event: "block-commit", block-commit: 1 }"#,
+            "Expected 'block-commit' type to be buffer",
+        ),
+        (
+            r#"{ event: "block-commit", block-commit: 0x12 }"#,
+            "Expected 'block-commit' type to be length 32",
+        ),
+    ];
+
+    for (test_input, expected_err) in inputs.iter() {
+        let value = execute(test_input).unwrap().unwrap();
+        let err_str =
+            SubnetStacksEvent::try_from_clar_value(value, Txid([0; 32]), &StacksBlockId([0; 32]))
+                .unwrap_err();
+        assert!(
+            err_str.starts_with(expected_err),
+            "{} starts_with? {}",
+            err_str,
+            expected_err
+        );
+    }
+}
+
+#[test]
+fn create_stacks_event_block() {
+    let watched_contract =
+        QualifiedContractIdentifier::new(StandardPrincipalData(1, [3; 20]), "hc-contract-1".into());
+
+    let ignored_contract =
+        QualifiedContractIdentifier::new(StandardPrincipalData(1, [2; 20]), "hc-contract-2".into());
+
+    // include one "good" event in the block, and two skipped events
+    let input = NewBlock {
+        block_height: 1,
+        burn_block_time: 0,
+        index_block_hash: StacksBlockId([1; 32]),
+        parent_index_block_hash: StacksBlockId([0; 32]),
+        events: vec![
+            NewBlockTxEvent {
+                txid: Txid([0; 32]),
+                event_index: 0,
+                committed: true,
+                event_type: TxEventType::ContractEvent,
+                contract_event: Some(
+                    ContractEvent {
+                        contract_identifier: watched_contract.clone(),
+                        topic: "print".into(),
+                        value: execute(r#"{ event: "block-commit", block-commit: 0x1234567890123456789012345678901212345678901234567890123456789012 }"#)
+                            .unwrap().unwrap(),
+                    }
+                )
+            },
+            NewBlockTxEvent {
+                txid: Txid([1; 32]),
+                event_index: 1,
+                committed: false,
+                event_type: TxEventType::ContractEvent,
+                contract_event: Some(
+                    ContractEvent {
+                        contract_identifier: watched_contract.clone(),
+                        topic: "print".into(),
+                        value: execute(r#"{ event: "block-commit", block-commit: 0x12345678901234567890123456789012 }"#)
+                            .unwrap().unwrap(),
+                    }
+                )
+            },
+            NewBlockTxEvent {
+                txid: Txid([2; 32]),
+                event_index: 2,
+                committed: true,
+                event_type: TxEventType::ContractEvent,
+                contract_event: Some(
+                    ContractEvent {
+                        contract_identifier: ignored_contract.clone(),
+                        topic: "print".into(),
+                        value: execute(r#"{ event: "block-commit", block-commit: 0x12345678901234567890123456789012 }"#)
+                            .unwrap().unwrap(),
+                    }
+                )
+            },
+        ],
+    };
+
+    let stacks_event_block = StacksEventBlock::from_new_block_event(&watched_contract, input);
+
+    assert_eq!(stacks_event_block.block_height, 1);
+    assert_eq!(stacks_event_block.current_block, StacksBlockId([1; 32]));
+    assert_eq!(stacks_event_block.parent_block, StacksBlockId([0; 32]));
+    assert_eq!(
+        stacks_event_block.ops.len(),
+        1,
+        "Only one event from the watched contract committed"
+    );
 }
