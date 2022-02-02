@@ -454,6 +454,9 @@ impl FromRow<BlockExitRewardCycleInfo> for BlockExitRewardCycleInfo {
         let curr_exit_proposal = Option::<u64>::from_column(row, "curr_exit_proposal")?;
         let curr_exit_at_reward_cycle =
             Option::<u64>::from_column(row, "curr_exit_at_reward_cycle")?;
+        let invalid_reward_cycles_json: String = row.get_unwrap("invalid_reward_cycles");
+        let invalid_reward_cycles = serde_json::from_str(&invalid_reward_cycles_json)
+            .map_err(|e| db_error::SerializationError(e))?;
 
         let exit_cycle_info = BlockExitRewardCycleInfo {
             block_id,
@@ -462,6 +465,7 @@ impl FromRow<BlockExitRewardCycleInfo> for BlockExitRewardCycleInfo {
             stacks_block_height_in_cycle,
             curr_exit_proposal,
             curr_exit_at_reward_cycle,
+            invalid_reward_cycles,
         };
         Ok(exit_cycle_info)
     }
@@ -630,6 +634,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         stacks_block_height_in_cycle INTEGER NOT NULL,
         curr_exit_proposal INTEGER,
         curr_exit_at_reward_cycle INTEGER,
+        invalid_reward_cycles TEXT NOT NULL,
 
         PRIMARY KEY(block_id)
     );"#,
@@ -3791,12 +3796,13 @@ impl<'a> SortitionHandleTx<'a> {
         &self,
         exit_at_reward_cycle_info: BlockExitRewardCycleInfo,
     ) -> Result<(), db_error> {
-        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_id, parent_block_id, block_reward_cycle, stacks_block_height_in_cycle) VALUES (?, ?, ?, ?)";
+        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_id, parent_block_id, block_reward_cycle, stacks_block_height_in_cycle, invalid_reward_cycles) VALUES (?, ?, ?, ?, ?)";
         let args: &[&dyn ToSql] = &[
             &exit_at_reward_cycle_info.block_id,
             &exit_at_reward_cycle_info.parent_block_id,
             &u64_to_sql(exit_at_reward_cycle_info.block_reward_cycle)?,
             &u64_to_sql(exit_at_reward_cycle_info.stacks_block_height_in_cycle)?,
+            &serde_json::to_string(&exit_at_reward_cycle_info.invalid_reward_cycles).unwrap(),
         ];
         self.execute(sql, args)?;
 

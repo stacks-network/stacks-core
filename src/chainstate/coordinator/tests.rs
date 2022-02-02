@@ -711,12 +711,6 @@ fn make_stacks_block_with_input(
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
     if let Some(txs) = txs_opt {
         for mut tx in txs {
-            // tx.chain_id = 0x80000000;
-            // // tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
-            // let mut tx_signer = StacksTransactionSigner::new(&tx);
-            // tx_signer.sign_origin(miner).unwrap();
-            //
-            // let op = tx_signer.get_tx().unwrap();
             builder.try_mine_tx(&mut epoch_tx, &tx).unwrap();
         }
     }
@@ -3890,15 +3884,15 @@ fn preprocess_block(
     .unwrap()
     .consensus_hash;
     // Preprocess the anchored block
-    chain_state
-        .preprocess_anchored_block(
-            &ic,
-            &my_sortition.consensus_hash,
-            &block,
-            &parent_consensus_hash,
-            5,
-        )
-        .unwrap();
+    let res = chain_state.preprocess_anchored_block(
+        &ic,
+        &my_sortition.consensus_hash,
+        &block,
+        &parent_consensus_hash,
+        5,
+    );
+    info!("preprocess result: {:?}", res);
+    res.unwrap();
 }
 
 #[test]
@@ -3976,6 +3970,11 @@ fn test_check_chainstate_db_versions() {
     );
 }
 
+/// This tests the exit-at-rc contract with a fork.
+/// The contract data from the previous reward cycle is typically evaluated at the second Stacks block in a reward cycle.
+/// In the case there is only 1 Stacks block in a particular reward cycle, the data from the previous reward cycle
+/// is evaluated in the next block (so the first Stacks block in the next reward cycle).
+/// This test checks that this behavior works as intended.
 #[test]
 fn test_exit_at_rc_short_reward_cycle() {
     let path = "/tmp/stacks-blockchain.test.exit_at_rc_short_reward_cycle";
@@ -3983,8 +3982,8 @@ fn test_exit_at_rc_short_reward_cycle() {
 
     let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 1900, 2000));
 
-    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+    let vrf_keys: Vec<_> = (0..55).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..55).map(|_| StacksPrivateKey::new()).collect();
 
     let reward_set_size = pox_consts.as_ref().unwrap().reward_slots() as usize;
     let reward_set: Vec<_> = (0..reward_set_size)
@@ -4025,15 +4024,15 @@ fn test_exit_at_rc_short_reward_cycle() {
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
     assert_eq!(ops.consumed_leader_keys.len(), 0);
 
-    let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
     let mut reward_recipients = HashSet::new();
 
     // setup:
-    //   0 - 1 - 2 - 3 - 4 - 5 - 6
-    //    \_ 7   \_ 8 _ 9
+    // STACKS BLOCK HEIGHT IN CYCLE:    5    1    2    3    4    5
+    // BLOCK NUMBER:                 .. 47 - 48 - 49 - 50 - 51 - 52
+    //                                       \_  53 _ 54
+    // STACKS BLOCK HEIGHT IN CYCLE:             1    2
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let mut chainstate = get_chainstate(path);
@@ -4061,12 +4060,18 @@ fn test_exit_at_rc_short_reward_cycle() {
         }
 
         eprintln!("Making block {}", ix);
-        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else if ix == 53 {
+            stacks_blocks[48].1.header.block_hash()
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
         let (op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
                 &sort_db,
                 &mut chainstate,
-                &BlockHeaderHash([0; 32]),
+                &parent,
                 miner,
                 10000,
                 vrf_key,
@@ -4074,10 +4079,7 @@ fn test_exit_at_rc_short_reward_cycle() {
                 next_block_recipients.as_ref(),
             )
         } else if ix == 44 {
-            // 4
             // create block with vote transaction
-            let parent = stacks_blocks[ix - 1].1.header.block_hash();
-
             let tx_auth = TransactionAuth::from_p2pkh(&stacker_pk).unwrap();
 
             let mut tx = StacksTransaction::new(
@@ -4116,7 +4118,6 @@ fn test_exit_at_rc_short_reward_cycle() {
                 Some(vec![vote_op]),
             )
         } else {
-            let parent = stacks_blocks[ix - 1].1.header.block_hash();
             make_stacks_block_with_recipients(
                 &sort_db,
                 &mut chainstate,
@@ -4195,25 +4196,8 @@ fn test_exit_at_rc_short_reward_cycle() {
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
 
-        let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
-            eprintln!(
-                "Reward cycle start at height={}",
-                new_burnchain_tip.block_height
-            );
-            started_first_reward_cycle = true;
-            // store the anchor block for this sortition for later checking
-            let ic = sort_db.index_handle_at_tip();
-            let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-            anchor_blocks.push(bhh);
-        }
-
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         assert_eq!(&tip.winning_block_txid, &expected_winner);
-        // if started_first_reward_cycle {
-        //     let pox_active = sort_db.is_pox_active(&b, &tip).unwrap();
-        //     eprintln!("Pox active: {}", pox_active);
-        // }
 
         // load the block into staging
         let block_hash = block.header.block_hash();
@@ -4222,12 +4206,25 @@ fn test_exit_at_rc_short_reward_cycle() {
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
         stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
 
-        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+        preprocess_block(&mut chainstate, &sort_db, &tip, block.clone());
 
         // handle the stacks block
         coord.handle_new_stacks_block().unwrap();
+
+        if ix == 49 || ix == 53 || ix == 54 {
+            let stacks_block_id =
+                StacksBlockHeader::make_index_block_hash(&tip.consensus_hash, &block.block_hash());
+            let exit_rc_info =
+                SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
+                    .unwrap()
+                    .unwrap();
+            let expected_proposal = if ix == 49 { Some(33) } else { None };
+            let expected_exit = if ix == 49 || ix == 53 { None } else { Some(33) };
+            assert_eq!(exit_rc_info.curr_exit_proposal, expected_proposal);
+            assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, expected_exit);
+        }
     }
 
     let block_height = eval_at_chain_tip(path, &sort_db, "block-height");
-    assert_eq!(block_height, Value::UInt(50));
+    assert_eq!(block_height, Value::UInt(53));
 }

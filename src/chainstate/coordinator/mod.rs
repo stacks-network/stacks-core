@@ -109,6 +109,9 @@ pub struct BlockExitRewardCycleInfo {
     pub curr_exit_proposal: Option<u64>,
     // The current exit reward cycle for node (can be None, and this values rises monotonically)
     pub curr_exit_at_reward_cycle: Option<u64>,
+    // A list of reward cycles to skip over when tallying votes (these are cycles that were
+    // previously proposed and/or vetoed).
+    pub invalid_reward_cycles: Vec<u64>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -740,12 +743,8 @@ impl<
         &mut self,
         rc_cycle_of_veto: u64,
         proposed_exit_rc: u64,
+        stacks_block_id: &StacksBlockId,
     ) -> Result<bool, Error> {
-        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
-        let stacks_block_id = StacksBlockId::new(
-            &stacks_tip.canonical_stacks_tip_consensus_hash,
-            &stacks_tip.canonical_stacks_tip_hash,
-        );
         let reward_cycle_length = self.burnchain.pox_constants.reward_cycle_length;
         let veto_pct = self
             .burnchain
@@ -805,6 +804,8 @@ impl<
         &mut self,
         rc_cycle_of_vote: u64,
         curr_exit_at_rc_opt: Option<u64>,
+        stacks_block_id: &StacksBlockId,
+        invalid_reward_cycles: Vec<u64>,
     ) -> Result<(BTreeMap<u64, u128>, u128), Error> {
         let mut vote_map = BTreeMap::new();
         let mut min_rc = self
@@ -832,27 +833,27 @@ impl<
         }
         let mut total_votes = 0;
 
-        let mut invalid_reward_cycles =
-            SortitionDB::get_vetoed_reward_cycles(self.sortition_db.conn(), min_rc)?;
-        invalid_reward_cycles.extend(SortitionDB::get_proposed_reward_cycles(
-            self.sortition_db.conn(),
-            min_rc,
-        )?);
+        // let mut invalid_reward_cycles =
+        //     SortitionDB::get_vetoed_reward_cycles(self.sortition_db.conn(), min_rc)?;
+        // invalid_reward_cycles.extend(SortitionDB::get_proposed_reward_cycles(
+        //     self.sortition_db.conn(),
+        //     min_rc,
+        // )?);
         let invalid_reward_cycles: HashSet<u64> =
             HashSet::from_iter(invalid_reward_cycles.into_iter());
 
-        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
-        let stacks_block_id = StacksBlockId::new(
-            &stacks_tip.canonical_stacks_tip_consensus_hash,
-            &stacks_tip.canonical_stacks_tip_hash,
-        );
+        // let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
+        // let stacks_block_id = StacksBlockId::new(
+        //     &stacks_tip.canonical_stacks_tip_consensus_hash,
+        //     &stacks_tip.canonical_stacks_tip_hash,
+        // );
         println!(
-            "PAVI: invalid cycle: {:?}, min_rc: {:?}, canonical: {:?}, bhh: {:?}, height: {:?}",
+            "PAVI: invalid cycle: {:?}, min_rc: {:?}",
             invalid_reward_cycles,
             min_rc,
-            stacks_tip.canonical_stacks_tip_consensus_hash,
-            stacks_tip.canonical_stacks_tip_hash,
-            stacks_tip.block_height
+            // stacks_tip.canonical_stacks_tip_consensus_hash,
+            // stacks_tip.canonical_stacks_tip_hash,
+            // stacks_tip.block_height
         );
         let is_mainnet = self.burnchain.is_mainnet();
 
@@ -920,11 +921,18 @@ impl<
         &mut self,
         prev_rc_cycle: u64,
         curr_exit_at_rc_opt: Option<u64>,
+        invalid_reward_cycles: Vec<u64>,
+        curr_block_id: &StacksBlockId,
+        curr_block_consensus_hash: &ConsensusHash,
+        parent_block_id: &StacksBlockId,
     ) -> Result<Option<u64>, Error> {
         println!("tv: prev rc: {}", prev_rc_cycle);
         // read STX contract state
-        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
-        let new_canonical_stacks_block = stacks_tip.get_canonical_stacks_block_id();
+        let stacks_tip = SortitionDB::get_block_snapshot_consensus(
+            self.sortition_db.conn(),
+            curr_block_consensus_hash,
+        )?
+        .ok_or(Error::ChainstateError(ChainstateError::NoSuchBlockError))?;
 
         let is_pox_active = self.sortition_db.is_pox_active_in_reward_cycle(
             prev_rc_cycle,
@@ -934,10 +942,10 @@ impl<
         if !is_pox_active {
             return Ok(None);
         }
-
+        println!("tv: pox is active");
         let stacked_stx = self.chain_state_db.get_total_ustx_stacked(
             &self.sortition_db,
-            &new_canonical_stacks_block,
+            &curr_block_id,
             prev_rc_cycle as u128,
         )?;
         // Want to round up here, so calculating (x + n - 1) / n here instead of (x / n)
@@ -948,10 +956,15 @@ impl<
                 .percent_stacked_stx_for_valid_vote as u128)
             + 99)
             / 100;
-
+        println!("tv: before read vote");
         // map of rc to num votes (equiv to the STX stacked)
         // this map only includes valid votes
-        let (vote_map, total_votes) = self.read_vote_state(prev_rc_cycle, curr_exit_at_rc_opt)?;
+        let (vote_map, total_votes) = self.read_vote_state(
+            prev_rc_cycle,
+            curr_exit_at_rc_opt,
+            curr_block_id,
+            invalid_reward_cycles,
+        )?;
         println!("tv: total votes: {}", total_votes);
         if total_votes < min_stx_for_valid_vote as u128 {
             // not enough votes for a valid vote
@@ -1017,6 +1030,10 @@ impl<
         stacks_block_height_in_cycle: u64,
         parent_exit_info: &BlockExitRewardCycleInfo,
     ) -> Result<Option<BlockExitRewardCycleInfo>, Error> {
+        info!(
+            "curr height: {}, parent height: {}",
+            stacks_block_height_in_cycle, parent_exit_info.stacks_block_height_in_cycle
+        );
         if stacks_block_height_in_cycle == 2 {
             // get parent's parent's reward cycle
             let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
@@ -1208,27 +1225,22 @@ impl<
                         .burnchain
                         .block_height_to_reward_cycle(current_block_height)
                         .ok_or_else(|| DBError::NotFoundError)?;
-                    // let start_height_of_current_cycle = self
-                    //     .burnchain
-                    //     .reward_cycle_to_block_height(current_reward_cycle);
                     let mut current_exit_at_rc = None;
                     let mut current_proposal = None;
+                    let mut invalid_reward_cycles = vec![];
                     let mut stacks_block_height_in_cycle = 1;
-                    // get parent stacks block id
-                    let parent_block_snapshot = SortitionDB::get_block_snapshot(
-                        self.sortition_db.conn(),
-                        &new_canonical_block_snapshot.parent_sortition_id,
-                    )?
-                    .expect(&format!(
-                        "FAIL: could not find data for the canonical sortition {}",
-                        &new_canonical_block_snapshot.parent_sortition_id
-                    ));
-                    let parent_stacks_block = parent_block_snapshot.get_canonical_stacks_block_id();
+                    let stacks_block =
+                        StacksBlockId::new(&block_receipt.header.consensus_hash, &block_hash);
+                    let parent_block_id = self
+                        .chain_state_db
+                        .get_parent(&stacks_block)
+                        .expect("BUG: failed to get parent for processed block");
+                    info!("parent stacks id: {:?}", parent_block_id);
 
                     // look up parent in exit_at_reward_cycle_info table
                     let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
                         self.sortition_db.conn(),
-                        &parent_stacks_block,
+                        &parent_block_id,
                     )?;
 
                     if let Some(parent_exit_info) = exit_info_opt {
@@ -1245,6 +1257,12 @@ impl<
                             error!("A child block should never have a lower reward cycle than its parent");
                             panic!();
                         }
+                        invalid_reward_cycles = parent_exit_info
+                            .invalid_reward_cycles
+                            .iter()
+                            .filter(|rc| **rc > current_reward_cycle)
+                            .map(|rc| *rc)
+                            .collect();
                         info!(
                             "cc: STACKS BLOCK HEIGHT IN CYCLE: {}",
                             stacks_block_height_in_cycle
@@ -1267,6 +1285,7 @@ impl<
                                 let veto_passed = self.read_veto_state(
                                     ancestor_info.block_reward_cycle,
                                     curr_exit_proposal,
+                                    &stacks_block,
                                 )?;
                                 // if veto fails, record exit block height
                                 if !veto_passed {
@@ -1278,7 +1297,8 @@ impl<
                                     let sortdb_handle = self
                                         .sortition_db
                                         .tx_handle_begin(&canonical_sortition_tip)?;
-                                    sortdb_handle.store_new_veto(curr_exit_proposal)?;
+                                    // sortdb_handle.store_new_veto(curr_exit_proposal)?;
+                                    invalid_reward_cycles.push(curr_exit_proposal);
                                     sortdb_handle.commit()?;
                                 }
                             } else {
@@ -1286,6 +1306,10 @@ impl<
                                 let tallied_proposal = self.tally_votes(
                                     ancestor_info.block_reward_cycle,
                                     ancestor_info.curr_exit_at_reward_cycle,
+                                    ancestor_info.invalid_reward_cycles,
+                                    &stacks_block,
+                                    &block_receipt.header.consensus_hash,
+                                    &parent_block_id,
                                 )?;
                                 if let Some(exit_proposal) = tallied_proposal {
                                     info!("cc: storing proposal info for {:?}", exit_proposal);
@@ -1293,7 +1317,8 @@ impl<
                                     let sortdb_handle = self
                                         .sortition_db
                                         .tx_handle_begin(&canonical_sortition_tip)?;
-                                    sortdb_handle.store_new_proposal(exit_proposal)?;
+                                    // sortdb_handle.store_new_proposal(exit_proposal)?;
+                                    invalid_reward_cycles.push(exit_proposal);
                                     sortdb_handle.commit()?;
 
                                     // store this proposal in parent
@@ -1318,26 +1343,24 @@ impl<
                     } else {
                         warn!(
                             "BlockExitRewardCycleInfo not found for this block: {:?}",
-                            &parent_stacks_block
+                            &parent_block_id
                         );
                     }
 
                     let exit_info = BlockExitRewardCycleInfo {
-                        block_id: new_canonical_stacks_block,
-                        parent_block_id: parent_stacks_block,
+                        block_id: stacks_block,
+                        parent_block_id: parent_block_id,
                         block_reward_cycle: current_reward_cycle,
                         stacks_block_height_in_cycle: stacks_block_height_in_cycle,
                         curr_exit_proposal: current_proposal,
                         curr_exit_at_reward_cycle: current_exit_at_rc,
+                        invalid_reward_cycles,
                     };
-                    println!(
-                        "cc: exit proposal is: {:?}, exit is: {:?}",
-                        exit_info.curr_exit_proposal, exit_info.curr_exit_at_reward_cycle
-                    );
+                    info!("cc: exit info is: {:?}", exit_info);
                     let sortdb_handle = self
                         .sortition_db
                         .tx_handle_begin(&canonical_sortition_tip)?;
-                    println!("cc: storing exit info");
+                    info!("cc: storing exit info");
                     sortdb_handle.store_exit_at_reward_cycle_info(exit_info)?;
                     sortdb_handle.commit()?;
 

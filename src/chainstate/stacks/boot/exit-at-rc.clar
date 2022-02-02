@@ -140,9 +140,9 @@
         (asserts! (> amount-stacked u0) (err ERR_AMOUNT_NOT_POSITIVE))
 
         ;; Check that the proposed exit rc is allowable
-        (asserts! (>= proposed-exit-rc (var-get absolute-minimum-exit-rc)) (err 100))
+        (asserts! (>= proposed-exit-rc (var-get absolute-minimum-exit-rc)) (err ERR_INVALID_PROPOSED_RC))
         (asserts! (>= proposed-exit-rc (+ current-reward-cycle MINIMUM_RC_BUFFER_FROM_PRESENT)) (err ERR_INVALID_PROPOSED_RC))
-        (asserts! (<= proposed-exit-rc (+ current-reward-cycle MAXIMUM_RC_BUFFER_FROM_PRESENT)) (err 101))
+        (asserts! (<= proposed-exit-rc (+ current-reward-cycle MAXIMUM_RC_BUFFER_FROM_PRESENT)) (err ERR_INVALID_PROPOSED_RC))
 
         ;; Check that the voter does not have an outstanding vote for this rc
         (match (map-get? voter-state {address: tx-sender})
