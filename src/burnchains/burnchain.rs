@@ -79,13 +79,12 @@ impl BurnchainStateTransition {
     }
 
     pub fn from_block_ops(
-        sort_tx: &mut SortitionHandleTx,
-        burnchain: &Burnchain,
-        parent_snapshot: &BlockSnapshot,
+        _sort_tx: &mut SortitionHandleTx,
+        _burnchain: &Burnchain,
+        _parent_snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
     ) -> Result<BurnchainStateTransition, burnchain_error> {
-        // block commits and support burns discovered in this block.
-        let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
+        // block commits discovered in this block.
         let mut accepted_ops = Vec::with_capacity(block_ops.len());
 
         assert!(Burnchain::ops_are_sorted(block_ops));
@@ -435,9 +434,9 @@ impl Burnchain {
     /// `pre_stx_op_map` should contain any valid PreStxOps that occurred before
     ///   the currently-being-evaluated tx in the same burn block.
     pub fn classify_transaction(
-        burnchain: &Burnchain,
-        burnchain_db: &BurnchainDB,
-        block_header: &BurnchainBlockHeader,
+        _burnchain: &Burnchain,
+        _burnchain_db: &BurnchainDB,
+        _block_header: &BurnchainBlockHeader,
         burn_tx: &BurnchainTransaction,
     ) -> Option<BlockstackOperationType> {
         let result = match burn_tx {
@@ -452,7 +451,6 @@ impl Burnchain {
                 warn!(
                     "Failed to parse subnet block operation";
                     "txid" => %burn_tx.txid(),
-                    "data" => %to_hex(&burn_tx.data()),
                     "error" => ?e,
                 );
                 None
@@ -559,11 +557,11 @@ impl Burnchain {
     /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
     pub fn sync_with_indexer<I>(
         &mut self,
-        indexer: &mut I,
-        coord_comm: CoordinatorChannels,
-        target_block_height_opt: Option<u64>,
-        max_blocks_opt: Option<u64>,
-        should_keep_running: Option<Arc<AtomicBool>>,
+        _indexer: &mut I,
+        _coord_comm: CoordinatorChannels,
+        _target_block_height_opt: Option<u64>,
+        _max_blocks_opt: Option<u64>,
+        _should_keep_running: Option<Arc<AtomicBool>>,
     ) -> Result<BurnchainBlockHeader, burnchain_error>
     where
         I: BurnchainIndexer + 'static,

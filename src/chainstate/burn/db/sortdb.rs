@@ -662,8 +662,8 @@ impl<'a> SortitionHandleTx<'a> {
     /// been accepted.
     pub fn get_consumed_leader_keys(
         &mut self,
-        parent_tip: &BlockSnapshot,
-        block_candidates: &Vec<LeaderBlockCommitOp>,
+        _parent_tip: &BlockSnapshot,
+        _block_candidates: &Vec<LeaderBlockCommitOp>,
     ) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
         Ok(vec![])
     }
@@ -1334,9 +1334,9 @@ impl<'a> SortitionHandleConn<'a> {
 
     pub fn get_chosen_pox_anchor_check_position(
         &self,
-        prepare_end_bhh: &BurnchainHeaderHash,
-        pox_consts: &PoxConstants,
-        check_position: bool,
+        _prepare_end_bhh: &BurnchainHeaderHash,
+        _pox_consts: &PoxConstants,
+        _check_position: bool,
     ) -> Result<Result<(ConsensusHash, BlockHeaderHash, u32), u32>, CoordinatorError> {
         Ok(Err(0))
     }
@@ -2832,7 +2832,7 @@ impl<'a> SortitionHandleTx<'a> {
         parent_snapshot: &BlockSnapshot,
         snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
-        reward_info: Option<&RewardSetInfo>,
+        _reward_info: Option<&RewardSetInfo>,
         initialize_bonus: Option<InitialMiningBonus>,
     ) -> Result<TrieHash, db_error> {
         assert_eq!(
@@ -3033,7 +3033,7 @@ impl<'a> SortitionHandleTx<'a> {
         &mut self,
         parent_snapshot: &mut BlockSnapshot,
         snapshot: &BlockSnapshot,
-        block_ops: &Vec<BlockstackOperationType>,
+        _block_ops: &Vec<BlockstackOperationType>,
         initialize_bonus: Option<InitialMiningBonus>,
     ) -> Result<TrieHash, db_error> {
         if !snapshot.is_initial() {

@@ -260,8 +260,8 @@ impl StacksChainState {
     /// If an address appears in `addresses` multiple times, then the address's associated amounts
     ///   are summed.
     pub fn make_reward_set(
-        threshold: u128,
-        mut addresses: Vec<(StacksAddress, u128)>,
+        _threshold: u128,
+        _addresses: Vec<(StacksAddress, u128)>,
     ) -> Vec<StacksAddress> {
         vec![]
     }

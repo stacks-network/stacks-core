@@ -166,7 +166,7 @@ impl BlockSnapshot {
         block_commits: &[LeaderBlockCommitOp],
         block_header: &BurnchainBlockHeader,
         txids: &Vec<Txid>,
-        block_burn_total: Option<u64>,
+        _block_burn_total: Option<u64>,
         initial_mining_bonus_ustx: u128,
     ) -> Result<BlockSnapshot, db_error> {
         assert_eq!(

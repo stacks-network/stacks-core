@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+
 use burnchains::Txid;
 use serde::de::Error as DeserError;
 use serde::Deserialize;
@@ -106,6 +108,7 @@ impl SubnetStacksEvent {
     pub fn try_from_clar_value(
         v: ClarityValue,
         txid: Txid,
+        event_index: u32,
         in_block: &StacksBlockId,
     ) -> Result<SubnetStacksEvent, String> {
         let tuple = if let ClarityValue::Tuple(tuple) = v {
@@ -146,6 +149,7 @@ impl SubnetStacksEvent {
 
                 Ok(SubnetStacksEvent {
                     txid,
+                    event_index,
                     in_block: in_block.clone(),
                     opcode: 0,
                     event: SubnetStacksEventType::BlockCommit {
@@ -182,8 +186,19 @@ impl StacksEventBlock {
                     let NewBlockTxEvent {
                         txid,
                         contract_event,
+                        event_index,
                         ..
                     } = e;
+
+                    let event_index: u32 = match event_index.try_into() {
+                        Ok(x) => Some(x),
+                        Err(_e) => {
+                            warn!(
+                                "StacksEventBlock skipped event because event_index was not a u32"
+                            );
+                            None
+                        }
+                    }?;
 
                     if let Some(contract_event) = contract_event {
                         if &contract_event.contract_identifier != subnets_contract {
@@ -192,6 +207,7 @@ impl StacksEventBlock {
                             match SubnetStacksEvent::try_from_clar_value(
                                 contract_event.value,
                                 txid,
+                                event_index,
                                 &index_block_hash,
                             ) {
                                 Ok(x) => Some(x),

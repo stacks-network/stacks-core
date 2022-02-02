@@ -65,19 +65,15 @@ impl TryFrom<&SubnetStacksEvent> for LeaderBlockCommitOp {
     type Error = op_error;
 
     fn try_from(value: &SubnetStacksEvent) -> Result<Self, Self::Error> {
-        if let SubnetStacksEventType::BlockCommit {
+        let SubnetStacksEventType::BlockCommit {
             ref subnet_block_hash,
-        } = value.event
-        {
-            Ok(LeaderBlockCommitOp {
-                block_header_hash: subnet_block_hash.clone(),
-                txid: value.txid.clone(),
-                // use the StacksBlockId in the L1 event as the burnchain header hash
-                burn_header_hash: BurnchainHeaderHash(value.in_block.0.clone()),
-            })
-        } else {
-            Err(op_error::ParseError)
-        }
+        } = value.event;
+        Ok(LeaderBlockCommitOp {
+            block_header_hash: subnet_block_hash.clone(),
+            txid: value.txid.clone(),
+            // use the StacksBlockId in the L1 event as the burnchain header hash
+            burn_header_hash: BurnchainHeaderHash(value.in_block.0.clone()),
+        })
     }
 }
 
@@ -163,9 +159,9 @@ impl RewardSetInfo {
 impl LeaderBlockCommitOp {
     pub fn check(
         &self,
-        burnchain: &Burnchain,
-        tx: &mut SortitionHandleTx,
-        reward_set_info: Option<&RewardSetInfo>,
+        _burnchain: &Burnchain,
+        _tx: &mut SortitionHandleTx,
+        _reward_set_info: Option<&RewardSetInfo>,
     ) -> Result<(), op_error> {
         // good to go!
         Ok(())

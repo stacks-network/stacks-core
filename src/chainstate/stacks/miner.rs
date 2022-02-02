@@ -1189,7 +1189,6 @@ impl StacksBlockBuilder {
         let parent_index_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
 
-        let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
         let burn_tip_height =
             SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height as u32;
 

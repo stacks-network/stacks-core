@@ -72,7 +72,7 @@ use blockstack_lib::{
 };
 
 fn main() {
-    let mut argv: Vec<String> = env::args().collect();
+    let argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
         eprintln!("Usage: {} command [args...]", argv[0]);
         process::exit(1);

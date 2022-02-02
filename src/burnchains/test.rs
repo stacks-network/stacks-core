@@ -958,9 +958,13 @@ fn create_stacks_events_failures() {
 
     for (test_input, expected_err) in inputs.iter() {
         let value = execute(test_input).unwrap().unwrap();
-        let err_str =
-            SubnetStacksEvent::try_from_clar_value(value, Txid([0; 32]), &StacksBlockId([0; 32]))
-                .unwrap_err();
+        let err_str = SubnetStacksEvent::try_from_clar_value(
+            value,
+            Txid([0; 32]),
+            0,
+            &StacksBlockId([0; 32]),
+        )
+        .unwrap_err();
         assert!(
             err_str.starts_with(expected_err),
             "{} starts_with? {}",

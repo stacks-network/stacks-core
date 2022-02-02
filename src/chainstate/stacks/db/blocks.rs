@@ -3133,7 +3133,7 @@ impl StacksChainState {
     /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
     /// (ostensibly) selected this block for inclusion.
     fn validate_anchored_block_burnchain(
-        blocks_conn: &DBConn,
+        _blocks_conn: &DBConn,
         db_handle: &SortitionHandleConn,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
@@ -4387,16 +4387,6 @@ impl StacksChainState {
                 panic!("BUG: received discontiguous headers for processing: {} (seq={}) does not connect to {} (microblock parent is {} (seq {}))",
                        last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
             }
-
-            // get the burnchain block that precedes this block's sortition
-            let parent_burn_hash = SortitionDB::get_block_snapshot_consensus(
-                &burn_dbconn.tx(),
-                &chain_tip_consensus_hash,
-            )?
-            .expect(
-                "BUG: Failed to load snapshot for block snapshot during Stacks block processing",
-            )
-            .parent_burn_header_hash;
 
             let parent_block_cost = StacksChainState::get_stacks_block_anchored_cost(
                 &chainstate_tx.deref().deref(),

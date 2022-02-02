@@ -485,7 +485,7 @@ struct PaidRewards {
     burns: u64,
 }
 
-fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
+fn calculate_paid_rewards(_ops: &[BlockstackOperationType]) -> PaidRewards {
     PaidRewards {
         pox: vec![],
         burns: 1,

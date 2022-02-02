@@ -51,10 +51,6 @@ use crate::types::chainstate::BurnchainHeaderHash;
 
 pub mod leader_block_commit;
 /// This module contains all burn-chain operations
-pub mod leader_key_register;
-pub mod stack_stx;
-pub mod transfer_stx;
-pub mod user_burn_support;
 
 #[derive(Debug)]
 pub enum Error {

@@ -195,6 +195,7 @@ pub struct SubnetStacksEvent {
     pub txid: Txid,
     pub in_block: StacksBlockId,
     pub opcode: u8,
+    pub event_index: u32,
     pub event: SubnetStacksEventType,
 }
 
@@ -212,7 +213,7 @@ impl BurnchainTransaction {
 
     pub fn vtxindex(&self) -> u32 {
         match *self {
-            BurnchainTransaction::SubnetBase(ref tx) => 0,
+            BurnchainTransaction::SubnetBase(ref tx) => tx.event_index,
         }
     }
 
@@ -220,30 +221,6 @@ impl BurnchainTransaction {
         match *self {
             BurnchainTransaction::SubnetBase(ref tx) => tx.opcode,
         }
-    }
-
-    pub fn data(&self) -> Vec<u8> {
-        panic!("Not implemented")
-    }
-
-    pub fn num_signers(&self) -> usize {
-        panic!("Not implemented")
-    }
-
-    pub fn get_signers(&self) -> Vec<BurnchainSigner> {
-        panic!("Not implemented")
-    }
-
-    pub fn get_signer(&self, input: usize) -> Option<BurnchainSigner> {
-        panic!("Not implemented")
-    }
-
-    pub fn get_input_tx_ref(&self, input: usize) -> Option<&(Txid, u32)> {
-        panic!("Not implemented")
-    }
-
-    pub fn get_recipients(&self) -> Vec<BurnchainRecipient> {
-        panic!("Not implemented")
     }
 
     pub fn get_burn_amount(&self) -> u64 {
@@ -473,9 +450,9 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             Error::UnsupportedBurnchain => None,
-            Error::Bitcoin(ref e) => None,
+            Error::Bitcoin(ref _e) => None,
             Error::DBError(ref e) => Some(e),
-            Error::DownloadError(ref e) => None,
+            Error::DownloadError(ref _e) => None,
             Error::ParseError => None,
             Error::MissingHeaders => None,
             Error::MissingParentBlock => None,

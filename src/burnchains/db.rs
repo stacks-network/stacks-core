@@ -51,7 +51,7 @@ pub struct BurnchainBlockData {
 /// - put them in order by vtxindex
 /// - make sure there are no vtxindex duplicates
 fn apply_blockstack_txs_safety_checks(
-    block_height: u64,
+    _block_height: u64,
     blockstack_txs: &mut Vec<BlockstackOperationType>,
 ) -> () {
     // safety -- make sure these are in order

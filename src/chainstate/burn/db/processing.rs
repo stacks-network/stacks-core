@@ -101,11 +101,8 @@ impl<'a> SortitionHandleTx<'a> {
         let block_commits: Vec<_> = this_block_ops
             .iter()
             .filter_map(|op| {
-                if let BlockstackOperationType::LeaderBlockCommit(ref commit_op) = op {
-                    Some(commit_op.clone())
-                } else {
-                    None
-                }
+                let BlockstackOperationType::LeaderBlockCommit(ref commit_op) = op;
+                Some(commit_op.clone())
             })
             .collect();
 
