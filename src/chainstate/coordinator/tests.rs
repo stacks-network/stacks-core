@@ -711,13 +711,13 @@ fn make_stacks_block_with_input(
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
     if let Some(txs) = txs_opt {
         for mut tx in txs {
-            tx.chain_id = 0x80000000;
-            // tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
-            let mut tx_signer = StacksTransactionSigner::new(&tx);
-            tx_signer.sign_origin(miner).unwrap();
-
-            let op = tx_signer.get_tx().unwrap();
-            builder.try_mine_tx(&mut epoch_tx, &op).unwrap();
+            // tx.chain_id = 0x80000000;
+            // // tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+            // let mut tx_signer = StacksTransactionSigner::new(&tx);
+            // tx_signer.sign_origin(miner).unwrap();
+            //
+            // let op = tx_signer.get_tx().unwrap();
+            builder.try_mine_tx(&mut epoch_tx, &tx).unwrap();
         }
     }
 
@@ -3983,15 +3983,16 @@ fn test_exit_at_rc_short_reward_cycle() {
 
     let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 1900, 2000));
 
-    let vrf_keys: Vec<_> = (0..10).map(|_| VRFPrivateKey::new()).collect();
-    let committers: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
 
     let reward_set_size = pox_consts.as_ref().unwrap().reward_slots() as usize;
     let reward_set: Vec<_> = (0..reward_set_size)
         .map(|_| p2pkh_from(&StacksPrivateKey::new()))
         .collect();
 
-    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let stacker_pk = StacksPrivateKey::new();
+    let stacker = p2pkh_from(&stacker_pk);
     let rewards = p2pkh_from(&StacksPrivateKey::new());
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
@@ -4036,7 +4037,8 @@ fn test_exit_at_rc_short_reward_cycle() {
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let mut chainstate = get_chainstate(path);
-        let b = get_burnchain(path, pox_consts.clone());
+        let mut b = get_burnchain(path, pox_consts.clone());
+        b.exit_contract_constants.absolute_minimum_exit_rc = 25;
 
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         let next_mock_header = BurnchainBlockHeader {
@@ -4070,6 +4072,48 @@ fn test_exit_at_rc_short_reward_cycle() {
                 vrf_key,
                 ix as u32,
                 next_block_recipients.as_ref(),
+            )
+        } else if ix == 44 {
+            // 4
+            // create block with vote transaction
+            let parent = stacks_blocks[ix - 1].1.header.block_hash();
+
+            let tx_auth = TransactionAuth::from_p2pkh(&stacker_pk).unwrap();
+
+            let mut tx = StacksTransaction::new(
+                TransactionVersion::Testnet,
+                tx_auth,
+                TransactionPayload::ContractCall(TransactionContractCall {
+                    address: StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                    contract_name: "exit-at-rc".into(),
+                    function_name: "vote-for-exit-rc".into(),
+                    function_args: vec![Value::UInt(33)],
+                }),
+            );
+            tx.chain_id = 0x80000000;
+            tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+            tx.set_origin_nonce(0);
+
+            let mut tx_signer = StacksTransactionSigner::new(&tx);
+            tx_signer.sign_origin(&stacker_pk).unwrap();
+
+            let vote_op = tx_signer.get_tx().unwrap();
+
+            make_stacks_block_with_input(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+                0,
+                false,
+                (Txid([0; 32]), 0),
+                Some(vec![vote_op]),
             )
         } else {
             let parent = stacks_blocks[ix - 1].1.header.block_hash();
@@ -4165,7 +4209,11 @@ fn test_exit_at_rc_short_reward_cycle() {
         }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        // assert_eq!(&tip.winning_block_txid, &expected_winner);
+        assert_eq!(&tip.winning_block_txid, &expected_winner);
+        // if started_first_reward_cycle {
+        //     let pox_active = sort_db.is_pox_active(&b, &tip).unwrap();
+        //     eprintln!("Pox active: {}", pox_active);
+        // }
 
         // load the block into staging
         let block_hash = block.header.block_hash();
@@ -4181,5 +4229,5 @@ fn test_exit_at_rc_short_reward_cycle() {
     }
 
     let block_height = eval_at_chain_tip(path, &sort_db, "block-height");
-    assert_eq!(block_height, Value::UInt(10));
+    assert_eq!(block_height, Value::UInt(50));
 }
