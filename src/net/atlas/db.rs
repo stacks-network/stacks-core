@@ -57,7 +57,6 @@ const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
         was_instantiated INTEGER NOT NULL,
         created_at INTEGER NOT NULL
     );"#,
-    "CREATE INDEX index_was_instantiated ON attachments(was_instantiated);",
     r#"
     CREATE TABLE attachment_instances(
         content_hash TEXT,
@@ -73,6 +72,9 @@ const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
     "CREATE TABLE db_config(version TEXT NOT NULL);",
 ];
+
+const ATLASDB_INDEXES: &'static [&'static str] =
+    &["CREATE INDEX IF NOT EXISTS index_was_instantiated ON attachments(was_instantiated);"];
 
 impl FromRow<Attachment> for Attachment {
     fn from_row<'a>(row: &'a Row) -> Result<Attachment, db_error> {
@@ -122,6 +124,15 @@ pub struct AtlasDB {
 }
 
 impl AtlasDB {
+    fn add_indexes(&mut self) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        for row_text in ATLASDB_INDEXES {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     fn instantiate(&mut self) -> Result<(), db_error> {
         let genesis_attachments = self.atlas_config.genesis_attachments.take();
 
@@ -154,6 +165,7 @@ impl AtlasDB {
 
         tx.commit().map_err(db_error::SqliteError)?;
 
+        self.add_indexes()?;
         Ok(())
     }
 
@@ -209,6 +221,9 @@ impl AtlasDB {
         };
         if create_flag {
             db.instantiate()?;
+        }
+        if readwrite {
+            db.add_indexes()?;
         }
         Ok(db)
     }

@@ -132,6 +132,12 @@ CREATE TABLE burnchain_db_block_ops (
 
 CREATE TABLE db_config(version TEXT NOT NULL);";
 
+const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);",
+    "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);",
+    "CREATE INDEX IF NOT EXISTS index_burnchain_db_txid ON burnchain_db_block_ops(txid);",
+];
+
 impl<'a> BurnchainDBTransaction<'a> {
     fn store_burnchain_db_entry(
         &self,
@@ -177,6 +183,15 @@ impl<'a> BurnchainDBTransaction<'a> {
 }
 
 impl BurnchainDB {
+    fn add_indexes(&mut self) -> Result<(), BurnchainError> {
+        let db_tx = self.tx_begin()?;
+        for index in BURNCHAIN_DB_INDEXES.iter() {
+            db_tx.sql_tx.execute_batch(index)?;
+        }
+        db_tx.commit()?;
+        Ok(())
+    }
+
     pub fn connect(
         path: &str,
         first_block_height: u64,
@@ -233,6 +248,9 @@ impl BurnchainDB {
             db_tx.commit()?;
         }
 
+        if readwrite {
+            db.add_indexes()?;
+        }
         Ok(db)
     }
 
@@ -243,7 +261,12 @@ impl BurnchainDB {
             OpenFlags::SQLITE_OPEN_READ_ONLY
         };
         let conn = sqlite_open(path, open_flags, true)?;
-        Ok(BurnchainDB { conn })
+        let mut db = BurnchainDB { conn };
+
+        if readwrite {
+            db.add_indexes()?;
+        }
+        Ok(db)
     }
 
     fn tx_begin<'a>(&'a mut self) -> Result<BurnchainDBTransaction<'a>, BurnchainError> {
@@ -254,7 +277,7 @@ impl BurnchainDB {
     pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height DESC, block_hash ASC LIMIT 1";
         let opt = query_row(&self.conn, qry, NO_PARAMS)?;
-        Ok(opt.expect("CORRUPTION: No canonical burnchain tip"))
+        opt.ok_or(BurnchainError::MissingParentBlock)
     }
 
     pub fn get_burnchain_block(

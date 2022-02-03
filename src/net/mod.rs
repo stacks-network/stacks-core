@@ -220,6 +220,8 @@ pub enum Error {
     NotFoundError,
     /// Transient error (akin to EAGAIN)
     Transient(String),
+    /// Expected end-of-stream, but had more data
+    ExpectedEndOfStream,
 }
 
 impl From<codec_error> for Error {
@@ -317,6 +319,7 @@ impl fmt::Display for Error {
             Error::ConnectionCycle => write!(f, "Tried to connect to myself"),
             Error::NotFoundError => write!(f, "Requested data not found"),
             Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
+            Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
         }
     }
 }
@@ -376,6 +379,7 @@ impl error::Error for Error {
             Error::ConnectionCycle => None,
             Error::NotFoundError => None,
             Error::Transient(ref _s) => None,
+            Error::ExpectedEndOfStream => None,
         }
     }
 }
@@ -1425,7 +1429,7 @@ pub enum HttpRequestType {
         TraitIdentifier,
         TipRequest,
     ),
-    MemPoolQuery(HttpRequestMetadata, MemPoolSyncData),
+    MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1524,7 +1528,7 @@ pub enum HttpResponseType {
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
     MemPoolTxStream(HttpResponseMetadata),
-    MemPoolTxs(HttpResponseMetadata, Vec<StacksTransaction>),
+    MemPoolTxs(HttpResponseMetadata, Option<Txid>, Vec<StacksTransaction>),
     OptionsPreflight(HttpResponseMetadata),
     TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
     // peer-given error responses
@@ -1678,6 +1682,10 @@ pub const GETPOXINV_MAX_BITLEN: u64 = 8;
 pub const BLOCKS_PUSHED_MAX: u32 = 32;
 
 impl_byte_array_message_codec!(PeerAddress, 16);
+impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
+impl_byte_array_message_codec!(Txid, 32);
+
+impl_byte_array_serde!(ConsensusHash);
 
 /// neighbor identifier
 #[derive(Clone, Eq, PartialOrd, Ord)]
@@ -2387,7 +2395,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
                     .unwrap();
             config
         }
@@ -2400,7 +2408,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
                     .unwrap();
             config
         }

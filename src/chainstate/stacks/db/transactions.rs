@@ -76,6 +76,7 @@ impl StacksTransactionReceipt {
             transaction: tx.into(),
             execution_cost: cost,
             microblock_header: None,
+            tx_index: 0,
         }
     }
 
@@ -95,6 +96,7 @@ impl StacksTransactionReceipt {
             contract_analysis: None,
             execution_cost: cost,
             microblock_header: None,
+            tx_index: 0,
         }
     }
 
@@ -114,6 +116,7 @@ impl StacksTransactionReceipt {
             contract_analysis: None,
             execution_cost: cost,
             microblock_header: None,
+            tx_index: 0,
         }
     }
 
@@ -133,6 +136,7 @@ impl StacksTransactionReceipt {
             contract_analysis: Some(analysis),
             execution_cost: cost,
             microblock_header: None,
+            tx_index: 0,
         }
     }
 
@@ -152,6 +156,7 @@ impl StacksTransactionReceipt {
             contract_analysis: Some(analysis),
             execution_cost: cost,
             microblock_header: None,
+            tx_index: 0,
         }
     }
 
@@ -165,6 +170,7 @@ impl StacksTransactionReceipt {
             contract_analysis: None,
             execution_cost: ExecutionCost::zero(),
             microblock_header: None,
+            tx_index: 0,
         }
     }
 
@@ -181,6 +187,7 @@ impl StacksTransactionReceipt {
             contract_analysis: None,
             execution_cost: analysis_cost,
             microblock_header: None,
+            tx_index: 0,
         }
     }
 
@@ -198,6 +205,7 @@ impl StacksTransactionReceipt {
             contract_analysis: None,
             execution_cost: cost,
             microblock_header: None,
+            tx_index: 0,
         }
     }
 

@@ -549,6 +549,7 @@ impl HttpPeer {
             if self.connecting.contains_key(event_id) {
                 let (socket, data_url, initial_request_opt, _) =
                     self.connecting.remove(event_id).unwrap();
+
                 debug!("HTTP event {} connected ({:?})", event_id, &data_url);
 
                 if let Err(_e) = self.register_http(
