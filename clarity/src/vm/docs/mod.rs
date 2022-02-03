@@ -1806,15 +1806,24 @@ mod test {
 
     use super::make_all_api_reference;
     use super::make_json_api_reference;
-    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
     use crate::{types::chainstate::VRFSeed, vm::StacksEpoch};
+    use crate::{
+        types::chainstate::{BlockHeaderHash, BurnchainHeaderHash},
+        vm::database::{ClarityDatabase, MemoryBackingStore},
+    };
     use vm::analysis::type_check;
 
     use vm::costs::ExecutionCost;
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
+
+    impl MemoryBackingStore {
+        pub fn as_docs_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+            ClarityDatabase::new(self, &DOC_HEADER_DB, &DOC_POX_STATE_DB)
+        }
+    }
 
     impl HeadersDB for DocHeadersDB {
         fn get_burn_header_hash_for_block(
@@ -1886,79 +1895,73 @@ mod test {
         }
     }
 
-    // fn docs_execute(marf: &mut MarfedKV, program: &str) {
-    //     // start the next block,
-    //     //  we never commit it so that we can reuse the initialization
-    //     let mut store = marf.begin(&StacksBlockId([0; 32]), &StacksBlockId([1; 32]));
+    fn docs_execute(store: &mut MemoryBackingStore, program: &str) {
+        // execute the program, iterating at each ";; Returns" comment
+        // there are maybe more rust-y ways of doing this, but this is the simplest.
+        let mut segments = vec![];
+        let mut current_segment: String = "".into();
+        for line in program.lines() {
+            current_segment.push_str(line);
+            current_segment.push_str("\n");
+            if line.contains(";;") && line.contains("Returns ") {
+                segments.push(current_segment);
+                current_segment = "".into();
+            }
+        }
+        if current_segment.len() > 0 {
+            segments.push(current_segment);
+        }
 
-    //     // execute the program, iterating at each ";; Returns" comment
-    //     // there are maybe more rust-y ways of doing this, but this is the simplest.
-    //     let mut segments = vec![];
-    //     let mut current_segment: String = "".into();
-    //     for line in program.lines() {
-    //         current_segment.push_str(line);
-    //         current_segment.push_str("\n");
-    //         if line.contains(";;") && line.contains("Returns ") {
-    //             segments.push(current_segment);
-    //             current_segment = "".into();
-    //         }
-    //     }
-    //     if current_segment.len() > 0 {
-    //         segments.push(current_segment);
-    //     }
+        let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
 
-    //     let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
+        {
+            let mut analysis_db = store.as_analysis_db();
+            let whole_contract = segments.join("\n");
+            eprintln!("{}", whole_contract);
+            let mut parsed = ast::build_ast(&contract_id, &whole_contract, &mut ())
+                .unwrap()
+                .expressions;
 
-    //     {
-    //         let mut analysis_db = store.as_analysis_db();
-    //         let whole_contract = segments.join("\n");
-    //         eprintln!("{}", whole_contract);
-    //         let mut parsed = ast::build_ast(&contract_id, &whole_contract, &mut ())
-    //             .unwrap()
-    //             .expressions;
+            type_check(&contract_id, &mut parsed, &mut analysis_db, false)
+                .expect("Failed to type check");
+        }
 
-    //         type_check(&contract_id, &mut parsed, &mut analysis_db, false)
-    //             .expect("Failed to type check");
-    //     }
+        let conn = store.as_docs_clarity_db();
+        let mut contract_context = ContractContext::new(contract_id.clone());
+        let mut global_context = GlobalContext::new(
+            false,
+            conn,
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch2_05,
+        );
 
-    //     let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
-    //     let mut contract_context = ContractContext::new(contract_id.clone());
-    //     let mut global_context = GlobalContext::new(
-    //         false,
-    //         conn,
-    //         LimitedCostTracker::new_free(),
-    //         StacksEpochId::Epoch2_05,
-    //     );
+        global_context
+            .execute(|g| {
+                for segment in segments.iter() {
+                    let expected = if segment.contains("Returns ") {
+                        let expects_start = segment.rfind("Returns ").unwrap() + "Returns ".len();
+                        Some(segment[expects_start..].trim().to_string())
+                    } else {
+                        None
+                    };
 
-    //     global_context
-    //         .execute(|g| {
-    //             for segment in segments.iter() {
-    //                 let expected = if segment.contains("Returns ") {
-    //                     let expects_start = segment.rfind("Returns ").unwrap() + "Returns ".len();
-    //                     Some(segment[expects_start..].trim().to_string())
-    //                 } else {
-    //                     None
-    //                 };
+                    eprintln!("{}", segment);
 
-    //                 eprintln!("{}", segment);
+                    let result = {
+                        let parsed = ast::build_ast(&contract_id, segment, &mut ())
+                            .unwrap()
+                            .expressions;
+                        eval_all(&parsed, &mut contract_context, g).unwrap()
+                    };
 
-    //                 let result = {
-    //                     let parsed = ast::build_ast(&contract_id, segment, &mut ())
-    //                         .unwrap()
-    //                         .expressions;
-    //                     eval_all(&parsed, &mut contract_context, g).unwrap()
-    //                 };
-
-    //                 if let Some(expected) = expected {
-    //                     assert_eq!(expected, result.unwrap().to_string());
-    //                 }
-    //             }
-    //             Ok(())
-    //         })
-    //         .unwrap();
-
-    //     store.rollback_block();
-    // }
+                    if let Some(expected) = expected {
+                        assert_eq!(expected, result.unwrap().to_string());
+                    }
+                }
+                Ok(())
+            })
+            .unwrap();
+    }
 
     #[test]
     fn ensure_docgen_runs() {
@@ -1967,90 +1970,95 @@ mod test {
         make_json_api_reference();
     }
 
-    // #[test]
-    // fn test_examples() {
-    //     let apis = make_all_api_reference();
-    //     let mut marf = MarfedKV::temporary();
-    //     // first, load the samples for contract-call
-    //     // and give the doc environment's contract some STX
-    //     {
-    //         let mut store = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0; 32]));
-    //         let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
-    //         let trait_def_id = QualifiedContractIdentifier::parse(
-    //             "SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a",
-    //         )
-    //         .unwrap();
+    #[test]
+    fn test_examples() {
+        let apis = make_all_api_reference();
+        let token_contract_content = include_str!("../../../../sample-contracts/tokens.clar");
+        for func_api in apis.functions.iter() {
+            if func_api.name == "at-block" {
+                eprintln!("Skipping at-block, because it cannot be evaluated without a MARF");
+                continue;
+            }
+            if func_api.name == "get-block-info?" {
+                eprintln!(
+                    "Skipping get-block-info?, because it cannot be evaluated without a MARF"
+                );
+                continue;
+            }
 
-    //         {
-    //             let mut analysis_db = store.as_analysis_db();
-    //             let whole_contract =
-    //                 std::fs::read_to_string("sample-contracts/tokens.clar").unwrap();
-    //             let mut parsed = ast::build_ast(&contract_id, &whole_contract, &mut ())
-    //                 .unwrap()
-    //                 .expressions;
+            let mut store = MemoryBackingStore::new();
+            // first, load the samples for contract-call
+            // and give the doc environment's contract some STX
+            {
+                let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+                let trait_def_id = QualifiedContractIdentifier::parse(
+                    "SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF.token-a",
+                )
+                .unwrap();
 
-    //             type_check(&contract_id, &mut parsed, &mut analysis_db, true)
-    //                 .expect("Failed to type check sample-contracts/tokens");
-    //         }
+                {
+                    let mut analysis_db = store.as_analysis_db();
+                    let mut parsed = ast::build_ast(&contract_id, &token_contract_content, &mut ())
+                        .unwrap()
+                        .expressions;
 
-    //         {
-    //             let mut analysis_db = store.as_analysis_db();
-    //             let mut parsed =
-    //                 ast::build_ast(&trait_def_id, super::DEFINE_TRAIT_API.example, &mut ())
-    //                     .unwrap()
-    //                     .expressions;
+                    type_check(&contract_id, &mut parsed, &mut analysis_db, true)
+                        .expect("Failed to type check sample-contracts/tokens");
+                }
 
-    //             type_check(&trait_def_id, &mut parsed, &mut analysis_db, true)
-    //                 .expect("Failed to type check sample-contracts/tokens");
-    //         }
+                {
+                    let mut analysis_db = store.as_analysis_db();
+                    let mut parsed =
+                        ast::build_ast(&trait_def_id, super::DEFINE_TRAIT_API.example, &mut ())
+                            .unwrap()
+                            .expressions;
 
-    //         let conn = store.as_clarity_db(&DOC_HEADER_DB, &DOC_POX_STATE_DB);
-    //         let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
-    //         let docs_principal_id = PrincipalData::Contract(docs_test_id);
-    //         let mut env = OwnedEnvironment::new(conn);
-    //         let balance = STXBalance::initial(1000);
-    //         env.execute_in_env::<_, _, ()>(
-    //             QualifiedContractIdentifier::local("tokens").unwrap().into(),
-    //             |e| {
-    //                 let mut snapshot = e
-    //                     .global_context
-    //                     .database
-    //                     .get_stx_balance_snapshot_genesis(&docs_principal_id);
-    //                 snapshot.set_balance(balance);
-    //                 snapshot.save();
-    //                 e.global_context
-    //                     .database
-    //                     .increment_ustx_liquid_supply(100000)
-    //                     .unwrap();
-    //                 Ok(())
-    //             },
-    //         )
-    //         .unwrap();
+                    type_check(&trait_def_id, &mut parsed, &mut analysis_db, true)
+                        .expect("Failed to type check sample-contracts/tokens");
+                }
 
-    //         env.initialize_contract(
-    //             contract_id,
-    //             &std::fs::read_to_string("sample-contracts/tokens.clar").unwrap(),
-    //         )
-    //         .unwrap();
+                let conn = store.as_docs_clarity_db();
+                let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
+                let docs_principal_id = PrincipalData::Contract(docs_test_id);
+                let mut env = OwnedEnvironment::new(conn);
+                let balance = STXBalance::initial(1000);
+                env.execute_in_env::<_, _, ()>(
+                    QualifiedContractIdentifier::local("tokens").unwrap().into(),
+                    |e| {
+                        let mut snapshot = e
+                            .global_context
+                            .database
+                            .get_stx_balance_snapshot_genesis(&docs_principal_id);
+                        snapshot.set_balance(balance);
+                        snapshot.save();
+                        e.global_context
+                            .database
+                            .increment_ustx_liquid_supply(100000)
+                            .unwrap();
+                        Ok(())
+                    },
+                )
+                .unwrap();
 
-    //         env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example)
-    //             .unwrap();
-    //         store.test_commit();
-    //     }
+                env.initialize_contract(contract_id, &token_contract_content)
+                    .unwrap();
 
-    //     for func_api in apis.functions.iter() {
-    //         let example = &func_api.example;
-    //         let without_throws: String = example
-    //             .lines()
-    //             .filter(|x| !x.contains(";; Throws"))
-    //             .collect::<Vec<_>>()
-    //             .join("\n");
-    //         let the_throws = example.lines().filter(|x| x.contains(";; Throws"));
-    //         docs_execute(&mut marf, &without_throws);
-    //         for expect_err in the_throws {
-    //             eprintln!("{}", expect_err);
-    //             execute(expect_err).unwrap_err();
-    //         }
-    //     }
-    // }
+                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example)
+                    .unwrap();
+            }
+
+            let example = &func_api.example;
+            let without_throws: String = example
+                .lines()
+                .filter(|x| !x.contains(";; Throws"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let the_throws = example.lines().filter(|x| x.contains(";; Throws"));
+            docs_execute(&mut store, &without_throws);
+            for expect_err in the_throws {
+                eprintln!("{}", expect_err);
+                execute(expect_err).unwrap_err();
+            }
+        }
+    }
 }

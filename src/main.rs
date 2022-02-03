@@ -721,7 +721,7 @@ simulating a miner.
     if argv[1] == "docgen_boot" {
         println!(
             "{}",
-            blockstack_lib::clarity::vm::docs::contracts::make_json_boot_contracts_reference()
+            blockstack_lib::chainstate::stacks::boot::docs::make_json_boot_contracts_reference()
         );
         return;
     }
