@@ -28,7 +28,7 @@ use vm::execute as vm_execute;
 use vm::representations::SymbolicExpression;
 use vm::tests::{
     execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
-    with_marfed_environment, with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+    with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -794,33 +794,6 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
 }
 
 #[test]
-fn test_at_unknown_block() {
-    fn test(owned_env: &mut OwnedEnvironment) {
-        let contract = "(define-data-var foo int 3)
-                        (at-block 0x0202020202020202020202020202020202020202020202020202020202020202
-                          (+ 1 2))";
-        let err = owned_env
-            .initialize_contract(
-                QualifiedContractIdentifier::local("contract").unwrap(),
-                &contract,
-            )
-            .unwrap_err();
-        eprintln!("{}", err);
-        match err {
-            Error::Runtime(x, _) => assert_eq!(
-                x,
-                RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
-                    vec![2 as u8; 32].as_slice()
-                ))
-            ),
-            _ => panic!("Unexpected error"),
-        }
-    }
-
-    with_marfed_environment(test, true);
-}
-
-#[test]
 fn test_as_max_len() {
     fn test(owned_env: &mut OwnedEnvironment) {
         let contract = "(define-data-var token-ids (list 10 uint) (list))
@@ -835,7 +808,7 @@ fn test_as_max_len() {
             .unwrap();
     }
 
-    with_marfed_environment(test, true);
+    with_memory_environment(test, true);
 }
 
 #[test]
@@ -895,7 +868,7 @@ fn test_cc_stack_depth() {
                        (bar)
                       ";
 
-    with_marfed_environment(
+    with_memory_environment(
         |owned_env| {
             let mut env = owned_env.get_exec_environment(None);
 
@@ -933,7 +906,7 @@ fn test_cc_trait_stack_depth() {
                        (bar .c-foo)
                       ";
 
-    with_marfed_environment(
+    with_memory_environment(
         |owned_env| {
             let mut env = owned_env.get_exec_environment(None);
 
@@ -965,6 +938,5 @@ fn test_all() {
     for test in to_test.iter() {
         eprintln!("..");
         with_memory_environment(test, false);
-        with_marfed_environment(test, false);
     }
 }

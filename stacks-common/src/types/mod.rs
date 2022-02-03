@@ -137,26 +137,6 @@ impl StacksAddress {
         }
     }
 
-    // pub fn from_burnchain_signer(o: &BurnchainSigner, mainnet: bool) -> Option<StacksAddress> {
-    //     let version = if mainnet {
-    //         match &o.hash_mode {
-    //             AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    //             AddressHashMode::SerializeP2SH
-    //             | AddressHashMode::SerializeP2WPKH
-    //             | AddressHashMode::SerializeP2WSH => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-    //         }
-    //     } else {
-    //         match &o.hash_mode {
-    //             AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    //             AddressHashMode::SerializeP2SH
-    //             | AddressHashMode::SerializeP2WPKH
-    //             | AddressHashMode::SerializeP2WSH => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-    //         }
-    //     };
-
-    //     StacksAddress::from_public_keys(version, &o.hash_mode, o.num_sigs, &o.public_keys)
-    // }
-
     /// Generate an address from a given address hash mode, signature threshold, and list of public
     /// keys.  Only return an address if the combination given is supported.
     /// The version is may be arbitrary.

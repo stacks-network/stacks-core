@@ -21,10 +21,7 @@ use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::events::StacksTransactionEvent;
 use vm::execute as vm_execute;
 use vm::representations::SymbolicExpression;
-use vm::tests::{
-    execute, is_committed, is_err_code, symbols_from_values, with_marfed_environment,
-    with_memory_environment,
-};
+use vm::tests::{execute, is_committed, is_err_code, symbols_from_values, with_memory_environment};
 use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
@@ -1290,6 +1287,5 @@ fn test_all() {
     ];
     for test in to_test.iter() {
         with_memory_environment(test, true);
-        with_marfed_environment(test, true);
     }
 }

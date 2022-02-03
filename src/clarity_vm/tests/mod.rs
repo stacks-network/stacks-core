@@ -19,3 +19,4 @@ pub mod costs;
 pub mod epoch_switch;
 pub mod forking;
 pub mod large_contract;
+pub mod simple_tests;

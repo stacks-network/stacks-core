@@ -21,7 +21,7 @@ use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
 use vm::types::{PrincipalData, QualifiedContractIdentifier, ResponseData, TypeSignature, Value};
 
-use vm::tests::{execute, symbols_from_values, with_marfed_environment, with_memory_environment};
+use vm::tests::{execute, symbols_from_values, with_memory_environment};
 
 #[test]
 fn test_all() {
@@ -51,7 +51,6 @@ fn test_all() {
     ];
     for test in to_test.iter() {
         with_memory_environment(test, false);
-        with_marfed_environment(test, false);
     }
 }
 

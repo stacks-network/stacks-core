@@ -17,11 +17,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
-// use core::{
-//     StacksEpoch, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
-//     BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
-//     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, POX_REWARD_CYCLE_LENGTH,
-// };
 use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use vm::contracts::Contract;
