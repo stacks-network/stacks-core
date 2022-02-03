@@ -12,6 +12,8 @@ use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use chainstate::stacks::*;
+use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
+use clarity::vm::analysis::mem_type_check;
 use clarity_vm::database::marf::MarfedKV;
 use core::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
@@ -192,6 +194,23 @@ fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
         bytes.copy_from_slice(&in_bytes[0..8]);
         Some(u64::from_le_bytes(bytes))
     }
+}
+
+fn check_arithmetic_only(contract: &str) {
+    let analysis = mem_type_check(contract).unwrap().1;
+    ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
+}
+
+#[test]
+fn cost_contract_is_arithmetic_only() {
+    use chainstate::stacks::boot::BOOT_CODE_COSTS;
+    check_arithmetic_only(BOOT_CODE_COSTS);
+}
+
+#[test]
+fn cost_2_contract_is_arithmetic_only() {
+    use chainstate::stacks::boot::BOOT_CODE_COSTS_2;
+    check_arithmetic_only(BOOT_CODE_COSTS_2);
 }
 
 impl HeadersDB for TestSimHeadersDB {

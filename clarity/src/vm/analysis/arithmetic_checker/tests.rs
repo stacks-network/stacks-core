@@ -43,12 +43,6 @@ fn check_good(contract: &str) {
     ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
 }
 
-// #[test]
-// fn test_boot_definitions() {
-//     use chainstate::stacks::boot::BOOT_CODE_COSTS;
-//     check_good(BOOT_CODE_COSTS);
-// }
-
 #[test]
 fn test_bad_defines() {
     let tests = [
