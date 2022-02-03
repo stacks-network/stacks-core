@@ -16,7 +16,7 @@ name = "stacks_common"
 path = "./src/libcommon.rs"
 
 [dependencies]
-rand = "=0.7.2"
+rand = "0.7.3"
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"

@@ -1,14 +1,10 @@
-use cost_estimates::metrics::CostMetric;
 use cost_estimates::{EstimatorError, FeeEstimator};
 use vm::costs::ExecutionCost;
 
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
 use chainstate::stacks::events::StacksTransactionReceipt;
-use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockHeader, StacksWorkScore};
-use types::proof::TrieHash;
-use util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
-use util::vrf::VRFProof;
+use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,

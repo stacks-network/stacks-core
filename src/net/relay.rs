@@ -1461,7 +1461,7 @@ impl PeerNetwork {
         let blk_hash = block.block_hash();
         let ch = consensus_hash.clone();
         let payload = BlocksData {
-            blocks: vec![(consensus_hash, block)],
+            blocks: vec![BlocksDatum(consensus_hash, block)],
         };
         let message = match self.sign_for_peer(recipient, StacksMessageType::Blocks(payload)) {
             Ok(m) => m,

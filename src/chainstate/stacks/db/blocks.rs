@@ -82,8 +82,8 @@ use crate::{types, util};
 use chainstate::stacks::address::StacksAddressExtensions;
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblockHeader;
-use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use monitoring::set_last_execution_cost_observed;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use types::chainstate::BurnchainHeaderHash;
 use util_lib::boot::boot_code_id;
 

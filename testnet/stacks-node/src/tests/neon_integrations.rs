@@ -45,8 +45,8 @@ use stacks::{
 use stacks::{
     chainstate::stacks::{
         db::StacksChainState, StacksBlock, StacksBlockHeader, StacksMicroblockHeader,
-        StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionPayload,
-        TransactionContractCall,
+        StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionContractCall,
+        TransactionPayload,
     },
     net::RPCPoxInfoData,
     util_lib::db::query_row_columns,

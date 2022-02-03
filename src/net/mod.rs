@@ -1682,10 +1682,7 @@ pub const GETPOXINV_MAX_BITLEN: u64 = 8;
 pub const BLOCKS_PUSHED_MAX: u32 = 32;
 
 impl_byte_array_message_codec!(PeerAddress, 16);
-impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
 impl_byte_array_message_codec!(Txid, 32);
-
-impl_byte_array_serde!(ConsensusHash);
 
 /// neighbor identifier
 #[derive(Clone, Eq, PartialOrd, Ord)]

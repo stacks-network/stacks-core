@@ -232,6 +232,8 @@ pub struct ConsensusHash(pub [u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);
 impl_byte_array_newtype!(ConsensusHash, u8, 20);
+impl_byte_array_serde!(ConsensusHash);
+
 pub const CONSENSUS_HASH_ENCODED_SIZE: u32 = 20;
 
 impl StacksBlockId {
@@ -356,8 +358,6 @@ impl ToSql for Sha256dHash {
         Ok(hex_str.into())
     }
 }
-
-impl_byte_array_serde!(ConsensusHash);
 
 impl VRFSeed {
     /// First-ever VRF seed from the genesis block.  It's all 0's
