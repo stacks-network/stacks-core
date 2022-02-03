@@ -924,7 +924,6 @@ impl<
         invalid_reward_cycles: Vec<u64>,
         curr_block_id: &StacksBlockId,
         curr_block_consensus_hash: &ConsensusHash,
-        parent_block_id: &StacksBlockId,
     ) -> Result<Option<u64>, Error> {
         println!("tv: prev rc: {}", prev_rc_cycle);
         // read STX contract state
@@ -1309,7 +1308,6 @@ impl<
                                     ancestor_info.invalid_reward_cycles,
                                     &stacks_block,
                                     &block_receipt.header.consensus_hash,
-                                    &parent_block_id,
                                 )?;
                                 if let Some(exit_proposal) = tallied_proposal {
                                     info!("cc: storing proposal info for {:?}", exit_proposal);

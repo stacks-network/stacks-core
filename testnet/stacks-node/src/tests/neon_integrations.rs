@@ -6622,11 +6622,12 @@ fn use_latest_tip_integration_test() {
 #[test]
 #[ignore]
 fn test_flash_block_skip_tenure() {
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
     conf.miner.microblock_attempt_time_ms = 5_000;
     conf.node.wait_time_for_microblocks = 0;
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let missed_tenures = run_loop.get_missed_tenures_arc();
@@ -6659,6 +6660,9 @@ fn test_flash_block_skip_tenure() {
 
     channel.stop_chains_coordinator();
 }
+
+#[test]
+#[ignore]
 fn exit_at_rc_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;

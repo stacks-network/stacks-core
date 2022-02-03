@@ -1536,8 +1536,8 @@ fn test_vote_for_exit_rc() {
     let mut sim = ClarityTestSim::new();
     const REWARD_CYCLE_LENGTH: u128 = 1050;
 
-    // Fast forward to reward cycle 1
-    for _ in 0..(REWARD_CYCLE_LENGTH) {
+    // Fast forward to reward cycle 9
+    for _ in 0..(REWARD_CYCLE_LENGTH * 9) {
         sim.execute_next_block(|_| {});
     }
 
@@ -1589,7 +1589,7 @@ fn test_vote_for_exit_rc() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(USTX_PER_HOLDER),
-                Value::UInt(REWARD_CYCLE_LENGTH * 4)
+                Value::UInt(REWARD_CYCLE_LENGTH * 12)
             ))
         );
     });
@@ -1603,7 +1603,7 @@ fn test_vote_for_exit_rc() {
                 (&USER_KEYS[0]).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
                 "vote-for-exit-rc",
-                &symbols_from_values(vec![Value::UInt(24),])
+                &symbols_from_values(vec![Value::UInt(32),])
             )
             .unwrap()
             .0,
@@ -1620,7 +1620,7 @@ fn test_vote_for_exit_rc() {
                 (&USER_KEYS[0]).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
                 "vote-for-exit-rc",
-                &symbols_from_values(vec![Value::UInt(27),])
+                &symbols_from_values(vec![Value::UInt(36),])
             )
             .unwrap()
             .0,
@@ -1637,7 +1637,7 @@ fn test_vote_for_exit_rc() {
                 (&USER_KEYS[0]).into(),
                 invalid_call_contract_id.clone(),
                 "call-by-proxy",
-                &symbols_from_values(vec![Value::UInt(25),])
+                &symbols_from_values(vec![Value::UInt(34),])
             )
             .unwrap()
             .0,
@@ -1654,7 +1654,7 @@ fn test_vote_for_exit_rc() {
                 (&USER_KEYS[1]).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
                 "vote-for-exit-rc",
-                &symbols_from_values(vec![Value::UInt(25),])
+                &symbols_from_values(vec![Value::UInt(34),])
             )
             .unwrap()
             .0,
@@ -1671,7 +1671,7 @@ fn test_vote_for_exit_rc() {
                 (&USER_KEYS[0]).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
                 "vote-for-exit-rc",
-                &symbols_from_values(vec![Value::UInt(25),])
+                &symbols_from_values(vec![Value::UInt(33),])
             )
             .unwrap()
             .0,
@@ -1688,7 +1688,7 @@ fn test_vote_for_exit_rc() {
                 (&USER_KEYS[0]).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
                 "vote-for-exit-rc",
-                &symbols_from_values(vec![Value::UInt(25),])
+                &symbols_from_values(vec![Value::UInt(33),])
             )
             .unwrap()
             .0,
@@ -1725,7 +1725,7 @@ fn test_vote_for_exit_rc() {
                 "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
                 Value::from(&USER_KEYS[0]),
                 Value::UInt(USTX_PER_HOLDER),
-                Value::UInt(REWARD_CYCLE_LENGTH * 29)
+                Value::UInt(REWARD_CYCLE_LENGTH * 37)
             ))
         );
     });
@@ -1738,7 +1738,7 @@ fn test_vote_for_exit_rc() {
                 (&USER_KEYS[0]).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
                 "vote-for-exit-rc",
-                &symbols_from_values(vec![Value::UInt(27),])
+                &symbols_from_values(vec![Value::UInt(35),])
             )
             .unwrap()
             .0,
@@ -1755,7 +1755,7 @@ fn test_vote_for_exit_rc() {
                 (&USER_KEYS[0]).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
                 "vote-for-exit-rc",
-                &symbols_from_values(vec![Value::UInt(33),])
+                &symbols_from_values(vec![Value::UInt(41),])
             )
             .unwrap()
             .0,

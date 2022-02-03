@@ -710,7 +710,7 @@ fn make_stacks_block_with_input(
 
     builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
     if let Some(txs) = txs_opt {
-        for mut tx in txs {
+        for tx in txs {
             builder.try_mine_tx(&mut epoch_tx, &tx).unwrap();
         }
     }

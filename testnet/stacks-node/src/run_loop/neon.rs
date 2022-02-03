@@ -442,7 +442,7 @@ impl RunLoop {
         let mut coordinator_dispatcher = self.event_dispatcher.clone();
         let (attachments_tx, attachments_rx) = sync_channel(1);
 
-        let should_keep_running_clone = should_keep_running.clone();
+        let should_keep_running_clone = self.should_keep_running.clone();
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
             .spawn(move || {

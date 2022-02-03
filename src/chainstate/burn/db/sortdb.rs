@@ -471,7 +471,7 @@ impl FromRow<BlockExitRewardCycleInfo> for BlockExitRewardCycleInfo {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "2";
+pub const SORTITION_DB_VERSION: &'static str = "3";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -626,31 +626,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         PRIMARY KEY(consensus_hash, stacks_block_hash)
     );"#,
     "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
-    r#"
-    CREATE TABLE exit_at_reward_cycle_info (
-        block_id TEXT NOT NULL,
-        parent_block_id TEXT NOT NULL,
-        block_reward_cycle INTEGER NOT NULL,
-        stacks_block_height_in_cycle INTEGER NOT NULL,
-        curr_exit_proposal INTEGER,
-        curr_exit_at_reward_cycle INTEGER,
-        invalid_reward_cycles TEXT NOT NULL,
-
-        PRIMARY KEY(block_id)
-    );"#,
-    "CREATE INDEX exit_reward_cycle_block_ids ON exit_at_reward_cycle_info(block_id);",
-    r#"
-    CREATE TABLE exit_at_reward_cycle_veto_info(
-        vetoed_exit_at_reward_cycle INTEGER NOT NULL,
-        
-        PRIMARY KEY(vetoed_exit_at_reward_cycle)
-    );"#,
-    r#"
-    CREATE TABLE exit_at_reward_cycle_proposal_info(
-        proposed_exit_at_reward_cycle INTEGER NOT NULL,
-        
-        PRIMARY KEY(proposed_exit_at_reward_cycle)
-    );"#,
 ];
 
 const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
@@ -662,6 +637,19 @@ const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
          network_epoch INTEGER NOT NULL,
          PRIMARY KEY(start_block_height,epoch_id)
      );"#];
+
+const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
+    CREATE TABLE exit_at_reward_cycle_info (
+        block_id TEXT NOT NULL,
+        parent_block_id TEXT NOT NULL,
+        block_reward_cycle INTEGER NOT NULL,
+        stacks_block_height_in_cycle INTEGER NOT NULL,
+        curr_exit_proposal INTEGER,
+        curr_exit_at_reward_cycle INTEGER,
+        invalid_reward_cycles TEXT NOT NULL,
+
+        PRIMARY KEY(block_id)
+    );"#];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -680,7 +668,8 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_stack_stx_burn_header_hash ON stack_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);",
-    "CREATE INDEX IF NOT EXISTS canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);"
+    "CREATE INDEX IF NOT EXISTS canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS exit_reward_cycle_block_ids ON exit_at_reward_cycle_info(block_id);",
 ];
 
 pub struct SortitionDB {
@@ -2343,6 +2332,9 @@ impl SortitionDB {
         for row_text in SORTITION_DB_SCHEMA_2 {
             db_tx.execute_batch(row_text)?;
         }
+        for row_text in SORTITION_DB_SCHEMA_3 {
+            db_tx.execute_batch(row_text)?;
+        }
 
         SortitionDB::validate_and_insert_epochs(&db_tx, epochs_ref)?;
 
@@ -2528,6 +2520,19 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_3(tx: &SortitionDBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_3 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["3"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -2548,23 +2553,31 @@ impl SortitionDB {
 
     fn check_schema_version_and_update(&mut self, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         let tx = self.tx_begin()?;
-        match SortitionDB::get_schema_version(&tx) {
-            Ok(Some(version)) => {
-                let expected_version = SORTITION_DB_VERSION.to_string();
-                if version == expected_version {
-                    return Ok(());
+        let mut updated = false;
+        while !updated {
+            match SortitionDB::get_schema_version(&tx) {
+                Ok(Some(version)) => {
+                    let expected_version = SORTITION_DB_VERSION.to_string();
+                    if version == expected_version {
+                        return Ok(());
+                    }
+                    if version == "1" {
+                        SortitionDB::apply_schema_2(&tx, epochs)?;
+                        // tx.commit()?;
+                    } else if version == "2" {
+                        SortitionDB::apply_schema_3(&tx)?;
+
+                        updated = true;
+                    } else {
+                        panic!("The schema version of the sortition DB is invalid.")
+                    }
                 }
-                if version == "1" {
-                    SortitionDB::apply_schema_2(&tx, epochs)?;
-                    tx.commit()?;
-                    Ok(())
-                } else {
-                    panic!("The schema version of the sortition DB is invalid.")
-                }
+                Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
+                Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
             }
-            Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
-            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
         }
+        tx.commit()?;
+        Ok(())
     }
 
     fn add_indexes(&mut self) -> Result<(), db_error> {
@@ -3656,24 +3669,6 @@ impl SortitionDB {
         })?;
         Ok(result)
     }
-
-    pub fn get_vetoed_reward_cycles(
-        conn: &Connection,
-        minimum_reward_cycle: u64,
-    ) -> Result<Vec<u64>, db_error> {
-        let qry =
-            "SELECT * FROM exit_at_reward_cycle_veto_info WHERE vetoed_exit_at_reward_cycle >= ?";
-        query_rows(conn, qry, &[&u64_to_sql(minimum_reward_cycle)?])
-    }
-
-    pub fn get_proposed_reward_cycles(
-        conn: &Connection,
-        minimum_reward_cycle: u64,
-    ) -> Result<Vec<u64>, db_error> {
-        let qry =
-            "SELECT * FROM exit_at_reward_cycle_proposal_info WHERE proposed_exit_at_reward_cycle >= ?";
-        query_rows(conn, qry, &[&u64_to_sql(minimum_reward_cycle)?])
-    }
 }
 
 impl<'a> SortitionHandleTx<'a> {
@@ -3833,22 +3828,6 @@ impl<'a> SortitionHandleTx<'a> {
     ) -> Result<(), db_error> {
         let sql = "UPDATE exit_at_reward_cycle_info SET curr_exit_proposal = ? WHERE block_id = ?";
         let args: &[&dyn ToSql] = &[&u64_to_sql(exit_proposal)?, &block_id];
-        self.execute(sql, args)?;
-
-        Ok(())
-    }
-
-    pub fn store_new_veto(&self, new_vetoed_reward_cycle: u64) -> Result<(), db_error> {
-        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_veto_info (vetoed_exit_at_reward_cycle) VALUES (?)";
-        let args = &[&u64_to_sql(new_vetoed_reward_cycle)?];
-        self.execute(sql, args)?;
-
-        Ok(())
-    }
-
-    pub fn store_new_proposal(&self, new_proposal_reward_cycle: u64) -> Result<(), db_error> {
-        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_proposal_info (proposed_exit_at_reward_cycle) VALUES (?)";
-        let args = &[&u64_to_sql(new_proposal_reward_cycle)?];
         self.execute(sql, args)?;
 
         Ok(())

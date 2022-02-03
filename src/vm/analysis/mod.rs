@@ -102,12 +102,14 @@ pub fn mem_type_check_with_db(
 
     #[cfg(test)]
     {
-        analysis_db.execute(|db| -> Result<(), ()> {
-            // ensures contract => contract hash exists in MARF (in normal operation, this is called by
-            // the Clarity DB)
-            db.test_insert_contract_hash(&contract_identifier);
-            Ok(())
-        });
+        assert!(analysis_db
+            .execute(|db| -> Result<(), ()> {
+                // ensures contract => contract hash exists in MARF (in normal operation, this is called by
+                // the Clarity DB)
+                db.test_insert_contract_hash(&contract_identifier);
+                Ok(())
+            })
+            .is_ok());
     }
 
     res
