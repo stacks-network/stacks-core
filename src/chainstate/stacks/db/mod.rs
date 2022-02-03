@@ -1398,6 +1398,7 @@ impl StacksChainState {
 
             // Setup burnchain parameters for pox contract
             let pox_constants = &boot_data.pox_constants;
+            // TODO: update once exit contract is deployed
             let contract = util::boot::boot_code_id("pox", mainnet);
             let sender = PrincipalData::from(contract.clone());
             let params = vec![
@@ -1426,10 +1427,6 @@ impl StacksChainState {
                 Value::UInt(pox_constants.reward_cycle_length as u128),
                 Value::UInt(exit_contract_constants.absolute_minimum_exit_rc as u128),
             ];
-            info!(
-                "in INSTALL BOOT CODE; {}",
-                exit_contract_constants.absolute_minimum_exit_rc
-            );
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(
                     &sender,

@@ -761,6 +761,5 @@ impl RunLoop {
                 }
             }
         }
-        info!("end of start");
     }
 }

@@ -837,7 +837,7 @@ impl Config {
             address: PrincipalData::parse_standard_principal(&address)
                 .unwrap()
                 .into(),
-            amount: amount,
+            amount,
         };
         self.initial_balances.push(new_balance);
     }

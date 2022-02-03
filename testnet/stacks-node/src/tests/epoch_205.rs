@@ -750,7 +750,7 @@ fn test_cost_limit_switch_version205() {
     let bob_addr = to_addr(&bob_sk);
     let bob_pd: PrincipalData = bob_addr.into();
 
-    let (mut conf, _, _) = neon_integration_test_conf();
+    let (mut conf, _miner_account, _miner_key) = neon_integration_test_conf();
 
     // Create a schedule where we lower the read_count on Epoch2_05.
     conf.burnchain.epochs = Some(vec![

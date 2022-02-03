@@ -236,12 +236,6 @@ impl std::fmt::Display for StacksAddress {
     }
 }
 
-#[test]
-fn test_get_mainnet_address() {
-    let addr = StacksAddress::burn_address(true);
-    print!("addr: {:?}", addr);
-}
-
 impl Address for StacksAddress {
     fn to_bytes(&self) -> Vec<u8> {
         self.bytes.as_bytes().to_vec()

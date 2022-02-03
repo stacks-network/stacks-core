@@ -2563,10 +2563,8 @@ impl SortitionDB {
                     }
                     if version == "1" {
                         SortitionDB::apply_schema_2(&tx, epochs)?;
-                        // tx.commit()?;
                     } else if version == "2" {
                         SortitionDB::apply_schema_3(&tx)?;
-
                         updated = true;
                     } else {
                         panic!("The schema version of the sortition DB is invalid.")
@@ -3300,6 +3298,7 @@ impl SortitionDB {
         self.is_pox_active_in_reward_cycle(reward_cycle, burnchain, block)
     }
 
+    // Given a reward cycle number, determine whether PoX is active in that cycle
     pub fn is_pox_active_in_reward_cycle(
         &self,
         reward_cycle: u64,

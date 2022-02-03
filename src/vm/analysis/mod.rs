@@ -70,6 +70,8 @@ pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, Cont
     }
 }
 
+/// Used in `produce_docs`. Basically does what `mem_type_check` does, but additionally inserts
+/// the contract hash into the AnalysisDB.
 pub fn mem_type_check_with_db(
     snippet: &str,
     name: &str,

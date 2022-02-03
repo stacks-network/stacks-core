@@ -196,56 +196,6 @@ pub fn serialize_sign_tx_anchor_mode_version(
     buf
 }
 
-pub fn serialize_sign_tx_anchor_mode_version_(
-    payload: TransactionPayload,
-    sender: &StacksPrivateKey,
-    payer: Option<&StacksPrivateKey>,
-    sender_nonce: u64,
-    payer_nonce: Option<u64>,
-    tx_fee: u64,
-    anchor_mode: TransactionAnchorMode,
-    version: TransactionVersion,
-) -> Vec<u8> {
-    let mut sender_spending_condition =
-        TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
-            .expect("Failed to create p2pkh spending condition from public key.");
-    sender_spending_condition.set_nonce(sender_nonce);
-
-    let auth = match (payer, payer_nonce) {
-        (Some(payer), Some(payer_nonce)) => {
-            let mut payer_spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
-                StacksPublicKey::from_private(payer),
-            )
-            .expect("Failed to create p2pkh spending condition from public key.");
-            payer_spending_condition.set_nonce(payer_nonce);
-            payer_spending_condition.set_tx_fee(tx_fee);
-            TransactionAuth::Sponsored(sender_spending_condition, payer_spending_condition)
-        }
-        _ => {
-            sender_spending_condition.set_tx_fee(tx_fee);
-            TransactionAuth::Standard(sender_spending_condition)
-        }
-    };
-    let mut unsigned_tx = StacksTransaction::new(version, auth, payload);
-    unsigned_tx.anchor_mode = anchor_mode;
-    unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
-    unsigned_tx.chain_id = CHAIN_ID_TESTNET;
-
-    let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
-    tx_signer.sign_origin(sender).unwrap();
-    if let (Some(payer), Some(_)) = (payer, payer_nonce) {
-        tx_signer.sign_sponsor(payer).unwrap();
-    }
-
-    let mut buf = vec![];
-    tx_signer
-        .get_tx()
-        .unwrap()
-        .consensus_serialize(&mut buf)
-        .unwrap();
-    buf
-}
-
 pub fn make_contract_publish(
     sender: &StacksPrivateKey,
     nonce: u64,

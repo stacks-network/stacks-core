@@ -152,12 +152,13 @@ If your name is in a namespace where names do not expire, then you never need to
             "Stackers call this function with a specific exit proposal. When \
         their STX unlocks, they are eligible to vote again. The vote must also fall into a \
         valid range (greater than the minimum exit reward cycle, and within a particular range\
-        dependent on the current reward cycle.",
+        relative to the current reward cycle).",
         ),
         (
             "veto-exit-rc",
             "Block miners call this function during the veto period for a specific \
-        exit proposal to veto the proposal.",
+        exit proposal to veto the proposal. The veto is only valid if they were the miner of the\
+        previous block.",
         ),
     ];
 

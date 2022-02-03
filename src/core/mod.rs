@@ -253,8 +253,7 @@ impl StacksEpoch {
     pub fn get_current_epoch(epochs: &[StacksEpoch], height: u64) -> StacksEpoch {
         let epoch_index = StacksEpoch::find_epoch(&epochs, height)
             .expect(&format!("BUG: block {} is not in a known epoch", &height));
-        let epoch = epochs[epoch_index].clone();
-        epoch
+        epochs[epoch_index].clone()
     }
 
     #[cfg(test)]

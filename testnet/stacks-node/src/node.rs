@@ -294,16 +294,20 @@ impl Node {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
-        let pox_constants = match config.burnchain.get_bitcoin_network() {
-            (_, BitcoinNetworkType::Mainnet) => PoxConstants::mainnet_default(),
-            (_, BitcoinNetworkType::Testnet) => PoxConstants::testnet_default(),
-            (_, BitcoinNetworkType::Regtest) => PoxConstants::regtest_default(),
-        };
-        let exit_contract_constants = match config.burnchain.get_bitcoin_network() {
-            (_, BitcoinNetworkType::Mainnet) => ExitContractConstants::mainnet_default(),
-            (_, BitcoinNetworkType::Testnet) | (_, BitcoinNetworkType::Regtest) => {
-                ExitContractConstants::testnet_default()
-            }
+        let (pox_constants, exit_contract_constants) = match config.burnchain.get_bitcoin_network()
+        {
+            (_, BitcoinNetworkType::Mainnet) => (
+                PoxConstants::mainnet_default(),
+                ExitContractConstants::mainnet_default(),
+            ),
+            (_, BitcoinNetworkType::Testnet) => (
+                PoxConstants::testnet_default(),
+                ExitContractConstants::testnet_default(),
+            ),
+            (_, BitcoinNetworkType::Regtest) => (
+                PoxConstants::regtest_default(),
+                ExitContractConstants::testnet_default(),
+            ),
         };
 
         let mut boot_data = ChainStateBootData {

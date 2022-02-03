@@ -105,9 +105,9 @@ pub struct BlockExitRewardCycleInfo {
     // The stacks block "height" within the reward cycle that this block belongs to
     pub stacks_block_height_in_cycle: u64,
     // This value is non-None when consensus has been achieved on a vote; the cycle after this
-    // will be a veto period for miner
+    // proposal was voted on will be a veto period for miners
     pub curr_exit_proposal: Option<u64>,
-    // The current exit reward cycle for node (can be None, and this values rises monotonically)
+    // The current exit reward cycle for node (can be None; when set, this values rises monotonically)
     pub curr_exit_at_reward_cycle: Option<u64>,
     // A list of reward cycles to skip over when tallying votes (these are cycles that were
     // previously proposed and/or vetoed).
@@ -746,7 +746,7 @@ impl<
         stacks_block_id: &StacksBlockId,
     ) -> Result<bool, Error> {
         let reward_cycle_length = self.burnchain.pox_constants.reward_cycle_length;
-        let veto_pct = self
+        let veto_percent_threshold = self
             .burnchain
             .exit_contract_constants
             .veto_confirmation_percent;
@@ -785,12 +785,11 @@ impl<
                     };
 
                     println!(
-                        "in veto check, proposed_exit: {}, num vetos: {:?}",
+                        "RCPR: in veto check, proposed_exit: {}, num vetos: {:?}",
                         proposed_exit_rc, num_vetos
                     );
                     // Check if the percent veto crosses the minimum threshold
                     let percent_veto = num_vetos * 100 / (reward_cycle_length as u128);
-                    let veto_percent_threshold = veto_pct;
 
                     Ok(percent_veto >= (veto_percent_threshold as u128))
                 })
@@ -798,7 +797,7 @@ impl<
             .ok_or(Error::DBError(NotFoundError))?
     }
 
-    /// Returns map of RC proposal to the number of votes for it, as well as the sum total of all
+    /// Returns map of exit proposals to the number of votes for each, as well as the sum total of all
     /// votes.
     pub fn read_vote_state(
         &mut self,
@@ -831,30 +830,10 @@ impl<
         if let Some(curr_exit_at_rc) = curr_exit_at_rc_opt {
             min_rc = min_rc.max(curr_exit_at_rc + 1);
         }
-        let mut total_votes = 0;
 
-        // let mut invalid_reward_cycles =
-        //     SortitionDB::get_vetoed_reward_cycles(self.sortition_db.conn(), min_rc)?;
-        // invalid_reward_cycles.extend(SortitionDB::get_proposed_reward_cycles(
-        //     self.sortition_db.conn(),
-        //     min_rc,
-        // )?);
+        let mut total_votes = 0;
         let invalid_reward_cycles: HashSet<u64> =
             HashSet::from_iter(invalid_reward_cycles.into_iter());
-
-        // let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
-        // let stacks_block_id = StacksBlockId::new(
-        //     &stacks_tip.canonical_stacks_tip_consensus_hash,
-        //     &stacks_tip.canonical_stacks_tip_hash,
-        // );
-        println!(
-            "PAVI: invalid cycle: {:?}, min_rc: {:?}",
-            invalid_reward_cycles,
-            min_rc,
-            // stacks_tip.canonical_stacks_tip_consensus_hash,
-            // stacks_tip.canonical_stacks_tip_hash,
-            // stacks_tip.block_height
-        );
         let is_mainnet = self.burnchain.is_mainnet();
 
         self.chain_state_db
@@ -895,11 +874,7 @@ impl<
                                     .clone()
                                     .expect_u128();
 
-                                let new_num_votes = match vote_map.get(&proposed_exit_rc) {
-                                    Some(curr_votes) => curr_votes + num_votes,
-                                    None => num_votes,
-                                };
-                                vote_map.insert(proposed_exit_rc, new_num_votes);
+                                vote_map.insert(proposed_exit_rc, num_votes);
                                 total_votes += num_votes;
                             }
                             None => {}
@@ -915,17 +890,17 @@ impl<
     /// At the end of each reward cycle, we tally the votes for the exit at RC contract.
     /// We need to read PoX contract state to see how much STX is staked into the protocol - we then
     /// ensure that at least 50% of staked STX has a valid vote.
-    /// Regarding vote validity: we discard votes for invalid RCs - below the minimum, below a
+    /// Regarding vote validity: we discard votes for invalid reward cycles. Examples of invalid
+    /// reward cycles include those that are the absolute minimum exit cycle, or those below a
     /// previously confirmed exit RC.
     pub fn tally_votes(
         &mut self,
-        prev_rc_cycle: u64,
+        rc_cycle_of_vote: u64,
         curr_exit_at_rc_opt: Option<u64>,
         invalid_reward_cycles: Vec<u64>,
         curr_block_id: &StacksBlockId,
         curr_block_consensus_hash: &ConsensusHash,
     ) -> Result<Option<u64>, Error> {
-        println!("tv: prev rc: {}", prev_rc_cycle);
         // read STX contract state
         let stacks_tip = SortitionDB::get_block_snapshot_consensus(
             self.sortition_db.conn(),
@@ -933,19 +908,20 @@ impl<
         )?
         .ok_or(Error::ChainstateError(ChainstateError::NoSuchBlockError))?;
 
+        // ensure that PoX is active
         let is_pox_active = self.sortition_db.is_pox_active_in_reward_cycle(
-            prev_rc_cycle,
+            rc_cycle_of_vote,
             &self.burnchain,
             &stacks_tip,
         )?;
         if !is_pox_active {
             return Ok(None);
         }
-        println!("tv: pox is active");
+
         let stacked_stx = self.chain_state_db.get_total_ustx_stacked(
             &self.sortition_db,
             &curr_block_id,
-            prev_rc_cycle as u128,
+            rc_cycle_of_vote as u128,
         )?;
         // Want to round up here, so calculating (x + n - 1) / n here instead of (x / n)
         let min_stx_for_valid_vote = ((stacked_stx
@@ -955,25 +931,24 @@ impl<
                 .percent_stacked_stx_for_valid_vote as u128)
             + 99)
             / 100;
-        println!("tv: before read vote");
-        // map of rc to num votes (equiv to the STX stacked)
-        // this map only includes valid votes
+
+        // obtain map of exit proposal to number of valid votes
         let (vote_map, total_votes) = self.read_vote_state(
-            prev_rc_cycle,
+            rc_cycle_of_vote,
             curr_exit_at_rc_opt,
             curr_block_id,
             invalid_reward_cycles,
         )?;
-        println!("tv: total votes: {}", total_votes);
+
+        // ensure that there are enough votes for a valid vote
         if total_votes < min_stx_for_valid_vote as u128 {
-            // not enough votes for a valid vote
-            println!("tv: not enough votes for a valid vote");
             return Ok(None);
         }
 
-        // Explanation of voting mechanics: a vote for RC x is a vote for the blockchain to exit at
-        // RC x OR up. To count the votes, we iterate from the lowest RC to highest RC in the vote
-        // map, until the total accrued votes surpasses the threshold for consensus.
+        // Explanation of voting mechanics: a vote to exit at RC x is a vote for the blockchain to
+        // exit at RC x OR higher. To count the votes, we iterate from the lowest to the highest
+        // valid exit proposal in the vote map, until the total accrued votes surpasses the
+        // threshold for consensus.
         let min_stx_for_consensus = (min_stx_for_valid_vote
             * self
                 .burnchain
@@ -981,7 +956,6 @@ impl<
                 .vote_confirmation_percent as u128
             + 99)
             / 100;
-        println!("tv: min stx for consensus: {}", min_stx_for_consensus);
         let mut accrued_votes = 0;
         // Since vote map is a BTreeMap, iteration over keys will occur in a sorted order
         for (curr_rc_proposal, curr_votes) in vote_map.iter() {
@@ -989,11 +963,10 @@ impl<
             if accrued_votes > min_stx_for_consensus {
                 // If the accrued votes is greater than the minimum needed to achieve consensus,
                 // store this value for the upcoming veto
-                println!("tv: chose proposal: {:?}", curr_rc_proposal);
                 return Ok(Some(*curr_rc_proposal));
             }
         }
-        println!("tv: didnt find majority vote, ret None");
+        println!("RCPR: tv: didnt find majority vote, ret None");
         Ok(None)
     }
 
@@ -1022,19 +995,21 @@ impl<
         )
     }
 
-    // TODO: should "react" if parent info is not found
-    // Returns reward cycle to process
+    // If it is time to process the exit-at-rc contract for a specific reward cycle, this function
+    // returns that reward cycle. Otherwise, the function returns None.
     fn process_exit_reward_cycle(
         &mut self,
         stacks_block_height_in_cycle: u64,
         parent_exit_info: &BlockExitRewardCycleInfo,
     ) -> Result<Option<BlockExitRewardCycleInfo>, Error> {
         info!(
-            "curr height: {}, parent height: {}",
+            "RCPR: curr height: {}, parent height: {}",
             stacks_block_height_in_cycle, parent_exit_info.stacks_block_height_in_cycle
         );
         if stacks_block_height_in_cycle == 2 {
-            // get parent's parent's reward cycle
+            // We want to process the exit-at-rc contract reward cycle for the reward cycle the
+            // current block's parent's parent belongs to since the height (in number of Stacks
+            // blocks) of the current block in its reward cycle is 2.
             let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
                 self.sortition_db.conn(),
                 &parent_exit_info.parent_block_id,
@@ -1043,7 +1018,9 @@ impl<
         } else if stacks_block_height_in_cycle == 1
             && parent_exit_info.stacks_block_height_in_cycle == 1
         {
-            // get parent's parent's reward cycle
+            // This is an edge case in which the previous reward cycle contains only a single Stacks block.
+            // It is time to process the exit-at-rc contract for the reward cycle the current block's
+            // parent's parent belongs to.
             let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
                 self.sortition_db.conn(),
                 &parent_exit_info.parent_block_id,
@@ -1228,13 +1205,12 @@ impl<
                     let mut current_proposal = None;
                     let mut invalid_reward_cycles = vec![];
                     let mut stacks_block_height_in_cycle = 1;
-                    let stacks_block =
+                    let stacks_block_id =
                         StacksBlockId::new(&block_receipt.header.consensus_hash, &block_hash);
                     let parent_block_id = self
                         .chain_state_db
-                        .get_parent(&stacks_block)
+                        .get_parent(&stacks_block_id)
                         .expect("BUG: failed to get parent for processed block");
-                    info!("parent stacks id: {:?}", parent_block_id);
 
                     // look up parent in exit_at_reward_cycle_info table
                     let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
@@ -1243,7 +1219,7 @@ impl<
                     )?;
 
                     if let Some(parent_exit_info) = exit_info_opt {
-                        info!("cc: parent block info is non-None");
+                        info!("RCPR: cc: parent block info is non-None");
                         // copy info from parent block
                         current_exit_at_rc = parent_exit_info.curr_exit_at_reward_cycle;
                         if parent_exit_info.block_reward_cycle < current_reward_cycle {
@@ -1262,60 +1238,61 @@ impl<
                             .filter(|rc| **rc > current_reward_cycle)
                             .map(|rc| *rc)
                             .collect();
-                        info!(
-                            "cc: STACKS BLOCK HEIGHT IN CYCLE: {}",
-                            stacks_block_height_in_cycle
-                        );
 
                         // check if it is time to process
+                        // By default, we process the RC preceding block 1 once we are at height
+                        // 2 in RC Y (where height is measured in Stacks blocks)
                         // RC X -> block 1 in RC Y ->  block 2 in RC Y
                         //                            | PROCESS RC X |
                         //
+                        // This scenario depicts the behavior during an edge case in which some
+                        // reward cycles contain only 1 Stacks block in them.
                         // RC P -> block 1 in RC Q ->  block 1 in RC R ->  block 1 in RC S -> block 2 in RC S
                         //                            | PROCESS RC P  |   | PROCESS RC Q |   | PROCESS RC R |
                         if let Some(ancestor_info) = self.process_exit_reward_cycle(
                             stacks_block_height_in_cycle,
                             &parent_exit_info,
                         )? {
-                            info!("cc: ancestor - rc is greater than parent rc");
-                            // if reward cycle is diff from parent, first check if there is a veto happening
-                            // if veto happening, check veto
+                            info!("RCPR: cc: ancestor - rc is greater than parent rc");
+                            // Check if there is some proposal. If so, need to check for a veto.
                             if let Some(curr_exit_proposal) = ancestor_info.curr_exit_proposal {
                                 let veto_passed = self.read_veto_state(
                                     ancestor_info.block_reward_cycle,
                                     curr_exit_proposal,
-                                    &stacks_block,
+                                    &stacks_block_id,
                                 )?;
                                 // if veto fails, record exit block height
                                 if !veto_passed {
-                                    info!("cc: veto did not pass for {}", curr_exit_proposal);
+                                    info!("RCPR: cc: veto did not pass for {}", curr_exit_proposal);
                                     current_exit_at_rc = Some(curr_exit_proposal);
                                 } else {
-                                    info!("cc: storing veto info for {}", curr_exit_proposal);
-                                    // record the veto in the table `exit_at_reward_cycle_veto_info`
+                                    info!("RCPR: cc: storing veto info for {}", curr_exit_proposal);
+                                    // record the veto in invalid_reward_cycles
                                     let sortdb_handle = self
                                         .sortition_db
                                         .tx_handle_begin(&canonical_sortition_tip)?;
-                                    // sortdb_handle.store_new_veto(curr_exit_proposal)?;
                                     invalid_reward_cycles.push(curr_exit_proposal);
                                     sortdb_handle.commit()?;
                                 }
                             } else {
-                                // tally votes of previous reward cycle if there is no veto; if there is consensus, record it in proposal field
+                                // tally votes of previous reward cycle if there is no veto happening
+                                // if there is consensus for some proposal, record it
                                 let tallied_proposal = self.tally_votes(
                                     ancestor_info.block_reward_cycle,
                                     ancestor_info.curr_exit_at_reward_cycle,
                                     ancestor_info.invalid_reward_cycles,
-                                    &stacks_block,
+                                    &stacks_block_id,
                                     &block_receipt.header.consensus_hash,
                                 )?;
                                 if let Some(exit_proposal) = tallied_proposal {
-                                    info!("cc: storing proposal info for {:?}", exit_proposal);
-                                    // record the veto in the table `exit_at_reward_cycle_veto_info`
+                                    info!(
+                                        "RCPR: cc: storing proposal info for {:?}",
+                                        exit_proposal
+                                    );
+                                    // record the proposal in invalid_reward_cycles
                                     let sortdb_handle = self
                                         .sortition_db
                                         .tx_handle_begin(&canonical_sortition_tip)?;
-                                    // sortdb_handle.store_new_proposal(exit_proposal)?;
                                     invalid_reward_cycles.push(exit_proposal);
                                     sortdb_handle.commit()?;
 
@@ -1323,7 +1300,7 @@ impl<
                                     let sortdb_handle = self
                                         .sortition_db
                                         .tx_handle_begin(&canonical_sortition_tip)?;
-                                    info!("cc: storing exit proposal for parent");
+                                    info!("RCPR: cc: storing exit proposal for parent");
                                     sortdb_handle.update_exit_proposal(
                                         parent_exit_info.block_id,
                                         exit_proposal,
@@ -1332,7 +1309,7 @@ impl<
 
                                     // store in current block if it is the same RC as its parent
                                     if parent_exit_info.block_reward_cycle == current_reward_cycle {
-                                        info!("cc: storing exit proposal for current");
+                                        info!("RCPR: cc: storing exit proposal for current");
                                         current_proposal = tallied_proposal;
                                     }
                                 }
@@ -1346,19 +1323,19 @@ impl<
                     }
 
                     let exit_info = BlockExitRewardCycleInfo {
-                        block_id: stacks_block,
-                        parent_block_id: parent_block_id,
+                        block_id: stacks_block_id,
+                        parent_block_id,
                         block_reward_cycle: current_reward_cycle,
-                        stacks_block_height_in_cycle: stacks_block_height_in_cycle,
+                        stacks_block_height_in_cycle,
                         curr_exit_proposal: current_proposal,
                         curr_exit_at_reward_cycle: current_exit_at_rc,
                         invalid_reward_cycles,
                     };
-                    info!("cc: exit info is: {:?}", exit_info);
+                    info!("RCPR: cc: exit info is: {:?}", exit_info);
                     let sortdb_handle = self
                         .sortition_db
                         .tx_handle_begin(&canonical_sortition_tip)?;
-                    info!("cc: storing exit info");
+                    info!("RCPR: cc: storing exit info");
                     sortdb_handle.store_exit_at_reward_cycle_info(exit_info)?;
                     sortdb_handle.commit()?;
 

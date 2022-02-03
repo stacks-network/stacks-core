@@ -415,36 +415,30 @@ impl Burnchain {
         chain_name: &str,
         network_name: &str,
     ) -> Result<Burnchain, burnchain_error> {
-        let (params, pox_constants, peer_version) = match (chain_name, network_name) {
-            ("bitcoin", "mainnet") => (
-                BurnchainParameters::bitcoin_mainnet(),
-                PoxConstants::mainnet_default(),
-                PEER_VERSION_MAINNET,
-            ),
-            ("bitcoin", "testnet") => (
-                BurnchainParameters::bitcoin_testnet(),
-                PoxConstants::testnet_default(),
-                PEER_VERSION_TESTNET,
-            ),
-            ("bitcoin", "regtest") => (
-                BurnchainParameters::bitcoin_regtest(),
-                PoxConstants::regtest_default(),
-                PEER_VERSION_TESTNET,
-            ),
-            (_, _) => {
-                return Err(burnchain_error::UnsupportedBurnchain);
-            }
-        };
-        let exit_contract_constants = match (chain_name, network_name) {
-            ("bitcoin", "mainnet") => ExitContractConstants::mainnet_default(),
-            ("bitcoin", "testnet") => ExitContractConstants::testnet_default(),
-            ("bitcoin", "regtest") => ExitContractConstants::testnet_default(),
-            (_, _) => {
-                return Err(burnchain_error::UnsupportedBurnchain);
-            }
-        };
-
-        println!("network name: {}", network_name);
+        let (params, pox_constants, peer_version, exit_contract_constants) =
+            match (chain_name, network_name) {
+                ("bitcoin", "mainnet") => (
+                    BurnchainParameters::bitcoin_mainnet(),
+                    PoxConstants::mainnet_default(),
+                    PEER_VERSION_MAINNET,
+                    ExitContractConstants::mainnet_default(),
+                ),
+                ("bitcoin", "testnet") => (
+                    BurnchainParameters::bitcoin_testnet(),
+                    PoxConstants::testnet_default(),
+                    PEER_VERSION_TESTNET,
+                    ExitContractConstants::testnet_default(),
+                ),
+                ("bitcoin", "regtest") => (
+                    BurnchainParameters::bitcoin_regtest(),
+                    PoxConstants::regtest_default(),
+                    PEER_VERSION_TESTNET,
+                    ExitContractConstants::testnet_default(),
+                ),
+                (_, _) => {
+                    return Err(burnchain_error::UnsupportedBurnchain);
+                }
+            };
 
         Ok(Burnchain {
             peer_version,
