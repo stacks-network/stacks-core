@@ -231,7 +231,7 @@ pub trait TransactionConnection: ClarityConnection {
     }
 
     /// Execute a contract call in the current block.
-    ///  If an error occurs while processing the transaction, it's modifications will be rolled back.
+    ///  If an error occurs while processing the transaction, its modifications will be rolled back.
     /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
     ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).

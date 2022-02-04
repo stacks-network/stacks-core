@@ -93,20 +93,6 @@ pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
 
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
 
-// // for using BurnchainHeaderHash values as block hashes in a MARF
-// impl From<BurnchainHeaderHash> for BlockHeaderHash {
-//     fn from(bhh: BurnchainHeaderHash) -> BlockHeaderHash {
-//         BlockHeaderHash(bhh.0)
-//     }
-// }
-
-// // for using BurnchainHeaderHash values as block hashes in a MARF
-// impl From<BlockHeaderHash> for BurnchainHeaderHash {
-//     fn from(bhh: BlockHeaderHash) -> BurnchainHeaderHash {
-//         BurnchainHeaderHash(bhh.0)
-//     }
-// }
-
 impl FromRow<SortitionId> for SortitionId {
     fn from_row<'a>(row: &'a Row) -> Result<SortitionId, db_error> {
         SortitionId::from_column(row, "sortition_id")

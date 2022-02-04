@@ -19,8 +19,6 @@ use vm::analysis::{mem_type_check, AnalysisDatabase};
 use vm::analysis::{type_check, ContractAnalysis};
 use vm::ast::parse;
 
-// mod costs;
-
 #[test]
 fn test_list_types_must_match() {
     let snippet = "(list 1 true)";

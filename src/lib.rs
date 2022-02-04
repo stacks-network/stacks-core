@@ -78,9 +78,6 @@ pub use stacks_common::codec;
 pub use stacks_common::types;
 pub use stacks_common::util;
 
-//#[macro_use]
-//pub mod codec;
-
 #[macro_use]
 pub mod util_lib;
 
@@ -98,7 +95,6 @@ pub mod chainstate;
 #[cfg(test)]
 extern crate stx_genesis;
 
-//pub mod address;
 pub mod burnchains;
 
 /// A high level library for interacting with the Clarity vm
