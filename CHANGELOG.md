@@ -5,15 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
-
-### Added
-
-### Changed
-
-### Fixed
-- Fixed a few prometheus metrics to be more accurate comapared to `/v2` endpoints when polling data (#2987)
-
 ## [2.05.0.1.0]
 
 ### Added 
@@ -84,6 +75,8 @@ tests (#2989).
 - Updates the lookup key for contracts in the pessimistic cost estimator. Before, contracts
   published by different principals with the same name would have had the same 
   key in the cost estimator. (#2984)
+- Fixed a few prometheus metrics to be more accurate compared to `/v2` endpoints 
+  when polling data (#2987)
 
 ## [2.05.0.0.0]
 
