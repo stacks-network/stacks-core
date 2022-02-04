@@ -8,11 +8,17 @@ use std::process;
 use std::{env, time::Instant};
 
 use blockstack_lib::clarity_vm::clarity::ClarityInstance;
+use blockstack_lib::clarity_vm::database::MemoryBackingStore;
+use blockstack_lib::core::StacksEpochId;
 use blockstack_lib::types::chainstate::BlockHeaderHash;
 use blockstack_lib::types::chainstate::BurnchainHeaderHash;
 use blockstack_lib::types::chainstate::VRFSeed;
 use blockstack_lib::types::proof::ClarityMarfTrieId;
-use blockstack_lib::vm::execute;
+use blockstack_lib::vm::ast::build_ast;
+use blockstack_lib::vm::contexts::GlobalContext;
+use blockstack_lib::vm::costs::LimitedCostTracker;
+use blockstack_lib::vm::errors::InterpreterResult;
+use blockstack_lib::vm::{ContractContext, eval_all};
 use rand::Rng;
 
 use blockstack_lib::clarity_vm::database::marf::MarfedKV;
@@ -482,6 +488,32 @@ fn expensive_contract_test(scaling: u32, buildup_count: u32, genesis_size: u32) 
     );
 
     this_cost
+}
+
+pub fn execute_in_epoch(
+    program: &str,
+    epoch: StacksEpochId,
+) -> InterpreterResult<Option<Value>> {
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract_context = ContractContext::new(contract_id.clone());
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let mut global_context = GlobalContext::new(false, conn, LimitedCostTracker::new_free(), epoch);
+    global_context.execute(|g| {
+        let parsed = build_ast(&contract_id, program, &mut ())?.expressions;
+        eval_all(&parsed, &mut contract_context, g)
+    })
+}
+
+fn execute(program: &str) -> InterpreterResult<Option<Value>> {
+    let epoch_200_result = execute_in_epoch(program, StacksEpochId::Epoch20);
+    let epoch_205_result = execute_in_epoch(program, StacksEpochId::Epoch2_05);
+    assert_eq!(
+        epoch_200_result, epoch_205_result,
+        "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
+        program
+    );
+    epoch_205_result
 }
 
 fn stack_stx_test(buildup_count: u32, genesis_size: u32, scaling: u32) -> ExecutionCost {

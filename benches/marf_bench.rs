@@ -3,6 +3,7 @@ extern crate criterion;
 extern crate blockstack_lib;
 extern crate rand;
 
+use blockstack_lib::chainstate::stacks::Error;
 use blockstack_lib::types::proof::ClarityMarfTrieId;
 use criterion::Criterion;
 use rand::prelude::*;
@@ -10,6 +11,12 @@ use std::fs;
 
 use blockstack_lib::chainstate::stacks::index::{marf::MARF, storage::TrieFileStorage};
 use blockstack_lib::types::chainstate::{MARFValue, StacksBlockId};
+
+pub fn begin(marf: &mut MARF<StacksBlockId>, chain_tip: &StacksBlockId, next_chain_tip: &StacksBlockId) -> Result<(), Error> {
+    let mut tx = marf.begin_tx()?;
+    tx.begin(chain_tip, next_chain_tip)?;
+    Ok(())
+}
 
 fn benchmark_marf_usage(
     filename: &str,
@@ -24,8 +31,8 @@ fn benchmark_marf_usage(
     let f = TrieFileStorage::open(filename).unwrap();
     let mut block_header = StacksBlockId::from_bytes(&[0u8; 32]).unwrap();
     let mut marf = MARF::from_storage(f);
-    marf.begin(&StacksBlockId::sentinel(), &block_header)
-        .unwrap();
+
+    begin(&mut marf, &StacksBlockId::sentinel(), &block_header).unwrap();
 
     let mut rng = rand::thread_rng();
 
@@ -64,7 +71,7 @@ fn benchmark_marf_usage(
         let next_block_header = StacksBlockId::from_bytes(next_block_header.as_slice()).unwrap();
 
         marf.commit().unwrap();
-        marf.begin(&block_header, &next_block_header).unwrap();
+        begin(&mut marf, &block_header, &next_block_header).unwrap();
         block_header = next_block_header;
     }
     marf.commit().unwrap();
