@@ -8,9 +8,7 @@ use blockstack_lib::clarity_vm::database::marf::MarfedKV;
 use blockstack_lib::types::chainstate::StacksBlockId;
 use blockstack_lib::types::proof::ClarityMarfTrieId;
 use blockstack_lib::vm::database::NULL_BURN_STATE_DB;
-use blockstack_lib::{
-    vm::database::NULL_HEADER_DB, vm::types::QualifiedContractIdentifier,
-};
+use blockstack_lib::{vm::database::NULL_HEADER_DB, vm::types::QualifiedContractIdentifier};
 use criterion::Criterion;
 
 pub fn rollback_log_memory_test() {
@@ -47,13 +45,16 @@ pub fn rollback_log_memory_test() {
         }
 
         conn.as_transaction(|conn| {
-            let (ct_ast, _ct_analysis) =
-                conn.analyze_smart_contract(&contract_identifier, &contract).unwrap();
+            let (ct_ast, _ct_analysis) = conn
+                .analyze_smart_contract(&contract_identifier, &contract)
+                .unwrap();
 
             assert!(format!(
                 "{:?}",
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| false)
-                    .unwrap_err()
+                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
+                    false
+                })
+                .unwrap_err()
             )
             .contains("MemoryBalanceExceeded"));
         });
@@ -114,9 +115,12 @@ pub fn ccall_memory_test() {
                     let (ct_ast, ct_analysis) = conn
                         .analyze_smart_contract(&contract_identifier, &contract)
                         .unwrap();
-                    conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                        false
-                    })
+                    conn.initialize_smart_contract(
+                        &contract_identifier,
+                        &ct_ast,
+                        &contract,
+                        |_, _| false,
+                    )
                     .unwrap();
                     conn.save_analysis(&contract_identifier, &ct_analysis)
                         .unwrap();

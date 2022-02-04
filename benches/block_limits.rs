@@ -18,7 +18,7 @@ use blockstack_lib::vm::ast::build_ast;
 use blockstack_lib::vm::contexts::GlobalContext;
 use blockstack_lib::vm::costs::LimitedCostTracker;
 use blockstack_lib::vm::errors::InterpreterResult;
-use blockstack_lib::vm::{ContractContext, eval_all};
+use blockstack_lib::vm::{eval_all, ContractContext};
 use rand::Rng;
 
 use blockstack_lib::clarity_vm::database::marf::MarfedKV;
@@ -490,10 +490,7 @@ fn expensive_contract_test(scaling: u32, buildup_count: u32, genesis_size: u32) 
     this_cost
 }
 
-pub fn execute_in_epoch(
-    program: &str,
-    epoch: StacksEpochId,
-) -> InterpreterResult<Option<Value>> {
+pub fn execute_in_epoch(program: &str, epoch: StacksEpochId) -> InterpreterResult<Option<Value>> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone());
     let mut marf = MemoryBackingStore::new();

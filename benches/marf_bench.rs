@@ -12,7 +12,11 @@ use std::fs;
 use blockstack_lib::chainstate::stacks::index::{marf::MARF, storage::TrieFileStorage};
 use blockstack_lib::types::chainstate::{MARFValue, StacksBlockId};
 
-pub fn begin(marf: &mut MARF<StacksBlockId>, chain_tip: &StacksBlockId, next_chain_tip: &StacksBlockId) -> Result<(), Error> {
+pub fn begin(
+    marf: &mut MARF<StacksBlockId>,
+    chain_tip: &StacksBlockId,
+    next_chain_tip: &StacksBlockId,
+) -> Result<(), Error> {
     let mut tx = marf.begin_tx()?;
     tx.begin(chain_tip, next_chain_tip)?;
     Ok(())
@@ -63,7 +67,10 @@ fn benchmark_marf_usage(
 
         for _k in 0..reads_per_block {
             let (key, value) = values.as_slice().choose(&mut rng).unwrap();
-            assert_eq!(marf.get_with_proof(&block_header, key).unwrap().unwrap().0, *value);
+            assert_eq!(
+                marf.get_with_proof(&block_header, key).unwrap().unwrap().0,
+                *value
+            );
         }
 
         let mut next_block_header = (i + 1).to_le_bytes().to_vec();
