@@ -43,6 +43,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   value and a MARF proof of its existence. (#2862)
 - Fixed a bug in the unconfirmed state processing logic that could lead to a
   denial of service (node crash) for nodes that mine microblocks (#2970)
+- Added prometheus metric that tracks block fullness by logging the percentage of each
+  cost dimension that is consumed in a given block (#3025).  
+  
 
 ### Changed
 - Updated the mined block event. It now includes information on transaction 
@@ -74,6 +77,8 @@ half (#2989, #3005).
   burnchain reorg can get stuck, and be rendered unable to process further
 sortitions.  This has never happened in production, but it can be replicated in
 tests (#2989).
+- Updated what indices are created, and ensures that indices are created even 
+  after the database is initialized (#3029).
 
 ### Fixed 
 - Updates the lookup key for contracts in the pessimistic cost estimator. Before, contracts
