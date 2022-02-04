@@ -253,8 +253,8 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         }
     }
 
-    // #[cfg(test)]
-    pub fn commit_tx(self) {
+    #[cfg(test)]
+    fn commit_tx(self) {
         self.storage.commit_tx()
     }
 
