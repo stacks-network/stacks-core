@@ -32,6 +32,7 @@
         (ok true))
 )
 
+;; Stores number of votes for exit proposals by coupling it with the reward cycle the vote is cast in.
 (define-map rc-proposal-votes
     {
         proposed-rc: uint,
@@ -40,6 +41,7 @@
     { votes: uint }
 )
 
+;; Stores number of vetos for exit proposals by coupling it with the reward cycle the veto is cast in.
 (define-map rc-proposal-vetoes
     {
         proposed-rc: uint,
@@ -48,6 +50,7 @@
     { vetoes: uint }
 )
 
+;; Keeps track of miner vetos; used to ensure that a miner cannot cast multiple vetos in the same block.
 (define-map exercised-veto
     {
         proposed-rc: uint,
@@ -56,6 +59,7 @@
     { vetoed: bool }
 )
 
+;; Keeps track of voter specific information; used to ensure a voter doesn't vote twice in the same stacking period.
 (define-map voter-state
     { address: principal }
     {
@@ -66,7 +70,7 @@
 )
 
 ;; What's the reward cycle number of the burnchain block height?
-;; Will runtime-abort if height is less than the first burnchain block (this is intentional)
+;; Will runtime-abort if height is less than the first burnchain block (this is intentional).
 ;; Returns uint
 (define-private (burn-height-to-reward-cycle (height uint))
     (let
@@ -89,7 +93,7 @@
 
 
 ;; For a specific reward cycle, this function tried to add "amount" number of votes for the proposed exit reward cycle.
-;; reminder: votes are specific to reward cycles, since vote longetivity is tied to the voter's stacking duration.
+;; Note: votes are tied to reward cycles, since the vote's lifetime is tied to the voter's stacking duration.
 (define-private (add-to-rc-proposal-map (cycle-opt (optional uint)) (proposed-rc uint) (amount uint))
     (begin
         (match cycle-opt
@@ -104,7 +108,7 @@
     )
 )
 
-;; Used to construct a list of the reward cycles that a voter's vote would be valid for.
+;; Used to construct a list of the reward cycles that a voter's vote would be valid for (tied to their stacking duration).
 ;; Ex: if a user starts stacking at RC 18 for 3 cycles, the output of this function would be:
 ;;     [ (some 18), (some 19), (some 20), none, none, none, none, none, none, none, none, none ]
 (define-private (get-voting-reward-cycles (index uint) (lock-period uint) (first-reward-cycle uint))
@@ -116,7 +120,7 @@
     )
 )
 
-;; TODO - fill in real address for contract-call once known
+;; TODO (#3034) - fill in real address for contract-call once known
 ;; A stacking voter with no outstanding vote can call this function with their proposed exit reward cycle to vote for it.
 ;; This function enforces bounds on the vote (can't be above/below specific values).
 ;; If a vote is accepted, the voter can only re-vote when they stack again.
@@ -144,7 +148,7 @@
         (asserts! (>= proposed-exit-rc (+ current-reward-cycle MINIMUM_RC_BUFFER_FROM_PRESENT)) (err ERR_INVALID_PROPOSED_RC))
         (asserts! (<= proposed-exit-rc (+ current-reward-cycle MAXIMUM_RC_BUFFER_FROM_PRESENT)) (err ERR_INVALID_PROPOSED_RC))
 
-        ;; Check that the voter does not have an outstanding vote for this rc
+        ;; Check that the voter does not have an outstanding vote for this reward cycle
         (match (map-get? voter-state {address: tx-sender})
             voter-info (asserts! (>= current-reward-cycle (get expiration-reward-cycle voter-info))
                 (err ERR_PREVIOUS_VOTE_VALID))
@@ -168,6 +172,8 @@
 
 ;; This function is used by miners to veto a proposed exit reward cycle. The veto period is active the reward cycle
 ;; after a vote is confirmed.
+;; Note: a miner can send in a veto in the block after the one they mined, and they can't include multiple of these
+;; transactions in a block.
 (define-public (veto-exit-rc (proposed-exit-rc uint))
     (let (
         (current-reward-cycle (unwrap-panic (current-pox-reward-cycle)))

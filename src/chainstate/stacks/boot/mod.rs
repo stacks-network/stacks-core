@@ -73,13 +73,14 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     pub static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
+    // TODO (#3034) - replace when exit contract is published
     static ref BOOT_CODE_EXIT_AT_RC_MAINNET: String =
         format!("{}\n{}", BOOT_CODE_EXIT_AT_RC_MAINNET_CONSTS, BOOT_CODE_EXIT_AT_RC);
     pub static ref BOOT_CODE_EXIT_AT_RC_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_EXIT_AT_RC_TESTNET_CONSTS, BOOT_CODE_EXIT_AT_RC);
 
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
-    // TODO - remove exit-at-rc once deployed
+    // TODO (#3034): remove exit-at-rc once deployed
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 7] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
         ("exit-at-rc", &BOOT_CODE_EXIT_AT_RC_MAINNET),

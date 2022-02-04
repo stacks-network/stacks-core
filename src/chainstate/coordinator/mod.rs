@@ -750,11 +750,12 @@ impl<
             .burnchain
             .exit_contract_constants
             .veto_confirmation_percent;
+        let is_mainnet = self.burnchain.is_mainnet();
         self.chain_state_db
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
                 conn.with_clarity_db_readonly(|db| {
-                    // TODO - get correct contract ID once contract is published
-                    let exit_at_rc_contract = boot_code_id("exit-at-rc", false);
+                    // TODO (#3034): get correct contract ID once contract is published
+                    let exit_at_rc_contract = boot_code_id("exit-at-rc", is_mainnet);
 
                     // from map rc-proposal-vetoes, use key pair (proposed_rc, curr_rc) to get the # of vetos
                     let entry = db
@@ -839,7 +840,7 @@ impl<
         self.chain_state_db
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
                 conn.with_clarity_db_readonly(|db| {
-                    // TODO - get correct contract ID once contract is published
+                    // TODO (#3034): get correct contract ID once contract is published
                     let exit_at_rc_contract = boot_code_id("exit-at-rc", is_mainnet);
 
                     for proposed_exit_rc in min_rc..max_rc {

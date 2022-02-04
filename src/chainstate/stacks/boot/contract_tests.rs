@@ -56,6 +56,7 @@ lazy_static! {
     static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
     static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
+    // TODO (#3034): update contract ID
     pub static ref EXIT_AT_RC_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("exit-at-rc", false);
     static ref USER_KEYS: Vec<StacksPrivateKey> =
@@ -1516,19 +1517,14 @@ fn test_vote_too_many_confirms() {
     });
 }
 
-// Vote function tests:
-// Vote for invalid RCs to test minimum/maximum threshold (too early, too late)
-//  - have absolute minimum be lower than current reward cycle
-
-// Vary whether vote before or after the absolute minimum RC
-
-// Try to vote for multiple different reward cycle as same principal
-//      - before expiration
-//      - after expiration
-
-// Try to vote through contract (using contract-call?) - should fail
-
-// Try to vote with user that is not stacking - should fail
+// This test tests the exit-at-rc contract. Here are the cases it tests:
+// - Vote for invalid RCs to test minimum/maximum threshold
+// - Vary whether the vote occurs before or after the absolute minimum RC
+// - Try to vote for multiple different reward cycles as same principal
+//      - before expiration of current stacking
+//      - after expiration of stacking
+// - Try to vote through contract (using contract-call?) - this should fail
+// - Try to vote with user that is not stacking - this should fail
 
 // Make sure vote count makes sense at the end of the test
 #[test]
@@ -1544,7 +1540,7 @@ fn test_vote_for_exit_rc() {
     let invalid_call_contract_id =
         QualifiedContractIdentifier::local("invalid-call-contract").unwrap();
 
-    // initialize some stacking for user 0
+    // initialize stacking for user 0
     // initialize relevant contracts
     sim.execute_next_block(|env| {
         env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET)
@@ -1596,7 +1592,7 @@ fn test_vote_for_exit_rc() {
 
     sim.execute_next_block(|env| {
         // Current reward cycle = 1
-        // Vote for reward cycle below the absolute minimum allowable reward cycle (50 for mainnet)
+        // Vote for reward cycle below the absolute minimum allowable reward cycle (33 for mainnet)
         // Should fail with error `ERR_INVALID_PROPOSED_RC`
         assert_eq!(
             env.execute_transaction(
@@ -1682,7 +1678,7 @@ fn test_vote_for_exit_rc() {
         );
 
         // Try to vote again for the same reward cycle.
-        // Should fail since this user already has an active vote.
+        // Should fail with `ERR_PREVIOUS_VOTE_VALID` since this user already has an active vote.
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
@@ -1705,6 +1701,7 @@ fn test_vote_for_exit_rc() {
     }
 
     // Reward cycle = 26
+    // Stack again
     sim.execute_next_block(|env| {
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
         assert_eq!(
@@ -1767,13 +1764,10 @@ fn test_vote_for_exit_rc() {
     });
 }
 
-// Veto function tests:
-// Need to ensure voter is previous miner
-//      - try sending vote from 2 miners ago (should fail)
-
-// Try veto'ing twice as miner in the same block - should fail
-
-// Make sure veto count makes sense at end of test
+// Tests the veto function of the exit-at-rc contract. Tests the following conditions:
+// - Need to ensure voter is previous miner, so try sending vote from 2 miners ago (should fail)
+// - Try veto'ing twice as miner in the same block - should fail
+// - Make sure veto count makes sense at end of test
 #[test]
 fn test_miner_veto_for_exit_rc() {
     let mut sim = ClarityTestSim::new();
@@ -1790,7 +1784,7 @@ fn test_miner_veto_for_exit_rc() {
     sim.execute_next_block(|env| {
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
 
-        // veto from non-miner should not work
+        // veto from non-miner should error with `ERR_UNAUTHORIZED_CALLER`
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0].clone()).into(),
@@ -1822,7 +1816,7 @@ fn test_miner_veto_for_exit_rc() {
             })
         );
 
-        // assert error if the miner already vetoed in this block
+        // get error `ERR_ALREADY_VETOED` if the miner already vetoed in this block
         assert_eq!(
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),

@@ -282,7 +282,7 @@ pub fn setup_states(
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
 
-            // TODO: update contract identifier
+            // TODO (#3034): update contract identifier
             let contract = util::boot::boot_code_id("exit-at-rc", false);
             let sender = PrincipalData::from(contract.clone());
             clarity_tx.connection().as_transaction(|conn| {
@@ -3884,15 +3884,15 @@ fn preprocess_block(
     .unwrap()
     .consensus_hash;
     // Preprocess the anchored block
-    let res = chain_state.preprocess_anchored_block(
-        &ic,
-        &my_sortition.consensus_hash,
-        &block,
-        &parent_consensus_hash,
-        5,
-    );
-    info!("preprocess result: {:?}", res);
-    res.unwrap();
+    chain_state
+        .preprocess_anchored_block(
+            &ic,
+            &my_sortition.consensus_hash,
+            &block,
+            &parent_consensus_hash,
+            5,
+        )
+        .unwrap();
 }
 
 #[test]
@@ -3972,8 +3972,8 @@ fn test_check_chainstate_db_versions() {
 
 /// This tests the exit-at-rc contract with a fork.
 /// The contract data from the previous reward cycle is typically evaluated at the second Stacks block in a reward cycle.
-/// In the case there is only 1 Stacks block in a particular reward cycle, the data from the previous reward cycle
-/// is evaluated in the next block (so the first Stacks block in the next reward cycle).
+/// In the case there is only 1 Stacks block in a particular reward cycle Q, the data from the previous reward cycle P
+/// is evaluated in the following block (so the first Stacks block in reward cycle R).
 /// This test checks that this behavior works as intended.
 #[test]
 fn test_exit_at_rc_short_reward_cycle() {
@@ -4030,7 +4030,7 @@ fn test_exit_at_rc_short_reward_cycle() {
 
     // setup:
     // STACKS BLOCK HEIGHT IN CYCLE:    5    1    2    3    4    5
-    // BLOCK NUMBER:                 .. 47 - 48 - 49 - 50 - 51 - 52
+    // BLOCK NUMBER (ix):           .. 47 - 48 - 49 - 50 - 51 - 52
     //                                       \_  53 _ 54
     // STACKS BLOCK HEIGHT IN CYCLE:             1    2
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
@@ -4082,6 +4082,7 @@ fn test_exit_at_rc_short_reward_cycle() {
             // create block with vote transaction
             let tx_auth = TransactionAuth::from_p2pkh(&stacker_pk).unwrap();
 
+            // TODO (#3034): update contract ID
             let mut tx = StacksTransaction::new(
                 TransactionVersion::Testnet,
                 tx_auth,

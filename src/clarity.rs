@@ -784,6 +784,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         )
         .unwrap();
 
+    // TODO (#3034): update contract ID
     let exit_at_rc_contract = boot_code_id("exit-at-rc", mainnet);
     let sender = PrincipalData::from(exit_at_rc_contract.clone());
     let exit_params = if mainnet {
