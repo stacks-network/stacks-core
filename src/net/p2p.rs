@@ -5034,10 +5034,6 @@ impl PeerNetwork {
                 self.deregister_peer(dead);
             }
             self.prune_connections();
-            let outbound_neighbors = PeerNetwork::count_outbound_conversations(&self.peers);
-            let inbound_neighbors = self.peers.len() - outbound_neighbors as usize;
-            update_outbound_neighbors(outbound_neighbors as i64);
-            update_inbound_neighbors(inbound_neighbors as i64);
         }
 
         // In parallel, do a neighbor walk
@@ -5093,6 +5089,11 @@ impl PeerNetwork {
         // finally, handle network I/O requests from other threads, and get back reply handles to them.
         // do this after processing new sockets, so we don't accidentally re-use an event ID.
         self.dispatch_requests();
+
+        let outbound_neighbors = PeerNetwork::count_outbound_conversations(&self.peers);
+        let inbound_neighbors = self.peers.len() - outbound_neighbors as usize;
+        update_outbound_neighbors(outbound_neighbors as i64);
+        update_inbound_neighbors(inbound_neighbors as i64);
 
         // fault injection -- periodically disconnect from everyone
         if cfg!(test) {
