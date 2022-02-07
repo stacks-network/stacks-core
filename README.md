@@ -462,7 +462,10 @@ is tagged.
 
 1. Once the final release candidate has rolled out successfully without issue on the
    above staging infrastructure, the release manager tags 2 additional `stacks-blockchain`
-   team members to review the `develop -> master` PR.
+   team members to review the `develop -> master` PR. If there is a merge conflict in this
+   PR, this is the protocol: open a branch off of develop, merge master into that branch, 
+   and then open a PR from this side branch to develop. The merge conflicts will be 
+   resolved. 
 
 1. Once reviewed and approved, the release manager merges the PR, and tags the release
    via the [`stacks-blockchain` Github action]((https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml))
