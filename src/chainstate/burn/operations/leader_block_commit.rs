@@ -17,7 +17,7 @@
 use std::convert::TryFrom;
 use std::io::{Read, Write};
 
-use crate::burnchains::{BitcoinNetworkType, SubnetStacksEvent, SubnetStacksEventType};
+use crate::burnchains::{BitcoinNetworkType, StacksHyperOp, StacksHyperOpType};
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
 use crate::types::proof::TrieHash;
@@ -61,11 +61,11 @@ struct ParsedData {
 pub static OUTPUTS_PER_COMMIT: usize = 2;
 pub static BURN_BLOCK_MINED_AT_MODULUS: u64 = 5;
 
-impl TryFrom<&SubnetStacksEvent> for LeaderBlockCommitOp {
+impl TryFrom<&StacksHyperOp> for LeaderBlockCommitOp {
     type Error = op_error;
 
-    fn try_from(value: &SubnetStacksEvent) -> Result<Self, Self::Error> {
-        let SubnetStacksEventType::BlockCommit {
+    fn try_from(value: &StacksHyperOp) -> Result<Self, Self::Error> {
+        let StacksHyperOpType::BlockCommit {
             ref subnet_block_hash,
         } = value.event;
         Ok(LeaderBlockCommitOp {

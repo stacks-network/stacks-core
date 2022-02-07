@@ -45,8 +45,14 @@ use crate::types::proof::TrieHash;
 
 pub mod burnchain;
 pub mod db;
-/// Stacks events parser used to construct the L1 subnet operations
-/// used for feeding subnets "sortition"
+/// Stacks events parser used to construct the L1 hyperchain operations.
+///
+/// The events module processes an event stream from a Layer-1 Stacks
+/// node (provided by an indexer) and produces `BurnchainTransaction`
+/// and `BurnchainBlock` types. These types are fed into the sortition
+/// db (again, by the indexer) in order to prepare the rest of the
+/// hyperchain node to download and validate the corresponding
+/// hyperchain blocks.
 pub mod events;
 pub mod indexer;
 
@@ -186,40 +192,45 @@ pub struct BurnchainRecipient {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum SubnetStacksEventType {
+/// This is the inner type of the Layer-1 Stacks event,
+/// containing any operation specific data.
+pub enum StacksHyperOpType {
     BlockCommit { subnet_block_hash: BlockHeaderHash },
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct SubnetStacksEvent {
+/// These operations are derived from a Layer-1 Stacks chain,
+/// parsed from the `stacks-node` events API.
+pub struct StacksHyperOp {
     pub txid: Txid,
     pub in_block: StacksBlockId,
     pub opcode: u8,
     pub event_index: u32,
-    pub event: SubnetStacksEventType,
+    pub event: StacksHyperOpType,
 }
 
 #[derive(Debug, PartialEq, Clone)]
+/// Enum for wrapping Layer-1 operation providers for hyperchains
 pub enum BurnchainTransaction {
-    SubnetBase(SubnetStacksEvent), // TODO: fill in more types as we support them
+    StacksBase(StacksHyperOp),
 }
 
 impl BurnchainTransaction {
     pub fn txid(&self) -> Txid {
         match *self {
-            BurnchainTransaction::SubnetBase(ref tx) => tx.txid.clone(),
+            BurnchainTransaction::StacksBase(ref tx) => tx.txid.clone(),
         }
     }
 
     pub fn vtxindex(&self) -> u32 {
         match *self {
-            BurnchainTransaction::SubnetBase(ref tx) => tx.event_index,
+            BurnchainTransaction::StacksBase(ref tx) => tx.event_index,
         }
     }
 
     pub fn opcode(&self) -> u8 {
         match *self {
-            BurnchainTransaction::SubnetBase(ref tx) => tx.opcode,
+            BurnchainTransaction::StacksBase(ref tx) => tx.opcode,
         }
     }
 
@@ -229,16 +240,19 @@ impl BurnchainTransaction {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct StacksEventBlock {
+/// Represents a layer-1 Stacks block with the Hyperchain
+/// relevant information parsed into th `ops` vector.
+pub struct StacksHyperBlock {
     pub current_block: StacksBlockId,
     pub parent_block: StacksBlockId,
     pub block_height: u64,
-    pub ops: Vec<SubnetStacksEvent>,
+    pub ops: Vec<StacksHyperOp>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
+/// Enum for wrapping Layer-1 blocks for hyperchains
 pub enum BurnchainBlock {
-    StacksEventBlock(StacksEventBlock),
+    StacksHyperBlock(StacksHyperBlock),
 }
 
 #[derive(Debug, PartialEq, Clone)]

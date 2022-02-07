@@ -430,13 +430,13 @@ impl TestBurnchainBlock {
             &self.parent_snapshot.index_root,
             self.fork_id,
         );
-        let mock_bitcoin_block = StacksEventBlock {
+        let mock_bitcoin_block = StacksHyperBlock {
             current_block: StacksBlockId(block_hash.0.clone()),
             parent_block: StacksBlockId(self.parent_snapshot.burn_header_hash.0.clone()),
             ops: vec![],
             block_height: self.block_height,
         };
-        let block = BurnchainBlock::StacksEventBlock(mock_bitcoin_block);
+        let block = BurnchainBlock::StacksHyperBlock(mock_bitcoin_block);
 
         // this is basically lifted verbatum from Burnchain::process_block_ops()
 
@@ -485,13 +485,13 @@ impl TestBurnchainBlock {
             &self.parent_snapshot.index_root,
             self.fork_id,
         );
-        let mock_bitcoin_block = StacksEventBlock {
+        let mock_bitcoin_block = StacksHyperBlock {
             current_block: StacksBlockId(block_hash.0.clone()),
             parent_block: StacksBlockId(self.parent_snapshot.burn_header_hash.0.clone()),
             ops: vec![],
             block_height: self.block_height,
         };
-        let block = BurnchainBlock::StacksEventBlock(mock_bitcoin_block);
+        let block = BurnchainBlock::StacksHyperBlock(mock_bitcoin_block);
 
         test_debug!(
             "Process PoX block {} {}",
@@ -958,13 +958,9 @@ fn create_stacks_events_failures() {
 
     for (test_input, expected_err) in inputs.iter() {
         let value = execute(test_input).unwrap().unwrap();
-        let err_str = SubnetStacksEvent::try_from_clar_value(
-            value,
-            Txid([0; 32]),
-            0,
-            &StacksBlockId([0; 32]),
-        )
-        .unwrap_err();
+        let err_str =
+            StacksHyperOp::try_from_clar_value(value, Txid([0; 32]), 0, &StacksBlockId([0; 32]))
+                .unwrap_err();
         assert!(
             err_str.starts_with(expected_err),
             "{} starts_with? {}",
@@ -1034,7 +1030,7 @@ fn create_stacks_event_block() {
         ],
     };
 
-    let stacks_event_block = StacksEventBlock::from_new_block_event(&watched_contract, input);
+    let stacks_event_block = StacksHyperBlock::from_new_block_event(&watched_contract, input);
 
     assert_eq!(stacks_event_block.block_height, 1);
     assert_eq!(stacks_event_block.current_block, StacksBlockId([1; 32]));

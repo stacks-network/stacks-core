@@ -27,7 +27,7 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::burnchains::SubnetStacksEventType;
+use crate::burnchains::StacksHyperOpType;
 use crate::types::chainstate::StacksAddress;
 use crate::types::proof::TrieHash;
 use address::public_keys_to_address_hash;
@@ -124,28 +124,28 @@ impl BurnchainSigner {
 impl BurnchainBlock {
     pub fn block_height(&self) -> u64 {
         match self {
-            BurnchainBlock::StacksEventBlock(b) => b.block_height,
+            BurnchainBlock::StacksHyperBlock(b) => b.block_height,
         }
     }
 
     pub fn block_hash(&self) -> BurnchainHeaderHash {
         match self {
-            BurnchainBlock::StacksEventBlock(b) => BurnchainHeaderHash(b.current_block.clone().0),
+            BurnchainBlock::StacksHyperBlock(b) => BurnchainHeaderHash(b.current_block.clone().0),
         }
     }
 
     pub fn parent_block_hash(&self) -> BurnchainHeaderHash {
         match self {
-            BurnchainBlock::StacksEventBlock(b) => BurnchainHeaderHash(b.parent_block.clone().0),
+            BurnchainBlock::StacksHyperBlock(b) => BurnchainHeaderHash(b.parent_block.clone().0),
         }
     }
 
     pub fn txs(&self) -> Vec<BurnchainTransaction> {
         match self {
-            BurnchainBlock::StacksEventBlock(b) => b
+            BurnchainBlock::StacksHyperBlock(b) => b
                 .ops
                 .iter()
-                .map(|ev_op| BurnchainTransaction::SubnetBase(ev_op.clone()))
+                .map(|ev_op| BurnchainTransaction::StacksBase(ev_op.clone()))
                 .collect(),
         }
     }
@@ -156,7 +156,7 @@ impl BurnchainBlock {
 
     pub fn header(&self) -> BurnchainBlockHeader {
         match self {
-            BurnchainBlock::StacksEventBlock(b) => BurnchainBlockHeader {
+            BurnchainBlock::StacksHyperBlock(b) => BurnchainBlockHeader {
                 block_height: self.block_height(),
                 block_hash: self.block_hash(),
                 parent_block_hash: self.parent_block_hash(),
@@ -440,8 +440,8 @@ impl Burnchain {
         burn_tx: &BurnchainTransaction,
     ) -> Option<BlockstackOperationType> {
         let result = match burn_tx {
-            BurnchainTransaction::SubnetBase(ref event) => match event.event {
-                SubnetStacksEventType::BlockCommit { .. } => LeaderBlockCommitOp::try_from(event),
+            BurnchainTransaction::StacksBase(ref event) => match event.event {
+                StacksHyperOpType::BlockCommit { .. } => LeaderBlockCommitOp::try_from(event),
             },
         };
 

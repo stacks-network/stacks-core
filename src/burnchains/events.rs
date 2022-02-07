@@ -13,16 +13,20 @@ use crate::types::chainstate::StacksBlockId;
 use crate::vm::types::CharType;
 use crate::vm::types::SequenceData;
 
-use super::StacksEventBlock;
-use super::SubnetStacksEvent;
-use super::SubnetStacksEventType;
+use super::StacksHyperBlock;
+use super::StacksHyperOp;
+use super::StacksHyperOpType;
 
+/// Parsing struct for the transaction event types of the
+/// `stacks-node` events API
 #[derive(PartialEq)]
 pub enum TxEventType {
     ContractEvent,
     Other,
 }
 
+/// Parsing struct for the contract_event field in transaction events
+/// of the `stacks-node` events API
 #[derive(Deserialize)]
 pub struct ContractEvent {
     #[serde(deserialize_with = "deser_contract_identifier")]
@@ -32,6 +36,8 @@ pub struct ContractEvent {
     pub value: ClarityValue,
 }
 
+/// Parsing struct for the transaction events of the `stacks-node`
+/// events API
 #[derive(Deserialize)]
 pub struct NewBlockTxEvent {
     #[serde(deserialize_with = "deser_txid")]
@@ -44,6 +50,8 @@ pub struct NewBlockTxEvent {
     pub contract_event: Option<ContractEvent>,
 }
 
+/// Parsing struct for the new block events of the `stacks-node`
+/// events API
 #[derive(Deserialize)]
 pub struct NewBlock {
     pub block_height: u64,
@@ -55,6 +63,8 @@ pub struct NewBlock {
     pub events: Vec<NewBlockTxEvent>,
 }
 
+/// Method for deserializing a ClarityValue from the `raw_value` field of contract
+/// transaction events.
 fn deser_clarity_value<'de, D>(deser: D) -> Result<ClarityValue, D::Error>
 where
     D: Deserializer<'de>,
@@ -63,6 +73,8 @@ where
     ClarityValue::try_deserialize_hex_untyped(&str_val).map_err(DeserError::custom)
 }
 
+/// Method for deserializing a contract identifier from `contract_identifier` fields in
+/// transaction events.
 fn deser_contract_identifier<'de, D>(deser: D) -> Result<QualifiedContractIdentifier, D::Error>
 where
     D: Deserializer<'de>,
@@ -71,6 +83,7 @@ where
     QualifiedContractIdentifier::parse(&str_val).map_err(DeserError::custom)
 }
 
+/// Method for deserializing a `Txid` from transaction events.
 fn deser_txid<'de, D>(deser: D) -> Result<Txid, D::Error>
 where
     D: Deserializer<'de>,
@@ -82,6 +95,7 @@ where
     }
 }
 
+/// Method for deserializing a `StacksBlockId` from transaction events.
 fn deser_stacks_block_id<'de, D>(deser: D) -> Result<StacksBlockId, D::Error>
 where
     D: Deserializer<'de>,
@@ -93,6 +107,9 @@ where
     }
 }
 
+/// Method for deserializing a `TxEventType` from transaction events.
+/// This module is currently only interested in `contract_event` types,
+/// so all other events are parsed as `Other`.
 fn deser_tx_event_type<'de, D>(deser: D) -> Result<TxEventType, D::Error>
 where
     D: Deserializer<'de>,
@@ -104,13 +121,18 @@ where
     }
 }
 
-impl SubnetStacksEvent {
+impl StacksHyperOp {
+    /// This method tries to parse a `StacksHyperOp` from a Clarity value: this should be a tuple
+    /// emitted from the hyperchain contract in a statement like:
+    /// `(print { event: "block-commit", block-commit: 0x123... })`
+    ///
+    /// If the provided value does not match that tuple, this method will return an error.
     pub fn try_from_clar_value(
         v: ClarityValue,
         txid: Txid,
         event_index: u32,
         in_block: &StacksBlockId,
-    ) -> Result<SubnetStacksEvent, String> {
+    ) -> Result<Self, String> {
         let tuple = if let ClarityValue::Tuple(tuple) = v {
             Ok(tuple)
         } else {
@@ -147,12 +169,12 @@ impl SubnetStacksEvent {
                         Err("Expected 'block-commit' type to be buffer".into())
                     }?;
 
-                Ok(SubnetStacksEvent {
+                Ok(Self {
                     txid,
                     event_index,
                     in_block: in_block.clone(),
                     opcode: 0,
-                    event: SubnetStacksEventType::BlockCommit {
+                    event: StacksHyperOpType::BlockCommit {
                         subnet_block_hash: BlockHeaderHash(block_commit),
                     },
                 })
@@ -162,7 +184,11 @@ impl SubnetStacksEvent {
     }
 }
 
-impl StacksEventBlock {
+impl StacksHyperBlock {
+    /// Process a `NewBlock` event from a layer-1 Stacks node, filter
+    /// for the transaction events in the block that are relevant to
+    /// the hyperchain and parse out the `StacksHyperOp`s from the
+    /// block, producing a `StacksHyperBlock` struct.
     pub fn from_new_block_event(
         subnets_contract: &QualifiedContractIdentifier,
         b: NewBlock,
@@ -194,7 +220,7 @@ impl StacksEventBlock {
                         Ok(x) => Some(x),
                         Err(_e) => {
                             warn!(
-                                "StacksEventBlock skipped event because event_index was not a u32"
+                                "StacksHyperBlock skipped event because event_index was not a u32"
                             );
                             None
                         }
@@ -204,7 +230,7 @@ impl StacksEventBlock {
                         if &contract_event.contract_identifier != subnets_contract {
                             None
                         } else {
-                            match SubnetStacksEvent::try_from_clar_value(
+                            match StacksHyperOp::try_from_clar_value(
                                 contract_event.value,
                                 txid,
                                 event_index,
@@ -213,7 +239,7 @@ impl StacksEventBlock {
                                 Ok(x) => Some(x),
                                 Err(e) => {
                                     debug!(
-                                        "StacksEventBlock parser skipped event because of {:?}",
+                                        "StacksHyperBlock parser skipped event because of {:?}",
                                         e
                                     );
                                     None
@@ -227,7 +253,7 @@ impl StacksEventBlock {
             })
             .collect();
 
-        StacksEventBlock {
+        Self {
             current_block: index_block_hash,
             parent_block: parent_index_block_hash,
             block_height,

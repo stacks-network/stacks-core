@@ -1892,7 +1892,7 @@ pub mod test {
     use burnchains::BurnchainBlockHeader;
     use burnchains::BurnchainView;
     use burnchains::PoxConstants;
-    use burnchains::StacksEventBlock;
+    use burnchains::StacksHyperBlock;
     use chainstate::burn::db::sortdb;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::*;
@@ -2730,7 +2730,7 @@ pub mod test {
             let mut prev_block_hash_bytes = [0u8; 32];
             prev_block_hash_bytes.copy_from_slice(&prev_block_hash_i.to_u8_slice());
 
-            BurnchainBlock::StacksEventBlock(StacksEventBlock {
+            BurnchainBlock::StacksHyperBlock(StacksHyperBlock {
                 block_height: block_height + 1,
                 current_block: StacksBlockId(block_hash_bytes),
                 parent_block: StacksBlockId(prev_block_hash_bytes),
