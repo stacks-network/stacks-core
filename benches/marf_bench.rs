@@ -3,14 +3,24 @@ extern crate criterion;
 extern crate blockstack_lib;
 extern crate rand;
 
+use blockstack_lib::chainstate::stacks::Error;
+use blockstack_lib::types::proof::ClarityMarfTrieId;
+use criterion::Criterion;
+use rand::prelude::*;
 use std::fs;
 
-use rand::prelude::*;
-
 use blockstack_lib::chainstate::stacks::index::{marf::MARF, storage::TrieFileStorage};
-use blockstack_lib::types::chainstate::MARFValue;
-use blockstack_lib::types::BlockHeaderHash;
-use criterion::Criterion;
+use blockstack_lib::types::chainstate::{MARFValue, StacksBlockId};
+
+pub fn begin(
+    marf: &mut MARF<StacksBlockId>,
+    chain_tip: &StacksBlockId,
+    next_chain_tip: &StacksBlockId,
+) -> Result<(), Error> {
+    let mut tx = marf.begin_tx()?;
+    tx.begin(chain_tip, next_chain_tip)?;
+    Ok(())
+}
 
 fn benchmark_marf_usage(
     filename: &str,
@@ -22,11 +32,11 @@ fn benchmark_marf_usage(
     if fs::metadata(filename).is_ok() {
         fs::remove_file(filename).unwrap();
     };
-    let f = TrieFileStorage::new(filename).unwrap();
-    let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+    let f = TrieFileStorage::open(filename).unwrap();
+    let mut block_header = StacksBlockId::from_bytes(&[0u8; 32]).unwrap();
     let mut marf = MARF::from_storage(f);
-    marf.begin(&TrieFileStorage::block_sentinel(), &block_header)
-        .unwrap();
+
+    begin(&mut marf, &StacksBlockId::sentinel(), &block_header).unwrap();
 
     let mut rng = rand::thread_rng();
 
@@ -57,25 +67,28 @@ fn benchmark_marf_usage(
 
         for _k in 0..reads_per_block {
             let (key, value) = values.as_slice().choose(&mut rng).unwrap();
-            assert_eq!(marf.get(&block_header, key).unwrap().unwrap(), *value);
+            assert_eq!(
+                marf.get_with_proof(&block_header, key).unwrap().unwrap().0,
+                *value
+            );
         }
 
         let mut next_block_header = (i + 1).to_le_bytes().to_vec();
         next_block_header.resize(32, 0);
-        let next_block_header = BlockHeaderHash::from_bytes(next_block_header.as_slice()).unwrap();
+        let next_block_header = StacksBlockId::from_bytes(next_block_header.as_slice()).unwrap();
 
         marf.commit().unwrap();
-        marf.begin(&block_header, &next_block_header).unwrap();
+        begin(&mut marf, &block_header, &next_block_header).unwrap();
         block_header = next_block_header;
     }
     marf.commit().unwrap();
 }
 
 fn benchmark_marf_read(filename: &str, reads: u32, block: u32, writes_per_block: u32) {
-    let f = TrieFileStorage::new(filename).unwrap();
+    let f = TrieFileStorage::open(filename).unwrap();
     let mut block_header = block.to_le_bytes().to_vec();
     block_header.resize(32, 0);
-    let block_header = BlockHeaderHash::from_bytes(block_header.as_slice()).unwrap();
+    let block_header = StacksBlockId::from_bytes(block_header.as_slice()).unwrap();
 
     let mut marf = MARF::from_storage(f);
 
@@ -85,7 +98,7 @@ fn benchmark_marf_read(filename: &str, reads: u32, block: u32, writes_per_block:
         let i: u32 = rng.gen_range(0, block);
         let k: u32 = rng.gen_range(0, writes_per_block);
         let key = format!("{}::{}", i, k);
-        marf.get(&block_header, &key).unwrap().unwrap();
+        marf.get_with_proof(&block_header, &key).unwrap().unwrap().0;
     }
 }
 
