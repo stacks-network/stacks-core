@@ -936,15 +936,15 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                                 // Make the block from the transactions we did manage to get
                                                 debug!("Block budget exceeded on tx {}", &mempool_tx.tx.txid());
                                                 if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                                    debug!("Switch to mining stx-transfers only");
+                                                    debug!("Block budget exceeded while mining microblock"; 
+                                                        "tx" => %mempool_tx.tx.txid(), "next_behavior" => "Switch to mining stx-transfers only");
                                                     block_limit_hit =
                                                         BlockLimitFunction::CONTRACT_LIMIT_HIT;
                                                 } else if block_limit_hit
                                                     == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                                 {
-                                                    debug!(
-                                                        "Stop mining anchored block due to limit exceeded"
-                                                    );
+                                                    debug!("Block budget exceeded while mining microblock"; 
+                                                        "tx" => %mempool_tx.tx.txid(), "next_behavior" => "Stop mining microblock");
                                                     block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                                                     return Ok(false);
                                                 }
