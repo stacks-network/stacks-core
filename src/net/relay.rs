@@ -55,6 +55,7 @@ use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::types::chainstate::{PoxId, SortitionId};
 use chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use codec::MAX_PAYLOAD_LEN;
+use monitoring::update_stacks_tip_height;
 use types::chainstate::BurnchainHeaderHash;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
@@ -1083,6 +1084,7 @@ impl Relayer {
             MemPoolDB::garbage_collect(&mut mempool_tx, min_height, event_observer)?;
             mempool_tx.commit()?;
         }
+        update_stacks_tip_height(chain_height as i64);
 
         Ok(ret)
     }

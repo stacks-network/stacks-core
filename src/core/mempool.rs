@@ -350,8 +350,7 @@ impl FromRow<(u64, u64)> for (u64, u64) {
     }
 }
 
-const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
-    r#"
+const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[r#"
     CREATE TABLE mempool(
         txid TEXT NOT NULL,
         origin_address TEXT NOT NULL,
@@ -369,15 +368,7 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
         UNIQUE (origin_address, origin_nonce),
         UNIQUE (sponsor_address,sponsor_nonce)
     );
-    "#,
-    "CREATE INDEX by_txid ON mempool(txid);",
-    "CREATE INDEX by_height ON mempool(height);",
-    "CREATE INDEX by_txid_and_height ON mempool(txid,height);",
-    "CREATE INDEX by_sponsor ON mempool(sponsor_address, sponsor_nonce);",
-    "CREATE INDEX by_origin ON mempool(origin_address, origin_nonce);",
-    "CREATE INDEX by_timestamp ON mempool(accept_time);",
-    "CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);",
-];
+    "#];
 
 const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &'static [&'static str] = &[
     r#"
@@ -394,7 +385,6 @@ const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &'static [&'static str] = &[
     r#"
     ALTER TABLE mempool ADD COLUMN last_known_sponsor_nonce INTEGER;
     "#,
-    "CREATE INDEX fee_by_txid ON fee_estimates(txid);",
     r#"
     CREATE TABLE schema_version (version NUMBER, PRIMARY KEY (version));
     "#,
@@ -418,12 +408,23 @@ const MEMPOOL_SCHEMA_3_BLOOM_STATE: &'static [&'static str] = &[
         hashed_txid TEXT NOT NULL,
         FOREIGN KEY(txid) REFERENCES mempool(txid) ON DELETE CASCADE
     );
-    CREATE INDEX IF NOT EXISTS by_ordered_hashed_txid ON randomized_txids(hashed_txid ASC);
-    CREATE INDEX IF NOT EXISTS by_hashed_txid ON randomized_txids(txid,hashed_txid);
     "#,
     r#"
     INSERT INTO schema_version (version) VALUES (3)
     "#,
+];
+
+const MEMPOOL_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS by_txid ON mempool(txid);",
+    "CREATE INDEX IF NOT EXISTS by_height ON mempool(height);",
+    "CREATE INDEX IF NOT EXISTS by_txid_and_height ON mempool(txid,height);",
+    "CREATE INDEX IF NOT EXISTS by_sponsor ON mempool(sponsor_address, sponsor_nonce);",
+    "CREATE INDEX IF NOT EXISTS by_origin ON mempool(origin_address, origin_nonce);",
+    "CREATE INDEX IF NOT EXISTS by_timestamp ON mempool(accept_time);",
+    "CREATE INDEX IF NOT EXISTS by_chaintip ON mempool(consensus_hash,block_header_hash);",
+    "CREATE INDEX IF NOT EXISTS fee_by_txid ON fee_estimates(txid);",
+    "CREATE INDEX IF NOT EXISTS by_ordered_hashed_txid ON randomized_txids(hashed_txid ASC);",
+    "CREATE INDEX IF NOT EXISTS by_hashed_txid ON randomized_txids(txid,hashed_txid);",
 ];
 
 pub struct MemPoolDB {
@@ -653,6 +654,9 @@ impl MemPoolDB {
         // apply all migrations
         MemPoolDB::apply_schema_migrations(&mut tx)?;
 
+        // add all indexes
+        MemPoolDB::add_indexes(&mut tx)?;
+
         tx.commit().map_err(db_error::SqliteError)?;
         Ok(())
     }
@@ -694,6 +698,14 @@ impl MemPoolDB {
                     panic!("Unknown schema version {}", version);
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Add indexes
+    fn add_indexes(tx: &mut DBTx) -> Result<(), db_error> {
+        for cmd in MEMPOOL_INDEXES {
+            tx.execute_batch(cmd).map_err(db_error::SqliteError)?;
         }
         Ok(())
     }
@@ -788,6 +800,7 @@ impl MemPoolDB {
         } else {
             let mut tx = tx_begin_immediate(&mut conn)?;
             MemPoolDB::apply_schema_migrations(&mut tx)?;
+            MemPoolDB::add_indexes(&mut tx)?;
             tx.commit().map_err(db_error::SqliteError)?;
         }
 

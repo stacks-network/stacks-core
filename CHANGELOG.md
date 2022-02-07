@@ -13,8 +13,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   forget past estimates instead of exponential averaging, 2) use weighted
   percentiles, so that bigger transactions influence the estimates more, 3)
   assess empty space in blocks as having paid the "minimum fee", so that empty
-  space is accounted for, 4) use random "fuzz" so that in busy times we will
-  not have ties. (#2972)
+  space is accounted for, 4) use random "fuzz" so that in busy times the fees can
+  change dynamically. (#2972)
 - Implements anti-entropy protocol for querying transactions from other 
   nodes' mempools. Before, nodes wouldn't sync mempool contents with one another.
   (#2884)
@@ -34,6 +34,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   value and a MARF proof of its existence. (#2862)
 - Fixed a bug in the unconfirmed state processing logic that could lead to a
   denial of service (node crash) for nodes that mine microblocks (#2970)
+- Added prometheus metric that tracks block fullness by logging the percentage of each
+  cost dimension that is consumed in a given block (#3025).  
+  
 
 ### Changed
 - Updated the mined block event. It now includes information on transaction 
@@ -65,11 +68,15 @@ half (#2989, #3005).
   burnchain reorg can get stuck, and be rendered unable to process further
 sortitions.  This has never happened in production, but it can be replicated in
 tests (#2989).
+- Updated what indices are created, and ensures that indices are created even 
+  after the database is initialized (#3029).
 
 ### Fixed 
 - Updates the lookup key for contracts in the pessimistic cost estimator. Before, contracts
   published by different principals with the same name would have had the same 
   key in the cost estimator. (#2984)
+- Fixed a few prometheus metrics to be more accurate compared to `/v2` endpoints 
+  when polling data (#2987)
 
 ## [2.05.0.0.0]
 
