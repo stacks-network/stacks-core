@@ -725,6 +725,7 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash ON staging_microblocks(index_block_hash);",
     "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash_processed ON staging_microblocks(index_block_hash,processed);",
     "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash_orphaned ON staging_microblocks(index_block_hash,orphaned);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_microblock_hash ON staging_microblocks(microblock_hash);",
     "CREATE INDEX IF NOT EXISTS processed_stacks_blocks ON staging_blocks(processed,anchored_block_hash,consensus_hash);",
     "CREATE INDEX IF NOT EXISTS orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);",
     "CREATE INDEX IF NOT EXISTS parent_blocks ON staging_blocks(parent_anchored_block_hash);",
