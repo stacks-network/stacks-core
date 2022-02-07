@@ -32,6 +32,11 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   this PR adds to represent this data). (#2862)
 - Adds the /v2/data_var endpoint, which returns a contract's data variable 
   value and a MARF proof of its existence. (#2862)
+- Fixed a bug in the unconfirmed state processing logic that could lead to a
+  denial of service (node crash) for nodes that mine microblocks (#2970)
+- Added prometheus metric that tracks block fullness by logging the percentage of each
+  cost dimension that is consumed in a given block (#3025).  
+  
 
 ### Changed
 - Updated the mined block event. It now includes information on transaction 
@@ -63,11 +68,15 @@ half (#2989, #3005).
   burnchain reorg can get stuck, and be rendered unable to process further
 sortitions.  This has never happened in production, but it can be replicated in
 tests (#2989).
+- Updated what indices are created, and ensures that indices are created even 
+  after the database is initialized (#3029).
 
 ### Fixed 
 - Updates the lookup key for contracts in the pessimistic cost estimator. Before, contracts
   published by different principals with the same name would have had the same 
   key in the cost estimator. (#2984)
+- Fixed a few prometheus metrics to be more accurate compared to `/v2` endpoints 
+  when polling data (#2987)
 
 ## [2.05.0.0.0]
 

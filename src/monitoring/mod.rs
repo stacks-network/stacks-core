@@ -28,12 +28,14 @@ use crate::{
     },
 };
 use burnchains::BurnchainSigner;
+use std::convert::TryInto;
 use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use util::db::sqlite_open;
 use util::db::Error as DatabaseError;
 use util::uint::{Uint256, Uint512};
+use vm::costs::ExecutionCost;
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
@@ -102,6 +104,27 @@ pub fn increment_txs_received_counter() {
 pub fn increment_btc_blocks_received_counter() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::BTC_BLOCKS_RECEIVED_COUNTER.inc();
+}
+
+/// Log `execution_cost` as a ratio of `block_limit`.
+#[allow(unused_variables)]
+pub fn set_last_execution_cost_observed(
+    execution_cost: &ExecutionCost,
+    block_limit: &ExecutionCost,
+) {
+    #[cfg(feature = "monitoring_prom")]
+    {
+        prometheus::LAST_BLOCK_READ_COUNT
+            .set(execution_cost.read_count as f64 / block_limit.read_count as f64);
+        prometheus::LAST_BLOCK_WRITE_COUNT
+            .set(execution_cost.write_count as f64 / block_limit.read_count as f64);
+        prometheus::LAST_BLOCK_READ_LENGTH
+            .set(execution_cost.read_length as f64 / block_limit.read_length as f64);
+        prometheus::LAST_BLOCK_WRITE_LENGTH
+            .set(execution_cost.write_length as f64 / block_limit.write_length as f64);
+        prometheus::LAST_BLOCK_RUNTIME
+            .set(execution_cost.runtime as f64 / block_limit.runtime as f64);
+    }
 }
 
 pub fn increment_btc_ops_sent_counter() {
@@ -397,6 +420,7 @@ pub fn set_burnchain_signer(signer: BurnchainSigner) -> Result<(), SetGlobalBurn
     Ok(())
 }
 
+#[allow(unreachable_code)]
 pub fn get_burnchain_signer() -> Option<BurnchainSigner> {
     #[cfg(feature = "monitoring_prom")]
     {
