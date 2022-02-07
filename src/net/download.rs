@@ -889,13 +889,16 @@ impl BlockDownloader {
     }
 
     /// Set a hint that a block is now available from a remote peer, if we're idling or we're ahead
-    /// of the given height.
+    /// of the given height.  If force is true, then always restart the download scan at the target
+    /// sortition, even if we're in the middle of downloading.
     pub fn hint_block_sortition_height_available(
         &mut self,
         block_sortition_height: u64,
         ibd: bool,
+        force: bool,
     ) -> () {
-        if (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
+        if force
+            || (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_block_download_passes > 0
                 || block_sortition_height < self.block_sortition_height + 1)
         {
@@ -921,13 +924,16 @@ impl BlockDownloader {
     }
 
     /// Set a hint that a confirmed microblock stream is now available from a remote peer, if we're idling or we're ahead
-    /// of the given height.
+    /// of the given height.  If force is true, then always restart the download scan at the target
+    /// sortition, even if we're in the middle of downloading.
     pub fn hint_microblock_sortition_height_available(
         &mut self,
         mblock_sortition_height: u64,
         ibd: bool,
+        force: bool,
     ) -> () {
-        if (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
+        if force
+            || (ibd && self.state == BlockDownloaderState::DNSLookupBegin)
             || (self.empty_microblock_download_passes > 0
                 || mblock_sortition_height < self.microblock_sortition_height + 1)
         {
@@ -953,8 +959,8 @@ impl BlockDownloader {
 
     /// Set a hint that we should re-scan for blocks
     pub fn hint_download_rescan(&mut self, target_sortition_height: u64, ibd: bool) -> () {
-        self.hint_block_sortition_height_available(target_sortition_height, ibd);
-        self.hint_microblock_sortition_height_available(target_sortition_height, ibd);
+        self.hint_block_sortition_height_available(target_sortition_height, ibd, false);
+        self.hint_microblock_sortition_height_available(target_sortition_height, ibd, false);
     }
 
     // are we doing the initial block download?
@@ -1222,6 +1228,13 @@ impl PeerNetwork {
         for (i, (consensus_hash, block_hash_opt, mut neighbors)) in
             availability.drain(..).enumerate()
         {
+            test_debug!(
+                "{:?}: consider availability of {}/{:?}",
+                &self.local_peer,
+                &consensus_hash,
+                &block_hash_opt
+            );
+
             if (i as u64) >= scan_batch_size {
                 // we may have loaded scan_batch_size + 1 so we can find the child block for
                 // microblocks, but we don't have to request this block's data either way.
@@ -1242,11 +1255,9 @@ impl PeerNetwork {
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
             if downloader.is_inflight(&index_block_hash, microblocks) {
                 // we already asked for this block or microblock stream
-                test_debug!(
+                debug!(
                     "{:?}: Already in-flight: {}/{}",
-                    &self.local_peer,
-                    &consensus_hash,
-                    &block_hash
+                    &self.local_peer, &consensus_hash, &block_hash
                 );
                 continue;
             }
@@ -1887,11 +1898,14 @@ impl PeerNetwork {
         })
     }
 
-    fn connect_or_send_http_request(
+    /// Send a (non-blocking) HTTP request to a remote peer.
+    /// Returns the event ID on success.
+    pub fn connect_or_send_http_request(
         &mut self,
         data_url: UrlString,
         addr: SocketAddr,
         request: HttpRequestType,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<usize, net_error> {
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
@@ -1908,7 +1922,7 @@ impl PeerNetwork {
                         match http.get_conversation_and_socket(event_id) {
                             (Some(ref mut convo), Some(ref mut socket)) => {
                                 convo.send_request(request)?;
-                                HttpPeer::saturate_http_socket(socket, convo, chainstate)?;
+                                HttpPeer::saturate_http_socket(socket, convo, mempool, chainstate)?;
                                 Ok(event_id)
                             }
                             (_, _) => {
@@ -1933,6 +1947,7 @@ impl PeerNetwork {
         network: &mut PeerNetwork,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         requestables: &mut VecDeque<T>,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Option<(T, usize)> {
         loop {
@@ -1955,6 +1970,7 @@ impl PeerNetwork {
                                 requestable.get_url().clone(),
                                 addr.clone(),
                                 request,
+                                mempool,
                                 chainstate,
                             ) {
                                 Ok(handle) => {
@@ -1996,6 +2012,7 @@ impl PeerNetwork {
     /// Start fetching blocks
     pub fn block_getblocks_begin(
         &mut self,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
@@ -2009,6 +2026,7 @@ impl PeerNetwork {
                             network,
                             &downloader.dns_lookups,
                             keys,
+                            mempool,
                             chainstate,
                         ) {
                             Some((key, handle)) => {
@@ -2042,6 +2060,7 @@ impl PeerNetwork {
     /// Proceed to get microblocks
     pub fn block_getmicroblocks_begin(
         &mut self,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
@@ -2055,6 +2074,7 @@ impl PeerNetwork {
                             network,
                             &downloader.dns_lookups,
                             keys,
+                            mempool,
                             chainstate,
                         ) {
                             Some((key, handle)) => {
@@ -2365,6 +2385,7 @@ impl PeerNetwork {
     pub fn download_blocks(
         &mut self,
         sortdb: &SortitionDB,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         dns_client: &mut DNSClient,
         ibd: bool,
@@ -2466,13 +2487,13 @@ impl PeerNetwork {
                     self.block_dns_lookups_try_finish(dns_client)?;
                 }
                 BlockDownloaderState::GetBlocksBegin => {
-                    self.block_getblocks_begin(chainstate)?;
+                    self.block_getblocks_begin(mempool, chainstate)?;
                 }
                 BlockDownloaderState::GetBlocksFinish => {
                     self.block_getblocks_try_finish()?;
                 }
                 BlockDownloaderState::GetMicroblocksBegin => {
-                    self.block_getmicroblocks_begin(chainstate)?;
+                    self.block_getmicroblocks_begin(mempool, chainstate)?;
                 }
                 BlockDownloaderState::GetMicroblocksFinish => {
                     self.block_getmicroblocks_try_finish()?;
@@ -2858,6 +2879,7 @@ pub mod test {
                         sortdb,
                         chainstate,
                         mempool,
+                        false,
                         None,
                         None,
                     )

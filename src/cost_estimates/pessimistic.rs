@@ -232,8 +232,8 @@ impl PessimisticEstimator {
                     StacksEpochId::Epoch2_05 => ":2.05",
                 };
                 format!(
-                    "cc{}:{}.{}",
-                    epoch_marker, cc.contract_name, cc.function_name
+                    "cc{}:{}:{}.{}",
+                    epoch_marker, cc.address, cc.contract_name, cc.function_name
                 )
             }
             TransactionPayload::SmartContract(_sc) => "contract-publish".to_string(),

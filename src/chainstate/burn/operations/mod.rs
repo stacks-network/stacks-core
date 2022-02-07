@@ -245,7 +245,7 @@ pub struct LeaderKeyRegisterOp {
     pub consensus_hash: ConsensusHash, // consensus hash at time of issuance
     pub public_key: VRFPublicKey,      // EdDSA public key
     pub memo: Vec<u8>,                 // extra bytes in the op-return
-    pub address: StacksAddress, // hash of public key(s) that will send the leader block commit
+    pub address: StacksAddress, // NOTE: no longer used for anything consensus-critical, but identifies the change address output
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -254,6 +254,7 @@ pub struct LeaderKeyRegisterOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of burn chain block
 }
 
+/// NOTE: this struct is currently not used
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct UserBurnSupportOp {
     pub address: StacksAddress,
@@ -378,7 +379,6 @@ impl fmt::Display for BlockstackOperationType {
             BlockstackOperationType::LeaderKeyRegister(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::PreStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::StackStx(ref op) => write!(f, "{:?}", op),
-
             BlockstackOperationType::LeaderBlockCommit(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::UserBurnSupport(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::TransferStx(ref op) => write!(f, "{:?}", op),

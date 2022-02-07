@@ -15,8 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
+use std::collections::HashSet;
 use std::fs;
-use std::io::Read;
+use std::hash::Hasher;
+use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
@@ -32,19 +34,22 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
+use siphasher::sip::SipHasher; // this is SipHash-2-4
+
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
-use chainstate::stacks::TransactionPayload;
 use chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, index::Error as MarfError,
-    Error as ChainstateError, StacksTransaction,
+    db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, db::TxStreamData,
+    index::Error as MarfError, Error as ChainstateError, StacksTransaction,
 };
+use chainstate::stacks::{StacksMicroblock, TransactionPayload};
 use core::ExecutionCost;
 use core::StacksEpochId;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use monitoring::increment_stx_mempool_gc;
 use std::time::Instant;
+use util::db::query_int;
 use util::db::query_row_columns;
 use util::db::query_rows;
 use util::db::sqlite_open;
@@ -57,12 +62,19 @@ use util::db::{query_row, Error};
 use util::db::{sql_pragma, DBConn, DBTx, FromRow};
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
+use util::hash::to_hex;
+use util::hash::Sha512Trunc256Sum;
 use vm::types::PrincipalData;
+
+use net::MemPoolSyncData;
+
+use util::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
 
 use clarity_vm::clarity::ClarityConnection;
 
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::StacksBlock;
+use crate::codec::Error as codec_error;
 use crate::codec::StacksMessageCodec;
 use crate::cost_estimates;
 use crate::cost_estimates::metrics::CostMetric;
@@ -73,10 +85,62 @@ use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
 use crate::util::db::table_exists;
+use chainstate::stacks::miner::TransactionEvent;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
 pub const MAXIMUM_MEMPOOL_TX_CHAINING: u64 = 25;
+
+// name of table for storing the counting bloom filter
+pub const BLOOM_COUNTER_TABLE: &'static str = "txid_bloom_counter";
+
+// bloom filter error rate
+pub const BLOOM_COUNTER_ERROR_RATE: f64 = 0.001;
+
+// expected number of txs in the bloom filter
+pub const MAX_BLOOM_COUNTER_TXS: u32 = 8192;
+
+// how far back in time (in Stacks blocks) does the bloom counter maintain tx records?
+pub const BLOOM_COUNTER_DEPTH: usize = 2;
+
+// maximum many tx tags we'll send before sending a bloom filter instead.
+// The parameter choice here is due to performance -- calculating a tag set can be slower than just
+// loading the bloom filter, even though the bloom filter is larger.
+const DEFAULT_MAX_TX_TAGS: u32 = 2048;
+
+/// A node-specific transaction tag -- the first 8 bytes of siphash(local-seed,txid)
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+pub struct TxTag(pub [u8; 8]);
+
+impl TxTag {
+    pub fn from(seed: &[u8], txid: &Txid) -> TxTag {
+        let mut hasher = SipHasher::new();
+        hasher.write(seed);
+        hasher.write(&txid.0);
+
+        let result_64 = hasher.finish();
+        TxTag(result_64.to_be_bytes())
+    }
+}
+
+impl std::fmt::Display for TxTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", &to_hex(&self.0))
+    }
+}
+
+impl StacksMessageCodec for TxTag {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        fd.write_all(&self.0).map_err(codec_error::WriteError)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TxTag, codec_error> {
+        let mut bytes = [0u8; 8];
+        fd.read_exact(&mut bytes).map_err(codec_error::ReadError)?;
+        Ok(TxTag(bytes))
+    }
+}
 
 pub struct MemPoolAdmitter {
     cur_block: BlockHeaderHash,
@@ -153,6 +217,14 @@ pub trait MemPoolEventDispatcher {
         block_size_bytes: u64,
         consumed: &ExecutionCost,
         confirmed_microblock_cost: &ExecutionCost,
+        tx_results: Vec<TransactionEvent>,
+    );
+    fn mined_microblock_event(
+        &self,
+        microblock: &StacksMicroblock,
+        tx_results: Vec<TransactionEvent>,
+        anchor_block_consensus_hash: ConsensusHash,
+        anchor_block: BlockHeaderHash,
     );
 }
 
@@ -278,8 +350,7 @@ impl FromRow<(u64, u64)> for (u64, u64) {
     }
 }
 
-const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
-    r#"
+const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[r#"
     CREATE TABLE mempool(
         txid TEXT NOT NULL,
         origin_address TEXT NOT NULL,
@@ -297,15 +368,9 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[
         UNIQUE (origin_address, origin_nonce),
         UNIQUE (sponsor_address,sponsor_nonce)
     );
-    "#,
-    "CREATE INDEX by_txid ON mempool(txid);",
-    "CREATE INDEX by_sponsor ON mempool(sponsor_address, sponsor_nonce);",
-    "CREATE INDEX by_origin ON mempool(origin_address, origin_nonce);",
-    "CREATE INDEX by_timestamp ON mempool(accept_time);",
-    "CREATE INDEX by_chaintip ON mempool(consensus_hash,block_header_hash);",
-];
+    "#];
 
-const MEMPOOL_SCHEMA_2: &'static [&'static str] = &[
+const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &'static [&'static str] = &[
     r#"
     CREATE TABLE fee_estimates(
         txid TEXT NOT NULL,
@@ -320,7 +385,6 @@ const MEMPOOL_SCHEMA_2: &'static [&'static str] = &[
     r#"
     ALTER TABLE mempool ADD COLUMN last_known_sponsor_nonce INTEGER;
     "#,
-    "CREATE INDEX fee_by_txid ON fee_estimates(txid);",
     r#"
     CREATE TABLE schema_version (version NUMBER, PRIMARY KEY (version));
     "#,
@@ -329,10 +393,46 @@ const MEMPOOL_SCHEMA_2: &'static [&'static str] = &[
     "#,
 ];
 
+const MEMPOOL_SCHEMA_3_BLOOM_STATE: &'static [&'static str] = &[
+    r#"
+    CREATE TABLE IF NOT EXISTS removed_txids(
+        txid TEXT PRIMARY KEY NOT NULL,
+        FOREIGN KEY(txid) REFERENCES mempool(txid) ON DELETE CASCADE
+    );
+    "#,
+    r#"
+    -- mapping between hash(local-seed,txid) and txid, used for randomized but efficient
+    -- paging when streaming transactions out of the mempool.
+    CREATE TABLE IF NOT EXISTS randomized_txids(
+        txid TEXT PRIMARY KEY NOT NULL,
+        hashed_txid TEXT NOT NULL,
+        FOREIGN KEY(txid) REFERENCES mempool(txid) ON DELETE CASCADE
+    );
+    "#,
+    r#"
+    INSERT INTO schema_version (version) VALUES (3)
+    "#,
+];
+
+const MEMPOOL_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS by_txid ON mempool(txid);",
+    "CREATE INDEX IF NOT EXISTS by_height ON mempool(height);",
+    "CREATE INDEX IF NOT EXISTS by_txid_and_height ON mempool(txid,height);",
+    "CREATE INDEX IF NOT EXISTS by_sponsor ON mempool(sponsor_address, sponsor_nonce);",
+    "CREATE INDEX IF NOT EXISTS by_origin ON mempool(origin_address, origin_nonce);",
+    "CREATE INDEX IF NOT EXISTS by_timestamp ON mempool(accept_time);",
+    "CREATE INDEX IF NOT EXISTS by_chaintip ON mempool(consensus_hash,block_header_hash);",
+    "CREATE INDEX IF NOT EXISTS fee_by_txid ON fee_estimates(txid);",
+    "CREATE INDEX IF NOT EXISTS by_ordered_hashed_txid ON randomized_txids(hashed_txid ASC);",
+    "CREATE INDEX IF NOT EXISTS by_hashed_txid ON randomized_txids(txid,hashed_txid);",
+];
+
 pub struct MemPoolDB {
-    db: DBConn,
+    pub db: DBConn,
     path: String,
     admitter: MemPoolAdmitter,
+    bloom_counter: BloomCounter<BloomNodeHasher>,
+    max_tx_tags: u32,
     cost_estimator: Box<dyn CostEstimator>,
     metric: Box<dyn CostMetric>,
 }
@@ -340,6 +440,7 @@ pub struct MemPoolDB {
 pub struct MemPoolTx<'a> {
     tx: DBTx<'a>,
     admitter: &'a mut MemPoolAdmitter,
+    bloom_counter: Option<&'a mut BloomCounter<BloomNodeHasher>>,
 }
 
 impl<'a> Deref for MemPoolTx<'a> {
@@ -356,12 +457,148 @@ impl<'a> DerefMut for MemPoolTx<'a> {
 }
 
 impl<'a> MemPoolTx<'a> {
-    pub fn new(tx: DBTx<'a>, admitter: &'a mut MemPoolAdmitter) -> MemPoolTx<'a> {
-        MemPoolTx { tx, admitter }
+    pub fn new(
+        tx: DBTx<'a>,
+        admitter: &'a mut MemPoolAdmitter,
+        bloom_counter: &'a mut BloomCounter<BloomNodeHasher>,
+    ) -> MemPoolTx<'a> {
+        MemPoolTx {
+            tx,
+            admitter,
+            bloom_counter: Some(bloom_counter),
+        }
+    }
+
+    pub fn with_bloom_state<F, R>(tx: &mut MemPoolTx<'a>, f: F) -> R
+    where
+        F: FnOnce(&mut DBTx<'a>, &mut BloomCounter<BloomNodeHasher>) -> R,
+    {
+        let mut bc = tx
+            .bloom_counter
+            .take()
+            .expect("BUG: did not replace bloom filter");
+        let res = f(&mut tx.tx, &mut bc);
+        tx.bloom_counter.replace(bc);
+        res
     }
 
     pub fn commit(self) -> Result<(), db_error> {
         self.tx.commit().map_err(db_error::SqliteError)
+    }
+
+    /// Remove all txids at the given height from the bloom counter.
+    /// Used to clear out txids that are now outside the bloom counter's depth.
+    fn prune_bloom_counter(&mut self, target_height: u64) -> Result<(), MemPoolRejection> {
+        let sql = "SELECT a.txid FROM mempool AS a LEFT OUTER JOIN removed_txids AS b ON a.txid = b.txid WHERE b.txid IS NULL AND a.height = ?1";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(target_height)?];
+        let txids: Vec<Txid> = query_rows(&self.tx, sql, args)?;
+        let _num_txs = txids.len();
+
+        test_debug!("Prune bloom counter from height {}", target_height);
+
+        // keep borrow-checker happy
+        MemPoolTx::with_bloom_state(self, |ref mut dbtx, ref mut bloom_counter| {
+            for txid in txids.into_iter() {
+                bloom_counter.remove_raw(dbtx, &txid.0)?;
+
+                let sql = "INSERT OR REPLACE INTO removed_txids (txid) VALUES (?1)";
+                let args: &[&dyn ToSql] = &[&txid];
+                dbtx.execute(sql, args).map_err(db_error::SqliteError)?;
+            }
+            // help the type inference out
+            let res: Result<(), db_error> = Ok(());
+            res
+        })?;
+
+        test_debug!(
+            "Pruned bloom filter at height {}: removed {} txs",
+            target_height,
+            _num_txs
+        );
+        Ok(())
+    }
+
+    /// Add the txid to the bloom counter in the mempool DB, optionally replacing a prior
+    /// transaction (identified by prior_txid) if the bloom counter is full.
+    /// If this is the first txid at this block height, then also garbage-collect the bloom counter to remove no-longer-recent transactions.
+    /// If the bloom counter is saturated -- i.e. it represents more than MAX_BLOOM_COUNTER_TXS
+    /// transactions -- then pick another transaction to evict from the bloom filter and return its txid.
+    /// (Note that no transactions are ever removed from the mempool; we just don't prioritize them
+    /// in the bloom filter).
+    fn update_bloom_counter(
+        &mut self,
+        height: u64,
+        txid: &Txid,
+        prior_txid: Option<Txid>,
+    ) -> Result<Option<Txid>, MemPoolRejection> {
+        // is this the first-ever txid at this height?
+        let sql = "SELECT 1 FROM mempool WHERE height = ?1";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        let present: Option<i64> = query_row(&self.tx, sql, args)?;
+        if present.is_none() && height > (BLOOM_COUNTER_DEPTH as u64) {
+            // this is the first-ever tx at this height.
+            // which means, the bloom filter window has advanced.
+            // which means, we need to remove all the txs that are now out of the window.
+            self.prune_bloom_counter(height - (BLOOM_COUNTER_DEPTH as u64))?;
+        }
+
+        MemPoolTx::with_bloom_state(self, |ref mut dbtx, ref mut bloom_counter| {
+            // remove replaced transaction
+            if let Some(prior_txid) = prior_txid {
+                bloom_counter.remove_raw(dbtx, &prior_txid.0)?;
+            }
+
+            // keep the bloom counter un-saturated -- remove at most one transaction from it to keep
+            // the error rate at or below the target error rate
+            let evict_txid = {
+                let num_recents = MemPoolDB::get_num_recent_txs(&dbtx)?;
+                if num_recents >= MAX_BLOOM_COUNTER_TXS.into() {
+                    // for now, remove lowest-fee tx in the recent tx set.
+                    // TODO: In the future, do it by lowest fee rate
+                    let sql = "SELECT a.txid FROM mempool AS a LEFT OUTER JOIN removed_txids AS b ON a.txid = b.txid WHERE b.txid IS NULL AND a.height > ?1 ORDER BY a.tx_fee ASC LIMIT 1";
+                    let args: &[&dyn ToSql] = &[&u64_to_sql(
+                        height.saturating_sub(BLOOM_COUNTER_DEPTH as u64),
+                    )?];
+                    let evict_txid: Option<Txid> = query_row(&dbtx, sql, args)?;
+                    if let Some(evict_txid) = evict_txid {
+                        bloom_counter.remove_raw(dbtx, &evict_txid.0)?;
+
+                        let sql = "INSERT OR REPLACE INTO removed_txids (txid) VALUES (?1)";
+                        let args: &[&dyn ToSql] = &[&evict_txid];
+                        dbtx.execute(sql, args).map_err(db_error::SqliteError)?;
+
+                        Some(evict_txid)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            // finally add the new transaction
+            bloom_counter.insert_raw(dbtx, &txid.0)?;
+            Ok(evict_txid)
+        })
+    }
+
+    /// Add the txid to our randomized page order
+    fn update_mempool_pager(&mut self, txid: &Txid) -> Result<(), MemPoolRejection> {
+        let mut randomized_buff = self
+            .bloom_counter
+            .as_ref()
+            .expect("BUG: did not instantiate bloom counter in mempool tx")
+            .get_seed()
+            .to_vec();
+        randomized_buff.extend_from_slice(&txid.0);
+        let hashed_txid = Txid(Sha512Trunc256Sum::from_data(&randomized_buff).0);
+
+        let sql = "INSERT OR REPLACE INTO randomized_txids (txid,hashed_txid) VALUES (?1,?2)";
+        let args: &[&dyn ToSql] = &[txid, &hashed_txid];
+
+        self.execute(sql, args).map_err(db_error::SqliteError)?;
+
+        Ok(())
     }
 }
 
@@ -407,13 +644,95 @@ impl MemPoolTxInfo {
 
 impl MemPoolDB {
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
-        let tx = tx_begin_immediate(conn)?;
+        let mut tx = tx_begin_immediate(conn)?;
 
+        // create initial mempool tables
         for cmd in MEMPOOL_INITIAL_SCHEMA {
             tx.execute_batch(cmd).map_err(db_error::SqliteError)?;
         }
 
+        // apply all migrations
+        MemPoolDB::apply_schema_migrations(&mut tx)?;
+
+        // add all indexes
+        MemPoolDB::add_indexes(&mut tx)?;
+
         tx.commit().map_err(db_error::SqliteError)?;
+        Ok(())
+    }
+
+    /// Load the schema version from the database, if it's new enough to have such a version.
+    /// Returns Some(version) if a version can be loaded; None if not.
+    fn get_schema_version(conn: &DBConn) -> Result<Option<i64>, db_error> {
+        let is_versioned = table_exists(conn, "schema_version")?;
+        if !is_versioned {
+            return Ok(None);
+        }
+
+        let version = conn
+            .query_row(
+                "SELECT MAX(version) FROM schema_version",
+                rusqlite::NO_PARAMS,
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        Ok(version)
+    }
+
+    /// Apply all schema migrations up to the latest schema.
+    fn apply_schema_migrations(tx: &mut DBTx) -> Result<(), db_error> {
+        loop {
+            let version = MemPoolDB::get_schema_version(&tx)?.unwrap_or(1);
+            match version {
+                1 => {
+                    MemPoolDB::instantiate_cost_estimator(tx)?;
+                }
+                2 => {
+                    MemPoolDB::instantiate_bloom_state(tx)?;
+                }
+                3 => {
+                    break;
+                }
+                _ => {
+                    panic!("Unknown schema version {}", version);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Add indexes
+    fn add_indexes(tx: &mut DBTx) -> Result<(), db_error> {
+        for cmd in MEMPOOL_INDEXES {
+            tx.execute_batch(cmd).map_err(db_error::SqliteError)?;
+        }
+        Ok(())
+    }
+
+    /// Instantiate the on-disk counting bloom filter
+    fn instantiate_bloom_state(tx: &mut DBTx) -> Result<(), db_error> {
+        let node_hasher = BloomNodeHasher::new_random();
+        let _ = BloomCounter::new(
+            tx,
+            BLOOM_COUNTER_TABLE,
+            BLOOM_COUNTER_ERROR_RATE,
+            MAX_BLOOM_COUNTER_TXS,
+            node_hasher,
+        )?;
+
+        for cmd in MEMPOOL_SCHEMA_3_BLOOM_STATE {
+            tx.execute_batch(cmd).map_err(db_error::SqliteError)?;
+        }
+        Ok(())
+    }
+
+    /// Instantiate the cost estimator schema
+    fn instantiate_cost_estimator(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in MEMPOOL_SCHEMA_2_COST_ESTIMATOR {
+            tx.execute_batch(sql_exec)?;
+        }
+
         Ok(())
     }
 
@@ -478,49 +797,25 @@ impl MemPoolDB {
         if create_flag {
             // instantiate!
             MemPoolDB::instantiate_mempool_db(&mut conn)?;
+        } else {
+            let mut tx = tx_begin_immediate(&mut conn)?;
+            MemPoolDB::apply_schema_migrations(&mut tx)?;
+            MemPoolDB::add_indexes(&mut tx)?;
+            tx.commit().map_err(db_error::SqliteError)?;
         }
 
-        let tx = conn.transaction()?;
-        let version = MemPoolDB::get_schema_version(&tx)?.unwrap_or(1);
-
-        if version < 2 {
-            MemPoolDB::apply_schema_2(&tx)?;
-        }
-
-        tx.commit()?;
+        let bloom_counter = BloomCounter::<BloomNodeHasher>::try_load(&conn, BLOOM_COUNTER_TABLE)?
+            .ok_or(db_error::Other(format!("Failed to load bloom counter")))?;
 
         Ok(MemPoolDB {
             db: conn,
             path: db_path,
-            admitter,
+            admitter: admitter,
+            bloom_counter,
+            max_tx_tags: DEFAULT_MAX_TX_TAGS,
             cost_estimator,
             metric,
         })
-    }
-
-    fn get_schema_version(conn: &DBConn) -> Result<Option<i64>, db_error> {
-        let is_versioned = table_exists(conn, "schema_version")?;
-        if !is_versioned {
-            return Ok(None);
-        }
-
-        let version = conn
-            .query_row(
-                "SELECT MAX(version) FROM schema_version",
-                rusqlite::NO_PARAMS,
-                |row| row.get(0),
-            )
-            .optional()?;
-
-        Ok(version)
-    }
-
-    fn apply_schema_2(tx: &Transaction) -> Result<(), db_error> {
-        for sql_exec in MEMPOOL_SCHEMA_2 {
-            tx.execute_batch(sql_exec)?;
-        }
-
-        Ok(())
     }
 
     pub fn reset_last_known_nonces(&mut self) -> Result<(), db_error> {
@@ -714,7 +1009,7 @@ impl MemPoolDB {
     ///  highest-fee-first order.  This method is interruptable -- in the `settings` struct, the
     ///  caller may choose how long to spend iterating before this method stops.
     ///
-    ///  Returns the number of transactions considered on success.
+    ///  `todo` returns a boolean representing whether or not to keep iterating.
     pub fn iterate_candidates<F, E, C>(
         &mut self,
         clarity_tx: &mut C,
@@ -811,10 +1106,14 @@ impl MemPoolDB {
 
     pub fn tx_begin<'a>(&'a mut self) -> Result<MemPoolTx<'a>, db_error> {
         let tx = tx_begin_immediate(&mut self.db)?;
-        Ok(MemPoolTx::new(tx, &mut self.admitter))
+        Ok(MemPoolTx::new(
+            tx,
+            &mut self.admitter,
+            &mut self.bloom_counter,
+        ))
     }
 
-    fn db_has_tx(conn: &DBConn, txid: &Txid) -> Result<bool, db_error> {
+    pub fn db_has_tx(conn: &DBConn, txid: &Txid) -> Result<bool, db_error> {
         query_row(
             conn,
             "SELECT 1 FROM mempool WHERE txid = ?1",
@@ -895,7 +1194,7 @@ impl MemPoolDB {
     /// Get a transaction's metadata, given address and nonce, and whether the address is used as a sponsor or an origin.
     /// Faster than getting the MemPoolTxInfo, since no deserialization will be needed.
     /// Used to see if there exists a transaction with this info, so as to implement replace-by-fee
-    fn get_tx_metadata_by_address(
+    pub fn get_tx_metadata_by_address(
         conn: &DBConn,
         is_origin: bool,
         addr: &StacksAddress,
@@ -959,8 +1258,9 @@ impl MemPoolDB {
     /// Add a transaction to the mempool.  If it already exists, then replace it if the given fee
     /// is higher than the one that's already there.
     /// Carry out the mempool admission test before adding.
-    /// Don't call directly; use submit()
-    fn try_add_tx(
+    /// Don't call directly; use submit().
+    /// This is `pub` only for testing.
+    pub fn try_add_tx(
         tx: &mut MemPoolTx,
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
@@ -1038,6 +1338,8 @@ impl MemPoolDB {
             return Err(MemPoolRejection::ConflictingNonceInMempool);
         }
 
+        tx.update_bloom_counter(height, &txid, prior_tx.as_ref().map(|tx| tx.txid.clone()))?;
+
         let sql = "INSERT OR REPLACE INTO mempool (
             txid,
             origin_address,
@@ -1070,6 +1372,8 @@ impl MemPoolDB {
 
         tx.execute(sql, args)
             .map_err(|e| MemPoolRejection::DBError(db_error::SqliteError(e)))?;
+
+        tx.update_mempool_pager(&txid)?;
 
         // broadcast drop event if a tx is being replaced
         if let (Some(prior_tx), Some(event_observer)) = (prior_tx, event_observer) {
@@ -1360,1007 +1664,296 @@ impl MemPoolDB {
             }
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use address::AddressHashMode;
-    use burnchains::Address;
-    use chainstate::burn::ConsensusHash;
-    use chainstate::stacks::db::test::chainstate_path;
-    use chainstate::stacks::db::test::instantiate_chainstate;
-    use chainstate::stacks::db::test::instantiate_chainstate_with_balances;
-    use chainstate::stacks::test::codec_all_transactions;
-    use chainstate::stacks::{
-        db::blocks::MemPoolRejection, db::StacksChainState, index::MarfTrieId, CoinbasePayload,
-        Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition, StacksPrivateKey,
-        StacksPublicKey, StacksTransaction, StacksTransactionSigner, TokenTransferMemo,
-        TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
-        TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
-        TransactionSpendingCondition, TransactionVersion,
-    };
-    use chainstate::stacks::{
-        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    };
-    use core::mempool::MemPoolWalkSettings;
-    use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-    use core::FIRST_STACKS_BLOCK_HASH;
-    use net::Error as NetError;
-    use util::db::{DBConn, FromRow};
-    use util::hash::Hash160;
-    use util::secp256k1::MessageSignature;
-    use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*, strings::StacksString};
-    use vm::{
-        database::HeadersDB,
-        errors::Error as ClarityError,
-        errors::RuntimeErrorType,
-        tests::TEST_BURN_STATE_DB,
-        types::{PrincipalData, QualifiedContractIdentifier},
-        ClarityName, ContractName, Value,
-    };
-
-    use crate::codec::StacksMessageCodec;
-    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-    use crate::types::chainstate::{
-        StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
-        VRFSeed,
-    };
-    use crate::types::proof::TrieHash;
-    use crate::{
-        chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
-    };
-
-    use super::MemPoolDB;
-
-    const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
-                                        (define-public (bar (x uint)) (ok x))";
-    const SK_1: &'static str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
-    const SK_2: &'static str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
-    const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
-
-    #[test]
-    fn mempool_db_init() {
-        let _chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_init");
-        let chainstate_path = chainstate_path("mempool_db_init");
-        let _mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+    /// Get the bloom filter that represents the set of recent transactions we have
+    pub fn get_txid_bloom_filter(&self) -> Result<BloomFilter<BloomNodeHasher>, db_error> {
+        self.bloom_counter.to_bloom_filter(&self.conn())
     }
 
-    fn make_block(
-        chainstate: &mut StacksChainState,
-        block_consensus: ConsensusHash,
-        parent: &(ConsensusHash, BlockHeaderHash),
-        burn_height: u64,
-        block_height: u64,
-    ) -> (ConsensusHash, BlockHeaderHash) {
-        let (mut chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
-
-        let anchored_header = StacksBlockHeader {
-            version: 1,
-            total_work: StacksWorkScore {
-                work: block_height,
-                burn: 1,
-            },
-            proof: VRFProof::empty(),
-            parent_block: parent.1.clone(),
-            parent_microblock: BlockHeaderHash([0; 32]),
-            parent_microblock_sequence: 0,
-            tx_merkle_root: Sha512Trunc256Sum::empty(),
-            state_index_root: TrieHash::from_empty_data(),
-            microblock_pubkey_hash: Hash160([0; 20]),
-        };
-
-        let block_hash = anchored_header.block_hash();
-
-        let c_tx = StacksChainState::chainstate_block_begin(
-            &chainstate_tx,
-            clar_tx,
-            &TEST_BURN_STATE_DB,
-            &parent.0,
-            &parent.1,
-            &block_consensus,
-            &block_hash,
-        );
-
-        let new_tip_info = StacksHeaderInfo {
-            anchored_header,
-            microblock_tail: None,
-            index_root: TrieHash::from_empty_data(),
-            block_height,
-            consensus_hash: block_consensus.clone(),
-            burn_header_hash: BurnchainHeaderHash([0; 32]),
-            burn_header_height: burn_height as u32,
-            burn_header_timestamp: 0,
-            anchored_block_size: 1,
-        };
-
-        c_tx.commit_block();
-
-        let new_index_hash = StacksBlockId::new(&block_consensus, &block_hash);
-
-        chainstate_tx
-            .put_indexed_begin(&StacksBlockId::new(&parent.0, &parent.1), &new_index_hash)
-            .unwrap();
-
-        StacksChainState::insert_stacks_block_header(
-            &mut chainstate_tx,
-            &new_index_hash,
-            &new_tip_info,
-            &ExecutionCost::zero(),
-        )
-        .unwrap();
-
-        chainstate_tx.commit().unwrap();
-
-        (block_consensus, block_hash)
+    /// Find maximum height represented in the mempool
+    pub fn get_max_height(conn: &DBConn) -> Result<Option<u64>, db_error> {
+        let sql = "SELECT 1 FROM mempool WHERE height >= 0";
+        let count = query_rows::<i64, _>(conn, sql, NO_PARAMS)?.len();
+        if count == 0 {
+            Ok(None)
+        } else {
+            let sql = "SELECT MAX(height) FROM mempool";
+            Ok(Some(query_int(conn, sql, NO_PARAMS)? as u64))
+        }
     }
 
-    #[test]
-    fn mempool_walk_over_fork() {
-        let mut chainstate = instantiate_chainstate_with_balances(
-            false,
-            0x80000000,
-            "mempool_walk_over_fork",
-            vec![],
-        );
+    /// Get the transaction ID list that represents the set of transactions that are represented in
+    /// the bloom counter.
+    pub fn get_bloom_txids(&self) -> Result<Vec<Txid>, db_error> {
+        let max_height = match MemPoolDB::get_max_height(&self.conn())? {
+            Some(h) => h,
+            None => {
+                // mempool is empty
+                return Ok(vec![]);
+            }
+        };
+        let min_height = max_height.saturating_sub(BLOOM_COUNTER_DEPTH as u64);
+        let sql = "SELECT mempool.txid FROM mempool WHERE height > ?1 AND height <= ?2 AND NOT EXISTS (SELECT 1 FROM removed_txids WHERE txid = mempool.txid)";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(min_height)?, &u64_to_sql(max_height)?];
+        query_rows(&self.conn(), sql, args)
+    }
 
-        // genesis -> b_1* -> b_2*
-        //               \-> b_3 -> b_4
-        //
-        // *'d blocks accept transactions,
-        //   try to walk at b_4, we should be able to find
-        //   the transaction at b_1
+    /// Get the transaction tag list that represents the set of recent transactions we have.
+    /// Generate them with our node-local seed so that our txtag list is different from anyone
+    /// else's, with high probability.
+    pub fn get_txtags(&self, seed: &[u8]) -> Result<Vec<TxTag>, db_error> {
+        self.get_bloom_txids().map(|txid_list| {
+            txid_list
+                .iter()
+                .map(|txid| TxTag::from(seed, txid))
+                .collect()
+        })
+    }
 
-        let b_1 = make_block(
-            &mut chainstate,
-            ConsensusHash([0x1; 20]),
-            &(
-                FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                FIRST_STACKS_BLOCK_HASH.clone(),
-            ),
-            1,
-            1,
-        );
-        let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
-        let b_5 = make_block(&mut chainstate, ConsensusHash([0x5; 20]), &b_2, 5, 3);
-        let b_3 = make_block(&mut chainstate, ConsensusHash([0x3; 20]), &b_1, 3, 2);
-        let b_4 = make_block(&mut chainstate, ConsensusHash([0x4; 20]), &b_3, 4, 3);
+    /// How many recent transactions are there -- i.e. within BLOOM_COUNTER_DEPTH block heights of
+    /// the chain tip?
+    pub fn get_num_recent_txs(conn: &DBConn) -> Result<u64, db_error> {
+        let max_height = match MemPoolDB::get_max_height(conn)? {
+            Some(h) => h,
+            None => {
+                // mempool is empty
+                return Ok(0);
+            }
+        };
+        let min_height = max_height.saturating_sub(BLOOM_COUNTER_DEPTH as u64);
+        let sql = "SELECT COUNT(txid) FROM mempool WHERE height > ?1 AND height <= ?2";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(min_height)?, &u64_to_sql(max_height)?];
+        query_int(conn, sql, args).map(|cnt| cnt as u64)
+    }
 
-        let chainstate_path = chainstate_path("mempool_walk_over_fork");
-        let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+    /// Make a mempool sync request.
+    /// If sufficiently sparse, use a MemPoolSyncData::TxTags variant
+    /// Otherwise, use a MemPoolSyncData::BloomFilter variant
+    pub fn make_mempool_sync_data(&self) -> Result<MemPoolSyncData, db_error> {
+        let num_tags = MemPoolDB::get_num_recent_txs(self.conn())?;
+        if num_tags < self.max_tx_tags.into() {
+            let seed = self.bloom_counter.get_seed().clone();
+            let tags = self.get_txtags(&seed)?;
+            Ok(MemPoolSyncData::TxTags(seed, tags))
+        } else {
+            Ok(MemPoolSyncData::BloomFilter(self.get_txid_bloom_filter()?))
+        }
+    }
 
-        let mut all_txs = codec_all_transactions(
-            &TransactionVersion::Testnet,
-            0x80000000,
-            &TransactionAnchorMode::Any,
-            &TransactionPostConditionMode::Allow,
-        );
+    /// Get the hashed txid for a txid
+    pub fn get_randomized_txid(&self, txid: &Txid) -> Result<Option<Txid>, db_error> {
+        let sql = "SELECT hashed_txid FROM randomized_txids WHERE txid = ?1 LIMIT 1";
+        let args: &[&dyn ToSql] = &[txid];
+        query_row(&self.conn(), sql, args)
+    }
 
-        let blocks_to_broadcast_in = [&b_1, &b_2, &b_4];
-        let mut txs = [
-            all_txs.pop().unwrap(),
-            all_txs.pop().unwrap(),
-            all_txs.pop().unwrap(),
+    /// Get the next batch of transactions from our mempool that are *not* represented in the given
+    /// MemPoolSyncData.  Transactions are ordered lexicographically by randomized_txids.hashed_txid, since this allows us
+    /// to use the txid as a cursor while ensuring that each node returns txids in a deterministic random order
+    /// (so if some nodes are configured to return fewer than MAX_BLOOM_COUNTER_TXS transactions,
+    /// a requesting node will still have a good chance of getting something useful).
+    /// Also, return the next value to pass for `last_randomized_txid` to load the next page.
+    /// Also, return the number of rows considered.
+    pub fn find_next_missing_transactions(
+        &self,
+        data: &MemPoolSyncData,
+        height: u64,
+        last_randomized_txid: &Txid,
+        max_txs: u64,
+        max_run: u64,
+    ) -> Result<(Vec<StacksTransaction>, Option<Txid>, u64), db_error> {
+        let mut ret = vec![];
+        let sql = "SELECT mempool.txid AS txid, mempool.tx AS tx, randomized_txids.hashed_txid AS hashed_txid \
+                   FROM mempool JOIN randomized_txids \
+                   ON mempool.txid = randomized_txids.txid \
+                   WHERE randomized_txids.hashed_txid > ?1 \
+                   AND mempool.height > ?2 \
+                   AND NOT EXISTS \
+                        (SELECT 1 FROM removed_txids WHERE txid = mempool.txid) \
+                   ORDER BY randomized_txids.hashed_txid ASC LIMIT ?3";
+
+        let args: &[&dyn ToSql] = &[
+            &last_randomized_txid,
+            &u64_to_sql(height.saturating_sub(BLOOM_COUNTER_DEPTH as u64))?,
+            &u64_to_sql(max_run)?,
         ];
-        for tx in txs.iter_mut() {
-            tx.set_tx_fee(123);
+
+        let mut tags_table = HashSet::new();
+        if let MemPoolSyncData::TxTags(_, ref tags) = data {
+            for tag in tags.iter() {
+                tags_table.insert(tag.clone());
+            }
         }
 
-        for ix in 0..3 {
-            let mut mempool_tx = mempool.tx_begin().unwrap();
-
-            let block = &blocks_to_broadcast_in[ix];
-            let good_tx = &txs[ix];
-
-            let origin_address = StacksAddress {
-                version: 22,
-                bytes: Hash160::from_data(&[ix as u8; 32]),
-            };
-            let sponsor_address = StacksAddress {
-                version: 22,
-                bytes: Hash160::from_data(&[0x80 | (ix as u8); 32]),
-            };
-
-            let txid = good_tx.txid();
-            let tx_bytes = good_tx.serialize_to_vec();
-            let tx_fee = good_tx.get_tx_fee();
-
-            let height = 1 + ix as u64;
-
-            let origin_nonce = 0; // (2 * ix + i) as u64;
-            let sponsor_nonce = 0; // (2 * ix + i) as u64;
-
-            assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-
-            MemPoolDB::try_add_tx(
-                &mut mempool_tx,
-                &mut chainstate,
-                &block.0,
-                &block.1,
-                txid,
-                tx_bytes,
-                tx_fee,
-                height,
-                &origin_address,
-                origin_nonce,
-                &sponsor_address,
-                sponsor_nonce,
-                None,
-            )
-            .unwrap();
-
-            assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-
-            mempool_tx.commit().unwrap();
-        }
-
-        // genesis -> b_1* -> b_2* -> b_5
-        //               \-> b_3 -> b_4
-        //
-        // *'d blocks accept transactions,
-        //   try to walk at b_4, we should be able to find
-        //   the transaction at b_1
-
-        let mut mempool_settings = MemPoolWalkSettings::default();
-        mempool_settings.min_tx_fee = 10;
-
-        chainstate.with_read_only_clarity_tx(
-            &TEST_BURN_STATE_DB,
-            &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
-            |clarity_conn| {
-                let mut count_txs = 0;
-                mempool
-                    .iterate_candidates::<_, ChainstateError, _>(
-                        clarity_conn,
-                        2,
-                        mempool_settings.clone(),
-                        |_, available_tx, _| {
-                            count_txs += 1;
-                            Ok(true)
-                        },
-                    )
-                    .unwrap();
-                assert_eq!(
-                    count_txs, 3,
-                    "Mempool should find three transactions from b_2"
-                );
-            },
-        );
-
-        // Now that the mempool has iterated over those transactions, its view of the
-        //  nonce for the origin address should have changed. Now it should find *no* transactions.
-        chainstate.with_read_only_clarity_tx(
-            &TEST_BURN_STATE_DB,
-            &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
-            |clarity_conn| {
-                let mut count_txs = 0;
-                mempool
-                    .iterate_candidates::<_, ChainstateError, _>(
-                        clarity_conn,
-                        2,
-                        mempool_settings.clone(),
-                        |_, available_tx, _| {
-                            count_txs += 1;
-                            Ok(true)
-                        },
-                    )
-                    .unwrap();
-                assert_eq!(count_txs, 0, "Mempool should find no transactions");
-            },
-        );
-
-        mempool
-            .reset_last_known_nonces()
-            .expect("Should be able to reset nonces");
-
-        chainstate.with_read_only_clarity_tx(
-            &TEST_BURN_STATE_DB,
-            &StacksBlockHeader::make_index_block_hash(&b_5.0, &b_5.1),
-            |clarity_conn| {
-                let mut count_txs = 0;
-                mempool
-                    .iterate_candidates::<_, ChainstateError, _>(
-                        clarity_conn,
-                        3,
-                        mempool_settings.clone(),
-                        |_, available_tx, _| {
-                            count_txs += 1;
-                            Ok(true)
-                        },
-                    )
-                    .unwrap();
-                assert_eq!(
-                    count_txs, 3,
-                    "Mempool should find three transactions from b_5"
-                );
-            },
-        );
-
-        mempool
-            .reset_last_known_nonces()
-            .expect("Should be able to reset nonces");
-
-        // The mempool iterator no longer does any consideration of what block accepted
-        //  the transaction, so b_3 should have the same view.
-        chainstate.with_read_only_clarity_tx(
-            &TEST_BURN_STATE_DB,
-            &StacksBlockHeader::make_index_block_hash(&b_3.0, &b_3.1),
-            |clarity_conn| {
-                let mut count_txs = 0;
-                mempool
-                    .iterate_candidates::<_, ChainstateError, _>(
-                        clarity_conn,
-                        2,
-                        mempool_settings.clone(),
-                        |_, available_tx, _| {
-                            count_txs += 1;
-                            Ok(true)
-                        },
-                    )
-                    .unwrap();
-                assert_eq!(
-                    count_txs, 3,
-                    "Mempool should find three transactions from b_3"
-                );
-            },
-        );
-
-        mempool
-            .reset_last_known_nonces()
-            .expect("Should be able to reset nonces");
-
-        chainstate.with_read_only_clarity_tx(
-            &TEST_BURN_STATE_DB,
-            &StacksBlockHeader::make_index_block_hash(&b_4.0, &b_4.1),
-            |clarity_conn| {
-                let mut count_txs = 0;
-                mempool
-                    .iterate_candidates::<_, ChainstateError, _>(
-                        clarity_conn,
-                        3,
-                        mempool_settings.clone(),
-                        |_, available_tx, _| {
-                            count_txs += 1;
-                            Ok(true)
-                        },
-                    )
-                    .unwrap();
-                assert_eq!(
-                    count_txs, 3,
-                    "Mempool should find three transactions from b_4"
-                );
-            },
-        );
-
-        mempool
-            .reset_last_known_nonces()
-            .expect("Should be able to reset nonces");
-
-        // let's test replace-across-fork while we're here.
-        // first try to replace a tx in b_2 in b_1 - should fail because they are in the same fork
-        let mut mempool_tx = mempool.tx_begin().unwrap();
-        let block = &b_1;
-        let tx = &txs[1];
-        let origin_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&[1; 32]),
-        };
-        let sponsor_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&[0x81; 32]),
-        };
-
-        let txid = tx.txid();
-        let tx_bytes = tx.serialize_to_vec();
-        let tx_fee = tx.get_tx_fee();
-
-        let height = 3;
-        let origin_nonce = 0;
-        let sponsor_nonce = 0;
-
-        // make sure that we already have the transaction we're testing for replace-across-fork
-        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-
-        assert!(MemPoolDB::try_add_tx(
-            &mut mempool_tx,
-            &mut chainstate,
-            &block.0,
-            &block.1,
-            txid,
-            tx_bytes,
-            tx_fee,
-            height,
-            &origin_address,
-            origin_nonce,
-            &sponsor_address,
-            sponsor_nonce,
-            None,
-        )
-        .is_err());
-
-        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-        mempool_tx.commit().unwrap();
-
-        // now try replace-across-fork from b_2 to b_4
-        // check that the number of transactions at b_2 and b_4 starts at 1 each
-        assert_eq!(
-            MemPoolDB::get_num_tx_at_block(&mempool.db, &b_4.0, &b_4.1).unwrap(),
-            1
-        );
-        assert_eq!(
-            MemPoolDB::get_num_tx_at_block(&mempool.db, &b_2.0, &b_2.1).unwrap(),
-            1
-        );
-        let mut mempool_tx = mempool.tx_begin().unwrap();
-        let block = &b_4;
-        let tx = &txs[1];
-        let origin_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&[0; 32]),
-        };
-        let sponsor_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&[1; 32]),
-        };
-
-        let txid = tx.txid();
-        let tx_bytes = tx.serialize_to_vec();
-        let tx_fee = tx.get_tx_fee();
-
-        let height = 3;
-        let origin_nonce = 1;
-        let sponsor_nonce = 1;
-
-        // make sure that we already have the transaction we're testing for replace-across-fork
-        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-
-        MemPoolDB::try_add_tx(
-            &mut mempool_tx,
-            &mut chainstate,
-            &block.0,
-            &block.1,
-            txid,
-            tx_bytes,
-            tx_fee,
-            height,
-            &origin_address,
-            origin_nonce,
-            &sponsor_address,
-            sponsor_nonce,
-            None,
-        )
-        .unwrap();
-
-        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-
-        mempool_tx.commit().unwrap();
-
-        // after replace-across-fork, tx[1] should have moved from the b_2->b_5 fork to b_4
-        assert_eq!(
-            MemPoolDB::get_num_tx_at_block(&mempool.db, &b_4.0, &b_4.1).unwrap(),
-            2
-        );
-        assert_eq!(
-            MemPoolDB::get_num_tx_at_block(&mempool.db, &b_2.0, &b_2.1).unwrap(),
-            0
-        );
-    }
-
-    #[test]
-    fn mempool_do_not_replace_tx() {
-        let mut chainstate = instantiate_chainstate_with_balances(
-            false,
-            0x80000000,
-            "mempool_do_not_replace_tx",
-            vec![],
-        );
-
-        // genesis -> b_1 -> b_2
-        //      \-> b_3
-        //
-        let b_1 = make_block(
-            &mut chainstate,
-            ConsensusHash([0x1; 20]),
-            &(
-                FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                FIRST_STACKS_BLOCK_HASH.clone(),
-            ),
-            1,
-            1,
-        );
-        let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
-        let b_3 = make_block(&mut chainstate, ConsensusHash([0x3; 20]), &b_1, 1, 1);
-
-        let chainstate_path = chainstate_path("mempool_do_not_replace_tx");
-        let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
-
-        let mut txs = codec_all_transactions(
-            &TransactionVersion::Testnet,
-            0x80000000,
-            &TransactionAnchorMode::Any,
-            &TransactionPostConditionMode::Allow,
-        );
-        let mut tx = txs.pop().unwrap();
-
-        let mut mempool_tx = mempool.tx_begin().unwrap();
-
-        // do an initial insert
-        let origin_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&[0; 32]),
-        };
-        let sponsor_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&[1; 32]),
-        };
-
-        tx.set_tx_fee(123);
-
-        // test insert
-        let txid = tx.txid();
-        let tx_bytes = tx.serialize_to_vec();
-
-        let tx_fee = tx.get_tx_fee();
-        let height = 100;
-
-        let origin_nonce = tx.get_origin_nonce();
-        let sponsor_nonce = match tx.get_sponsor_nonce() {
-            Some(n) => n,
-            None => origin_nonce,
-        };
-
-        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-
-        MemPoolDB::try_add_tx(
-            &mut mempool_tx,
-            &mut chainstate,
-            &b_1.0,
-            &b_1.1,
-            txid,
-            tx_bytes,
-            tx_fee,
-            height,
-            &origin_address,
-            origin_nonce,
-            &sponsor_address,
-            sponsor_nonce,
-            None,
-        )
-        .unwrap();
-
-        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-
-        let prior_txid = txid.clone();
-
-        // now, let's try inserting again, with a lower fee, but at a different block hash
-        tx.set_tx_fee(100);
-        let txid = tx.txid();
-        let tx_bytes = tx.serialize_to_vec();
-        let tx_fee = tx.get_tx_fee();
-        let height = 100;
-
-        let err_resp = MemPoolDB::try_add_tx(
-            &mut mempool_tx,
-            &mut chainstate,
-            &b_2.0,
-            &b_2.1,
-            txid,
-            tx_bytes,
-            tx_fee,
-            height,
-            &origin_address,
-            origin_nonce,
-            &sponsor_address,
-            sponsor_nonce,
-            None,
-        )
-        .unwrap_err();
-        assert!(match err_resp {
-            MemPoolRejection::ConflictingNonceInMempool => true,
-            _ => false,
-        });
-
-        assert!(MemPoolDB::db_has_tx(&mempool_tx, &prior_txid).unwrap());
-        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-    }
-
-    #[test]
-    fn mempool_db_load_store_replace_tx() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "mempool_db_load_store_replace_tx");
-        let chainstate_path = chainstate_path("mempool_db_load_store_replace_tx");
-        let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
-
-        let mut txs = codec_all_transactions(
-            &TransactionVersion::Testnet,
-            0x80000000,
-            &TransactionAnchorMode::Any,
-            &TransactionPostConditionMode::Allow,
-        );
-        let num_txs = txs.len() as u64;
-
-        let mut mempool_tx = mempool.tx_begin().unwrap();
-
-        eprintln!("add all txs");
-        for (i, mut tx) in txs.drain(..).enumerate() {
-            // make sure each address is unique per tx (not the case in codec_all_transactions)
-            let origin_address = StacksAddress {
-                version: 22,
-                bytes: Hash160::from_data(&i.to_be_bytes()),
-            };
-            let sponsor_address = StacksAddress {
-                version: 22,
-                bytes: Hash160::from_data(&(i + 1).to_be_bytes()),
-            };
-
-            tx.set_tx_fee(123);
-
-            // test insert
-
-            let txid = tx.txid();
-            let mut tx_bytes = vec![];
-            tx.consensus_serialize(&mut tx_bytes).unwrap();
-            let expected_tx = tx.clone();
-
-            let tx_fee = tx.get_tx_fee();
-            let height = 100;
-            let origin_nonce = tx.get_origin_nonce();
-            let sponsor_nonce = match tx.get_sponsor_nonce() {
-                Some(n) => n,
-                None => origin_nonce,
-            };
-            let len = tx_bytes.len() as u64;
-
-            assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-
-            MemPoolDB::try_add_tx(
-                &mut mempool_tx,
-                &mut chainstate,
-                &ConsensusHash([0x1; 20]),
-                &BlockHeaderHash([0x2; 32]),
-                txid,
-                tx_bytes,
-                tx_fee,
-                height,
-                &origin_address,
-                origin_nonce,
-                &sponsor_address,
-                sponsor_nonce,
-                None,
-            )
-            .unwrap();
-
-            assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-
-            // test retrieval
-            let tx_info_opt = MemPoolDB::get_tx(&mempool_tx, &txid).unwrap();
-            let tx_info = tx_info_opt.unwrap();
-
-            assert_eq!(tx_info.tx, expected_tx);
-            assert_eq!(tx_info.metadata.len, len);
-            assert_eq!(tx_info.metadata.tx_fee, 123);
-            assert_eq!(tx_info.metadata.origin_address, origin_address);
-            assert_eq!(tx_info.metadata.origin_nonce, origin_nonce);
-            assert_eq!(tx_info.metadata.sponsor_address, sponsor_address);
-            assert_eq!(tx_info.metadata.sponsor_nonce, sponsor_nonce);
-            assert_eq!(tx_info.metadata.consensus_hash, ConsensusHash([0x1; 20]));
-            assert_eq!(
-                tx_info.metadata.block_header_hash,
-                BlockHeaderHash([0x2; 32])
+        let mut stmt = self.conn().prepare(sql)?;
+        let mut rows = stmt.query(args)?;
+        let mut num_rows_visited = 0;
+        let mut next_page = None;
+        while let Some(row) = rows.next()? {
+            if num_rows_visited >= max_run {
+                break;
+            }
+
+            let txid = Txid::from_column(row, "txid")?;
+            num_rows_visited += 1;
+
+            let hashed_txid = Txid::from_column(row, "hashed_txid")?;
+            test_debug!(
+                "Consider txid {} ({}) at or after {}",
+                &txid,
+                &hashed_txid,
+                last_randomized_txid
             );
-            assert_eq!(tx_info.metadata.block_height, height);
+            next_page = Some(hashed_txid);
 
-            // test replace-by-fee with a higher fee
-            let old_txid = txid;
+            let contains = match data {
+                MemPoolSyncData::BloomFilter(ref bf) => bf.contains_raw(&txid.0),
+                MemPoolSyncData::TxTags(ref seed, ..) => {
+                    tags_table.contains(&TxTag::from(seed, &txid))
+                }
+            };
+            if contains {
+                // remote peer already has this one
+                continue;
+            }
 
-            tx.set_tx_fee(124);
-            assert!(txid != tx.txid());
+            let tx_bytes: Vec<u8> = row.get_unwrap("tx");
+            let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
+                .map_err(|_e| db_error::ParseError)?;
 
-            let txid = tx.txid();
-            let mut tx_bytes = vec![];
-            tx.consensus_serialize(&mut tx_bytes).unwrap();
-            let expected_tx = tx.clone();
-            let tx_fee = tx.get_tx_fee();
-
-            assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-
-            let tx_info_before = MemPoolDB::get_tx_metadata_by_address(
-                &mempool_tx,
-                true,
-                &origin_address,
-                origin_nonce,
-            )
-            .unwrap()
-            .unwrap();
-            assert_eq!(tx_info_before, tx_info.metadata);
-
-            MemPoolDB::try_add_tx(
-                &mut mempool_tx,
-                &mut chainstate,
-                &ConsensusHash([0x1; 20]),
-                &BlockHeaderHash([0x2; 32]),
-                txid,
-                tx_bytes,
-                tx_fee,
-                height,
-                &origin_address,
-                origin_nonce,
-                &sponsor_address,
-                sponsor_nonce,
-                None,
-            )
-            .unwrap();
-
-            // was replaced
-            assert!(!MemPoolDB::db_has_tx(&mempool_tx, &old_txid).unwrap());
-            assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-
-            let tx_info_after = MemPoolDB::get_tx_metadata_by_address(
-                &mempool_tx,
-                true,
-                &origin_address,
-                origin_nonce,
-            )
-            .unwrap()
-            .unwrap();
-            assert!(tx_info_after != tx_info.metadata);
-
-            // test retrieval -- transaction should have been replaced because it has a higher
-            // estimated fee
-            let tx_info_opt = MemPoolDB::get_tx(&mempool_tx, &txid).unwrap();
-
-            let tx_info = tx_info_opt.unwrap();
-            assert_eq!(tx_info.metadata, tx_info_after);
-
-            assert_eq!(tx_info.tx, expected_tx);
-            assert_eq!(tx_info.metadata.len, len);
-            assert_eq!(tx_info.metadata.tx_fee, 124);
-            assert_eq!(tx_info.metadata.origin_address, origin_address);
-            assert_eq!(tx_info.metadata.origin_nonce, origin_nonce);
-            assert_eq!(tx_info.metadata.sponsor_address, sponsor_address);
-            assert_eq!(tx_info.metadata.sponsor_nonce, sponsor_nonce);
-            assert_eq!(tx_info.metadata.consensus_hash, ConsensusHash([0x1; 20]));
-            assert_eq!(
-                tx_info.metadata.block_header_hash,
-                BlockHeaderHash([0x2; 32])
-            );
-            assert_eq!(tx_info.metadata.block_height, height);
-
-            // test replace-by-fee with a lower fee
-            let old_txid = txid;
-
-            tx.set_tx_fee(122);
-            assert!(txid != tx.txid());
-
-            let txid = tx.txid();
-            let mut tx_bytes = vec![];
-            tx.consensus_serialize(&mut tx_bytes).unwrap();
-            let _expected_tx = tx.clone();
-            let tx_fee = tx.get_tx_fee();
-
-            assert!(match MemPoolDB::try_add_tx(
-                &mut mempool_tx,
-                &mut chainstate,
-                &ConsensusHash([0x1; 20]),
-                &BlockHeaderHash([0x2; 32]),
-                txid,
-                tx_bytes,
-                tx_fee,
-                height,
-                &origin_address,
-                origin_nonce,
-                &sponsor_address,
-                sponsor_nonce,
-                None,
-            )
-            .unwrap_err()
-            {
-                MemPoolRejection::ConflictingNonceInMempool => true,
-                _ => false,
-            });
-
-            // was NOT replaced
-            assert!(MemPoolDB::db_has_tx(&mempool_tx, &old_txid).unwrap());
-            assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+            test_debug!("Returning txid {}", &txid);
+            ret.push(tx);
+            if (ret.len() as u64) >= max_txs {
+                break;
+            }
         }
-        mempool_tx.commit().unwrap();
 
-        eprintln!("get all txs");
-        let txs = MemPoolDB::get_txs_after(
-            &mempool.db,
-            &ConsensusHash([0x1; 20]),
-            &BlockHeaderHash([0x2; 32]),
-            0,
-            num_txs,
-        )
-        .unwrap();
-        assert_eq!(txs.len() as u64, num_txs);
-
-        eprintln!("get empty txs");
-        let txs = MemPoolDB::get_txs_after(
-            &mempool.db,
-            &ConsensusHash([0x1; 20]),
-            &BlockHeaderHash([0x3; 32]),
-            0,
-            num_txs,
-        )
-        .unwrap();
-        assert_eq!(txs.len(), 0);
-
-        eprintln!("get empty txs");
-        let txs = MemPoolDB::get_txs_after(
-            &mempool.db,
-            &ConsensusHash([0x2; 20]),
-            &BlockHeaderHash([0x2; 32]),
-            0,
-            num_txs,
-        )
-        .unwrap();
-        assert_eq!(txs.len(), 0);
-
-        eprintln!("garbage-collect");
-        let mut mempool_tx = mempool.tx_begin().unwrap();
-        MemPoolDB::garbage_collect(&mut mempool_tx, 101, None).unwrap();
-        mempool_tx.commit().unwrap();
-
-        let txs = MemPoolDB::get_txs_after(
-            &mempool.db,
-            &ConsensusHash([0x1; 20]),
-            &BlockHeaderHash([0x2; 32]),
-            0,
-            num_txs,
-        )
-        .unwrap();
-        assert_eq!(txs.len(), 0);
+        Ok((ret, next_page, num_rows_visited))
     }
 
-    #[test]
-    fn mempool_db_test_rbf() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "mempool_db_test_rbf");
-        let chainstate_path = chainstate_path("mempool_db_test_rbf");
-        let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+    /// Stream transaction data.
+    /// Send back one transaction at a time.
+    pub fn stream_txs<W: Write>(
+        &self,
+        fd: &mut W,
+        query: &mut TxStreamData,
+        count: u64,
+    ) -> Result<u64, ChainstateError> {
+        let mut num_written = 0;
+        while num_written < count {
+            // write out bufferred tx
+            let start = query.tx_buf_ptr;
+            let end = cmp::min(query.tx_buf.len(), ((start as u64) + count) as usize);
+            fd.write_all(&query.tx_buf[start..end])
+                .map_err(ChainstateError::WriteError)?;
 
-        // create initial transaction
-        let mut mempool_tx = mempool.tx_begin().unwrap();
-        let spending_condition =
-            TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                signer: Hash160([0x11; 20]),
-                hash_mode: SinglesigHashMode::P2PKH,
-                key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                nonce: 123,
-                tx_fee: 456,
-                signature: MessageSignature::from_raw(&vec![0xff; 65]),
-            });
-        let stx_address = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
-        let payload = TransactionPayload::TokenTransfer(
-            PrincipalData::from(QualifiedContractIdentifier {
-                issuer: stx_address.into(),
-                name: "hello-contract-name".into(),
-            }),
-            123,
-            TokenTransferMemo([0u8; 34]),
-        );
-        let mut tx = StacksTransaction {
-            version: TransactionVersion::Testnet,
-            chain_id: 0x80000000,
-            auth: TransactionAuth::Standard(spending_condition.clone()),
-            anchor_mode: TransactionAnchorMode::Any,
-            post_condition_mode: TransactionPostConditionMode::Allow,
-            post_conditions: Vec::new(),
-            payload,
-        };
+            let nw = end.saturating_sub(start) as u64;
 
-        let i: usize = 0;
-        let origin_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&i.to_be_bytes()),
-        };
-        let sponsor_address = StacksAddress {
-            version: 22,
-            bytes: Hash160::from_data(&(i + 1).to_be_bytes()),
-        };
+            query.tx_buf_ptr = end;
+            num_written += nw;
 
-        tx.set_tx_fee(123);
-        let txid = tx.txid();
-        let mut tx_bytes = vec![];
-        tx.consensus_serialize(&mut tx_bytes).unwrap();
-        let expected_tx = tx.clone();
-        let tx_fee = tx.get_tx_fee();
-        let height = 100;
-        let origin_nonce = tx.get_origin_nonce();
-        let sponsor_nonce = match tx.get_sponsor_nonce() {
-            Some(n) => n,
-            None => origin_nonce,
-        };
-        let first_len = tx_bytes.len() as u64;
+            if query.tx_buf_ptr >= query.tx_buf.len() {
+                if query.corked {
+                    // we're done
+                    test_debug!(
+                        "Finished streaming txs; last page was {:?}",
+                        &query.last_randomized_txid
+                    );
+                    break;
+                }
 
-        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
-        MemPoolDB::try_add_tx(
-            &mut mempool_tx,
-            &mut chainstate,
-            &ConsensusHash([0x1; 20]),
-            &BlockHeaderHash([0x2; 32]),
-            txid,
-            tx_bytes,
-            tx_fee,
-            height,
-            &origin_address,
-            origin_nonce,
-            &sponsor_address,
-            sponsor_nonce,
-            None,
-        )
-        .unwrap();
-        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+                if query.num_txs >= query.max_txs {
+                    // no more space in this stream
+                    debug!(
+                        "No more space in this query after {:?}. Corking tx stream.",
+                        &query.last_randomized_txid
+                    );
 
-        // test retrieval of initial transaction
-        let tx_info_opt = MemPoolDB::get_tx(&mempool_tx, &txid).unwrap();
-        let tx_info = tx_info_opt.unwrap();
+                    // send the next page ID
+                    query.tx_buf_ptr = 0;
+                    query.tx_buf.clear();
+                    query.corked = true;
 
-        // test replace-by-fee with a higher fee, where the payload is smaller
-        let old_txid = txid;
-        let old_tx_fee = tx_fee;
+                    query
+                        .last_randomized_txid
+                        .consensus_serialize(&mut query.tx_buf)
+                        .map_err(ChainstateError::CodecError)?;
+                    continue;
+                }
 
-        tx.set_tx_fee(124);
-        tx.payload = TransactionPayload::TokenTransfer(
-            stx_address.into(),
-            123,
-            TokenTransferMemo([0u8; 34]),
-        );
-        assert!(txid != tx.txid());
-        let txid = tx.txid();
-        let mut tx_bytes = vec![];
-        tx.consensus_serialize(&mut tx_bytes).unwrap();
-        let expected_tx = tx.clone();
-        let tx_fee = tx.get_tx_fee();
-        let second_len = tx_bytes.len() as u64;
+                // load next
+                let remaining = query.max_txs.saturating_sub(query.num_txs);
+                let (next_txs, next_last_randomized_txid_opt, num_rows_visited) = self
+                    .find_next_missing_transactions(
+                        &query.tx_query,
+                        query.height,
+                        &query.last_randomized_txid,
+                        1,
+                        remaining,
+                    )?;
 
-        // these asserts are to ensure we are using the fee directly, not the fee rate
-        assert!(second_len < first_len);
-        assert!(second_len * tx_fee < first_len * old_tx_fee);
-        assert!(tx_fee > old_tx_fee);
-        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+                debug!(
+                    "Streaming mempool propagation stepped";
+                    "rows_visited" => num_rows_visited,
+                    "last_rand_txid" => %query.last_randomized_txid,
+                    "num_txs" => query.num_txs,
+                    "max_txs" => query.max_txs
+                );
 
-        let tx_info_before =
-            MemPoolDB::get_tx_metadata_by_address(&mempool_tx, true, &origin_address, origin_nonce)
-                .unwrap()
-                .unwrap();
-        assert_eq!(tx_info_before, tx_info.metadata);
+                query.num_txs += num_rows_visited;
+                if next_txs.len() > 0 {
+                    query.tx_buf_ptr = 0;
+                    query.tx_buf.clear();
 
-        MemPoolDB::try_add_tx(
-            &mut mempool_tx,
-            &mut chainstate,
-            &ConsensusHash([0x1; 20]),
-            &BlockHeaderHash([0x2; 32]),
-            txid,
-            tx_bytes,
-            tx_fee,
-            height,
-            &origin_address,
-            origin_nonce,
-            &sponsor_address,
-            sponsor_nonce,
-            None,
-        )
-        .unwrap();
+                    for next_tx in next_txs.iter() {
+                        next_tx
+                            .consensus_serialize(&mut query.tx_buf)
+                            .map_err(ChainstateError::CodecError)?;
+                    }
+                    if let Some(next_last_randomized_txid) = next_last_randomized_txid_opt {
+                        query.last_randomized_txid = next_last_randomized_txid;
+                    } else {
+                        test_debug!(
+                            "No more txs after {}",
+                            &next_txs
+                                .last()
+                                .map(|tx| tx.txid())
+                                .unwrap_or(Txid([0u8; 32]))
+                        );
+                        break;
+                    }
+                } else if let Some(next_txid) = next_last_randomized_txid_opt {
+                    test_debug!(
+                        "No rows returned for {}; cork tx stream with next page {}",
+                        &query.last_randomized_txid,
+                        &next_txid
+                    );
 
-        // check that the transaction was replaced
-        assert!(!MemPoolDB::db_has_tx(&mempool_tx, &old_txid).unwrap());
-        assert!(MemPoolDB::db_has_tx(&mempool_tx, &txid).unwrap());
+                    // no rows found
+                    query.last_randomized_txid = next_txid;
 
-        let tx_info_after =
-            MemPoolDB::get_tx_metadata_by_address(&mempool_tx, true, &origin_address, origin_nonce)
-                .unwrap()
-                .unwrap();
-        assert!(tx_info_after != tx_info.metadata);
+                    // send the next page ID
+                    query.tx_buf_ptr = 0;
+                    query.tx_buf.clear();
+                    query.corked = true;
 
-        // test retrieval -- transaction should have been replaced because it has a higher fee
-        let tx_info_opt = MemPoolDB::get_tx(&mempool_tx, &txid).unwrap();
-        let tx_info = tx_info_opt.unwrap();
-        assert_eq!(tx_info.metadata, tx_info_after);
-        assert_eq!(tx_info.metadata.len, second_len);
-        assert_eq!(tx_info.metadata.tx_fee, 124);
+                    query
+                        .last_randomized_txid
+                        .consensus_serialize(&mut query.tx_buf)
+                        .map_err(ChainstateError::CodecError)?;
+                } else if next_last_randomized_txid_opt.is_none() {
+                    // no more transactions
+                    test_debug!(
+                        "No more txs to send after {:?}; corking stream",
+                        &query.last_randomized_txid
+                    );
+
+                    query.tx_buf_ptr = 0;
+                    query.tx_buf.clear();
+                    query.corked = true;
+                }
+            }
+        }
+        Ok(num_written)
     }
 }

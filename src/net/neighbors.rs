@@ -1890,10 +1890,16 @@ impl PeerNetwork {
         Ok((count, num_allowed_peers as u64))
     }
 
-    /// Instantiate the neighbor walk to an always-allowed node
-    fn instantiate_walk_to_always_allowed(&mut self) -> Result<(), net_error> {
-        let allowed_peers =
-            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?;
+    /// Instantiate the neighbor walk to an always-allowed node.
+    /// If we're in the initial block download, then this must also be a *bootstrap* peer.
+    fn instantiate_walk_to_always_allowed(&mut self, ibd: bool) -> Result<(), net_error> {
+        let allowed_peers = if ibd {
+            // only get bootstrap peers
+            PeerDB::get_bootstrap_peers(&self.peerdb.conn(), self.local_peer.network_id)?
+        } else {
+            // can be any peer
+            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?
+        };
 
         let mut count = 0;
         for allowed in allowed_peers.iter() {
@@ -2764,7 +2770,7 @@ impl PeerNetwork {
     /// Mask errors by restarting the graph walk.
     /// Returns the walk result, and a true/false flag to indicate whether or not the work for the
     /// walk was finished (i.e. we either completed the walk, or we reset the walk)
-    pub fn walk_peer_graph(&mut self) -> (bool, Option<NeighborWalkResult>) {
+    pub fn walk_peer_graph(&mut self, ibd: bool) -> (bool, Option<NeighborWalkResult>) {
         if self.walk.is_none() {
             // time to do a walk yet?
             if (self.walk_count > self.connection_opts.num_initial_walks
@@ -2799,7 +2805,7 @@ impl PeerNetwork {
             );
 
             // always ensure we're connected to always-allowed outbound peers
-            let walk_res = match self.instantiate_walk_to_always_allowed() {
+            let walk_res = match self.instantiate_walk_to_always_allowed(ibd) {
                 Ok(x) => Ok(x),
                 Err(net_error::NotFoundError) => {
                     if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
@@ -5716,7 +5722,7 @@ mod test {
                 random_order[i] = i;
             }
             let mut rng = thread_rng();
-            &mut &random_order.shuffle(&mut rng);
+            let _ = &mut &random_order.shuffle(&mut rng);
 
             for i in random_order.into_iter() {
                 let _ = peers[i].step();
