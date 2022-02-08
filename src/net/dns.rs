@@ -37,8 +37,8 @@ use net::PeerAddress;
 use net::codec::*;
 use net::*;
 
-use util::db::Error as db_error;
 use util::sleep_ms;
+use util_lib::db::Error as db_error;
 
 use std::net::SocketAddr;
 
@@ -173,6 +173,7 @@ impl DNSResolver {
         if addrs.len() == 0 {
             return DNSResponse::error(req, "DNS resolve error: got zero addresses".to_string());
         }
+        test_debug!("{}:{} resolved to {:?}", &req.host, req.port, &addrs);
         DNSResponse::new(req, Ok(addrs))
     }
 

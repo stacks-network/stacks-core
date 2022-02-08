@@ -245,7 +245,7 @@ Example:
 ```json
 {
   "block_hash": "0x4eaabcd105865e471f697eff5dd5bd85d47ecb5a26a3379d74fae0ae87c40904",
-  "staks_height": 3,
+  "stacks_height": 3,
   "target_burn_height": 745000,
   "block_size": 145000,
   "anchored_cost": {
@@ -261,6 +261,81 @@ Example:
     "write_count": 5,
     "read_length": 150,
     "write_length": 75
-  }
+  },
+  "tx_events": [
+    {
+      "Success": {
+        "txid": "3e04ada5426332bfef446ba0a06d124aace4ade5c11840f541bf88e2e919faf6", 
+        "fee": 0, 
+        "execution_cost": { 
+          "write_length": 0, 
+          "write_count": 0, 
+          "read_length": 0, 
+          "read_count": 0, 
+          "runtime": 0
+        }, 
+        "result": {
+          "ResponseData": 
+          {
+            "committed": true,
+            "data": true
+          }
+        }
+    }}, 
+    {
+      "ProcessingError": {
+        "txid": "eef9f46b20fb637bd07ec92ad3ec175a5a4bdf3e8799259fc5b16a272090d4de",
+        "error": "Duplicate contract 'ST3BMYNT1DW2QSRZWB6M4S183NK1BXGJ41TEBCCH8.example'"
+      }
+    }
+  ]
+}
+```
+
+### `POST /mined_microblock`
+
+This payload includes data related to microblocks mined by this Stacks node. This
+will never be invoked if the node is configured only as a follower. This is invoked
+when the miner **assembles** the microblock; this microblock may or may be incorporated
+into the canonical chain.
+
+This endpoint will only broadcast events to observers that explicitly register for
+`MinedMicroblocks` events, `AnyEvent` observers will not receive the events by default.
+
+Example:
+
+```json
+{
+  "block_hash": "0x4eaabcd105865e471f697eff5dd5bd85d47ecb5a26a3379d74fae0ae87c40904",
+  "sequence": 3,
+  "anchor_block_consensus_hash": "53c166a709a9abd64a92a57f928a8b26aad08992",
+  "anchor_block": "43dbf6095c7622db6607d9584c3f65e908ca4eb77d86ee8cc1352aafec5d68b5",
+  "tx_events": [
+    {
+      "Success": {
+        "txid": "3e04ada5426332bfef446ba0a06d124aace4ade5c11840f541bf88e2e919faf6", 
+        "fee": 0, 
+        "execution_cost": { 
+          "write_length": 10, 
+          "write_count": 10, 
+          "read_length": 20, 
+          "read_count": 10, 
+          "runtime": 1290
+        }, 
+        "result": {
+          "ResponseData": 
+          {
+            "committed": true,
+            "data": true
+          }
+        }
+    }}, 
+    {
+      "Skipped": {
+        "txid": "eef9f46b20fb637bd07ec92ad3ec175a5a4bdf3e8799259fc5b16a272090d4de",
+        "reason": "tx.anchor_mode does not support microblocks, anchor_mode=OnChainOnly."
+      }
+    }
+  ]
 }
 ```

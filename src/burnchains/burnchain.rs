@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 
 use crate::burnchains::StacksHyperOpType;
 use crate::types::chainstate::StacksAddress;
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::TrieHash;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
 use burnchains::db::BurnchainDB;
@@ -58,18 +58,19 @@ use core::NETWORK_ID_TESTNET;
 use core::PEER_VERSION_MAINNET;
 use core::PEER_VERSION_TESTNET;
 use deps;
-use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use monitoring::update_burnchain_height;
-use util::db::DBConn;
-use util::db::DBTx;
-use util::db::Error as db_error;
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
 use util::vrf::VRFPublicKey;
+use util_lib::db::DBConn;
+use util_lib::db::DBTx;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
+use chainstate::stacks::address::StacksAddressExtensions;
 
 impl BurnchainStateTransition {
     pub fn noop() -> BurnchainStateTransition {
@@ -376,6 +377,7 @@ impl Burnchain {
         db_path
     }
 
+    /// Connect to the burnchain databases.  They may or may not already exist.
     pub fn connect_db<I: BurnchainIndexer>(
         &self,
         indexer: &I,
@@ -409,7 +411,7 @@ impl Burnchain {
         Ok((sortitiondb, burnchaindb))
     }
 
-    /// Open the burn database.  It must already exist.
+    /// Open the burn databases.  They must already exist.
     pub fn open_db(&self, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
@@ -548,6 +550,38 @@ impl Burnchain {
             // no reorg
             return Ok((headers_height, false));
         }
+    }
+
+
+    /// Get the highest burnchain block processed, if we have processed any.
+    /// Return Some(..) if we have processed at least one processed burnchain block; return None
+    /// otherwise.
+    pub fn get_highest_burnchain_block(
+        &self,
+    ) -> Result<Option<BurnchainBlockHeader>, burnchain_error> {
+        let burndb = match self.open_db(true) {
+            Ok((_sortdb, burndb)) => burndb,
+            Err(burnchain_error::DBError(db_error::NoDBError)) => {
+                // databases not yet initialized, so no blocks processed
+                return Ok(None);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        let burn_chain_tip = match burndb.get_canonical_chain_tip() {
+            Ok(tip) => tip,
+            Err(burnchain_error::MissingParentBlock) => {
+                // database is empty
+                return Ok(None);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        Ok(Some(burn_chain_tip))
     }
 
     /// Top-level burnchain sync.

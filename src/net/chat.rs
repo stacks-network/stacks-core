@@ -55,16 +55,15 @@ use net::StacksMessage;
 use net::StacksP2P;
 use net::GETPOXINV_MAX_BITLEN;
 use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::PoxId;
-use crate::types::chainstate::StacksBlockHeader;
 use crate::types::StacksPublicKeyBuffer;
 use core::StacksEpoch;
 
@@ -380,7 +379,10 @@ impl Neighbor {
         conn: &DBConn,
         handshake_data: &HandshakeData,
     ) -> Result<(), net_error> {
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
         let asn_opt =
             PeerDB::asn_lookup(conn, &handshake_data.addrbytes).map_err(net_error::DBError)?;
 
@@ -408,7 +410,10 @@ impl Neighbor {
         handshake_data: &HandshakeData,
     ) -> Result<Neighbor, net_error> {
         let addr = NeighborKey::from_handshake(peer_version, network_id, handshake_data);
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
 
         let peer_opt = PeerDB::get_peer(conn, network_id, &addr.addrbytes, addr.port)
             .map_err(net_error::DBError)?;
@@ -619,6 +624,13 @@ impl ConversationP2P {
 
     pub fn get_stable_burnchain_tip_burn_header_hash(&self) -> BurnchainHeaderHash {
         self.burnchain_stable_tip_burn_header_hash.clone()
+    }
+
+    /// Does this remote neighbor support the mempool query interface?  It will if it has both
+    /// RELAY and RPC bits set.
+    pub fn supports_mempool_query(peer_services: u16) -> bool {
+        let expected_bits = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
+        (peer_services & expected_bits) == expected_bits
     }
 
     /// Determine whether or not a given (height, burn_header_hash) pair _disagrees_ with our
@@ -1024,7 +1036,10 @@ impl ConversationP2P {
         preamble: &Preamble,
         handshake_data: &HandshakeData,
     ) -> Result<bool, net_error> {
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
 
         self.peer_version = preamble.peer_version;
         self.peer_network_id = preamble.network_id;
@@ -1126,18 +1141,19 @@ impl ConversationP2P {
             "upgraded"
         };
 
-        debug!(
-            "Handshake from {:?} {} public key {:?} expires at {:?}",
-            &self,
-            _authentic_msg,
-            &to_hex(
+        debug!("Handling handshake";
+             "neighbor" => ?self,
+             "authentic_msg" => &_authentic_msg,
+             "public_key" => &to_hex(
                 &handshake_data
                     .node_public_key
                     .to_public_key()
                     .unwrap()
                     .to_bytes_compressed()
-            ),
-            handshake_data.expire_block_height
+             ),
+             "services" => &to_hex(&handshake_data.services.to_be_bytes()),
+             "expires_block_height" => handshake_data.expire_block_height,
+             "supports_mempool_query" => Self::supports_mempool_query(handshake_data.services),
         );
 
         if updated {
@@ -2380,8 +2396,8 @@ mod test {
     use net::*;
     use util::pipe::*;
     use util::secp256k1::*;
-    use util::test::*;
     use util::uint::*;
+    use util_lib::test::*;
     use vm::costs::ExecutionCost;
 
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};

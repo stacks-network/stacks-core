@@ -7,7 +7,8 @@ use reqwest;
 use stacks::burnchains::Address;
 use stacks::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use stacks::chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::StacksChainState, StacksPrivateKey, StacksTransaction,
+    db::blocks::MemPoolRejection, db::StacksChainState, StacksBlockHeader, StacksPrivateKey,
+    StacksTransaction,
 };
 use stacks::chainstate::stacks::{TokenTransferMemo, TransactionContractCall, TransactionPayload};
 use stacks::clarity_vm::clarity::ClarityConnection;
@@ -16,7 +17,7 @@ use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::PEER_VERSION_EPOCH_2_0;
 use stacks::net::GetIsTraitImplementedResponse;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
-use stacks::types::chainstate::{StacksAddress, StacksBlockHeader, VRFSeed};
+use stacks::types::chainstate::{StacksAddress, VRFSeed};
 use stacks::util::hash::Sha256Sum;
 use stacks::util::hash::{hex_bytes, to_hex};
 use stacks::vm::{
@@ -35,6 +36,7 @@ use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 use stacks::core::StacksEpoch;
 use stacks::core::StacksEpochId;
 use stacks::vm::costs::ExecutionCost;
+use stacks::vm::types::StacksAddressExtensions;
 
 use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
@@ -849,6 +851,18 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {}", path);
                 assert!(!res.is_implemented);
 
+                // test query parameters for v2/trait endpoint
+                // evaluate check for explicit compliance against the chain tip of the first block (contract DNE at that block)
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip=753d84de5c475a85abd0eeb3ac87da03ff0f794507b60a3f66356425bc1dedaf", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1");
+                let res = client.get(&path).send().unwrap();
+                eprintln!("Test: GET {}", path);
+                assert_eq!(res.text().unwrap(), "No contract analysis found or trait definition not found");
+
+                // evaluate check for explicit compliance where tip is the chain tip of the first block (contract DNE at that block), but tip is "latest"
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip=latest", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1");
+                let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
+                eprintln!("Test: GET {}", path);
+                assert!(res.is_implemented);
 
                 // perform some tests of the fee rate interface
                 let path = format!("{}/v2/fees/transaction", &http_origin);

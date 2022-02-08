@@ -42,12 +42,9 @@ use chainstate::stacks::{
     Error as ChainstateError, StacksBlock, TransactionPayload,
 };
 use core::StacksEpoch;
-use monitoring::{
-    increment_contract_calls_processed, increment_stx_blocks_processed_counter,
-    update_stacks_tip_height,
-};
+use monitoring::{increment_contract_calls_processed, increment_stx_blocks_processed_counter};
 use net::atlas::{AtlasConfig, AttachmentInstance};
-use util::db::Error as DBError;
+use util_lib::db::Error as DBError;
 use vm::{
     costs::ExecutionCost,
     types::{PrincipalData, QualifiedContractIdentifier},
@@ -56,10 +53,8 @@ use vm::{
 
 use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockHeader,
-    StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
 };
-use crate::util::boot::boot_code_id;
 use vm::database::BurnStateDB;
 
 pub use self::comm::CoordinatorCommunication;
@@ -456,8 +451,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
                 &stacks_block_hash,
             )?;
             let anchor_status = if anchor_block_known {
-                let block_id =
-                    StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block_hash);
+                let block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
                 let reward_set = provider.get_reward_set(
                     burn_height,
                     chain_state,
@@ -677,8 +671,6 @@ impl<
 
         let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
         let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
-        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
-        update_stacks_tip_height(stacks_tip.canonical_stacks_tip_height as i64);
 
         while let Some(block_result) = processed_blocks.pop() {
             if let (Some(block_receipt), _) = block_result {
