@@ -36,6 +36,7 @@ use mio::net as mio_net;
 
 use crate::codec::StacksMessageCodec;
 use crate::codec::MAX_MESSAGE_LEN;
+use core::mempool::MAX_BLOOM_COUNTER_TXS;
 use net::codec::*;
 use net::Error as net_error;
 use net::HttpRequestPreamble;
@@ -49,7 +50,7 @@ use net::StacksHttp;
 use net::StacksP2P;
 
 use net::download::BLOCK_DOWNLOAD_INTERVAL;
-use net::inv::{FULL_INV_SYNC_INTERVAL, INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
+use net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
 use net::neighbors::{
     NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS, WALK_MAX_DURATION,
     WALK_MIN_DURATION, WALK_RESET_INTERVAL, WALK_RESET_PROB, WALK_RETRY_COUNT, WALK_STATE_TIMEOUT,
@@ -348,7 +349,6 @@ pub struct ConnectionOptions {
     pub walk_reset_interval: u64,
     pub walk_state_timeout: u64,
     pub inv_sync_interval: u64,
-    pub full_inv_sync_interval: u64,
     pub inv_reward_cycles: u64,
     pub download_interval: u64,
     pub pingback_timeout: u64,
@@ -374,6 +374,12 @@ pub struct ConnectionOptions {
     pub max_buffered_microblocks_available: u64,
     pub max_buffered_blocks: u64,
     pub max_buffered_microblocks: u64,
+    /// how often to query a remote peer for its mempool, in seconds
+    pub mempool_sync_interval: u64,
+    /// how many transactions to ask for in a mempool query
+    pub mempool_max_tx_query: u64,
+    /// how long a mempool sync is allowed to take, in total, before timing out
+    pub mempool_sync_timeout: u64,
 
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -384,6 +390,8 @@ pub struct ConnectionOptions {
     pub disable_network_prune: bool,
     pub disable_network_bans: bool,
     pub disable_block_advertisement: bool,
+    pub disable_block_push: bool,
+    pub disable_microblock_push: bool,
     pub disable_pingbacks: bool,
     pub disable_inbound_walks: bool,
     pub disable_natpunch: bool,
@@ -424,7 +432,6 @@ impl std::default::Default for ConnectionOptions {
             walk_reset_interval: WALK_RESET_INTERVAL,
             walk_state_timeout: WALK_STATE_TIMEOUT,
             inv_sync_interval: INV_SYNC_INTERVAL, // how often to synchronize block inventories
-            full_inv_sync_interval: FULL_INV_SYNC_INTERVAL, // how often to synchronize the *full* inventory
             inv_reward_cycles: INV_REWARD_CYCLES, // how many reward cycles of blocks to sync in a non-full inventory sync
             download_interval: BLOCK_DOWNLOAD_INTERVAL, // how often to scan for blocks to download
             pingback_timeout: 60,
@@ -450,12 +457,15 @@ impl std::default::Default for ConnectionOptions {
             public_ip_max_retries: 3, // maximum number of retries before self-throttling for $public_ip_timeout
             max_block_push: 10, // maximum number of blocksData messages to push out via our anti-entropy protocol
             max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entropy protocol
-            antientropy_retry: 3600, // retry pushing data only once every hour
+            antientropy_retry: 60,   // retry pushing data once every minute
             antientropy_public: true, // run antientropy even if we're NOT NAT'ed
             max_buffered_blocks_available: 1,
             max_buffered_microblocks_available: 1,
             max_buffered_blocks: 1,
             max_buffered_microblocks: 10,
+            mempool_sync_interval: 30, // number of seconds in-between mempool sync
+            mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
+            mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -466,6 +476,8 @@ impl std::default::Default for ConnectionOptions {
             disable_network_prune: false,
             disable_network_bans: false,
             disable_block_advertisement: false,
+            disable_block_push: false,
+            disable_microblock_push: false,
             disable_pingbacks: false,
             disable_inbound_walks: false,
             disable_natpunch: false,
@@ -1048,7 +1060,10 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
                             message_eof = true;
                             0
                         }
-                        Ok(read_len) => read_len,
+                        Ok(read_len) => {
+                            test_debug!("Connection message pipe returned {} bytes", read_len);
+                            read_len
+                        }
                         Err(ioe) => match ioe.kind() {
                             io::ErrorKind::WouldBlock => {
                                 // no data consumed, but we may need to make a break for it
@@ -1078,14 +1093,13 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
 
                     self.socket_out_buf.extend_from_slice(&buf[0..nr_input]);
 
-                    if nr_input > 0 {
-                        trace!(
-                            "Connection buffered {} bytes from pipe ({} total, ptr = {})",
-                            nr_input,
-                            self.socket_out_buf.len(),
-                            self.socket_out_ptr
-                        );
-                    }
+                    test_debug!(
+                        "Connection buffered {} bytes from pipe ({} total, ptr = {}, blocked = {})",
+                        nr_input,
+                        self.socket_out_buf.len(),
+                        self.socket_out_ptr,
+                        blocked
+                    );
                     nr_input
                 }
                 None => {
@@ -1124,7 +1138,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
 
                 self.socket_out_ptr += num_written;
 
-                trace!(
+                test_debug!(
                     "Connection wrote {} bytes to socket (buffer len = {}, ptr = {})",
                     num_written,
                     self.socket_out_buf.len(),
@@ -1145,7 +1159,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
             }
         }
 
-        trace!(
+        test_debug!(
             "Connection send_bytes finished: blocked = {}, disconnected = {}",
             blocked,
             disconnected

@@ -20,7 +20,7 @@ path = "../src/libclarity.rs"
 
 [dependencies]
 tini = "0.2"
-rand = "=0.7.2"
+rand = "0.7.3"
 rand_chacha = "=0.2.2"
 serde = "1"
 serde_derive = "1"
@@ -40,6 +40,7 @@ slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
 chrono = "0.4.19"
 libc = "0.2.82"
+siphasher = "0.3.7"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"

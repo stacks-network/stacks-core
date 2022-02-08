@@ -55,8 +55,8 @@ impl<'a, R: Read> RetryReader<'a, R> {
 
     fn read_and_buffer(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let nr = self.fd.read(buf)?;
-        self.buf.extend_from_slice(buf);
-        self.i += buf.len();
+        self.buf.extend_from_slice(&buf[0..nr]);
+        self.i += nr;
         Ok(nr)
     }
 }

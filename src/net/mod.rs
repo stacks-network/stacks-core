@@ -61,6 +61,7 @@ use codec::{read_next, write_next};
 use core::mempool::*;
 use core::POX_REWARD_CYCLE_LENGTH;
 use net::atlas::{Attachment, AttachmentInstance};
+use util::bloom::{BloomFilter, BloomNodeHasher};
 use util::db::DBConn;
 use util::db::Error as db_error;
 use util::get_epoch_time_secs;
@@ -219,6 +220,8 @@ pub enum Error {
     NotFoundError,
     /// Transient error (akin to EAGAIN)
     Transient(String),
+    /// Expected end-of-stream, but had more data
+    ExpectedEndOfStream,
 }
 
 impl From<codec_error> for Error {
@@ -316,6 +319,7 @@ impl fmt::Display for Error {
             Error::ConnectionCycle => write!(f, "Tried to connect to myself"),
             Error::NotFoundError => write!(f, "Requested data not found"),
             Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
+            Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
         }
     }
 }
@@ -375,6 +379,7 @@ impl error::Error for Error {
             Error::ConnectionCycle => None,
             Error::NotFoundError => None,
             Error::Transient(ref _s) => None,
+            Error::ExpectedEndOfStream => None,
         }
     }
 }
@@ -849,6 +854,17 @@ pub struct NatPunchData {
     pub addrbytes: PeerAddress,
     pub port: u16,
     pub nonce: u32,
+}
+
+define_u8_enum!(MemPoolSyncDataID {
+    BloomFilter = 0x01,
+    TxTags = 0x02
+});
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MemPoolSyncData {
+    BloomFilter(BloomFilter<BloomNodeHasher>),
+    TxTags([u8; 32], Vec<TxTag>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1410,6 +1426,7 @@ pub enum HttpRequestType {
         TraitIdentifier,
         TipRequest,
     ),
+    MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1507,6 +1524,8 @@ pub enum HttpResponseType {
     UnconfirmedTransaction(HttpResponseMetadata, UnconfirmedTransactionResponse),
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
+    MemPoolTxStream(HttpResponseMetadata),
+    MemPoolTxs(HttpResponseMetadata, Option<Txid>, Vec<StacksTransaction>),
     OptionsPreflight(HttpResponseMetadata),
     TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
     // peer-given error responses
@@ -1549,6 +1568,7 @@ pub enum StacksMessageID {
     Pong = 16,
     NatPunchRequest = 17,
     NatPunchReply = 18,
+    // reserved
     Reserved = 255,
 }
 
@@ -1666,6 +1686,7 @@ impl_byte_array_message_codec!(StacksBlockId, 32);
 impl_byte_array_message_codec!(MessageSignature, 65);
 impl_byte_array_message_codec!(PeerAddress, 16);
 impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
+impl_byte_array_message_codec!(Txid, 32);
 
 impl_byte_array_serde!(ConsensusHash);
 
@@ -1820,6 +1841,7 @@ pub struct NetworkResult {
     pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
+    pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
@@ -1843,6 +1865,7 @@ impl NetworkResult {
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
             attachments: vec![],
+            synced_transactions: vec![],
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
@@ -1860,7 +1883,9 @@ impl NetworkResult {
     }
 
     pub fn has_transactions(&self) -> bool {
-        self.pushed_transactions.len() > 0 || self.uploaded_transactions.len() > 0
+        self.pushed_transactions.len() > 0
+            || self.uploaded_transactions.len() > 0
+            || self.synced_transactions.len() > 0
     }
 
     pub fn has_attachments(&self) -> bool {
@@ -1872,6 +1897,7 @@ impl NetworkResult {
             .values()
             .flat_map(|pushed_txs| pushed_txs.iter().map(|(_, tx)| tx.clone()))
             .chain(self.uploaded_transactions.iter().map(|x| x.clone()))
+            .chain(self.synced_transactions.iter().map(|x| x.clone()))
             .collect()
     }
 
@@ -2373,7 +2399,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
                     .unwrap();
             config
         }
@@ -2386,7 +2412,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
                     .unwrap();
             config
         }
@@ -2668,7 +2694,6 @@ pub mod test {
                     config.server_port,
                 )
                 .unwrap();
-                PeerDB::set_local_services(&mut tx, ServiceFlags::RELAY as u16).unwrap();
                 PeerDB::set_local_private_key(
                     &mut tx,
                     &config.private_key,
@@ -3148,6 +3173,10 @@ pub mod test {
             self.next_burnchain_block(vec![])
         }
 
+        pub fn mempool(&mut self) -> &mut MemPoolDB {
+            self.mempool.as_mut().unwrap()
+        }
+
         pub fn chainstate(&mut self) -> &mut StacksChainState {
             &mut self.stacks_node.as_mut().unwrap().chainstate
         }
@@ -3531,5 +3560,15 @@ pub mod test {
             debug!("{:#?}", &peers);
             debug!("--- END ALL PEERS ({}) -----", peers.len());
         }
+    }
+
+    pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
+        StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(sk)],
+        )
+        .unwrap()
     }
 }
