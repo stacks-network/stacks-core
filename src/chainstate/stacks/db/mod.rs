@@ -41,7 +41,8 @@ use chainstate::stacks::db::blocks::*;
 use chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use chainstate::stacks::events::*;
 use chainstate::stacks::index::marf::{
-    MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
+    MARFOpenOpts, MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
+    BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
 };
 use chainstate::stacks::index::storage::TrieFileStorage;
 use chainstate::stacks::index::MarfTrieId;
@@ -976,7 +977,8 @@ impl StacksChainState {
 
     pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
-        let marf = MARF::from_path(marf_path).map_err(|e| db_error::IndexError(e))?;
+        let open_opts = MARFOpenOpts::default();
+        let marf = MARF::from_path(marf_path, open_opts).map_err(|e| db_error::IndexError(e))?;
         Ok(marf)
     }
 
