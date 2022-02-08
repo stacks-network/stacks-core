@@ -2131,7 +2131,7 @@ impl PeerNetwork {
 
     /// Update the state of our neighbor walk.
     /// Return true if we finish, and true if we're throttled
-    fn do_network_neighbor_walk(&mut self) -> Result<bool, net_error> {
+    fn do_network_neighbor_walk(&mut self, ibd: bool) -> Result<bool, net_error> {
         if cfg!(test) && self.connection_opts.disable_neighbor_walk {
             test_debug!("neighbor walk is disabled");
             return Ok(true);
@@ -2140,7 +2140,7 @@ impl PeerNetwork {
         debug!("{:?}: walk peer graph", &self.local_peer);
 
         // walk the peer graph and deal with new/dropped connections
-        let (done, walk_result_opt) = self.walk_peer_graph();
+        let (done, walk_result_opt) = self.walk_peer_graph(ibd);
         match walk_result_opt {
             None => {}
             Some(walk_result) => {
@@ -5033,14 +5033,10 @@ impl PeerNetwork {
                 self.deregister_peer(dead);
             }
             self.prune_connections();
-            let outbound_neighbors = PeerNetwork::count_outbound_conversations(&self.peers);
-            let inbound_neighbors = self.peers.len() - outbound_neighbors as usize;
-            update_outbound_neighbors(outbound_neighbors as i64);
-            update_inbound_neighbors(inbound_neighbors as i64);
         }
 
         // In parallel, do a neighbor walk
-        self.do_network_neighbor_walk()?;
+        self.do_network_neighbor_walk(ibd)?;
 
         // In parallel, do a mempool sync.
         // Remember any txs we get, so we can feed them to the relayer thread.
@@ -5092,6 +5088,11 @@ impl PeerNetwork {
         // finally, handle network I/O requests from other threads, and get back reply handles to them.
         // do this after processing new sockets, so we don't accidentally re-use an event ID.
         self.dispatch_requests();
+
+        let outbound_neighbors = PeerNetwork::count_outbound_conversations(&self.peers);
+        let inbound_neighbors = self.peers.len() - outbound_neighbors as usize;
+        update_outbound_neighbors(outbound_neighbors as i64);
+        update_inbound_neighbors(inbound_neighbors as i64);
 
         // fault injection -- periodically disconnect from everyone
         if cfg!(test) {

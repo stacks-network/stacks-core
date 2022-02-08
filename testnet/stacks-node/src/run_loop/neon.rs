@@ -51,6 +51,7 @@ pub struct Counters {
     pub blocks_processed: RunLoopCounter,
     pub microblocks_processed: RunLoopCounter,
     pub missed_tenures: RunLoopCounter,
+    pub missed_microblock_tenures: RunLoopCounter,
     pub cancelled_commits: RunLoopCounter,
 }
 
@@ -61,6 +62,7 @@ impl Counters {
             blocks_processed: RunLoopCounter::new(AtomicU64::new(0)),
             microblocks_processed: RunLoopCounter::new(AtomicU64::new(0)),
             missed_tenures: RunLoopCounter::new(AtomicU64::new(0)),
+            missed_microblock_tenures: RunLoopCounter::new(AtomicU64::new(0)),
             cancelled_commits: RunLoopCounter::new(AtomicU64::new(0)),
         }
     }
@@ -71,6 +73,7 @@ impl Counters {
             blocks_processed: (),
             microblocks_processed: (),
             missed_tenures: (),
+            missed_microblock_tenures: (),
             cancelled_commits: (),
         }
     }
@@ -101,6 +104,10 @@ impl Counters {
 
     pub fn bump_missed_tenures(&self) {
         Counters::inc(&self.missed_tenures);
+    }
+
+    pub fn bump_missed_microblock_tenures(&self) {
+        Counters::inc(&self.missed_microblock_tenures);
     }
 
     pub fn bump_cancelled_commits(&self) {
@@ -181,6 +188,10 @@ impl RunLoop {
 
     pub fn get_missed_tenures_arc(&self) -> RunLoopCounter {
         self.counters.missed_tenures.clone()
+    }
+
+    pub fn get_missed_microblock_tenures_arc(&self) -> RunLoopCounter {
+        self.counters.missed_microblock_tenures.clone()
     }
 
     pub fn get_cancelled_commits_arc(&self) -> RunLoopCounter {
@@ -297,6 +308,7 @@ impl RunLoop {
     }
 
     /// Instantiate the burnchain client and databases.
+    /// Fetches headers and instantiates the burnchain.
     /// Panics on failure.
     fn instantiate_burnchain_state(
         &mut self,
@@ -304,14 +316,15 @@ impl RunLoop {
         coordinator_senders: CoordinatorChannels,
     ) -> BitcoinRegtestController {
         // Initialize and start the burnchain.
-        let mut burnchain = BitcoinRegtestController::with_burnchain(
+        let mut burnchain_controller = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
             Some(coordinator_senders),
             burnchain_opt,
             Some(self.should_keep_running.clone()),
         );
 
-        let epochs = burnchain.get_stacks_epochs();
+        let burnchain_config = burnchain_controller.get_burnchain();
+        let epochs = burnchain_controller.get_stacks_epochs();
         if !check_chainstate_db_versions(
             &epochs,
             &self.config.get_burn_db_file_path(),
@@ -325,15 +338,43 @@ impl RunLoop {
             panic!();
         }
 
+        info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
+
+        let target_burnchain_block_height = match burnchain_config
+            .get_highest_burnchain_block()
+            .expect("FATAL: failed to access burnchain database")
+        {
+            Some(burnchain_tip) => {
+                // database exists already, and has blocks -- just sync to its tip.
+                let target_height = burnchain_tip.block_height + 1;
+                debug!("Burnchain DB exists and has blocks up to {}; synchronizing from where it left off up to {}", burnchain_tip.block_height, target_height);
+                target_height
+            }
+            None => {
+                // database does not exist yet
+                let target_height = 1.max(burnchain_config.first_block_height + 1);
+                debug!("Burnchain DB does not exist or does not have blocks; synchronizing to first burnchain block height {}", target_height);
+                target_height
+            }
+        };
+
+        match burnchain_controller.start(Some(target_burnchain_block_height)) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("Burnchain controller stopped: {}", e);
+                panic!();
+            }
+        };
+
         // Invoke connect() to perform any db instantiation early
-        if let Err(e) = burnchain.connect_dbs() {
+        if let Err(e) = burnchain_controller.connect_dbs() {
             error!("Failed to connect to burnchain databases: {}", e);
             panic!();
         };
 
         // TODO (hack) instantiate the sortdb in the burnchain
-        let _ = burnchain.sortdb_mut();
-        burnchain
+        let _ = burnchain_controller.sortdb_mut();
+        burnchain_controller
     }
 
     /// Instantiate the Stacks chain state and start the chains coordinator thread.
@@ -490,22 +531,12 @@ impl RunLoop {
         self.setup_termination_handler();
         let mut burnchain =
             self.instantiate_burnchain_state(burnchain_opt, coordinator_senders.clone());
+
         let burnchain_config = burnchain.get_burnchain();
         self.burnchain = Some(burnchain_config.clone());
 
         let is_miner = self.check_is_miner(&mut burnchain);
         self.is_miner = Some(is_miner);
-
-        info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
-
-        let mut target_burnchain_block_height = 1.max(burnchain_config.first_block_height + 1);
-        match burnchain.start(Some(target_burnchain_block_height)) {
-            Ok(_) => {}
-            Err(e) => {
-                error!("Burnchain controller stopped: {}", e);
-                return;
-            }
-        };
 
         // have headers; boot up the chains coordinator and instantiate the chain state
         let (coordinator_thread_handle, attachments_rx) =
@@ -542,7 +573,7 @@ impl RunLoop {
         let mut num_sortitions_in_last_cycle = 1;
 
         // prepare to fetch the first reward cycle!
-        target_burnchain_block_height = burnchain_config.reward_cycle_to_block_height(
+        let mut target_burnchain_block_height = burnchain_config.reward_cycle_to_block_height(
             burnchain_config
                 .block_height_to_reward_cycle(burnchain_height)
                 .expect("BUG: block height is not in a reward cycle")
