@@ -167,9 +167,10 @@ impl fmt::Display for ConversationHttp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "http:id={},request={:?}",
+            "http:id={},request={:?},peer={:?}",
             self.conn_id,
-            self.pending_request.is_some()
+            self.pending_request.is_some(),
+            &self.peer_addr
         )
     }
 }
@@ -178,9 +179,10 @@ impl fmt::Debug for ConversationHttp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "http:id={},request={:?}",
+            "http:id={},request={:?},peer={:?}",
             self.conn_id,
-            self.pending_request.is_some()
+            self.pending_request.is_some(),
+            &self.peer_addr
         )
     }
 }
@@ -2147,7 +2149,8 @@ impl ConversationHttp {
         query: MemPoolSyncData,
         max_txs: u64,
         canonical_stacks_tip_height: u64,
-    ) -> Result<Option<StreamCursor>, net_error> {
+        page_id: Option<Txid>,
+    ) -> Result<StreamCursor, net_error> {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let response = HttpResponseType::MemPoolTxStream(response_metadata);
@@ -2155,7 +2158,15 @@ impl ConversationHttp {
             .get_stacks_chain_tip(sortdb)?
             .map(|blk| blk.height)
             .unwrap_or(0);
-        let stream = Some(StreamCursor::new_tx_stream(query, max_txs, height));
+
+        debug!(
+            "Begin mempool query";
+            "page_id" => %page_id.map(|txid| format!("{}", &txid)).unwrap_or("(none".to_string()),
+            "block_height" => height,
+            "max_txs" => max_txs
+        );
+
+        let stream = StreamCursor::new_tx_stream(query, max_txs, height, page_id);
         response.send(http, fd).and_then(|_| Ok(stream))
     }
 
@@ -2642,8 +2653,8 @@ impl ConversationHttp {
                 }
                 None
             }
-            HttpRequestType::MemPoolQuery(ref _md, ref query) => {
-                ConversationHttp::handle_mempool_query(
+            HttpRequestType::MemPoolQuery(ref _md, ref query, ref page_id_opt) => {
+                Some(ConversationHttp::handle_mempool_query(
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
@@ -2652,7 +2663,8 @@ impl ConversationHttp {
                     query.clone(),
                     network.connection_opts.mempool_max_tx_query,
                     burn_tip.canonical_stacks_tip_height,
-                )?
+                    page_id_opt.clone(),
+                )?)
             }
             HttpRequestType::OptionsPreflight(ref _md, ref _path) => {
                 let response_metadata = HttpResponseMetadata::from_http_request_type(
@@ -2737,9 +2749,6 @@ impl ConversationHttp {
     }
 
     /// Make progress on outbound requests.
-    /// Return true if the connection should be kept alive after all messages are drained.
-    /// If we process a request with "Connection: close", then return false (indicating that the
-    /// connection should be severed once the conversation is drained)
     fn send_outbound_responses(
         &mut self,
         mempool: &MemPoolDB,
@@ -2756,6 +2765,8 @@ impl ConversationHttp {
             &self,
             self.reply_streams.len()
         );
+        let _self_str = format!("{}", &self);
+
         match self.reply_streams.front_mut() {
             Some((ref mut reply, ref mut stream_opt, ref keep_alive)) => {
                 do_keep_alive = *keep_alive;
@@ -2768,30 +2779,41 @@ impl ConversationHttp {
                         match stream.stream_to(mempool, chainstate, &mut encoder, STREAM_CHUNK_SIZE)
                         {
                             Ok(nw) => {
-                                test_debug!("streamed {} bytes", nw);
+                                test_debug!("{}: Streamed {} bytes", &_self_str, nw);
                                 if nw == 0 {
                                     // EOF -- finish chunk and stop sending.
                                     if !encoder.corked() {
                                         encoder.flush().map_err(|e| {
-                                            test_debug!("Write error on encoder flush: {:?}", &e);
+                                            test_debug!(
+                                                "{}: Write error on encoder flush: {:?}",
+                                                &_self_str,
+                                                &e
+                                            );
                                             net_error::WriteError(e)
                                         })?;
 
                                         encoder.cork();
 
-                                        test_debug!("stream indicates EOF");
+                                        test_debug!("{}: Stream indicates EOF", &_self_str);
                                     }
 
                                     // try moving some data to the connection only once we're done
                                     // streaming
                                     match reply.try_flush() {
                                         Ok(res) => {
-                                            test_debug!("Streamed reply is drained");
+                                            test_debug!(
+                                                "{}: Streamed reply is drained?: {}",
+                                                &_self_str,
+                                                res
+                                            );
                                             drained_handle = res;
                                         }
                                         Err(e) => {
                                             // dead
-                                            warn!("Broken HTTP connection: {:?}", &e);
+                                            warn!(
+                                                "{}: Broken HTTP connection: {:?}",
+                                                &_self_str, &e
+                                            );
                                             broken = true;
                                         }
                                     }
@@ -2803,7 +2825,10 @@ impl ConversationHttp {
                                 // For example, if we're streaming an unconfirmed block or
                                 // microblock, the data can get moved to the chunk store out from
                                 // under the stream.
-                                warn!("Failed to send to HTTP connection: {:?}", &e);
+                                warn!(
+                                    "{}: Failed to send to HTTP connection: {:?}",
+                                    &_self_str, &e
+                                );
                                 broken = true;
                             }
                         }
@@ -2815,12 +2840,12 @@ impl ConversationHttp {
                         // try moving some data to the connection
                         match reply.try_flush() {
                             Ok(res) => {
-                                test_debug!("Reply is drained");
+                                test_debug!("{}: Reply is drained", &_self_str);
                                 drained_handle = res;
                             }
                             Err(e) => {
                                 // dead
-                                warn!("Broken HTTP connection: {:?}", &e);
+                                warn!("{}: Broken HTTP connection: {:?}", &_self_str, &e);
                                 broken = true;
                             }
                         }
@@ -2847,7 +2872,6 @@ impl ConversationHttp {
                 self.keep_alive = false;
             }
         }
-
         Ok(())
     }
 
@@ -3004,7 +3028,7 @@ impl ConversationHttp {
                         self.handle_request(req, network, sortdb, chainstate, mempool, handler_args)
                     })?;
 
-                    debug!("Processed HTTPRequest"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis());
+                    debug!("Processed HTTPRequest"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
 
                     if let Some(msg) = msg_opt {
                         ret.push(msg);
@@ -3329,10 +3353,15 @@ impl ConversationHttp {
     }
 
     /// Make a new request for mempool contents
-    pub fn new_mempool_query(&self, query: MemPoolSyncData) -> HttpRequestType {
+    pub fn new_mempool_query(
+        &self,
+        query: MemPoolSyncData,
+        page_id_opt: Option<Txid>,
+    ) -> HttpRequestType {
         HttpRequestType::MemPoolQuery(
             HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             query,
+            page_id_opt,
         )
     }
 }
@@ -6012,7 +6041,10 @@ mod test {
              ref mut convo_client,
              ref mut peer_server,
              ref mut convo_server| {
-                convo_client.new_mempool_query(MemPoolSyncData::TxTags([0u8; 32], vec![]))
+                convo_client.new_mempool_query(
+                    MemPoolSyncData::TxTags([0u8; 32], vec![]),
+                    Some(Txid([0u8; 32])),
+                )
             },
             |ref http_request,
              ref http_response,
@@ -6023,7 +6055,7 @@ mod test {
                 let req_md = http_request.metadata().clone();
                 println!("{:?}", http_response);
                 match http_response {
-                    HttpResponseType::MemPoolTxs(_, txs) => {
+                    HttpResponseType::MemPoolTxs(_, _, txs) => {
                         // got everything
                         assert_eq!(txs.len(), 10);
                         true
@@ -6049,11 +6081,14 @@ mod test {
              ref mut peer_server,
              ref mut convo_server| {
                 // empty bloom filter
-                convo_client.new_mempool_query(MemPoolSyncData::BloomFilter(BloomFilter::new(
-                    BLOOM_COUNTER_ERROR_RATE,
-                    MAX_BLOOM_COUNTER_TXS,
-                    BloomNodeHasher::new(&[0u8; 32]),
-                )))
+                convo_client.new_mempool_query(
+                    MemPoolSyncData::BloomFilter(BloomFilter::new(
+                        BLOOM_COUNTER_ERROR_RATE,
+                        MAX_BLOOM_COUNTER_TXS,
+                        BloomNodeHasher::new(&[0u8; 32]),
+                    )),
+                    Some(Txid([0u8; 32])),
+                )
             },
             |ref http_request,
              ref http_response,
@@ -6064,7 +6099,7 @@ mod test {
                 let req_md = http_request.metadata().clone();
                 println!("{:?}", http_response);
                 match http_response {
-                    HttpResponseType::MemPoolTxs(_, txs) => {
+                    HttpResponseType::MemPoolTxs(_, _, txs) => {
                         // got everything
                         assert_eq!(txs.len(), 10);
                         true

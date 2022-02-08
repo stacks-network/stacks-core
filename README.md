@@ -337,12 +337,14 @@ wait_time_for_microblocks = 10000
 [miner]
 # Smallest allowed tx fee, in microSTX
 min_tx_fee = 100
-# Time to spend on the first attempt to make a block.
+# Time to spend on the first attempt to make a block, in milliseconds.
 # This can be small, so your node gets a block-commit into the Bitcoin mempool early.
-first_attempt_time_ms: 1000
-# Time to spend on subsequent attempts to make a block.
+first_attempt_time_ms = 1000
+# Time to spend on subsequent attempts to make a block, in milliseconds.
 # This can be bigger -- new block-commits will be RBF'ed.
-subsequent_attempt_time_ms: 60000
+subsequent_attempt_time_ms = 60000
+# Time to spend mining a microblock, in milliseconds.
+microblock_attempt_time_ms = 30000
 ```
 
 You can verify that your node is operating as a miner by checking its log output
@@ -436,7 +438,6 @@ is tagged.
    candidate on various staging infrastructure:
 
    1. Stacks Foundation staging environments.
-   1. Hiro PBC regtest network.
    1. Hiro PBC testnet network.
    1. Hiro PBC mainnet mock miner.
 
@@ -461,7 +462,10 @@ is tagged.
 
 1. Once the final release candidate has rolled out successfully without issue on the
    above staging infrastructure, the release manager tags 2 additional `stacks-blockchain`
-   team members to review the `develop -> master` PR.
+   team members to review the `develop -> master` PR. If there is a merge conflict in this
+   PR, this is the protocol: open a branch off of develop, merge master into that branch, 
+   and then open a PR from this side branch to develop. The merge conflicts will be 
+   resolved. 
 
 1. Once reviewed and approved, the release manager merges the PR, and tags the release
    via the [`stacks-blockchain` Github action]((https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml))

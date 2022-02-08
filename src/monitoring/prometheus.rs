@@ -91,6 +91,31 @@ lazy_static! {
         "Total number of error logs emitted by node"
     )).unwrap();
 
+    pub static ref LAST_BLOCK_READ_COUNT: Gauge = register_gauge!(opts!(
+        "stacks_node_last_block_read_count",
+        "`execution_cost_read_count` for the last block observed."
+    )).unwrap();
+
+    pub static ref LAST_BLOCK_WRITE_COUNT: Gauge = register_gauge!(opts!(
+        "stacks_node_last_block_write_count",
+        "`execution_cost_write_count` for the last block observed."
+    )).unwrap();
+
+    pub static ref LAST_BLOCK_READ_LENGTH: Gauge = register_gauge!(opts!(
+        "stacks_node_last_block_read_length",
+        "`execution_cost_read_length` for the last block observed."
+    )).unwrap();
+
+    pub static ref LAST_BLOCK_WRITE_LENGTH: Gauge = register_gauge!(opts!(
+        "stacks_node_last_block_write_length",
+        "`execution_cost_write_length` for the last block observed."
+    )).unwrap();
+
+    pub static ref LAST_BLOCK_RUNTIME: Gauge = register_gauge!(opts!(
+        "stacks_node_last_block_runtime",
+        "`execution_cost_runtime` for the last block observed."
+    )).unwrap();
+
     pub static ref ACTIVE_MINERS_COUNT_GAUGE: IntGauge = register_int_gauge!(opts!(
         "stacks_node_active_miners_total",
         "Total number of active miners"

@@ -549,12 +549,15 @@ pub struct TxStreamData {
     /// serialized transaction buffer that's being sent
     pub tx_buf: Vec<u8>,
     pub tx_buf_ptr: usize,
-    /// number of transactions sent so far
+    /// number of transactions visited in the DB so far
     pub num_txs: u64,
-    /// maximum we can send
+    /// maximum we can visit in the query
     pub max_txs: u64,
     /// height of the chain at time of query
     pub height: u64,
+    /// Are we done sending transactions, and are now in the process of sending the trailing page
+    /// ID?
+    pub corked: bool,
 }
 
 pub const CHAINSTATE_VERSION: &'static str = "2";
@@ -594,9 +597,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(consensus_hash,block_hash)
     );"#,
-    "CREATE INDEX index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
-    "CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);",
-    "CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
     r#"
     -- scheduled payments
     -- no designated primary key since there can be duplicate entries
@@ -648,7 +648,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                      orphaned INT NOT NULL,
                                      PRIMARY KEY(anchored_block_hash,consensus_hash,microblock_hash)
     );"#,
-    "CREATE INDEX staging_microblocks_index_hash ON staging_microblocks(index_block_hash);",
     r#"
     -- Staging microblocks data
     CREATE TABLE staging_microblocks_data(block_hash TEXT NOT NULL,
@@ -683,11 +682,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                 processed_time INT NOT NULL,              -- when this block was processed
                                 PRIMARY KEY(anchored_block_hash,consensus_hash)
     );"#,
-    "CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_block_hash,consensus_hash);",
-    "CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);",
-    "CREATE INDEX parent_blocks ON staging_blocks(parent_anchored_block_hash);",
-    "CREATE INDEX parent_consensus_hashes ON staging_blocks(parent_consensus_hash);",
-    "CREATE INDEX index_block_hashes ON staging_blocks(index_block_hash);",
     r#"
     -- users who burned in support of a block
     CREATE TABLE staging_user_burn_support(anchored_block_hash TEXT NOT NULL,
@@ -705,8 +699,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
         result TEXT NOT NULL,
         UNIQUE (txid,index_block_hash)
     );"#,
-    "CREATE INDEX txid_tx_index ON transactions(txid);",
-    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
 ];
 
 const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
@@ -719,6 +711,29 @@ const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
     r#"
     UPDATE db_config SET version = "2";
     "#,
+];
+
+const CHAINSTATE_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
+    "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
+    "CREATE INDEX IF NOT EXISTS block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
+    "CREATE INDEX IF NOT EXISTS block_headers_burn_header_height ON block_headers(burn_header_height);",
+    "CREATE INDEX IF NOT EXISTS index_payments_block_hash_consensus_hash_vtxindex ON payments(block_hash,consensus_hash,vtxindex ASC);",
+    "CREATE INDEX IF NOT EXISTS index_payments_index_block_hash_vtxindex ON payments(index_block_hash,vtxindex ASC);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_processed ON staging_microblocks(processed);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_orphaned ON staging_microblocks(orphaned);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash ON staging_microblocks(index_block_hash);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash_processed ON staging_microblocks(index_block_hash,processed);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash_orphaned ON staging_microblocks(index_block_hash,orphaned);",
+    "CREATE INDEX IF NOT EXISTS processed_stacks_blocks ON staging_blocks(processed,anchored_block_hash,consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS parent_blocks ON staging_blocks(parent_anchored_block_hash);",
+    "CREATE INDEX IF NOT EXISTS parent_consensus_hashes ON staging_blocks(parent_consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS index_block_hashes ON staging_blocks(index_block_hash);",
+    "CREATE INDEX IF NOT EXISTS height_stacks_blocks ON staging_blocks(height);",
+    "CREATE INDEX IF NOT EXISTS index_staging_user_burn_support ON staging_user_burn_support(anchored_block_hash,consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS txid_tx_index ON transactions(txid);",
+    "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
 ];
 
 #[cfg(test)]
@@ -842,6 +857,8 @@ impl StacksChainState {
             if migrate {
                 StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
             }
+
+            StacksChainState::add_indexes(&tx)?;
         }
 
         dbtx.instantiate_index()?;
@@ -920,6 +937,13 @@ impl StacksChainState {
         Ok(())
     }
 
+    fn add_indexes<'a>(tx: &DBTx<'a>) -> Result<(), Error> {
+        for cmd in CHAINSTATE_INDEXES {
+            tx.execute_batch(cmd)?;
+        }
+        Ok(())
+    }
+
     fn open_db(
         mainnet: bool,
         chain_id: u32,
@@ -934,6 +958,7 @@ impl StacksChainState {
             let mut marf = StacksChainState::open_index(index_path)?;
             let tx = marf.storage_tx()?;
             StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
+            StacksChainState::add_indexes(&tx)?;
             tx.commit()?;
             Ok(marf)
         }
@@ -953,6 +978,7 @@ impl StacksChainState {
         } else {
             let mut marf = StacksChainState::open_index(index_path)?;
             let tx = marf.storage_tx()?;
+            StacksChainState::add_indexes(&tx)?;
             tx.commit()?;
             Ok(marf)
         }

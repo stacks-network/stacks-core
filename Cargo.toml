@@ -43,7 +43,7 @@ name = "block_limits"
 harness = false
 
 [dependencies]
-rand = "=0.7.2"
+rand = "0.7.3"
 rand_chacha = "=0.2.2"
 serde = "1"
 serde_derive = "1"
@@ -100,9 +100,7 @@ features = ["std"]
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
-# a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
-#  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
-# criterion = "0.3"
+criterion = "0.3.5"
 stx_genesis = { package = "stx-genesis", path = "./stx-genesis/."}
 
 [features]

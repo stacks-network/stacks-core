@@ -7,16 +7,16 @@ edition = "2018"
 [dependencies]
 lazy_static = "1.4.0"
 pico-args = "0.3.1"
-rand = "=0.7.2"
+rand = "0.7.3"
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
 stacks = { package = "blockstack-core", path = "../../." }
 stx_genesis = { package = "stx-genesis", path = "../../stx-genesis/."}
 toml = "0.5.6"
-async-h1 = "=1.0"
-async-std = { version = "<1.6", features = ["attributes"] }
-http-types = "1.0"
+async-h1 = "2.3.2"
+async-std = { version = "1.6", features = ["attributes"] }
+http-types = "2.12"
 base64 = "0.12.0"
 backtrace = "0.3.50"
 libc = "0.2"
@@ -24,9 +24,9 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 
 [dev-dependencies]
 ring = "0.16.19"
-warp = "0.2"
-tokio = "0.2.21"
-reqwest = { version = "0.10", features = ["blocking", "json", "rustls"] }
+warp = "0.3"
+tokio = "1.15"
+reqwest = { version = "0.11", features = ["blocking", "json", "rustls"] }
 
 [dev-dependencies.rusqlite]
 version = "=0.24.2"
