@@ -50,6 +50,7 @@ use chainstate::burn::Opcodes;
 use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
 use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
 use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use chainstate::stacks::index::marf::MARFOpenOpts;
 use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::storage::TrieFileStorage;
@@ -2040,7 +2041,8 @@ impl SortitionDB {
 
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open index at {}", index_path);
-        let marf = MARF::from_path(index_path).map_err(|_e| db_error::Corruption)?;
+        let open_opts = MARFOpenOpts::default();
+        let marf = MARF::from_path(index_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
         Ok(marf)
     }
