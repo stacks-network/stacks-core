@@ -2185,7 +2185,6 @@ impl ConversationHttp {
         handler_opts: &RPCHandlerArgs,
     ) -> Result<Option<StacksMessageType>, net_error> {
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
-        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let keep_alive = req.metadata().keep_alive;
         let mut ret = None;
 
@@ -2198,7 +2197,7 @@ impl ConversationHttp {
                     network,
                     chainstate,
                     handler_opts,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2210,7 +2209,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_getpoxinfo(
                         &mut self.connection.protocol,
@@ -2220,7 +2219,7 @@ impl ConversationHttp {
                         chainstate,
                         &tip,
                         &network.burnchain,
-                        burn_tip.canonical_stacks_tip_height,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2231,7 +2230,7 @@ impl ConversationHttp {
                     &mut reply,
                     &req,
                     network,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2243,7 +2242,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_getheaders(
                         &mut self.connection.protocol,
@@ -2252,7 +2251,7 @@ impl ConversationHttp {
                         &tip,
                         *quantity,
                         chainstate,
-                        burn_tip.canonical_stacks_tip_height,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?
                 } else {
                     None
@@ -2265,7 +2264,7 @@ impl ConversationHttp {
                     &req,
                     index_block_hash,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?
             }
             HttpRequestType::GetMicroblocksIndexed(ref _md, ref index_head_hash) => {
@@ -2275,7 +2274,7 @@ impl ConversationHttp {
                     &req,
                     index_head_hash,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?
             }
             HttpRequestType::GetMicroblocksConfirmed(ref _md, ref anchor_index_block_hash) => {
@@ -2285,7 +2284,7 @@ impl ConversationHttp {
                     &req,
                     anchor_index_block_hash,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?
             }
             HttpRequestType::GetMicroblocksUnconfirmed(
@@ -2299,7 +2298,7 @@ impl ConversationHttp {
                 index_anchor_block_hash,
                 *min_seq,
                 chainstate,
-                burn_tip.canonical_stacks_tip_height,
+                network.burnchain_tip.canonical_stacks_tip_height,
             )?,
             HttpRequestType::GetTransactionUnconfirmed(ref _md, ref txid) => {
                 ConversationHttp::handle_gettransaction_unconfirmed(
@@ -2309,7 +2308,7 @@ impl ConversationHttp {
                     chainstate,
                     mempool,
                     txid,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2321,7 +2320,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_account_entry(
                         &mut self.connection.protocol,
@@ -2332,7 +2331,7 @@ impl ConversationHttp {
                         &tip,
                         principal,
                         *with_proof,
-                        burn_tip.canonical_stacks_tip_height,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2352,7 +2351,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_data_var(
                         &mut self.connection.protocol,
@@ -2365,7 +2364,7 @@ impl ConversationHttp {
                         contract_name,
                         var_name,
                         *with_proof,
-                        burn_tip.canonical_stacks_tip_height,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2386,7 +2385,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_map_entry(
                         &mut self.connection.protocol,
@@ -2400,7 +2399,7 @@ impl ConversationHttp {
                         map_name,
                         key,
                         *with_proof,
-                        burn_tip.canonical_stacks_tip_height,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2410,7 +2409,7 @@ impl ConversationHttp {
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2427,7 +2426,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_contract_abi(
                         &mut self.connection.protocol,
@@ -2438,7 +2437,7 @@ impl ConversationHttp {
                         &tip,
                         contract_addr,
                         contract_name,
-                        burn_tip.canonical_stacks_tip_height,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2452,7 +2451,7 @@ impl ConversationHttp {
                     sortdb,
                     tx,
                     estimated_len,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2472,7 +2471,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_readonly_function_call(
                         &mut self.connection.protocol,
@@ -2487,7 +2486,7 @@ impl ConversationHttp {
                         as_sender,
                         args,
                         &self.connection.options,
-                        burn_tip.canonical_stacks_tip_height,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2506,7 +2505,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_contract_src(
                         &mut self.connection.protocol,
@@ -2518,7 +2517,7 @@ impl ConversationHttp {
                         contract_addr,
                         contract_name,
                         *with_proof,
-                        burn_tip.canonical_stacks_tip_height,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2539,7 +2538,7 @@ impl ConversationHttp {
                             &mut network.atlasdb,
                             attachment.clone(),
                             handler_opts.event_observer.as_deref(),
-                            burn_tip.canonical_stacks_tip_height,
+                            network.burnchain_tip.canonical_stacks_tip_height,
                         )?;
                         if accepted {
                             // forward to peer network
@@ -2549,7 +2548,7 @@ impl ConversationHttp {
                     None => {
                         let response_metadata = HttpResponseMetadata::from_http_request_type(
                             &req,
-                            Some(burn_tip.canonical_stacks_tip_height),
+                            Some(network.burnchain_tip.canonical_stacks_tip_height),
                         );
                         warn!("Failed to load Stacks chain tip");
                         let response = HttpResponseType::ServerError(
@@ -2568,7 +2567,7 @@ impl ConversationHttp {
                     &req,
                     &mut network.atlasdb,
                     content_hash.clone(),
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2585,7 +2584,7 @@ impl ConversationHttp {
                     &index_block_hash,
                     pages_indexes,
                     &self.connection.options,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2598,7 +2597,7 @@ impl ConversationHttp {
                     chainstate,
                     consensus_hash,
                     block,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 if accepted {
                     // inform the peer network so it can announce its presence
@@ -2616,7 +2615,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     if let Some((consensus_hash, block_hash)) =
                         ConversationHttp::handle_load_stacks_chain_tip_hashes(
@@ -2625,7 +2624,7 @@ impl ConversationHttp {
                             &req,
                             tip,
                             chainstate,
-                            burn_tip.canonical_stacks_tip_height,
+                            network.burnchain_tip.canonical_stacks_tip_height,
                         )?
                     {
                         let accepted = ConversationHttp::handle_post_microblock(
@@ -2636,7 +2635,7 @@ impl ConversationHttp {
                             &block_hash,
                             chainstate,
                             mblock,
-                            burn_tip.canonical_stacks_tip_height,
+                            network.burnchain_tip.canonical_stacks_tip_height,
                         )?;
                         if accepted {
                             // forward to peer network
@@ -2662,14 +2661,14 @@ impl ConversationHttp {
                     chainstate,
                     query.clone(),
                     network.connection_opts.mempool_max_tx_query,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                     page_id_opt.clone(),
                 )?)
             }
             HttpRequestType::OptionsPreflight(ref _md, ref _path) => {
                 let response_metadata = HttpResponseMetadata::from_http_request_type(
                     &req,
-                    Some(burn_tip.canonical_stacks_tip_height),
+                    Some(network.burnchain_tip.canonical_stacks_tip_height),
                 );
                 let response = HttpResponseType::OptionsPreflight(response_metadata);
                 response
@@ -2691,7 +2690,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
-                    burn_tip.canonical_stacks_tip_height,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_is_trait_implemented(
                         &mut self.connection.protocol,
@@ -2703,7 +2702,7 @@ impl ConversationHttp {
                         contract_addr,
                         contract_name,
                         trait_id,
-                        burn_tip.canonical_stacks_tip_height,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2711,7 +2710,7 @@ impl ConversationHttp {
             HttpRequestType::ClientError(ref _md, ref err) => {
                 let response_metadata = HttpResponseMetadata::from_http_request_type(
                     &req,
-                    Some(burn_tip.canonical_stacks_tip_height),
+                    Some(network.burnchain_tip.canonical_stacks_tip_height),
                 );
                 let response = match err {
                     ClientError::Message(s) => HttpResponseType::BadRequestJSON(

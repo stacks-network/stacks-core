@@ -120,7 +120,7 @@ impl StacksChainState {
         anchored_block_cost: &ExecutionCost,
     ) -> Result<(), Error> {
         assert_eq!(
-            tip_info.block_height,
+            tip_info.stacks_block_height,
             tip_info.anchored_header.total_work.work
         );
         assert!(tip_info.burn_header_timestamp < i64::MAX as u64);
@@ -129,7 +129,7 @@ impl StacksChainState {
         let index_root = &tip_info.index_root;
         let consensus_hash = &tip_info.consensus_hash;
         let burn_header_hash = &tip_info.burn_header_hash;
-        let block_height = tip_info.block_height;
+        let block_height = tip_info.stacks_block_height;
         let burn_header_height = tip_info.burn_header_height;
         let burn_header_timestamp = tip_info.burn_header_timestamp;
 
@@ -254,7 +254,7 @@ impl StacksChainState {
         tip: &StacksHeaderInfo,
         height: u64,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
-        assert!(tip.block_height >= height);
+        assert!(tip.stacks_block_height >= height);
         StacksChainState::get_index_tip_ancestor(tx, &tip.index_block_hash(), height)
     }
 
@@ -284,7 +284,7 @@ impl StacksChainState {
         let mut ancestors = vec![];
         let mut ancestry_cursor = Some(upper_bound_header);
         while let Some(cursor) = ancestry_cursor.take() {
-            if cursor.block_height < lower_bound_height {
+            if cursor.stacks_block_height < lower_bound_height {
                 break;
             }
             let block_id = cursor.index_block_hash();

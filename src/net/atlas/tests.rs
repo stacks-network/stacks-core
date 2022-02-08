@@ -47,6 +47,7 @@ fn new_attachment_from(content: &str) -> Attachment {
     }
 }
 
+#[cfg(test)]
 fn new_attachment_instance_from(
     attachment: &Attachment,
     attachment_index: u32,
@@ -55,11 +56,12 @@ fn new_attachment_instance_from(
     AttachmentInstance {
         content_hash: attachment.hash().clone(),
         attachment_index,
-        block_height,
+        stacks_block_height: block_height,
         index_block_hash: StacksBlockId([block_height as u8; 32]),
         metadata: "".to_string(),
         contract_id: QualifiedContractIdentifier::transient(),
         tx_id: Txid([0; 32]),
+        canonical_stacks_tip_height: Some(block_height),
     }
 }
 
@@ -86,6 +88,7 @@ fn new_peers(peers: Vec<(&str, u32, u32)>) -> HashMap<UrlString, ReliabilityRepo
     new_peers
 }
 
+#[cfg(test)]
 fn new_attachment_request(
     sources: Vec<(&str, u32, u32)>,
     content_hash: &Hash160,
@@ -102,10 +105,12 @@ fn new_attachment_request(
     AttachmentRequest {
         sources,
         content_hash: content_hash.clone(),
-        block_height,
+        stacks_block_height: block_height,
+        canonical_stacks_tip_height: Some(block_height),
     }
 }
 
+#[cfg(test)]
 fn new_attachments_inventory_request(
     url: &str,
     pages: Vec<u32>,
@@ -117,11 +122,12 @@ fn new_attachments_inventory_request(
 
     AttachmentsInventoryRequest {
         url,
-        block_height,
+        stacks_block_height: block_height,
         pages,
         contract_id: QualifiedContractIdentifier::transient(),
         index_block_hash: StacksBlockId([0x00; 32]),
         reliability_report: ReliabilityReport::new(req_sent, req_success),
+        canonical_stacks_tip_height: Some(block_height),
     }
 }
 
@@ -144,7 +150,7 @@ fn test_attachment_instance_parsing() {
     use vm;
 
     let contract_id = QualifiedContractIdentifier::transient();
-    let block_height = 0;
+    let stacks_block_height = 0;
     let index_block_hash = StacksBlockId([0x00; 32]);
 
     let value_1 = vm::execute(
@@ -166,8 +172,9 @@ fn test_attachment_instance_parsing() {
         &value_1,
         &contract_id,
         index_block_hash.clone(),
-        block_height,
+        stacks_block_height,
         Txid([0; 32]),
+        stacks_block_height,
     )
     .unwrap();
     assert_eq!(attachment_instance_1.attachment_index, 1);
@@ -192,8 +199,9 @@ fn test_attachment_instance_parsing() {
         &value_2,
         &contract_id,
         index_block_hash.clone(),
-        block_height,
+        stacks_block_height,
         Txid([0; 32]),
+        stacks_block_height,
     )
     .unwrap();
     assert_eq!(attachment_instance_2.attachment_index, 2);
@@ -218,8 +226,9 @@ fn test_attachment_instance_parsing() {
         &value_3,
         &contract_id,
         index_block_hash.clone(),
-        block_height,
+        stacks_block_height,
         Txid([0; 32]),
+        stacks_block_height,
     )
     .unwrap();
     assert_eq!(attachment_instance_3.attachment_index, 3);
@@ -275,8 +284,9 @@ fn test_attachment_instance_parsing() {
             &value,
             &contract_id,
             index_block_hash.clone(),
-            block_height,
+            stacks_block_height,
             Txid([0; 32]),
+            stacks_block_height
         )
         .is_none());
     }

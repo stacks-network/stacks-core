@@ -256,7 +256,7 @@ impl HttpReservedHeader {
             | "content-type"
             | "x-request-id"
             | "host"
-            | "canonical-stacks-tip-height" => true,
+            | "x-canonical-stacks-tip-height" => true,
             _ => false,
         }
     }
@@ -280,7 +280,7 @@ impl HttpReservedHeader {
                 Ok(ph) => Some(HttpReservedHeader::Host(ph)),
                 Err(_) => None,
             },
-            "canonical-stacks-tip-height" => match value.parse::<u64>() {
+            "x-canonical-stacks-tip-height" => match value.parse::<u64>() {
                 Ok(h) => Some(HttpReservedHeader::CanonicalStacksTipHeight(h)),
                 Err(_) => None,
             },
@@ -878,7 +878,7 @@ fn stacks_height_headers<W: Write>(
 ) -> Result<(), codec_error> {
     match md.canonical_stacks_tip_height {
         Some(height) => {
-            fd.write_all(format!("Canonical-Stacks-Tip-Height: {}\r\n", height).as_bytes())
+            fd.write_all(format!("X-Canonical-Stacks-Tip-Height: {}\r\n", height).as_bytes())
                 .map_err(codec_error::WriteError)?;
         }
         _ => {}
@@ -908,7 +908,7 @@ fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result
     }
     match md.canonical_stacks_tip_height {
         Some(height) => {
-            fd.write_all(format!("Canonical-Stacks-Tip-Height: {}\r\n", height).as_bytes())
+            fd.write_all(format!("X-Canonical-Stacks-Tip-Height: {}\r\n", height).as_bytes())
                 .map_err(codec_error::WriteError)?;
         }
         _ => {}

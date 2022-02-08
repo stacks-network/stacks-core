@@ -970,7 +970,7 @@ impl Node {
                                     &event_data.value,
                                     &contract_id,
                                     epoch_receipt.header.index_block_hash(),
-                                    epoch_receipt.header.block_height,
+                                    epoch_receipt.header.stacks_block_height,
                                     receipt.transaction.txid(),
                                 );
                                 if let Some(attachment_instance) = res {

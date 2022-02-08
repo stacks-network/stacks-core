@@ -3332,17 +3332,15 @@ impl PeerNetwork {
         &mut self,
         url: &UrlString,
         addr: &SocketAddr,
-        sortdb: &SortitionDB,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         page_id: Txid,
     ) -> Result<(bool, Option<usize>), net_error> {
-        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let sync_data = mempool.make_mempool_sync_data()?;
         let request = HttpRequestType::MemPoolQuery(
             HttpRequestMetadata::from_host(
                 PeerHost::from_socketaddr(addr),
-                Some(burn_tip.canonical_stacks_tip_height),
+                Some(self.burnchain_tip.canonical_stacks_tip_height),
             ),
             sync_data,
             Some(page_id),
@@ -3497,7 +3495,6 @@ impl PeerNetwork {
                     match self.mempool_sync_send_query(
                         url,
                         addr,
-                        sortdb,
                         mempool,
                         chainstate,
                         page_id.clone(),

@@ -120,6 +120,7 @@ pub struct BlockRequestKey {
     pub sortition_height: u64,
     pub download_start: u64,
     pub kind: BlockRequestKeyKind,
+    pub canonical_stacks_tip_height: u64,
 }
 
 impl BlockRequestKey {
@@ -133,6 +134,7 @@ impl BlockRequestKey {
         parent_consensus_hash: Option<ConsensusHash>,
         sortition_height: u64,
         kind: BlockRequestKeyKind,
+        canonical_stacks_tip_height: u64,
     ) -> BlockRequestKey {
         BlockRequestKey {
             neighbor: neighbor,
@@ -145,6 +147,7 @@ impl BlockRequestKey {
             sortition_height: sortition_height,
             download_start: get_epoch_time_secs(),
             kind,
+            canonical_stacks_tip_height,
         }
     }
 }
@@ -157,12 +160,15 @@ impl Requestable for BlockRequestKey {
     fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
         match self.kind {
             BlockRequestKeyKind::Block => HttpRequestType::GetBlock(
-                HttpRequestMetadata::from_host(peer_host, Some(self.sortition_height)),
+                HttpRequestMetadata::from_host(peer_host, Some(self.canonical_stacks_tip_height)),
                 self.index_block_hash,
             ),
             BlockRequestKeyKind::ConfirmedMicroblockStream => {
                 HttpRequestType::GetMicroblocksConfirmed(
-                    HttpRequestMetadata::from_host(peer_host, Some(self.sortition_height)),
+                    HttpRequestMetadata::from_host(
+                        peer_host,
+                        Some(self.canonical_stacks_tip_height),
+                    ),
                     self.index_block_hash,
                 )
             }
@@ -1510,6 +1516,7 @@ impl PeerNetwork {
                     } else {
                         BlockRequestKeyKind::Block
                     },
+                    self.burnchain_tip.canonical_stacks_tip_height,
                 );
                 requests.push_back(request);
             }
