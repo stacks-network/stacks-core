@@ -398,7 +398,6 @@ dependencies = [
  "slog-json",
  "slog-term",
  "stacks-common",
- "stx-genesis",
  "time 0.2.27",
  "url",
  "winapi 0.3.9",

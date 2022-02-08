@@ -45,10 +45,7 @@ use crate::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
 use crate::util_lib::boot::boot_code_addr;
 
 pub trait StacksAddressExtensions {
-    fn to_bitcoin_tx_out(&self, value: u64) -> TxOut;
     fn as_clarity_tuple(&self) -> TupleData;
-    fn to_b58(self) -> String;
-    fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress;
     fn is_boot_code_addr(&self) -> bool;
 }
 
@@ -57,20 +54,6 @@ impl StacksAddressExtensions for StacksAddress {
     ///  it checks against the appropriate the boot code addr
     fn is_boot_code_addr(&self) -> bool {
         self == &boot_code_addr(self.is_mainnet())
-    }
-
-    fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
-        let btc_version = to_b52_version_byte(self.version)
-            .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
-        let btc_addr_type = version_byte_to_address_type(btc_version)
-            .expect("BUG: failed to decode Bitcoin version byte")
-            .0;
-        match btc_addr_type {
-            BitcoinAddressType::PublicKeyHash => {
-                BitcoinAddress::to_p2pkh_tx_out(&self.bytes, value)
-            }
-            BitcoinAddressType::ScriptHash => BitcoinAddress::to_p2sh_tx_out(&self.bytes, value),
-        }
     }
 
     fn as_clarity_tuple(&self) -> TupleData {

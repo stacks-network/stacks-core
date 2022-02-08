@@ -96,7 +96,9 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|ref op| op.txid())
             .collect();
 
-        let next_sortition_id = SortitionId::from(&this_block_hash);
+        // the SortitionId in Hyperchains is always equal to the identifying hash
+        // of the L1 block (i.e., the burn block hash)
+        let next_sortition_id = SortitionId(this_block_hash.0.clone());
 
         let block_commits: Vec<_> = this_block_ops
             .iter()

@@ -38,12 +38,10 @@ use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 use util_lib::db::Error as db_error;
 
-use crate::types::chainstate::PoxId;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
-use crate::types::proof::TrieHash;
-
-use crate::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::PoxId;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 
 pub use types::{Address, PrivateKey, PublicKey};
 

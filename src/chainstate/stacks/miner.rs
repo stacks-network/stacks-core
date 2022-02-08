@@ -1529,8 +1529,10 @@ impl StacksBlockBuilder {
             &self.parent_header_hash,
         );
 
-        let burn_tip_height =
-            SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height as u32;
+        let burn_tip_info = SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?;
+
+        let burn_tip_height = burn_tip_info.block_height as u32;
+        let burn_tip = burn_tip_info.burn_header_hash;
 
         let parent_microblocks = if StacksChainState::block_crosses_epoch_boundary(
             chainstate.db(),

@@ -22,8 +22,6 @@ use rusqlite::Error as sqlite_error;
 use rusqlite::Row;
 use serde_json::Error as serde_error;
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
-use crate::types::chainstate::TrieHash;
 use burnchains::{Address, Txid};
 use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash};
 use chainstate::stacks::StacksPublicKey;
@@ -34,8 +32,9 @@ use util_lib::db;
 use util_lib::db::Error as db_error;
 use util_lib::db::FromColumn;
 
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 
 pub mod processing;
 pub mod sortdb;
@@ -69,16 +68,6 @@ impl FromColumn<VRFPublicKey> for VRFPublicKey {
 }
 
 impl FromColumn<StacksAddress> for StacksAddress {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Self, db_error> {
-        let address_str: String = row.get_unwrap(column_name);
-        match Self::from_string(&address_str) {
-            Some(a) => Ok(a),
-            None => Err(db_error::ParseError),
-        }
-    }
-}
-
-impl FromColumn<BitcoinAddress> for BitcoinAddress {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Self, db_error> {
         let address_str: String = row.get_unwrap(column_name);
         match Self::from_string(&address_str) {

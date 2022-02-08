@@ -4613,9 +4613,9 @@ impl StacksChainState {
         chainstate_tx: &'a mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'a dyn BurnStateDB,
-        conn: &Connection,
+        _conn: &Connection,
         chain_tip: &StacksHeaderInfo,
-        burn_tip: BurnchainHeaderHash,
+        _burn_tip: BurnchainHeaderHash,
         burn_tip_height: u32,
         parent_consensus_hash: ConsensusHash,
         parent_header_hash: BlockHeaderHash,
@@ -4639,9 +4639,6 @@ impl StacksChainState {
             )?;
             (latest_miners, parent_miner)
         };
-
-        let stacking_burn_ops = SortitionDB::get_stack_stx_ops(conn, &burn_tip)?;
-        let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(conn, &burn_tip)?;
 
         // load the execution cost of the parent block if the executor is the follower.
         // otherwise, if the executor is the miner, only load the parent cost if the parent
@@ -4753,18 +4750,8 @@ impl StacksChainState {
         clarity_tx.reset_cost(ExecutionCost::zero());
 
         // is this stacks block the first of a new epoch?
-        let (applied_epoch_transition, mut tx_receipts) =
+        let (applied_epoch_transition, tx_receipts) =
             StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
-
-        // process stacking & transfer operations from bitcoin ops
-        tx_receipts.extend(StacksChainState::process_stacking_ops(
-            &mut clarity_tx,
-            stacking_burn_ops,
-        ));
-        tx_receipts.extend(StacksChainState::process_transfer_ops(
-            &mut clarity_tx,
-            transfer_burn_ops,
-        ));
 
         Ok(SetupBlockResult {
             clarity_tx,

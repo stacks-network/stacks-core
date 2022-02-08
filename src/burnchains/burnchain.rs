@@ -552,7 +552,6 @@ impl Burnchain {
         }
     }
 
-
     /// Get the highest burnchain block processed, if we have processed any.
     /// Return Some(..) if we have processed at least one processed burnchain block; return None
     /// otherwise.

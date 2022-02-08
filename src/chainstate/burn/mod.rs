@@ -216,7 +216,6 @@ pub trait ConsensusHashExtensions {
         opshash: &OpsHash,
         total_burn: u64,
         prev_consensus_hashes: &Vec<ConsensusHash>,
-        pox_id: &PoxId,
     ) -> ConsensusHash;
 
     /// Get the previous consensus hashes that must be hashed to find
@@ -235,7 +234,6 @@ pub trait ConsensusHashExtensions {
         first_block_height: u64,
         this_block_hash: &BurnchainHeaderHash,
         total_burn: u64,
-        pox_id: &PoxId,
     ) -> Result<ConsensusHash, db_error>;
     /// raw consensus hash
     fn from_data(bytes: &[u8]) -> ConsensusHash;
@@ -377,7 +375,6 @@ impl ConsensusHashExtensions for ConsensusHash {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::Connection;
     use chainstate::burn::db::sortdb::*;
     use chainstate::stacks::index::TrieHashExtension;
     use rusqlite::Connection;

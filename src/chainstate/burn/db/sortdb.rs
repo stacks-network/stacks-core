@@ -114,12 +114,6 @@ impl FromRow<MissedBlockCommit> for MissedBlockCommit {
     }
 }
 
-impl From<&BurnchainHeaderHash> for SortitionId {
-    fn from(block_id: &BurnchainHeaderHash) -> Self {
-        SortitionId(block_id.0.clone())
-    }
-}
-
 impl FromRow<BlockSnapshot> for BlockSnapshot {
     fn from_row<'a>(row: &'a Row) -> Result<BlockSnapshot, db_error> {
         let block_height = u64::from_column(row, "block_height")?;
@@ -2028,12 +2022,15 @@ impl<'a> SortitionDBConn<'a> {
 
 // High-level functions used by ChainsCoordinator
 impl SortitionDB {
+    /// Get the sortition identifier corresponding to the provided
+    ///  burnchain hash. In Hyperchains, because there is *no* PoX, this
+    ///  is always just equal to the burnchain hash.
     pub fn get_sortition_id(
         &self,
         burnchain_header_hash: &BurnchainHeaderHash,
         _sortition_tip: &SortitionId,
     ) -> Result<Option<SortitionId>, BurnchainError> {
-        Ok(Some(SortitionId::from(burnchain_header_hash)))
+        Ok(Some(SortitionId(burnchain_header_hash.0.clone())))
     }
 
     pub fn is_sortition_processed(
