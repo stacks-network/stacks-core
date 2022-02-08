@@ -118,7 +118,7 @@ pub mod http;
 pub mod inv;
 pub mod neighbors;
 pub mod p2p;
-/// Implements wrapper around `mio` crate, which itself is a wrpper around Linux's `epoll(2)` syscall.
+/// Implements wrapper around `mio` crate, which itself is a wrapper around Linux's `epoll(2)` syscall.
 /// Creates a pollable interface for sockets, and provides an API for registering and deregistering
 /// sockets. This is used to control how many sockets are allocated for the two network servers: the
 /// p2p server and the http server.

@@ -727,7 +727,7 @@ impl BatchedDNSLookupsState {
                                 match query_result.result {
                                     Ok(addrs) => {
                                         *dns_result = Some(addrs);
-                                        completed_lookups.push(url_str);
+                                        completed_lookups.push(url_str.clone());
                                     }
                                     Err(msg) => {
                                         warn!(
