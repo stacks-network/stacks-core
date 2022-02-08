@@ -1884,13 +1884,15 @@ pub mod test {
     use rand::RngCore;
 
     use address::*;
-    use burnchains::bitcoin::address::*;
-    use burnchains::bitcoin::keys::*;
-    use burnchains::bitcoin::*;
     use burnchains::burnchain::*;
     use burnchains::db::BurnchainDB;
     use burnchains::test::*;
-    use burnchains::*;
+    use burnchains::Burnchain;
+    use burnchains::BurnchainBlock;
+    use burnchains::BurnchainBlockHeader;
+    use burnchains::BurnchainView;
+    use burnchains::PoxConstants;
+    use burnchains::StacksHyperBlock;
     use chainstate::burn::db::sortdb;
     use chainstate::burn::db::sortdb::*;
     use chainstate::burn::operations::*;
@@ -1941,12 +1943,17 @@ pub mod test {
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
             match self {
-                BlockstackOperationType::LeaderKeyRegister(ref op) => op.consensus_serialize(fd),
-                BlockstackOperationType::LeaderBlockCommit(ref op) => op.consensus_serialize(fd),
-                BlockstackOperationType::UserBurnSupport(ref op) => op.consensus_serialize(fd),
-                BlockstackOperationType::TransferStx(_)
-                | BlockstackOperationType::PreStx(_)
-                | BlockstackOperationType::StackStx(_) => Ok(()),
+                BlockstackOperationType::LeaderBlockCommit(ref op) => {
+                    serde_json::to_writer(
+                        fd,
+                        &json!({
+                            "op": "leader_block_commit",
+                            "block_header_hash": op.block_header_hash,
+                        }),
+                    )
+                    .unwrap();
+                    Ok(())
+                }
             }
         }
 
@@ -2552,7 +2559,6 @@ pub mod test {
                     let burn_block = {
                         let ic = sortdb.index_conn();
                         let mut burn_block = fork.next_block(&ic);
-                        stacks_node.add_key_register(&mut burn_block, &mut miner);
                         burn_block
                     };
                     fork.append_block(burn_block);
@@ -2724,12 +2730,11 @@ pub mod test {
             let mut prev_block_hash_bytes = [0u8; 32];
             prev_block_hash_bytes.copy_from_slice(&prev_block_hash_i.to_u8_slice());
 
-            BurnchainBlock::Bitcoin(BitcoinBlock {
+            BurnchainBlock::StacksHyperBlock(StacksHyperBlock {
                 block_height: block_height + 1,
-                block_hash: BurnchainHeaderHash(block_hash_bytes),
-                parent_block_hash: BurnchainHeaderHash(prev_block_hash_bytes),
-                txs: vec![],
-                timestamp: get_epoch_time_secs(),
+                current_block: StacksBlockId(block_hash_bytes),
+                parent_block: StacksBlockId(prev_block_hash_bytes),
+                ops: vec![],
             })
         }
 
@@ -2762,17 +2767,6 @@ pub mod test {
             blockstack_ops: &mut Vec<BlockstackOperationType>,
             ch: &ConsensusHash,
         ) {
-            for op in blockstack_ops.iter_mut() {
-                match op {
-                    BlockstackOperationType::LeaderKeyRegister(ref mut data) => {
-                        data.consensus_hash = (*ch).clone();
-                    }
-                    BlockstackOperationType::UserBurnSupport(ref mut data) => {
-                        data.consensus_hash = (*ch).clone();
-                    }
-                    _ => {}
-                }
-            }
         }
 
         pub fn set_ops_burn_header_hash(
@@ -3281,22 +3275,12 @@ pub mod test {
             let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
             let parent_microblock_header_opt =
                 get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
-            let last_key = stacks_node.get_last_key(&self.miner);
 
             let network_id = self.config.network_id;
             let chainstate_path = self.chainstate_path.clone();
             let burn_block_height = burn_block.block_height;
 
-            let proof = self
-                .miner
-                .make_proof(
-                    &last_key.public_key,
-                    &burn_block.parent_snapshot.sortition_hash,
-                )
-                .expect(&format!(
-                    "FATAL: no private key for {}",
-                    last_key.public_key.to_hex()
-                ));
+            let proof = VRFProof::empty();
 
             let (stacks_block, microblocks) = tenure_builder(
                 &mut self.miner,
@@ -3314,53 +3298,13 @@ pub mod test {
                 &stacks_block,
                 &microblocks,
                 1000,
-                &last_key,
                 Some(&last_sortition_block),
             );
-            let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
-
-            // patch in reward set info
-            match get_next_recipients(
-                &last_sortition_block,
-                &mut stacks_node.chainstate,
-                &mut sortdb,
-                &self.config.burnchain,
-                &OnChainRewardSetProvider(),
-            ) {
-                Ok(recipients) => {
-                    block_commit_op.commit_outs = match recipients {
-                        Some(info) => {
-                            let mut recipients = info
-                                .recipients
-                                .into_iter()
-                                .map(|x| x.0)
-                                .collect::<Vec<StacksAddress>>();
-                            if recipients.len() == 1 {
-                                recipients.push(StacksAddress::burn_address(false));
-                            }
-                            recipients
-                        }
-                        None => vec![],
-                    };
-                    test_debug!(
-                        "Block commit at height {} has {} recipients: {:?}",
-                        block_commit_op.block_height,
-                        block_commit_op.commit_outs.len(),
-                        &block_commit_op.commit_outs
-                    );
-                }
-                Err(e) => {
-                    panic!("Failure fetching recipient set: {:?}", e);
-                }
-            };
 
             self.stacks_node = Some(stacks_node);
             self.sortdb = Some(sortdb);
             (
-                vec![
-                    BlockstackOperationType::LeaderKeyRegister(leader_key_op),
-                    BlockstackOperationType::LeaderBlockCommit(block_commit_op),
-                ],
+                vec![BlockstackOperationType::LeaderBlockCommit(block_commit_op)],
                 stacks_block,
                 microblocks,
             )
@@ -3385,7 +3329,6 @@ pub mod test {
             let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
             let parent_microblock_header_opt =
                 get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
-            let last_key = stacks_node.get_last_key(&self.miner);
 
             let network_id = self.config.network_id;
             let chainstate_path = self.chainstate_path.clone();
@@ -3395,7 +3338,6 @@ pub mod test {
                 &mut sortdb,
                 &mut self.miner,
                 &mut burn_block,
-                &last_key,
                 parent_block_opt.as_ref(),
                 1000,
                 |mut builder, ref mut miner, ref sortdb| {
@@ -3421,15 +3363,10 @@ pub mod test {
                 },
             );
 
-            let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
-
             self.stacks_node = Some(stacks_node);
             self.sortdb = Some(sortdb);
             (
-                vec![
-                    BlockstackOperationType::LeaderKeyRegister(leader_key_op),
-                    BlockstackOperationType::LeaderBlockCommit(block_commit_op),
-                ],
+                vec![BlockstackOperationType::LeaderBlockCommit(block_commit_op)],
                 stacks_block,
                 microblocks,
             )

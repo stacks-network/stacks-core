@@ -85,10 +85,8 @@ pub mod vm;
 #[macro_use]
 pub mod chainstate;
 
-#[cfg(test)]
-extern crate stx_genesis;
-
 pub mod address;
+
 pub mod burnchains;
 
 /// A high level library for interacting with the Clarity vm

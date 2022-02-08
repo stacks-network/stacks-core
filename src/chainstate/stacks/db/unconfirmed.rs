@@ -573,9 +573,10 @@ mod test {
         let initial_balance = 1000000000;
         let mut peer_config = TestPeerConfig::new(
             "test_unconfirmed_refresh_one_microblock_stx_transfer",
-            7000,
-            7001,
+            7004,
+            7005,
         );
+
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
 
         let mut peer = TestPeer::new(peer_config);
@@ -786,7 +787,7 @@ mod test {
             peer.sortdb = Some(sortdb);
 
             assert_eq!(confirmed_recv_balance.amount_unlocked, tenure_id as u128);
-            eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked, confirmed_recv_balance.amount_unlocked, &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
+            info!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked, confirmed_recv_balance.amount_unlocked, &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
         }
     }
 

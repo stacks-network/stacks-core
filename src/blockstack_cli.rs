@@ -28,9 +28,6 @@ use std::{env, fs, io};
 
 use blockstack_lib::address::b58;
 use blockstack_lib::address::AddressHashMode;
-use blockstack_lib::burnchains::bitcoin::address::{
-    ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
 use blockstack_lib::burnchains::Address;
 use blockstack_lib::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
@@ -596,11 +593,6 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
         TransactionVersion::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     };
 
-    let b58_version = match version {
-        TransactionVersion::Mainnet => ADDRESS_VERSION_MAINNET_SINGLESIG,
-        TransactionVersion::Testnet => ADDRESS_VERSION_TESTNET_SINGLESIG,
-    };
-
     let stx_address = StacksAddress::from_public_keys(
         c32_version,
         &AddressHashMode::SerializeP2PKH,
@@ -609,16 +601,11 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
     )
     .expect("Failed to generate address from public key");
 
-    let mut b58_addr_slice = [0u8; 21];
-    b58_addr_slice[0] = b58_version;
-    b58_addr_slice[1..].copy_from_slice(&stx_address.bytes.0);
-    let b58_address_string = b58::check_encode_slice(&b58_addr_slice);
     Ok(format!(
         "{{
     \"STX\": \"{}\",
-    \"BTC\": \"{}\"
 }}",
-        &stx_address, &b58_address_string
+        &stx_address
     ))
 }
 

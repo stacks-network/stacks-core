@@ -2366,8 +2366,6 @@ mod test {
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
 
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::burnchain::*;
     use burnchains::*;
     use chainstate::burn::db::sortdb::*;
@@ -2554,15 +2552,7 @@ mod test {
             let mut tx = SortitionHandleTx::begin(sortdb, &prev_snapshot.sortition_id).unwrap();
 
             let next_index_root = tx
-                .append_chain_tip_snapshot(
-                    &prev_snapshot,
-                    &next_snapshot,
-                    &vec![],
-                    &vec![],
-                    None,
-                    None,
-                    None,
-                )
+                .append_chain_tip_snapshot(&prev_snapshot, &next_snapshot, &vec![], None, None)
                 .unwrap();
             next_snapshot.index_root = next_index_root;
 

@@ -485,31 +485,10 @@ struct PaidRewards {
     burns: u64,
 }
 
-fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
-    let mut reward_recipients: HashMap<_, u64> = HashMap::new();
-    let mut burn_amt = 0;
-    for op in ops.iter() {
-        if let BlockstackOperationType::LeaderBlockCommit(commit) = op {
-            if commit.commit_outs.len() == 0 {
-                continue;
-            }
-            let amt_per_address = commit.burn_fee / (commit.commit_outs.len() as u64);
-            for addr in commit.commit_outs.iter() {
-                if addr.is_burn() {
-                    burn_amt += amt_per_address;
-                } else {
-                    if let Some(prior_amt) = reward_recipients.get_mut(addr) {
-                        *prior_amt += amt_per_address;
-                    } else {
-                        reward_recipients.insert(addr.clone(), amt_per_address);
-                    }
-                }
-            }
-        }
-    }
+fn calculate_paid_rewards(_ops: &[BlockstackOperationType]) -> PaidRewards {
     PaidRewards {
-        pox: reward_recipients.into_iter().collect(),
-        burns: burn_amt,
+        pox: vec![],
+        burns: 1,
     }
 }
 

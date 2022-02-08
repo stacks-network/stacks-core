@@ -38,6 +38,9 @@ use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 pub mod processing;
 pub mod sortdb;
 
+#[cfg(test)]
+pub mod tests;
+
 pub type DBConn = Connection;
 
 impl_byte_array_from_column!(Txid);

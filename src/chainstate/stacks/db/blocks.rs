@@ -3133,7 +3133,7 @@ impl StacksChainState {
     /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
     /// (ostensibly) selected this block for inclusion.
     fn validate_anchored_block_burnchain(
-        blocks_conn: &DBConn,
+        _blocks_conn: &DBConn,
         db_handle: &SortitionHandleConn,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
@@ -3142,27 +3142,21 @@ impl StacksChainState {
     ) -> Result<Option<(u64, u64)>, Error> {
         // sortition-winning block commit for this block?
         let block_hash = block.block_hash();
-        let (block_commit, stacks_chain_tip) = match db_handle
-            .get_block_snapshot_of_parent_stacks_block(consensus_hash, &block_hash)
-        {
-            Ok(Some(bc)) => bc,
-            Ok(None) => {
+
+        let block_commit = match SortitionDB::get_block_commit_for_stacks_block(
+            db_handle.conn(),
+            consensus_hash,
+            &block_hash,
+        )? {
+            Some(bc) => bc,
+            None => {
+                // unsoliciated
                 // unsoliciated
                 warn!(
                     "Received unsolicited block: {}/{}",
                     consensus_hash, block_hash
                 );
                 return Ok(None);
-            }
-            Err(db_error::InvalidPoxSortition) => {
-                warn!(
-                    "Received unsolicited block on non-canonical PoX fork: {}/{}",
-                    consensus_hash, block_hash
-                );
-                return Ok(None);
-            }
-            Err(e) => {
-                return Err(e.into());
             }
         };
 
@@ -3171,28 +3165,11 @@ impl StacksChainState {
             .get_block_snapshot(&block_commit.burn_header_hash)?
             .expect("FATAL: have block commit but no block snapshot");
 
-        // this is the penultimate burnchain snapshot with the VRF seed that this
-        // block's miner had to prove on to generate the block-commit and block itself.
-        let penultimate_sortition_snapshot = db_handle
-            .get_block_snapshot_by_height(block_commit.block_height - 1)?
-            .expect("FATAL: have block commit but no sortition snapshot");
-
-        // key of the winning leader
-        let leader_key = db_handle
-            .get_leader_key_at(
-                block_commit.key_block_ptr as u64,
-                block_commit.key_vtxindex as u32,
-            )?
-            .expect("FATAL: have block commit but no leader key");
-
         // attaches to burn chain
-        match block.header.validate_burnchain(
-            &burn_chain_tip,
-            &penultimate_sortition_snapshot,
-            &leader_key,
-            &block_commit,
-            &stacks_chain_tip,
-        ) {
+        match block
+            .header
+            .validate_burnchain(&burn_chain_tip, &block_commit)
+        {
             Ok(_) => {}
             Err(_) => {
                 warn!(
@@ -3214,32 +3191,7 @@ impl StacksChainState {
             return Ok(None);
         }
 
-        // NEW in 2.05
-        // if the parent block marks an epoch transition, then its children necessarily run in a
-        // different Clarity epoch.  Its children therefore are not permitted to confirm any of
-        // their parents' microblocks.
-        if StacksChainState::block_crosses_epoch_boundary(
-            blocks_conn,
-            &stacks_chain_tip.consensus_hash,
-            &stacks_chain_tip.winning_stacks_block_hash,
-        )? {
-            if block.has_microblock_parent() {
-                warn!(
-                    "Invalid block {}/{}: its parent {}/{} crossed the epoch boundary but this block confirmed its microblocks",
-                    &consensus_hash,
-                    &block.block_hash(),
-                    &stacks_chain_tip.consensus_hash,
-                    &stacks_chain_tip.winning_stacks_block_hash
-                );
-                return Ok(None);
-            }
-        }
-
-        let sortition_burns =
-            SortitionDB::get_block_burn_amount(db_handle, &penultimate_sortition_snapshot)
-                .expect("FATAL: have block commit but no total burns in its sortition");
-
-        Ok(Some((block_commit.burn_fee, sortition_burns)))
+        Ok(Some((1, 1)))
     }
 
     /// Pre-process and store an anchored block to staging, queuing it up for
@@ -3493,7 +3445,10 @@ impl StacksChainState {
     ) -> Result<(), Error> {
         let parent_sn = {
             let db_handle = sort_ic.as_handle(&snapshot.sortition_id);
-            let sn = match db_handle.get_block_snapshot(&snapshot.parent_burn_header_hash)? {
+            let sn = match db_handle
+                .get_block_snapshot(&snapshot.parent_burn_header_hash)
+                .unwrap()
+            {
                 Some(sn) => sn,
                 None => {
                     return Err(Error::NoSuchBlockError);
@@ -3508,10 +3463,12 @@ impl StacksChainState {
             block,
             &parent_sn.consensus_hash,
             5,
-        )?;
+        )
+        .unwrap();
         let block_hash = block.block_hash();
         for mblock in microblocks.iter() {
-            self.preprocess_streamed_microblock(&snapshot.consensus_hash, &block_hash, mblock)?;
+            self.preprocess_streamed_microblock(&snapshot.consensus_hash, &block_hash, mblock)
+                .unwrap();
         }
         Ok(())
     }
@@ -4431,20 +4388,6 @@ impl StacksChainState {
                        last_microblock_hash, last_microblock_seq, block.block_hash(), block.header.parent_microblock, block.header.parent_microblock_sequence);
             }
 
-            // get the burnchain block that precedes this block's sortition
-            let parent_burn_hash = SortitionDB::get_block_snapshot_consensus(
-                &burn_dbconn.tx(),
-                &chain_tip_consensus_hash,
-            )?
-            .expect(
-                "BUG: Failed to load snapshot for block snapshot during Stacks block processing",
-            )
-            .parent_burn_header_hash;
-            let stacking_burn_ops =
-                SortitionDB::get_stack_stx_ops(&burn_dbconn.tx(), &parent_burn_hash)?;
-            let transfer_burn_ops =
-                SortitionDB::get_transfer_stx_ops(&burn_dbconn.tx(), &parent_burn_hash)?;
-
             let parent_block_cost = StacksChainState::get_stacks_block_anchored_cost(
                 &chainstate_tx.deref().deref(),
                 &StacksBlockHeader::make_index_block_hash(
@@ -4577,17 +4520,6 @@ impl StacksChainState {
             )?;
 
             applied_epoch_transition = epoch_transition;
-
-            // process stacking operations from bitcoin ops
-            receipts.extend(StacksChainState::process_stacking_ops(
-                &mut clarity_tx,
-                stacking_burn_ops,
-            ));
-
-            receipts.extend(StacksChainState::process_transfer_ops(
-                &mut clarity_tx,
-                transfer_burn_ops,
-            ));
 
             // process anchored block
             let (block_fees, block_burns, txs_receipts) =

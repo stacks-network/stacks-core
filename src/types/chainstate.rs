@@ -17,6 +17,12 @@ impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
 impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
 
+impl BurnchainHeaderHash {
+    pub fn zero() -> BurnchainHeaderHash {
+        BurnchainHeaderHash([0; 32])
+    }
+}
+
 pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
