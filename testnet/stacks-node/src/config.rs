@@ -5,7 +5,6 @@ use std::path::PathBuf;
 
 use rand::RngCore;
 
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
@@ -991,17 +990,6 @@ impl BurnchainConfig {
             .unwrap();
         let sock_addr = addrs_iter.next().unwrap();
         sock_addr
-    }
-
-    pub fn get_bitcoin_network(&self) -> (String, BitcoinNetworkType) {
-        match self.mode.as_str() {
-            "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
-            "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
-            "helium" | "neon" | "argon" | "krypton" | "mocknet" => {
-                ("regtest".to_string(), BitcoinNetworkType::Regtest)
-            }
-            _ => panic!("Invalid bitcoin mode -- expected mainnet, testnet, or regtest"),
-        }
     }
 }
 

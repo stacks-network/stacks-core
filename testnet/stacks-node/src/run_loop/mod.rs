@@ -1,4 +1,3 @@
-pub mod helium;
 pub mod neon;
 
 use crate::{BurnchainController, BurnchainTip, ChainTip, Tenure};
