@@ -944,13 +944,24 @@ simulating a miner.
             let (new_snapshot, ..) = {
                 let sortition_tip =
                     SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap();
+                let (parent_snapshot, parent_sort_id, reward_set_info) = new_sortition_db
+                    .get_sortition_info(
+                        &burn_block_header,
+                        &burnchain,
+                        &sortition_tip.sortition_id,
+                        None,
+                    )
+                    .unwrap();
+
                 new_sortition_db
                     .evaluate_sortition(
                         &burn_block_header,
                         blockstack_txs,
                         &burnchain,
-                        &sortition_tip.sortition_id,
                         None,
+                        parent_sort_id,
+                        parent_snapshot,
+                        reward_set_info,
                     )
                     .unwrap()
             };

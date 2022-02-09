@@ -514,13 +514,13 @@ fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
     dispatcher: &T,
     burn_header: &BurnchainBlockHeader,
     paid_rewards: PaidRewards,
-    reward_recipient_info: Option<RewardSetInfo>,
+    reward_recipient_info: &Option<RewardSetInfo>,
 ) {
     let recipients = if let Some(recip_info) = reward_recipient_info {
         recip_info
             .recipients
-            .into_iter()
-            .map(|(addr, _)| addr)
+            .iter()
+            .map(|(addr, _)| addr.clone())
             .collect()
     } else {
         vec![]
@@ -612,23 +612,39 @@ impl<
             // at this point, we need to figure out if the sortition we are
             //  about to process is the first block in reward cycle.
             let reward_cycle_info = self.get_reward_cycle_info(&header)?;
-            let (next_snapshot, _, reward_set_info) = self
+            let (parent_snapshot, parent_sort_id, reward_set_info) = self
+                .sortition_db
+                .get_sortition_info(
+                    &header,
+                    &self.burnchain,
+                    &last_processed_ancestor,
+                    reward_cycle_info.as_ref(),
+                )
+                .map_err(|e| {
+                    error!(
+                        "ChainsCoordinator: unable to get information for sortition {:?}",
+                        e
+                    );
+                    Error::FailedToProcessSortition(e)
+                })?;
+            if let Some(dispatcher) = self.dispatcher {
+                dispatcher_announce_burn_ops(dispatcher, &header, paid_rewards, &reward_set_info);
+            }
+            let (next_snapshot, _) = self
                 .sortition_db
                 .evaluate_sortition(
                     &header,
                     ops,
                     &self.burnchain,
-                    &last_processed_ancestor,
                     reward_cycle_info,
+                    parent_sort_id,
+                    parent_snapshot,
+                    reward_set_info,
                 )
                 .map_err(|e| {
                     error!("ChainsCoordinator: unable to evaluate sortition {:?}", e);
                     Error::FailedToProcessSortition(e)
                 })?;
-
-            if let Some(dispatcher) = self.dispatcher {
-                dispatcher_announce_burn_ops(dispatcher, &header, paid_rewards, reward_set_info);
-            }
 
             let sortition_id = next_snapshot.sortition_id;
 
