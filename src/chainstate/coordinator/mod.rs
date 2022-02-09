@@ -744,8 +744,10 @@ impl<
                                                 block_receipt.header.index_block_hash(),
                                                 block_receipt.header.stacks_block_height,
                                                 receipt.transaction.txid(),
-                                                new_canonical_block_snapshot
-                                                    .canonical_stacks_tip_height,
+                                                Some(
+                                                    new_canonical_block_snapshot
+                                                        .canonical_stacks_tip_height,
+                                                ),
                                             );
                                             if let Some(attachment_instance) = res {
                                                 attachments_instances.insert(attachment_instance);

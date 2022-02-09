@@ -109,7 +109,7 @@ impl AttachmentInstance {
         index_block_hash: StacksBlockId,
         stacks_block_height: u64,
         tx_id: Txid,
-        canonical_stacks_tip_height: u64,
+        canonical_stacks_tip_height: Option<u64>,
     ) -> Option<AttachmentInstance> {
         if let Value::Tuple(ref attachment) = value {
             if let Ok(Value::Tuple(ref attachment_data)) = attachment.get("attachment") {
@@ -147,7 +147,7 @@ impl AttachmentInstance {
                             metadata,
                             contract_id: contract_id.clone(),
                             tx_id,
-                            canonical_stacks_tip_height: Some(canonical_stacks_tip_height),
+                            canonical_stacks_tip_height: canonical_stacks_tip_height,
                         };
                         return Some(instance);
                     }

@@ -2155,7 +2155,6 @@ impl PeerNetwork {
     fn do_network_mempool_sync(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
-        sortdb: &SortitionDB,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         ibd: bool,
@@ -2164,7 +2163,7 @@ impl PeerNetwork {
             return Ok(None);
         }
 
-        match self.do_mempool_sync(dns_client_opt, sortdb, mempool, chainstate)? {
+        match self.do_mempool_sync(dns_client_opt, mempool, chainstate)? {
             (true, txs_opt) => {
                 // did we run to completion?
                 if let Some(txs) = txs_opt {
@@ -3414,7 +3413,6 @@ impl PeerNetwork {
     fn do_mempool_sync(
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
-        sortdb: &SortitionDB,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(bool, Option<Vec<StacksTransaction>>), net_error> {
@@ -5046,7 +5044,7 @@ impl PeerNetwork {
         // In parallel, do a mempool sync.
         // Remember any txs we get, so we can feed them to the relayer thread.
         if let Some(mut txs) =
-            self.do_network_mempool_sync(&mut dns_client_opt, sortdb, mempool, chainstate, ibd)?
+            self.do_network_mempool_sync(&mut dns_client_opt, mempool, chainstate, ibd)?
         {
             network_result.synced_transactions.append(&mut txs);
         }

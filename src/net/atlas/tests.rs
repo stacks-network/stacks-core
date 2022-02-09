@@ -174,7 +174,7 @@ fn test_attachment_instance_parsing() {
         index_block_hash.clone(),
         stacks_block_height,
         Txid([0; 32]),
-        stacks_block_height,
+        Some(stacks_block_height),
     )
     .unwrap();
     assert_eq!(attachment_instance_1.attachment_index, 1);
@@ -201,7 +201,7 @@ fn test_attachment_instance_parsing() {
         index_block_hash.clone(),
         stacks_block_height,
         Txid([0; 32]),
-        stacks_block_height,
+        Some(stacks_block_height),
     )
     .unwrap();
     assert_eq!(attachment_instance_2.attachment_index, 2);
@@ -228,7 +228,7 @@ fn test_attachment_instance_parsing() {
         index_block_hash.clone(),
         stacks_block_height,
         Txid([0; 32]),
-        stacks_block_height,
+        Some(stacks_block_height),
     )
     .unwrap();
     assert_eq!(attachment_instance_3.attachment_index, 3);
@@ -286,7 +286,7 @@ fn test_attachment_instance_parsing() {
             index_block_hash.clone(),
             stacks_block_height,
             Txid([0; 32]),
-            stacks_block_height
+            Some(stacks_block_height)
         )
         .is_none());
     }
