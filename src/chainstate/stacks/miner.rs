@@ -1985,26 +1985,6 @@ impl StacksBlockBuilder {
                             return Ok(false);
                         }
 
-                        // skip transactions early if we can
-                        if considered.contains(&txinfo.tx.txid()) {
-                            return Ok(true);
-                        }
-
-                        if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
-                            if *nonce >= txinfo.tx.get_origin_nonce() {
-                                return Ok(true);
-                            }
-                        }
-                        if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
-                            if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
-                                if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
-                                    if *nonce >= sponsor_nonce {
-                                        return Ok(true);
-                                    }
-                                }
-                            }
-                        }
-
                         considered.insert(txinfo.tx.txid());
                         num_considered += 1;
 
