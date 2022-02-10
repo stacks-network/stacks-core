@@ -23,13 +23,15 @@ use std::marker::PhantomData;
 
 use sha2::Digest;
 
-use chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash, get_nodetype_hash_bytes};
+use chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode, TrieNode16,
     TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
-use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
+use chainstate::stacks::index::storage::{
+    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
+};
 use chainstate::stacks::index::Error;
 use chainstate::stacks::index::{MarfTrieId, TrieHasher};
 use util::hash::to_hex;
@@ -49,6 +51,15 @@ fn get_nodetype_hash<T: MarfTrieId>(
     storage: &mut TrieStorageConnection<T>,
     node: &TrieNodeType,
 ) -> Result<TrieHash, Error> {
+    if storage.hash_calculation_mode == TrieHashCalculationMode::Deferred {
+        trace!(
+            "get_nodetype_hash (deferred): hash {:?} = {:?} + ::children::",
+            &TrieHash([0u8; 32]),
+            node
+        );
+        return Ok(TrieHash([0u8; 32]));
+    }
+
     let mut hasher = TrieHasher::new();
 
     node.write_consensus_bytes(storage, &mut hasher)
@@ -61,7 +72,11 @@ fn get_nodetype_hash<T: MarfTrieId>(
 
     let ret = TrieHash(res);
 
-    trace!("get_node_hash: hash {:?} = {:?} + ::children::", &ret, node);
+    trace!(
+        "get_nodetype_hash: hash {:?} = {:?} + ::children::",
+        &ret,
+        node
+    );
     Ok(ret)
 }
 
@@ -425,10 +440,8 @@ impl Trie {
         // can only do this if we're at the end of the node's path
         assert!(cursor.eonp(node));
 
-        let res = Trie::try_attach_leaf(storage, cursor, leaf, node)?;
-        if res.is_some() {
-            // success!
-            return Ok(res.unwrap());
+        if let Some(ptr) = Trie::try_attach_leaf(storage, cursor, leaf, node)? {
+            return Ok(ptr);
         }
 
         // not enough space -- need to promote node
@@ -631,17 +644,18 @@ impl Trie {
             MARF::get_block_height_miner_tip(storage, &cur_block_header, &cur_block_header)
                 .map_err(|e| match e {
                     Error::NotFoundError => Error::CorruptionError(format!(
-                        "Could not obtain block height for block {}",
+                        "Could not obtain block height for block {}: not found",
                         &cur_block_header
                     )),
                     x => x,
                 })?
                 .ok_or_else(|| {
                     Error::CorruptionError(format!(
-                        "Could not obtain block height for block {}",
+                        "Could not obtain block height for block {}: got None",
                         &cur_block_header
                     ))
                 })?;
+
         let mut log_depth = 0;
         while log_depth < 32 && (1u32 << log_depth) <= cur_block_height {
             let prev_block_header = MARF::get_block_at_height(
@@ -659,7 +673,6 @@ impl Trie {
             storage.open_block(&prev_block_header)?;
 
             let root_ptr = storage.root_trieptr();
-
             let ancestor_hash = storage.read_node_hash_bytes(&root_ptr)?;
 
             trace!(
@@ -678,7 +691,7 @@ impl Trie {
     }
 
     /// Calculate the byte vector of the ancestor root hashes of this trie.
-    /// s must point to the block that contains the trie's root.
+    /// `storage` must point to the block that contains the trie's root.
     pub fn get_trie_ancestor_hashes_bytes<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
     ) -> Result<Vec<TrieHash>, Error> {
@@ -711,6 +724,11 @@ impl Trie {
         );
         let mut ancestor_bytes = Trie::get_trie_ancestor_hashes_bytes(storage)?;
         ancestor_bytes.insert(0, children_root_hash.clone());
+
+        trace!(
+            "Trie ancestor bytes for root hash calculation: {:?}",
+            &ancestor_bytes
+        );
 
         Ok(ancestor_bytes)
     }
@@ -773,7 +791,7 @@ impl Trie {
             };
 
             // for debug purposes
-            if is_trace() {
+            if cfg!(test) && is_trace() {
                 let node_hash = my_hash.clone();
                 let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)
                     .and_then(|_hs| {
@@ -838,7 +856,7 @@ impl Trie {
                             content_hash.clone()
                         };
 
-                        if is_trace() {
+                        if cfg!(test) && is_trace() {
                             let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)
                                         .and_then(|_hs| {
                                             storage.clear_cached_ancestor_hashes_bytes();
@@ -880,7 +898,11 @@ impl Trie {
         storage: &mut TrieStorageConnection<T>,
         cursor: &TrieCursor<T>,
     ) -> Result<(), Error> {
-        Trie::recalculate_root_hash(storage, cursor, true)
+        Trie::recalculate_root_hash(
+            storage,
+            cursor,
+            storage.hash_calculation_mode != TrieHashCalculationMode::Deferred,
+        )
     }
 
     pub fn update_root_node_hash<T: MarfTrieId>(
@@ -950,20 +972,353 @@ mod test {
 
     #[test]
     fn trie_cursor_try_attach_leaf() {
-        for node_id in [
-            TrieNodeID::Node4,
-            TrieNodeID::Node16,
-            TrieNodeID::Node48,
-            TrieNodeID::Node256,
-        ]
-        .iter()
-        {
-            let mut f_store = TrieFileStorage::new_memory().unwrap();
+        for marf_opts in MARFOpenOpts::all().into_iter() {
+            test_debug!("With MARF opts {:?}", &marf_opts);
+            for node_id in [
+                TrieNodeID::Node4,
+                TrieNodeID::Node16,
+                TrieNodeID::Node48,
+                TrieNodeID::Node256,
+            ]
+            .iter()
+            {
+                let mut f_store = TrieFileStorage::new_memory(marf_opts.clone()).unwrap();
+                let mut f = f_store.transaction().unwrap();
+
+                let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+                MARF::format(&mut f, &block_header).unwrap();
+
+                // used to short-circuit block-height lookups, so that we don't
+                //   mess up these tests expected trie structures.
+                f.test_genesis_block.replace(block_header.clone());
+
+                let path_segments = vec![
+                    (vec![], 0),
+                    (vec![], 1),
+                    (vec![], 2),
+                    (vec![], 3),
+                    (vec![], 4),
+                    (vec![], 5),
+                    (vec![], 6),
+                    (vec![], 7),
+                    (vec![], 8),
+                    (vec![], 9),
+                    (vec![], 10),
+                    (vec![], 11),
+                    (vec![], 12),
+                    (vec![], 13),
+                    (vec![], 14),
+                    (vec![], 15),
+                    (vec![], 16),
+                    (vec![], 17),
+                    (vec![], 18),
+                    (vec![], 19),
+                    (vec![], 20),
+                    (vec![], 21),
+                    (vec![], 22),
+                    (vec![], 23),
+                    (vec![], 24),
+                    (vec![], 25),
+                    (vec![], 26),
+                    (vec![], 27),
+                    (vec![], 28),
+                    (vec![], 29),
+                    (vec![], 30),
+                    (vec![], 31),
+                ];
+                let (nodes, node_ptrs, hashes) =
+                    make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
+
+                let mut ptrs = vec![];
+
+                // append a leaf to each node
+                for i in 0..32 {
+                    let mut path = vec![
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ];
+                    path[i] = 32;
+
+                    let mut c = TrieCursor::new(
+                        &TriePath::from_bytes(&path[..]).unwrap(),
+                        f.root_trieptr(),
+                    );
+                    let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                    // end of path -- cursor points to the insertion point.
+                    // all nodes have space,
+                    f.open_block(&block_header).unwrap();
+                    let ptr_opt_res = Trie::try_attach_leaf(
+                        &mut f,
+                        &mut c,
+                        &mut TrieLeaf::new(&vec![], &[i as u8; 40].to_vec()),
+                        &mut node,
+                    );
+                    assert!(ptr_opt_res.is_ok());
+
+                    let ptr_opt = ptr_opt_res.unwrap();
+                    assert!(ptr_opt.is_some());
+
+                    let ptr = ptr_opt.unwrap();
+                    ptrs.push(ptr.clone());
+
+                    let update_res = Trie::update_root_hash(&mut f, &c);
+                    assert!(update_res.is_ok());
+
+                    // we must be able to query it now
+                    let leaf_opt_res = MARF::get_path(
+                        &mut f,
+                        &block_header,
+                        &TriePath::from_bytes(&path[..]).unwrap(),
+                    );
+                    assert!(leaf_opt_res.is_ok());
+
+                    let leaf_opt = leaf_opt_res.unwrap();
+                    assert!(leaf_opt.is_some());
+
+                    let leaf = leaf_opt.unwrap();
+                    assert_eq!(
+                        leaf,
+                        TrieLeaf::new(&path[i + 1..].to_vec(), &[i as u8; 40].to_vec())
+                    );
+
+                    // without a MARF commit, merkle tests will fail in deferred mode
+                    if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                        merkle_test(&mut f, &path, &[i as u8; 40].to_vec());
+                    }
+                }
+
+                // look up each leaf we inserted
+                for i in 0..32 {
+                    let mut path = vec![
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ];
+                    path[i] = 32;
+
+                    let leaf_opt_res = MARF::get_path(
+                        &mut f,
+                        &block_header,
+                        &TriePath::from_bytes(&path[..]).unwrap(),
+                    );
+                    assert!(leaf_opt_res.is_ok());
+
+                    let leaf_opt = leaf_opt_res.unwrap();
+                    assert!(leaf_opt.is_some());
+
+                    let leaf = leaf_opt.unwrap();
+                    assert_eq!(
+                        leaf,
+                        TrieLeaf::new(&path[i + 1..].to_vec(), &[i as u8; 40].to_vec())
+                    );
+
+                    // without a MARF commit, merkle tests will fail in deferred mode
+                    if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                        merkle_test(&mut f, &path, &[i as u8; 40].to_vec());
+                    }
+                }
+
+                // each ptr must be a node with two children
+                for i in 0..32 {
+                    let ptr = &ptrs[i];
+                    let (node, hash) = f.read_nodetype(ptr).unwrap();
+                    match node {
+                        TrieNodeType::Node4(ref data) => assert_eq!(count_children(&data.ptrs), 2),
+                        TrieNodeType::Node16(ref data) => assert_eq!(count_children(&data.ptrs), 2),
+                        TrieNodeType::Node48(ref data) => assert_eq!(count_children(&data.ptrs), 2),
+                        TrieNodeType::Node256(ref data) => {
+                            assert_eq!(count_children(&data.ptrs), 2)
+                        }
+                        _ => assert!(false),
+                    };
+                }
+
+                dump_trie(&mut f);
+            }
+        }
+    }
+
+    #[test]
+    fn trie_cursor_promote_leaf_to_node4() {
+        for marf_opts in MARFOpenOpts::all().into_iter() {
+            let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
             let mut f = f_store.transaction().unwrap();
 
             let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header).unwrap();
 
+            // used to short-circuit block-height lookups, so that we don't
+            //   mess up these tests expected trie structures.
+            f.test_genesis_block.replace(block_header.clone());
+
+            let (node, root_hash) = Trie::read_root(&mut f).unwrap();
+
+            // add a single leaf
+            let mut c = TrieCursor::new(
+                &TriePath::from_bytes(&[
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                ])
+                .unwrap(),
+                f.root_trieptr(),
+            );
+
+            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+            f.open_block(&block_header).unwrap();
+            Trie::try_attach_leaf(
+                &mut f,
+                &mut c,
+                &mut TrieLeaf::new(&vec![], &[128; 40].to_vec()),
+                &mut node,
+            )
+            .unwrap()
+            .unwrap();
+            Trie::update_root_hash(&mut f, &c).unwrap();
+
+            assert_eq!(
+                MARF::get_path(
+                    &mut f,
+                    &block_header,
+                    &TriePath::from_bytes(&[
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31
+                    ])
+                    .unwrap()
+                )
+                .unwrap()
+                .unwrap(),
+                TrieLeaf::new(
+                    &vec![
+                        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                        22, 23, 24, 25, 26, 27, 28, 29, 30, 31
+                    ],
+                    &[128; 40].to_vec()
+                )
+            );
+
+            // without a MARF commit, merkle tests will fail in deferred mode
+            if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                merkle_test(
+                    &mut f,
+                    &[
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ]
+                    .to_vec(),
+                    &[128; 40].to_vec(),
+                );
+            }
+
+            let mut ptrs = vec![];
+
+            // add more leaves -- unzip this path completely
+            for i in 1..32 {
+                // add a leaf that would go after the prior leaf
+                let mut path = vec![
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                ];
+                path[i] = 32;
+
+                let mut c =
+                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+
+                let (nodeptr, node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+                // end of path -- cursor points to the insertion point
+                let mut leaf_data = match node {
+                    TrieNodeType::Leaf(ref data) => data.clone(),
+                    _ => panic!("not a leaf"),
+                };
+
+                f.open_block(&block_header).unwrap();
+                let ptr = Trie::promote_leaf_to_node4(
+                    &mut f,
+                    &mut c,
+                    &mut leaf_data,
+                    &mut TrieLeaf::new(&vec![], &[(i + 128) as u8; 40].to_vec()),
+                )
+                .unwrap();
+                ptrs.push(ptr);
+
+                Trie::update_root_hash(&mut f, &c).unwrap();
+
+                // make sure we can query it again
+                let leaf_opt_res = MARF::get_path(
+                    &mut f,
+                    &block_header,
+                    &TriePath::from_bytes(&path[..]).unwrap(),
+                );
+                assert!(leaf_opt_res.is_ok());
+
+                let leaf_opt = leaf_opt_res.unwrap();
+                assert!(leaf_opt.is_some());
+
+                let leaf = leaf_opt.unwrap();
+                assert_eq!(
+                    leaf,
+                    TrieLeaf::new(&path[i + 1..].to_vec(), &[(i + 128) as u8; 40].to_vec())
+                );
+
+                // without a MARF commit, merkle tests will fail in deferred mode
+                if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                    merkle_test(&mut f, &path, &[(i + 128) as u8; 40].to_vec());
+                }
+            }
+
+            // look up each leaf we inserted
+            for i in 1..31 {
+                let mut path = vec![
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                ];
+                path[i] = 32;
+
+                let leaf_opt_res = MARF::get_path(
+                    &mut f,
+                    &block_header,
+                    &TriePath::from_bytes(&path[..]).unwrap(),
+                );
+                assert!(leaf_opt_res.is_ok());
+
+                let leaf_opt = leaf_opt_res.unwrap();
+                assert!(leaf_opt.is_some());
+
+                let leaf = leaf_opt.unwrap();
+                assert_eq!(
+                    leaf,
+                    TrieLeaf::new(&path[i + 1..].to_vec(), &[(i + 128) as u8; 40].to_vec())
+                );
+
+                // without a MARF commit, merkle tests will fail in deferred mode
+                if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                    merkle_test(&mut f, &path, &[(i + 128) as u8; 40].to_vec());
+                }
+            }
+
+            // each ptr must be a node with two children
+            for i in 0..31 {
+                let ptr = &ptrs[i];
+                let (node, hash) = f.read_nodetype(ptr).unwrap();
+                match node {
+                    TrieNodeType::Node4(ref data) => assert_eq!(count_children(&data.ptrs), 2),
+                    TrieNodeType::Node256(ref data) => assert_eq!(count_children(&data.ptrs), 2),
+                    _ => assert!(false),
+                };
+            }
+
+            dump_trie(&mut f);
+        }
+    }
+
+    #[test]
+    fn trie_cursor_promote_node4_to_node16() {
+        for marf_opts in MARFOpenOpts::all().into_iter() {
+            let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
+            let mut f = f_store.transaction().unwrap();
+
+            let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+            MARF::format(&mut f, &block_header).unwrap();
             // used to short-circuit block-height lookups, so that we don't
             //   mess up these tests expected trie structures.
             f.test_genesis_block.replace(block_header.clone());
@@ -1003,478 +1358,68 @@ mod test {
                 (vec![], 31),
             ];
             let (nodes, node_ptrs, hashes) =
-                make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
+                make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+
+            let (node, root_hash) = Trie::read_root(&mut f).unwrap();
+
+            // fill each node4
+            for k in 0..31 {
+                for j in 0..3 {
+                    let mut path = [
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ];
+                    path[k] = j + 32;
+
+                    let mut c = TrieCursor::new(
+                        &TriePath::from_bytes(&path[..]).unwrap(),
+                        f.root_trieptr(),
+                    );
+                    let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                    f.open_block(&block_header).unwrap();
+                    Trie::try_attach_leaf(
+                        &mut f,
+                        &mut c,
+                        &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                        &mut node,
+                    )
+                    .unwrap()
+                    .unwrap();
+                    Trie::update_root_hash(&mut f, &c).unwrap();
+
+                    // should have inserted
+                    assert_eq!(
+                        MARF::get_path(
+                            &mut f,
+                            &block_header,
+                            &TriePath::from_bytes(&path[..]).unwrap()
+                        )
+                        .unwrap()
+                        .unwrap(),
+                        TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    );
+
+                    // without a MARF commit, merkle tests will fail in deferred mode
+                    if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                        merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    }
+                }
+            }
+
+            test_debug!("");
+            test_debug!("");
+            test_debug!("");
 
             let mut ptrs = vec![];
 
-            // append a leaf to each node
-            for i in 0..32 {
-                let mut path = vec![
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-                ];
-                path[i] = 32;
-
-                let mut c =
-                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-                // end of path -- cursor points to the insertion point.
-                // all nodes have space,
-                f.open_block(&block_header).unwrap();
-                let ptr_opt_res = Trie::try_attach_leaf(
-                    &mut f,
-                    &mut c,
-                    &mut TrieLeaf::new(&vec![], &[i as u8; 40].to_vec()),
-                    &mut node,
-                );
-                assert!(ptr_opt_res.is_ok());
-
-                let ptr_opt = ptr_opt_res.unwrap();
-                assert!(ptr_opt.is_some());
-
-                let ptr = ptr_opt.unwrap();
-                ptrs.push(ptr.clone());
-
-                let update_res = Trie::update_root_hash(&mut f, &c);
-                assert!(update_res.is_ok());
-
-                // we must be able to query it now
-                let leaf_opt_res = MARF::get_path(
-                    &mut f,
-                    &block_header,
-                    &TriePath::from_bytes(&path[..]).unwrap(),
-                );
-                assert!(leaf_opt_res.is_ok());
-
-                let leaf_opt = leaf_opt_res.unwrap();
-                assert!(leaf_opt.is_some());
-
-                let leaf = leaf_opt.unwrap();
-                assert_eq!(
-                    leaf,
-                    TrieLeaf::new(&path[i + 1..].to_vec(), &[i as u8; 40].to_vec())
-                );
-
-                merkle_test(&mut f, &path, &[i as u8; 40].to_vec());
-            }
-
-            // look up each leaf we inserted
-            for i in 0..32 {
-                let mut path = vec![
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-                ];
-                path[i] = 32;
-
-                let leaf_opt_res = MARF::get_path(
-                    &mut f,
-                    &block_header,
-                    &TriePath::from_bytes(&path[..]).unwrap(),
-                );
-                assert!(leaf_opt_res.is_ok());
-
-                let leaf_opt = leaf_opt_res.unwrap();
-                assert!(leaf_opt.is_some());
-
-                let leaf = leaf_opt.unwrap();
-                assert_eq!(
-                    leaf,
-                    TrieLeaf::new(&path[i + 1..].to_vec(), &[i as u8; 40].to_vec())
-                );
-
-                merkle_test(&mut f, &path, &[i as u8; 40].to_vec());
-            }
-
-            // each ptr must be a node with two children
-            for i in 0..32 {
-                let ptr = &ptrs[i];
-                let (node, hash) = f.read_nodetype(ptr).unwrap();
-                match node {
-                    TrieNodeType::Node4(ref data) => assert_eq!(count_children(&data.ptrs), 2),
-                    TrieNodeType::Node16(ref data) => assert_eq!(count_children(&data.ptrs), 2),
-                    TrieNodeType::Node48(ref data) => assert_eq!(count_children(&data.ptrs), 2),
-                    TrieNodeType::Node256(ref data) => assert_eq!(count_children(&data.ptrs), 2),
-                    _ => assert!(false),
-                };
-            }
-
-            dump_trie(&mut f);
-        }
-    }
-
-    #[test]
-    fn trie_cursor_promote_leaf_to_node4() {
-        let mut f_store = TrieFileStorage::new_memory().unwrap();
-        let mut f = f_store.transaction().unwrap();
-
-        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header).unwrap();
-
-        // used to short-circuit block-height lookups, so that we don't
-        //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
-
-        let (node, root_hash) = Trie::read_root(&mut f).unwrap();
-
-        // add a single leaf
-        let mut c = TrieCursor::new(
-            &TriePath::from_bytes(&[
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30, 31,
-            ])
-            .unwrap(),
-            f.root_trieptr(),
-        );
-
-        let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-        f.open_block(&block_header).unwrap();
-        Trie::try_attach_leaf(
-            &mut f,
-            &mut c,
-            &mut TrieLeaf::new(&vec![], &[128; 40].to_vec()),
-            &mut node,
-        )
-        .unwrap()
-        .unwrap();
-        Trie::update_root_hash(&mut f, &c).unwrap();
-
-        assert_eq!(
-            MARF::get_path(
-                &mut f,
-                &block_header,
-                &TriePath::from_bytes(&[
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31
-                ])
-                .unwrap()
-            )
-            .unwrap()
-            .unwrap(),
-            TrieLeaf::new(
-                &vec![
-                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                    23, 24, 25, 26, 27, 28, 29, 30, 31
-                ],
-                &[128; 40].to_vec()
-            )
-        );
-
-        merkle_test(
-            &mut f,
-            &[
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30, 31,
-            ]
-            .to_vec(),
-            &[128; 40].to_vec(),
-        );
-
-        let mut ptrs = vec![];
-
-        // add more leaves -- unzip this path completely
-        for i in 1..32 {
-            // add a leaf that would go after the prior leaf
-            let mut path = vec![
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30, 31,
-            ];
-            path[i] = 32;
-
-            let mut c =
-                TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-            let (nodeptr, node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-            // end of path -- cursor points to the insertion point
-            let mut leaf_data = match node {
-                TrieNodeType::Leaf(ref data) => data.clone(),
-                _ => panic!("not a leaf"),
-            };
-
-            f.open_block(&block_header).unwrap();
-            let ptr = Trie::promote_leaf_to_node4(
-                &mut f,
-                &mut c,
-                &mut leaf_data,
-                &mut TrieLeaf::new(&vec![], &[(i + 128) as u8; 40].to_vec()),
-            )
-            .unwrap();
-            ptrs.push(ptr);
-
-            Trie::update_root_hash(&mut f, &c).unwrap();
-
-            // make sure we can query it again
-            let leaf_opt_res = MARF::get_path(
-                &mut f,
-                &block_header,
-                &TriePath::from_bytes(&path[..]).unwrap(),
-            );
-            assert!(leaf_opt_res.is_ok());
-
-            let leaf_opt = leaf_opt_res.unwrap();
-            assert!(leaf_opt.is_some());
-
-            let leaf = leaf_opt.unwrap();
-            assert_eq!(
-                leaf,
-                TrieLeaf::new(&path[i + 1..].to_vec(), &[(i + 128) as u8; 40].to_vec())
-            );
-
-            merkle_test(&mut f, &path, &[(i + 128) as u8; 40].to_vec());
-        }
-
-        // look up each leaf we inserted
-        for i in 1..31 {
-            let mut path = vec![
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30, 31,
-            ];
-            path[i] = 32;
-
-            let leaf_opt_res = MARF::get_path(
-                &mut f,
-                &block_header,
-                &TriePath::from_bytes(&path[..]).unwrap(),
-            );
-            assert!(leaf_opt_res.is_ok());
-
-            let leaf_opt = leaf_opt_res.unwrap();
-            assert!(leaf_opt.is_some());
-
-            let leaf = leaf_opt.unwrap();
-            assert_eq!(
-                leaf,
-                TrieLeaf::new(&path[i + 1..].to_vec(), &[(i + 128) as u8; 40].to_vec())
-            );
-
-            merkle_test(&mut f, &path, &[(i + 128) as u8; 40].to_vec());
-        }
-
-        // each ptr must be a node with two children
-        for i in 0..31 {
-            let ptr = &ptrs[i];
-            let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node4(ref data) => assert_eq!(count_children(&data.ptrs), 2),
-                TrieNodeType::Node256(ref data) => assert_eq!(count_children(&data.ptrs), 2),
-                _ => assert!(false),
-            };
-        }
-
-        dump_trie(&mut f);
-    }
-
-    #[test]
-    fn trie_cursor_promote_node4_to_node16() {
-        let mut f_store = TrieFileStorage::new_memory().unwrap();
-        let mut f = f_store.transaction().unwrap();
-
-        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header).unwrap();
-        // used to short-circuit block-height lookups, so that we don't
-        //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
-
-        let path_segments = vec![
-            (vec![], 0),
-            (vec![], 1),
-            (vec![], 2),
-            (vec![], 3),
-            (vec![], 4),
-            (vec![], 5),
-            (vec![], 6),
-            (vec![], 7),
-            (vec![], 8),
-            (vec![], 9),
-            (vec![], 10),
-            (vec![], 11),
-            (vec![], 12),
-            (vec![], 13),
-            (vec![], 14),
-            (vec![], 15),
-            (vec![], 16),
-            (vec![], 17),
-            (vec![], 18),
-            (vec![], 19),
-            (vec![], 20),
-            (vec![], 21),
-            (vec![], 22),
-            (vec![], 23),
-            (vec![], 24),
-            (vec![], 25),
-            (vec![], 26),
-            (vec![], 27),
-            (vec![], 28),
-            (vec![], 29),
-            (vec![], 30),
-            (vec![], 31),
-        ];
-        let (nodes, node_ptrs, hashes) =
-            make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
-
-        let (node, root_hash) = Trie::read_root(&mut f).unwrap();
-
-        // fill each node4
-        for k in 0..31 {
-            for j in 0..3 {
+            // promote each node4 to a node16
+            for k in 1..31 {
                 let mut path = [
                     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
                     22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
                 ];
-                path[k] = j + 32;
-
-                let mut c =
-                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-                f.open_block(&block_header).unwrap();
-                Trie::try_attach_leaf(
-                    &mut f,
-                    &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
-                    &mut node,
-                )
-                .unwrap()
-                .unwrap();
-                Trie::update_root_hash(&mut f, &c).unwrap();
-
-                // should have inserted
-                assert_eq!(
-                    MARF::get_path(
-                        &mut f,
-                        &block_header,
-                        &TriePath::from_bytes(&path[..]).unwrap()
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
-                );
-
-                merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
-            }
-        }
-
-        test_debug!("");
-        test_debug!("");
-        test_debug!("");
-
-        let mut ptrs = vec![];
-
-        // promote each node4 to a node16
-        for k in 1..31 {
-            let mut path = [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30, 31,
-            ];
-            path[k] = 128;
-
-            let mut c =
-                TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-            f.open_block(&block_header).unwrap();
-            let new_ptr = Trie::insert_leaf(
-                &mut f,
-                &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
-                &mut node,
-            )
-            .unwrap();
-            ptrs.push(new_ptr);
-
-            Trie::update_root_hash(&mut f, &c).unwrap();
-
-            // should have inserted
-            assert_eq!(
-                MARF::get_path(
-                    &mut f,
-                    &block_header,
-                    &TriePath::from_bytes(&path[..]).unwrap()
-                )
-                .unwrap()
-                .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
-            );
-
-            merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
-        }
-
-        // each ptr we got should point to a node16 with 5 children
-        for ptr in ptrs.iter() {
-            let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node16(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 5);
-                }
-                _ => {
-                    assert!(false);
-                }
-            }
-        }
-
-        dump_trie(&mut f);
-    }
-
-    #[test]
-    fn trie_cursor_promote_node16_to_node48() {
-        let mut f_store = TrieFileStorage::new_memory().unwrap();
-        let mut f = f_store.transaction().unwrap();
-
-        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header).unwrap();
-        // used to short-circuit block-height lookups, so that we don't
-        //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
-
-        let path_segments = vec![
-            (vec![], 0),
-            (vec![], 1),
-            (vec![], 2),
-            (vec![], 3),
-            (vec![], 4),
-            (vec![], 5),
-            (vec![], 6),
-            (vec![], 7),
-            (vec![], 8),
-            (vec![], 9),
-            (vec![], 10),
-            (vec![], 11),
-            (vec![], 12),
-            (vec![], 13),
-            (vec![], 14),
-            (vec![], 15),
-            (vec![], 16),
-            (vec![], 17),
-            (vec![], 18),
-            (vec![], 19),
-            (vec![], 20),
-            (vec![], 21),
-            (vec![], 22),
-            (vec![], 23),
-            (vec![], 24),
-            (vec![], 25),
-            (vec![], 26),
-            (vec![], 27),
-            (vec![], 28),
-            (vec![], 29),
-            (vec![], 30),
-            (vec![], 31),
-        ];
-        let (nodes, node_ptrs, hashes) =
-            make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
-
-        let (node, root_hash) = Trie::read_root(&mut f).unwrap();
-
-        // fill each node4
-        for k in 0..31 {
-            for j in 0..3 {
-                let mut path = [
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-                ];
-                path[k] = j + 32;
+                path[k] = 128;
 
                 let mut c =
                     TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
@@ -1482,608 +1427,7 @@ mod test {
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
                 f.open_block(&block_header).unwrap();
-                Trie::try_attach_leaf(
-                    &mut f,
-                    &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
-                    &mut node,
-                )
-                .unwrap()
-                .unwrap();
-
-                Trie::update_root_hash(&mut f, &c).unwrap();
-
-                // should have inserted
-                assert_eq!(
-                    MARF::get_path(
-                        &mut f,
-                        &block_header,
-                        &TriePath::from_bytes(&path[..]).unwrap()
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
-                );
-
-                merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
-            }
-        }
-
-        test_debug!("");
-        test_debug!("promote all node4 to node16");
-        test_debug!("");
-
-        let mut ptrs = vec![];
-
-        // promote each node4 to a node16 by inserting one more leaf
-        for k in 1..31 {
-            let mut path = [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30, 31,
-            ];
-            path[k] = 128;
-
-            let mut c =
-                TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-            f.open_block(&block_header).unwrap();
-            let new_ptr = Trie::insert_leaf(
-                &mut f,
-                &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
-                &mut node,
-            )
-            .unwrap();
-            ptrs.push(new_ptr);
-
-            Trie::update_root_hash(&mut f, &c).unwrap();
-
-            // should have inserted
-            assert_eq!(
-                MARF::get_path(
-                    &mut f,
-                    &block_header,
-                    &TriePath::from_bytes(&path[..]).unwrap()
-                )
-                .unwrap()
-                .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
-            );
-
-            merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
-        }
-
-        // each ptr we got should point to a node16 with 5 children
-        for ptr in ptrs.iter() {
-            let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node16(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 5);
-                }
-                _ => {
-                    assert!(false);
-                }
-            }
-        }
-
-        // fill each node16 with leaves
-        for k in 0..31 {
-            for j in 0..11 {
-                let mut path = [
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-                ];
-                path[k] = j + 40;
-
-                let mut c =
-                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-                f.open_block(&block_header).unwrap();
-                Trie::try_attach_leaf(
-                    &mut f,
-                    &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
-                    &mut node,
-                )
-                .unwrap()
-                .unwrap();
-
-                Trie::update_root_hash(&mut f, &c).unwrap();
-
-                // should have inserted
-                assert_eq!(
-                    MARF::get_path(
-                        &mut f,
-                        &block_header,
-                        &TriePath::from_bytes(&path[..]).unwrap()
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
-                );
-
-                merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
-            }
-        }
-
-        test_debug!("");
-        test_debug!("promote all node16 to node48");
-        test_debug!("");
-
-        ptrs.clear();
-
-        // promote each node16 to a node48 by inserting one more leaf
-        for k in 1..31 {
-            let mut path = [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30, 31,
-            ];
-            path[k] = 129;
-
-            let mut c =
-                TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-            f.open_block(&block_header).unwrap();
-
-            let new_ptr = Trie::insert_leaf(
-                &mut f,
-                &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
-                &mut node,
-            )
-            .unwrap();
-            ptrs.push(new_ptr);
-
-            Trie::update_root_hash(&mut f, &c).unwrap();
-
-            // should have inserted
-            assert_eq!(
-                MARF::get_path(
-                    &mut f,
-                    &block_header,
-                    &TriePath::from_bytes(&path[..]).unwrap()
-                )
-                .unwrap()
-                .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
-            );
-
-            merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
-        }
-
-        // each ptr we got should point to a node48 with 17 children
-        for ptr in ptrs.iter() {
-            let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node48(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 17);
-                }
-                _ => {
-                    assert!(false);
-                }
-            }
-        }
-
-        dump_trie(&mut f);
-    }
-
-    #[test]
-    fn trie_cursor_promote_node48_to_node256() {
-        let mut f_store = TrieFileStorage::new_memory().unwrap();
-        let mut f = f_store.transaction().unwrap();
-
-        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header).unwrap();
-        // used to short-circuit block-height lookups, so that we don't
-        //   mess up these tests expected trie structures.
-        f.test_genesis_block.replace(block_header.clone());
-
-        let path_segments = vec![
-            (vec![], 0),
-            (vec![], 1),
-            (vec![], 2),
-            (vec![], 3),
-            (vec![], 4),
-            (vec![], 5),
-            (vec![], 6),
-            (vec![], 7),
-            (vec![], 8),
-            (vec![], 9),
-            (vec![], 10),
-            (vec![], 11),
-            (vec![], 12),
-            (vec![], 13),
-            (vec![], 14),
-            (vec![], 15),
-            (vec![], 16),
-            (vec![], 17),
-            (vec![], 18),
-            (vec![], 19),
-            (vec![], 20),
-            (vec![], 21),
-            (vec![], 22),
-            (vec![], 23),
-            (vec![], 24),
-            (vec![], 25),
-            (vec![], 26),
-            (vec![], 27),
-            (vec![], 28),
-            (vec![], 29),
-            (vec![], 30),
-            (vec![], 31),
-        ];
-        let (nodes, node_ptrs, hashes) =
-            make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
-
-        let (node, root_hash) = Trie::read_root(&mut f).unwrap();
-
-        // fill each node4
-        for k in 0..31 {
-            for j in 0..3 {
-                let mut path = [
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-                ];
-                path[k] = j + 32;
-
-                let mut c =
-                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-                f.open_block(&block_header).unwrap();
-                Trie::try_attach_leaf(
-                    &mut f,
-                    &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
-                    &mut node,
-                )
-                .unwrap()
-                .unwrap();
-
-                Trie::update_root_hash(&mut f, &c).unwrap();
-
-                // should have inserted
-                assert_eq!(
-                    MARF::get_path(
-                        &mut f,
-                        &block_header,
-                        &TriePath::from_bytes(&path[..]).unwrap()
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
-                );
-
-                merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
-            }
-        }
-
-        test_debug!("");
-        test_debug!("promote all node4 to node16");
-        test_debug!("");
-
-        let mut ptrs = vec![];
-
-        // promote each node4 to a node16 by inserting one more leaf
-        for k in 1..31 {
-            let mut path = [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30, 31,
-            ];
-            path[k] = 128;
-
-            let mut c =
-                TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-            f.open_block(&block_header).unwrap();
-            let new_ptr = Trie::insert_leaf(
-                &mut f,
-                &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
-                &mut node,
-            )
-            .unwrap();
-            ptrs.push(new_ptr);
-
-            Trie::update_root_hash(&mut f, &c).unwrap();
-
-            // should have inserted
-            assert_eq!(
-                MARF::get_path(
-                    &mut f,
-                    &block_header,
-                    &TriePath::from_bytes(&path[..]).unwrap()
-                )
-                .unwrap()
-                .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
-            );
-
-            merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
-        }
-
-        // each ptr we got should point to a node16 with 5 children
-        for ptr in ptrs.iter() {
-            let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node16(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 5);
-                }
-                _ => {
-                    assert!(false);
-                }
-            }
-        }
-
-        // fill each node16 with leaves
-        for k in 0..31 {
-            for j in 0..11 {
-                let mut path = [
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-                ];
-                path[k] = j + 40;
-
-                let mut c =
-                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-                f.open_block(&block_header).unwrap();
-                Trie::try_attach_leaf(
-                    &mut f,
-                    &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
-                    &mut node,
-                )
-                .unwrap()
-                .unwrap();
-                Trie::update_root_hash(&mut f, &c).unwrap();
-
-                // should have inserted
-                assert_eq!(
-                    MARF::get_path(
-                        &mut f,
-                        &block_header,
-                        &TriePath::from_bytes(&path[..]).unwrap()
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
-                );
-
-                merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
-            }
-        }
-
-        test_debug!("");
-        test_debug!("promote all node16 to node48");
-        test_debug!("");
-
-        ptrs.clear();
-
-        // promote each node16 to a node48 by inserting one more leaf
-        for k in 1..31 {
-            let mut path = [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30, 31,
-            ];
-            path[k] = 129;
-
-            let mut c =
-                TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-            f.open_block(&block_header).unwrap();
-            let new_ptr = Trie::insert_leaf(
-                &mut f,
-                &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
-                &mut node,
-            )
-            .unwrap();
-            ptrs.push(new_ptr);
-
-            Trie::update_root_hash(&mut f, &c).unwrap();
-
-            // should have inserted
-            assert_eq!(
-                MARF::get_path(
-                    &mut f,
-                    &block_header,
-                    &TriePath::from_bytes(&path[..]).unwrap()
-                )
-                .unwrap()
-                .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
-            );
-
-            merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
-        }
-
-        // each ptr we got should point to a node48 with 17 children
-        for ptr in ptrs.iter() {
-            let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node48(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 17);
-                }
-                _ => {
-                    assert!(false);
-                }
-            }
-        }
-
-        // fill each node48 with leaves
-        for k in 0..31 {
-            for j in 0..31 {
-                let mut path = [
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-                ];
-                path[k] = j + 90;
-
-                let mut c =
-                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-                f.open_block(&block_header).unwrap();
-                Trie::try_attach_leaf(
-                    &mut f,
-                    &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
-                    &mut node,
-                )
-                .unwrap()
-                .unwrap();
-
-                Trie::update_root_hash(&mut f, &c).unwrap();
-
-                // should have inserted
-                assert_eq!(
-                    MARF::get_path(
-                        &mut f,
-                        &block_header,
-                        &TriePath::from_bytes(&path[..]).unwrap()
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
-                );
-
-                merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
-            }
-        }
-
-        test_debug!("");
-        test_debug!("promote all node48 to node256");
-        test_debug!("");
-
-        ptrs.clear();
-
-        // promote each node48 to a node256 by inserting one more leaf
-        for k in 1..31 {
-            let mut path = [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30, 31,
-            ];
-            path[k] = 130;
-
-            let mut c =
-                TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-            f.open_block(&block_header).unwrap();
-            let new_ptr = Trie::insert_leaf(
-                &mut f,
-                &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
-                &mut node,
-            )
-            .unwrap();
-            ptrs.push(new_ptr);
-
-            Trie::update_root_hash(&mut f, &c).unwrap();
-
-            // should have inserted
-            assert_eq!(
-                MARF::get_path(
-                    &mut f,
-                    &block_header,
-                    &TriePath::from_bytes(&path[..]).unwrap()
-                )
-                .unwrap()
-                .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
-            );
-
-            merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
-        }
-
-        // each ptr we got should point to a node256 with 49 children
-        for ptr in ptrs.iter() {
-            let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node256(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 49);
-                }
-                _ => {
-                    assert!(false);
-                }
-            }
-        }
-
-        dump_trie(&mut f);
-    }
-
-    #[test]
-    fn trie_cursor_splice_leaf_4() {
-        for node_id in [
-            TrieNodeID::Node4,
-            TrieNodeID::Node16,
-            TrieNodeID::Node48,
-            TrieNodeID::Node256,
-        ]
-        .iter()
-        {
-            let mut f_store = TrieFileStorage::new_memory().unwrap();
-            let mut f = f_store.transaction().unwrap();
-
-            let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-            MARF::format(&mut f, &block_header).unwrap();
-
-            // used to short-circuit block-height lookups, so that we don't
-            //   mess up these tests expected trie structures.
-            f.test_genesis_block.replace(block_header.clone());
-
-            let path_segments = vec![
-                (vec![0, 1, 2, 3], 4),
-                (vec![5, 6, 7, 8], 9),
-                (vec![10, 11, 12, 13], 14),
-                (vec![15, 16, 17, 18], 19),
-                (vec![20, 21, 22, 23], 24),
-                (vec![25, 26, 27, 28], 29),
-                (vec![30], 31),
-            ];
-
-            let (nodes, node_ptrs, hashes) =
-                make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
-
-            let mut ptrs = vec![];
-
-            // splice in a node in each path segment
-            for k in 0..5 {
-                let mut path = vec![
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-                ];
-                path[5 * k + 2] = 32;
-
-                let mut c =
-                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
-
-                test_debug!("Start splice-insert at {:?}", &c);
-                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
-
-                test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
-                f.open_block(&block_header).unwrap();
-
-                eprintln!("Splicing Node @ {}", nodeptr.ptr());
-                eprintln!("Splicing Node @ {:x}", c.chr().unwrap());
-
-                let new_ptr = Trie::splice_leaf(
+                let new_ptr = Trie::insert_leaf(
                     &mut f,
                     &mut c,
                     &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
@@ -2103,97 +1447,868 @@ mod test {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[5 * k + 3..].to_vec(), &[192 + k as u8; 40].to_vec())
+                    TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
                 );
-                merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+
+                // without a MARF commit, merkle tests will fail in deferred mode
+                if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                    merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                }
+            }
+
+            // each ptr we got should point to a node16 with 5 children
+            for ptr in ptrs.iter() {
+                let (node, hash) = f.read_nodetype(ptr).unwrap();
+                match node {
+                    TrieNodeType::Node16(ref data) => {
+                        assert_eq!(count_children(&data.ptrs), 5);
+                    }
+                    _ => {
+                        assert!(false);
+                    }
+                }
             }
 
             dump_trie(&mut f);
+        }
+    }
+
+    #[test]
+    fn trie_cursor_promote_node16_to_node48() {
+        for marf_opts in MARFOpenOpts::all().into_iter() {
+            let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
+            let mut f = f_store.transaction().unwrap();
+
+            let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+            MARF::format(&mut f, &block_header).unwrap();
+            // used to short-circuit block-height lookups, so that we don't
+            //   mess up these tests expected trie structures.
+            f.test_genesis_block.replace(block_header.clone());
+
+            let path_segments = vec![
+                (vec![], 0),
+                (vec![], 1),
+                (vec![], 2),
+                (vec![], 3),
+                (vec![], 4),
+                (vec![], 5),
+                (vec![], 6),
+                (vec![], 7),
+                (vec![], 8),
+                (vec![], 9),
+                (vec![], 10),
+                (vec![], 11),
+                (vec![], 12),
+                (vec![], 13),
+                (vec![], 14),
+                (vec![], 15),
+                (vec![], 16),
+                (vec![], 17),
+                (vec![], 18),
+                (vec![], 19),
+                (vec![], 20),
+                (vec![], 21),
+                (vec![], 22),
+                (vec![], 23),
+                (vec![], 24),
+                (vec![], 25),
+                (vec![], 26),
+                (vec![], 27),
+                (vec![], 28),
+                (vec![], 29),
+                (vec![], 30),
+                (vec![], 31),
+            ];
+            let (nodes, node_ptrs, hashes) =
+                make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+
+            let (node, root_hash) = Trie::read_root(&mut f).unwrap();
+
+            // fill each node4
+            for k in 0..31 {
+                for j in 0..3 {
+                    let mut path = [
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ];
+                    path[k] = j + 32;
+
+                    let mut c = TrieCursor::new(
+                        &TriePath::from_bytes(&path[..]).unwrap(),
+                        f.root_trieptr(),
+                    );
+
+                    let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                    f.open_block(&block_header).unwrap();
+                    Trie::try_attach_leaf(
+                        &mut f,
+                        &mut c,
+                        &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                        &mut node,
+                    )
+                    .unwrap()
+                    .unwrap();
+
+                    Trie::update_root_hash(&mut f, &c).unwrap();
+
+                    // should have inserted
+                    assert_eq!(
+                        MARF::get_path(
+                            &mut f,
+                            &block_header,
+                            &TriePath::from_bytes(&path[..]).unwrap()
+                        )
+                        .unwrap()
+                        .unwrap(),
+                        TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    );
+
+                    // without a MARF commit, merkle tests will fail in deferred mode
+                    if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                        merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    }
+                }
+            }
+
+            test_debug!("");
+            test_debug!("promote all node4 to node16");
+            test_debug!("");
+
+            let mut ptrs = vec![];
+
+            // promote each node4 to a node16 by inserting one more leaf
+            for k in 1..31 {
+                let mut path = [
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                ];
+                path[k] = 128;
+
+                let mut c =
+                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                f.open_block(&block_header).unwrap();
+                let new_ptr = Trie::insert_leaf(
+                    &mut f,
+                    &mut c,
+                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                    &mut node,
+                )
+                .unwrap();
+                ptrs.push(new_ptr);
+
+                Trie::update_root_hash(&mut f, &c).unwrap();
+
+                // should have inserted
+                assert_eq!(
+                    MARF::get_path(
+                        &mut f,
+                        &block_header,
+                        &TriePath::from_bytes(&path[..]).unwrap()
+                    )
+                    .unwrap()
+                    .unwrap(),
+                    TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                );
+
+                // without a MARF commit, merkle tests will fail in deferred mode
+                if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                    merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                }
+            }
+
+            // each ptr we got should point to a node16 with 5 children
+            for ptr in ptrs.iter() {
+                let (node, hash) = f.read_nodetype(ptr).unwrap();
+                match node {
+                    TrieNodeType::Node16(ref data) => {
+                        assert_eq!(count_children(&data.ptrs), 5);
+                    }
+                    _ => {
+                        assert!(false);
+                    }
+                }
+            }
+
+            // fill each node16 with leaves
+            for k in 0..31 {
+                for j in 0..11 {
+                    let mut path = [
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ];
+                    path[k] = j + 40;
+
+                    let mut c = TrieCursor::new(
+                        &TriePath::from_bytes(&path[..]).unwrap(),
+                        f.root_trieptr(),
+                    );
+
+                    let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                    f.open_block(&block_header).unwrap();
+                    Trie::try_attach_leaf(
+                        &mut f,
+                        &mut c,
+                        &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                        &mut node,
+                    )
+                    .unwrap()
+                    .unwrap();
+
+                    Trie::update_root_hash(&mut f, &c).unwrap();
+
+                    // should have inserted
+                    assert_eq!(
+                        MARF::get_path(
+                            &mut f,
+                            &block_header,
+                            &TriePath::from_bytes(&path[..]).unwrap()
+                        )
+                        .unwrap()
+                        .unwrap(),
+                        TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    );
+
+                    // without a MARF commit, merkle tests will fail in deferred mode
+                    if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                        merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    }
+                }
+            }
+
+            test_debug!("");
+            test_debug!("promote all node16 to node48");
+            test_debug!("");
+
+            ptrs.clear();
+
+            // promote each node16 to a node48 by inserting one more leaf
+            for k in 1..31 {
+                let mut path = [
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                ];
+                path[k] = 129;
+
+                let mut c =
+                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                f.open_block(&block_header).unwrap();
+
+                let new_ptr = Trie::insert_leaf(
+                    &mut f,
+                    &mut c,
+                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                    &mut node,
+                )
+                .unwrap();
+                ptrs.push(new_ptr);
+
+                Trie::update_root_hash(&mut f, &c).unwrap();
+
+                // should have inserted
+                assert_eq!(
+                    MARF::get_path(
+                        &mut f,
+                        &block_header,
+                        &TriePath::from_bytes(&path[..]).unwrap()
+                    )
+                    .unwrap()
+                    .unwrap(),
+                    TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                );
+
+                // without a MARF commit, merkle tests will fail in deferred mode
+                if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                    merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                }
+            }
+
+            // each ptr we got should point to a node48 with 17 children
+            for ptr in ptrs.iter() {
+                let (node, hash) = f.read_nodetype(ptr).unwrap();
+                match node {
+                    TrieNodeType::Node48(ref data) => {
+                        assert_eq!(count_children(&data.ptrs), 17);
+                    }
+                    _ => {
+                        assert!(false);
+                    }
+                }
+            }
+
+            dump_trie(&mut f);
+        }
+    }
+
+    #[test]
+    fn trie_cursor_promote_node48_to_node256() {
+        for marf_opts in MARFOpenOpts::all().into_iter() {
+            let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
+            let mut f = f_store.transaction().unwrap();
+
+            let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+            MARF::format(&mut f, &block_header).unwrap();
+            // used to short-circuit block-height lookups, so that we don't
+            //   mess up these tests expected trie structures.
+            f.test_genesis_block.replace(block_header.clone());
+
+            let path_segments = vec![
+                (vec![], 0),
+                (vec![], 1),
+                (vec![], 2),
+                (vec![], 3),
+                (vec![], 4),
+                (vec![], 5),
+                (vec![], 6),
+                (vec![], 7),
+                (vec![], 8),
+                (vec![], 9),
+                (vec![], 10),
+                (vec![], 11),
+                (vec![], 12),
+                (vec![], 13),
+                (vec![], 14),
+                (vec![], 15),
+                (vec![], 16),
+                (vec![], 17),
+                (vec![], 18),
+                (vec![], 19),
+                (vec![], 20),
+                (vec![], 21),
+                (vec![], 22),
+                (vec![], 23),
+                (vec![], 24),
+                (vec![], 25),
+                (vec![], 26),
+                (vec![], 27),
+                (vec![], 28),
+                (vec![], 29),
+                (vec![], 30),
+                (vec![], 31),
+            ];
+            let (nodes, node_ptrs, hashes) =
+                make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+
+            let (node, root_hash) = Trie::read_root(&mut f).unwrap();
+
+            // fill each node4
+            for k in 0..31 {
+                for j in 0..3 {
+                    let mut path = [
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ];
+                    path[k] = j + 32;
+
+                    let mut c = TrieCursor::new(
+                        &TriePath::from_bytes(&path[..]).unwrap(),
+                        f.root_trieptr(),
+                    );
+
+                    let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                    f.open_block(&block_header).unwrap();
+                    Trie::try_attach_leaf(
+                        &mut f,
+                        &mut c,
+                        &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                        &mut node,
+                    )
+                    .unwrap()
+                    .unwrap();
+
+                    Trie::update_root_hash(&mut f, &c).unwrap();
+
+                    // should have inserted
+                    assert_eq!(
+                        MARF::get_path(
+                            &mut f,
+                            &block_header,
+                            &TriePath::from_bytes(&path[..]).unwrap()
+                        )
+                        .unwrap()
+                        .unwrap(),
+                        TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    );
+
+                    // without a MARF commit, merkle tests will fail in deferred mode
+                    if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                        merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    }
+                }
+            }
+
+            test_debug!("");
+            test_debug!("promote all node4 to node16");
+            test_debug!("");
+
+            let mut ptrs = vec![];
+
+            // promote each node4 to a node16 by inserting one more leaf
+            for k in 1..31 {
+                let mut path = [
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                ];
+                path[k] = 128;
+
+                let mut c =
+                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                f.open_block(&block_header).unwrap();
+                let new_ptr = Trie::insert_leaf(
+                    &mut f,
+                    &mut c,
+                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                    &mut node,
+                )
+                .unwrap();
+                ptrs.push(new_ptr);
+
+                Trie::update_root_hash(&mut f, &c).unwrap();
+
+                // should have inserted
+                assert_eq!(
+                    MARF::get_path(
+                        &mut f,
+                        &block_header,
+                        &TriePath::from_bytes(&path[..]).unwrap()
+                    )
+                    .unwrap()
+                    .unwrap(),
+                    TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                );
+
+                // without a MARF commit, merkle tests will fail in deferred mode
+                if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                    merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                }
+            }
+
+            // each ptr we got should point to a node16 with 5 children
+            for ptr in ptrs.iter() {
+                let (node, hash) = f.read_nodetype(ptr).unwrap();
+                match node {
+                    TrieNodeType::Node16(ref data) => {
+                        assert_eq!(count_children(&data.ptrs), 5);
+                    }
+                    _ => {
+                        assert!(false);
+                    }
+                }
+            }
+
+            // fill each node16 with leaves
+            for k in 0..31 {
+                for j in 0..11 {
+                    let mut path = [
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ];
+                    path[k] = j + 40;
+
+                    let mut c = TrieCursor::new(
+                        &TriePath::from_bytes(&path[..]).unwrap(),
+                        f.root_trieptr(),
+                    );
+
+                    let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                    f.open_block(&block_header).unwrap();
+                    Trie::try_attach_leaf(
+                        &mut f,
+                        &mut c,
+                        &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                        &mut node,
+                    )
+                    .unwrap()
+                    .unwrap();
+                    Trie::update_root_hash(&mut f, &c).unwrap();
+
+                    // should have inserted
+                    assert_eq!(
+                        MARF::get_path(
+                            &mut f,
+                            &block_header,
+                            &TriePath::from_bytes(&path[..]).unwrap()
+                        )
+                        .unwrap()
+                        .unwrap(),
+                        TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    );
+
+                    // without a MARF commit, merkle tests will fail in deferred mode
+                    if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                        merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    }
+                }
+            }
+
+            test_debug!("");
+            test_debug!("promote all node16 to node48");
+            test_debug!("");
+
+            ptrs.clear();
+
+            // promote each node16 to a node48 by inserting one more leaf
+            for k in 1..31 {
+                let mut path = [
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                ];
+                path[k] = 129;
+
+                let mut c =
+                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                f.open_block(&block_header).unwrap();
+                let new_ptr = Trie::insert_leaf(
+                    &mut f,
+                    &mut c,
+                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                    &mut node,
+                )
+                .unwrap();
+                ptrs.push(new_ptr);
+
+                Trie::update_root_hash(&mut f, &c).unwrap();
+
+                // should have inserted
+                assert_eq!(
+                    MARF::get_path(
+                        &mut f,
+                        &block_header,
+                        &TriePath::from_bytes(&path[..]).unwrap()
+                    )
+                    .unwrap()
+                    .unwrap(),
+                    TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                );
+
+                // without a MARF commit, merkle tests will fail in deferred mode
+                if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                    merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                }
+            }
+
+            // each ptr we got should point to a node48 with 17 children
+            for ptr in ptrs.iter() {
+                let (node, hash) = f.read_nodetype(ptr).unwrap();
+                match node {
+                    TrieNodeType::Node48(ref data) => {
+                        assert_eq!(count_children(&data.ptrs), 17);
+                    }
+                    _ => {
+                        assert!(false);
+                    }
+                }
+            }
+
+            // fill each node48 with leaves
+            for k in 0..31 {
+                for j in 0..31 {
+                    let mut path = [
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ];
+                    path[k] = j + 90;
+
+                    let mut c = TrieCursor::new(
+                        &TriePath::from_bytes(&path[..]).unwrap(),
+                        f.root_trieptr(),
+                    );
+
+                    let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                    f.open_block(&block_header).unwrap();
+                    Trie::try_attach_leaf(
+                        &mut f,
+                        &mut c,
+                        &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                        &mut node,
+                    )
+                    .unwrap()
+                    .unwrap();
+
+                    Trie::update_root_hash(&mut f, &c).unwrap();
+
+                    // should have inserted
+                    assert_eq!(
+                        MARF::get_path(
+                            &mut f,
+                            &block_header,
+                            &TriePath::from_bytes(&path[..]).unwrap()
+                        )
+                        .unwrap()
+                        .unwrap(),
+                        TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    );
+
+                    // without a MARF commit, merkle tests will fail in deferred mode
+                    if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                        merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    }
+                }
+            }
+
+            test_debug!("");
+            test_debug!("promote all node48 to node256");
+            test_debug!("");
+
+            ptrs.clear();
+
+            // promote each node48 to a node256 by inserting one more leaf
+            for k in 1..31 {
+                let mut path = [
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                ];
+                path[k] = 130;
+
+                let mut c =
+                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                f.open_block(&block_header).unwrap();
+                let new_ptr = Trie::insert_leaf(
+                    &mut f,
+                    &mut c,
+                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                    &mut node,
+                )
+                .unwrap();
+                ptrs.push(new_ptr);
+
+                Trie::update_root_hash(&mut f, &c).unwrap();
+
+                // should have inserted
+                assert_eq!(
+                    MARF::get_path(
+                        &mut f,
+                        &block_header,
+                        &TriePath::from_bytes(&path[..]).unwrap()
+                    )
+                    .unwrap()
+                    .unwrap(),
+                    TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                );
+
+                // without a MARF commit, merkle tests will fail in deferred mode
+                if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                    merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                }
+            }
+
+            // each ptr we got should point to a node256 with 49 children
+            for ptr in ptrs.iter() {
+                let (node, hash) = f.read_nodetype(ptr).unwrap();
+                match node {
+                    TrieNodeType::Node256(ref data) => {
+                        assert_eq!(count_children(&data.ptrs), 49);
+                    }
+                    _ => {
+                        assert!(false);
+                    }
+                }
+            }
+
+            dump_trie(&mut f);
+        }
+    }
+
+    #[test]
+    fn trie_cursor_splice_leaf_4() {
+        for marf_opts in MARFOpenOpts::all().into_iter() {
+            for node_id in [
+                TrieNodeID::Node4,
+                TrieNodeID::Node16,
+                TrieNodeID::Node48,
+                TrieNodeID::Node256,
+            ]
+            .iter()
+            {
+                let mut f_store = TrieFileStorage::new_memory(marf_opts.clone()).unwrap();
+                let mut f = f_store.transaction().unwrap();
+
+                let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+                MARF::format(&mut f, &block_header).unwrap();
+
+                // used to short-circuit block-height lookups, so that we don't
+                //   mess up these tests expected trie structures.
+                f.test_genesis_block.replace(block_header.clone());
+
+                let path_segments = vec![
+                    (vec![0, 1, 2, 3], 4),
+                    (vec![5, 6, 7, 8], 9),
+                    (vec![10, 11, 12, 13], 14),
+                    (vec![15, 16, 17, 18], 19),
+                    (vec![20, 21, 22, 23], 24),
+                    (vec![25, 26, 27, 28], 29),
+                    (vec![30], 31),
+                ];
+
+                let (nodes, node_ptrs, hashes) =
+                    make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
+
+                let mut ptrs = vec![];
+
+                // splice in a node in each path segment
+                for k in 0..5 {
+                    let mut path = vec![
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ];
+                    path[5 * k + 2] = 32;
+
+                    let mut c = TrieCursor::new(
+                        &TriePath::from_bytes(&path[..]).unwrap(),
+                        f.root_trieptr(),
+                    );
+
+                    test_debug!("Start splice-insert at {:?}", &c);
+                    let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                    test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
+                    f.open_block(&block_header).unwrap();
+
+                    eprintln!("Splicing Node @ {}", nodeptr.ptr());
+                    eprintln!("Splicing Node @ {:x}", c.chr().unwrap());
+
+                    let new_ptr = Trie::splice_leaf(
+                        &mut f,
+                        &mut c,
+                        &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                        &mut node,
+                    )
+                    .unwrap();
+                    ptrs.push(new_ptr);
+
+                    Trie::update_root_hash(&mut f, &c).unwrap();
+
+                    // should have inserted
+                    assert_eq!(
+                        MARF::get_path(
+                            &mut f,
+                            &block_header,
+                            &TriePath::from_bytes(&path[..]).unwrap()
+                        )
+                        .unwrap()
+                        .unwrap(),
+                        TrieLeaf::new(&path[5 * k + 3..].to_vec(), &[192 + k as u8; 40].to_vec())
+                    );
+
+                    // without a MARF commit, merkle tests will fail in deferred mode
+                    if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                        merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                    }
+                }
+
+                dump_trie(&mut f);
+            }
         }
     }
 
     #[test]
     fn trie_cursor_splice_leaf_2() {
-        for node_id in [
-            TrieNodeID::Node4,
-            TrieNodeID::Node16,
-            TrieNodeID::Node48,
-            TrieNodeID::Node256,
-        ]
-        .iter()
-        {
-            let mut f_store = TrieFileStorage::new_memory().unwrap();
-            let mut f = f_store.transaction().unwrap();
+        for marf_opts in MARFOpenOpts::all().into_iter() {
+            for node_id in [
+                TrieNodeID::Node4,
+                TrieNodeID::Node16,
+                TrieNodeID::Node48,
+                TrieNodeID::Node256,
+            ]
+            .iter()
+            {
+                let mut f_store = TrieFileStorage::new_memory(marf_opts.clone()).unwrap();
+                let mut f = f_store.transaction().unwrap();
 
-            let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-            MARF::format(&mut f, &block_header).unwrap();
+                let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+                MARF::format(&mut f, &block_header).unwrap();
 
-            // used to short-circuit block-height lookups, so that we don't
-            //   mess up these tests expected trie structures.
-            f.test_genesis_block.replace(block_header.clone());
+                // used to short-circuit block-height lookups, so that we don't
+                //   mess up these tests expected trie structures.
+                f.test_genesis_block.replace(block_header.clone());
 
-            let path_segments = vec![
-                (vec![0, 1], 2),
-                (vec![3, 4], 5),
-                (vec![6, 7], 8),
-                (vec![9, 10], 11),
-                (vec![12, 13], 14),
-                (vec![15, 16], 17),
-                (vec![18, 19], 20),
-                (vec![21, 22], 23),
-                (vec![24, 25], 26),
-                (vec![27, 28], 29),
-                (vec![30], 31),
-            ];
-
-            let (nodes, node_ptrs, hashes) =
-                make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
-            let mut ptrs = vec![];
-
-            // splice in a node in each path segment
-            for k in 0..10 {
-                let mut path = vec![
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                let path_segments = vec![
+                    (vec![0, 1], 2),
+                    (vec![3, 4], 5),
+                    (vec![6, 7], 8),
+                    (vec![9, 10], 11),
+                    (vec![12, 13], 14),
+                    (vec![15, 16], 17),
+                    (vec![18, 19], 20),
+                    (vec![21, 22], 23),
+                    (vec![24, 25], 26),
+                    (vec![27, 28], 29),
+                    (vec![30], 31),
                 ];
-                path[3 * k + 1] = 32;
 
-                let mut c =
-                    TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                let (nodes, node_ptrs, hashes) =
+                    make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
+                let mut ptrs = vec![];
 
-                test_debug!("Start splice-insert at {:?}", &c);
-                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+                // splice in a node in each path segment
+                for k in 0..10 {
+                    let mut path = vec![
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+                    ];
+                    path[3 * k + 1] = 32;
 
-                test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
-                f.open_block(&block_header).unwrap();
-                let new_ptr = Trie::splice_leaf(
-                    &mut f,
-                    &mut c,
-                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
-                    &mut node,
-                )
-                .unwrap();
-                ptrs.push(new_ptr);
+                    let mut c = TrieCursor::new(
+                        &TriePath::from_bytes(&path[..]).unwrap(),
+                        f.root_trieptr(),
+                    );
 
-                Trie::update_root_hash(&mut f, &c).unwrap();
+                    test_debug!("Start splice-insert at {:?}", &c);
+                    let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                // should have inserted
-                assert_eq!(
-                    MARF::get_path(
+                    test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
+                    f.open_block(&block_header).unwrap();
+                    let new_ptr = Trie::splice_leaf(
                         &mut f,
-                        &block_header,
-                        &TriePath::from_bytes(&path[..]).unwrap()
+                        &mut c,
+                        &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                        &mut node,
                     )
-                    .unwrap()
-                    .unwrap(),
-                    TrieLeaf::new(&path[3 * k + 2..].to_vec(), &[192 + k as u8; 40].to_vec())
-                );
+                    .unwrap();
+                    ptrs.push(new_ptr);
 
-                // proofs should still work
-                merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                    Trie::update_root_hash(&mut f, &c).unwrap();
+
+                    // should have inserted
+                    assert_eq!(
+                        MARF::get_path(
+                            &mut f,
+                            &block_header,
+                            &TriePath::from_bytes(&path[..]).unwrap()
+                        )
+                        .unwrap()
+                        .unwrap(),
+                        TrieLeaf::new(&path[3 * k + 2..].to_vec(), &[192 + k as u8; 40].to_vec())
+                    );
+
+                    // proofs should still work
+                    // without a MARF commit, merkle tests will fail in deferred mode
+                    if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
+                        merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                    }
+                }
+
+                dump_trie(&mut f);
             }
-
-            dump_trie(&mut f);
         }
     }
 
@@ -2201,76 +2316,27 @@ mod test {
     where
         F: FnMut(u32) -> [u8; 32],
     {
-        let f = TrieFileStorage::new_memory().unwrap();
+        for marf_opts in MARFOpenOpts::all().into_iter() {
+            let f = TrieFileStorage::new_memory(marf_opts).unwrap();
 
-        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        let mut marf = MARF::from_storage(f);
-        marf.begin(&BlockHeaderHash::sentinel(), &block_header)
+            let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+            let mut marf = MARF::from_storage(f);
+            marf.begin(&BlockHeaderHash::sentinel(), &block_header)
+                .unwrap();
+            MARF::get_block_height(
+                &mut marf.borrow_storage_backend(),
+                &block_header,
+                &block_header,
+            )
+            .unwrap()
             .unwrap();
-        MARF::get_block_height(
-            &mut marf.borrow_storage_backend(),
-            &block_header,
-            &block_header,
-        )
-        .unwrap()
-        .unwrap();
 
-        for i in 0..count {
-            eprintln!("{}", i);
-            let path = path_gen(i);
-            let triepath = TriePath::from_bytes(&path).unwrap();
-            let value = TrieLeaf::new(
-                &vec![],
-                &[
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    (i / 256) as u8,
-                    (i % 256) as u8,
-                ]
-                .to_vec(),
-            );
-            marf.insert_raw(triepath, value).unwrap();
-
-            if merkle_check {
-                merkle_test(
-                    &mut marf.borrow_storage_backend(),
-                    &path.to_vec(),
+            for i in 0..count {
+                eprintln!("{}", i);
+                let path = path_gen(i);
+                let triepath = TriePath::from_bytes(&path).unwrap();
+                let value = TrieLeaf::new(
+                    &vec![],
                     &[
                         0,
                         0,
@@ -2315,67 +2381,73 @@ mod test {
                     ]
                     .to_vec(),
                 );
+                marf.insert_raw(triepath, value).unwrap();
+
+                // without a MARF commit, merkle tests will fail in deferred mode
+                if merkle_check
+                    && marf.borrow_storage_backend().hash_calculation_mode
+                        != TrieHashCalculationMode::Deferred
+                {
+                    merkle_test(
+                        &mut marf.borrow_storage_backend(),
+                        &path.to_vec(),
+                        &[
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            (i / 256) as u8,
+                            (i % 256) as u8,
+                        ]
+                        .to_vec(),
+                    );
+                }
             }
-        }
 
-        for i in 0..count {
-            let path = path_gen(i);
-            let triepath = TriePath::from_bytes(&path).unwrap();
-            let value =
-                MARF::get_path(&mut marf.borrow_storage_backend(), &block_header, &triepath)
-                    .unwrap()
-                    .unwrap();
-            assert_eq!(
-                value.data.to_vec(),
-                [
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    (i / 256) as u8,
-                    (i % 256) as u8
-                ]
-                .to_vec()
-            );
-            if merkle_check {
-                merkle_test(
-                    &mut marf.borrow_storage_backend(),
-                    &path.to_vec(),
-                    &[
+            for i in 0..count {
+                let path = path_gen(i);
+                let triepath = TriePath::from_bytes(&path).unwrap();
+                let value =
+                    MARF::get_path(&mut marf.borrow_storage_backend(), &block_header, &triepath)
+                        .unwrap()
+                        .unwrap();
+                assert_eq!(
+                    value.data.to_vec(),
+                    [
                         0,
                         0,
                         0,
@@ -2415,10 +2487,63 @@ mod test {
                         0,
                         0,
                         (i / 256) as u8,
-                        (i % 256) as u8,
+                        (i % 256) as u8
                     ]
-                    .to_vec(),
+                    .to_vec()
                 );
+                // without a MARF commit, merkle tests will fail in deferred mode
+                if merkle_check
+                    && marf.borrow_storage_backend().hash_calculation_mode
+                        != TrieHashCalculationMode::Deferred
+                {
+                    merkle_test(
+                        &mut marf.borrow_storage_backend(),
+                        &path.to_vec(),
+                        &[
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            (i / 256) as u8,
+                            (i % 256) as u8,
+                        ]
+                        .to_vec(),
+                    );
+                }
             }
         }
     }
