@@ -312,10 +312,6 @@ impl ClarityConnection for ClarityTx<'_> {
 }
 
 impl<'a> ClarityTx<'a> {
-    pub fn get_root_hash(&mut self) -> TrieHash {
-        self.block.get_root_hash()
-    }
-
     pub fn cost_so_far(&self) -> ExecutionCost {
         self.block.cost_so_far()
     }
@@ -349,6 +345,10 @@ impl<'a> ClarityTx<'a> {
         let result = todo(self);
         let new_tracker = self.set_cost_tracker(original_tracker);
         (result, new_tracker)
+    }
+
+    pub fn seal(&mut self) -> TrieHash {
+        self.block.seal()
     }
 
     #[cfg(test)]
@@ -1467,8 +1467,8 @@ impl StacksChainState {
                 &first_index_hash
             );
 
-            tx.put_indexed_begin(&parent_hash, &first_index_hash)?;
-            let first_root_hash = tx.put_indexed_all(&vec![], &vec![])?;
+            let first_root_hash =
+                tx.put_indexed_all(&parent_hash, &first_index_hash, &vec![], &vec![])?;
 
             test_debug!(
                 "Boot code headers index_commit {}-{}",
@@ -2126,9 +2126,12 @@ impl StacksChainState {
             &parent_hash,
             &new_tip.index_block_hash(new_consensus_hash)
         );
-        headers_tx
-            .put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_consensus_hash))?;
-        let root_hash = headers_tx.put_indexed_all(&vec![], &vec![])?;
+        let root_hash = headers_tx.put_indexed_all(
+            &parent_hash,
+            &new_tip.index_block_hash(new_consensus_hash),
+            &vec![],
+            &vec![],
+        )?;
         let index_block_hash = new_tip.index_block_hash(&new_consensus_hash);
         test_debug!(
             "Headers index_indexed_all finished {}-{}",
@@ -2149,18 +2152,22 @@ impl StacksChainState {
         };
 
         StacksChainState::insert_stacks_block_header(
-            headers_tx,
+            headers_tx.deref_mut(),
             &parent_hash,
             &new_tip_info,
             anchor_block_cost,
         )?;
-        StacksChainState::insert_miner_payment_schedule(headers_tx, block_reward, user_burns)?;
+        StacksChainState::insert_miner_payment_schedule(
+            headers_tx.deref_mut(),
+            block_reward,
+            user_burns,
+        )?;
 
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
             let args: &[&dyn ToSql] = &[&index_block_hash];
-            headers_tx.execute(sql, args)?;
+            headers_tx.deref_mut().execute(sql, args)?;
         }
 
         debug!(
