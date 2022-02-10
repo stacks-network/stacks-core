@@ -7260,3 +7260,4 @@ fn test_flash_block_skip_tenure() {
 
     channel.stop_chains_coordinator();
 }
+
