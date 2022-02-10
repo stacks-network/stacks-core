@@ -82,6 +82,7 @@ use crate::types::chainstate::{
     StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
 };
 use crate::{types, util};
+use chainstate::coordinator::BlockEventDispatcher;
 use monitoring::set_last_execution_cost_observed;
 use types::chainstate::BurnchainHeaderHash;
 
@@ -168,6 +169,52 @@ pub struct SetupBlockResult<'a> {
         Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
     pub evaluated_epoch: StacksEpochId,
     pub applied_epoch_transition: bool,
+}
+
+pub struct DummyEventDispatcher;
+
+impl BlockEventDispatcher for DummyEventDispatcher {
+    fn announce_block(
+        &self,
+        _block: &StacksBlock,
+        _metadata: &StacksHeaderInfo,
+        _receipts: &Vec<StacksTransactionReceipt>,
+        _parent: &StacksBlockId,
+        _winner_txid: Txid,
+        _rewards: &Vec<MinerReward>,
+        _rewards_info: Option<&MinerRewardInfo>,
+        _parent_burn_block_hash: BurnchainHeaderHash,
+        _parent_burn_block_height: u32,
+        _parent_burn_block_timestamp: u64,
+        _anchor_block_cost: &ExecutionCost,
+        _confirmed_mblock_cost: &ExecutionCost,
+    ) {
+        assert!(
+            false,
+            "We should never try to announce to the dummy dispatcher"
+        );
+    }
+
+    fn announce_burn_block(
+        &self,
+        _burn_block: &BurnchainHeaderHash,
+        _burn_block_height: u64,
+        _rewards: Vec<(StacksAddress, u64)>,
+        _burns: u64,
+        _slot_holders: Vec<StacksAddress>,
+    ) {
+        assert!(
+            false,
+            "We should never try to announce to the dummy dispatcher"
+        );
+    }
+
+    fn dispatch_boot_receipts(&mut self, _receipts: Vec<StacksTransactionReceipt>) {
+        assert!(
+            false,
+            "We should never try to dispatch boot receipts to the dummy dispatcher"
+        );
+    }
 }
 
 impl MemPoolRejection {
@@ -5412,9 +5459,10 @@ impl StacksChainState {
     /// Return a poison microblock transaction payload if the microblock stream contains a
     /// deliberate miner fork (this is NOT consensus-critical information, but is instead meant for
     /// consumption by future miners).
-    pub fn process_next_staging_block(
+    pub fn process_next_staging_block<'a, T: BlockEventDispatcher>(
         &mut self,
         sort_tx: &mut SortitionHandleTx,
+        dispatcher_opt: Option<&'a T>,
     ) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let blocks_path = self.blocks_path.clone();
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
@@ -5436,7 +5484,7 @@ impl StacksChainState {
                 }
             };
 
-        let (burn_header_hash, burn_header_height, burn_header_timestamp) =
+        let (burn_header_hash, burn_header_height, burn_header_timestamp, winning_block_txid) =
             match SortitionDB::get_block_snapshot_consensus(
                 sort_tx,
                 &next_staging_block.consensus_hash,
@@ -5445,6 +5493,7 @@ impl StacksChainState {
                     sn.burn_header_hash,
                     sn.block_height as u32,
                     sn.burn_header_timestamp,
+                    sn.winning_block_txid,
                 ),
                 None => {
                     // shouldn't happen
@@ -5677,6 +5726,27 @@ impl StacksChainState {
             )?;
         }
 
+        if let Some(dispatcher) = dispatcher_opt {
+            let parent_id = StacksBlockHeader::make_index_block_hash(
+                &next_staging_block.parent_consensus_hash,
+                &next_staging_block.parent_anchored_block_hash,
+            );
+            dispatcher.announce_block(
+                &block,
+                &epoch_receipt.header.clone(),
+                &epoch_receipt.tx_receipts,
+                &parent_id,
+                winning_block_txid,
+                &epoch_receipt.matured_rewards,
+                epoch_receipt.matured_rewards_info.as_ref(),
+                epoch_receipt.parent_burn_block_hash,
+                epoch_receipt.parent_burn_block_height,
+                epoch_receipt.parent_burn_block_timestamp,
+                &epoch_receipt.anchored_block_cost,
+                &epoch_receipt.parent_microblocks_cost,
+            );
+        }
+
         StacksChainState::set_block_processed(
             chainstate_tx.deref_mut(),
             Some(sort_tx),
@@ -5703,17 +5773,19 @@ impl StacksChainState {
         max_blocks: usize,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         let tx = sort_db.tx_begin_at_tip();
-        self.process_blocks(tx, max_blocks)
+        let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
+        self.process_blocks(tx, max_blocks, null_event_dispatcher)
     }
 
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.  For each chain tip produced, return the header info, receipts, parent microblock
     /// stream execution cost, and block execution cost
-    pub fn process_blocks(
+    pub fn process_blocks<'a, T: BlockEventDispatcher>(
         &mut self,
         mut sort_tx: SortitionHandleTx,
         max_blocks: usize,
+        dispatcher_opt: Option<&'a T>,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         debug!("Process up to {} blocks", max_blocks);
 
@@ -5726,7 +5798,7 @@ impl StacksChainState {
 
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
-            match self.process_next_staging_block(&mut sort_tx) {
+            match self.process_next_staging_block(&mut sort_tx, dispatcher_opt) {
                 Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
                     Some(next_tip) => {
                         ret.push((Some(next_tip), next_microblock_poison_opt));

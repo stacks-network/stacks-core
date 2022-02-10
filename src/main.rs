@@ -44,6 +44,7 @@ use blockstack_lib::burnchains::bitcoin::indexer::{BitcoinIndexerConfig, Bitcoin
 use blockstack_lib::burnchains::bitcoin::spv;
 use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
 use blockstack_lib::chainstate::burn::ConsensusHash;
+use blockstack_lib::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
@@ -726,7 +727,10 @@ simulating a miner.
             .unwrap()
             .sortition_id;
         let mut tx = sortition_db.tx_handle_begin(&sortition_tip).unwrap();
-        chainstate.process_next_staging_block(&mut tx).unwrap();
+        let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
+        chainstate
+            .process_next_staging_block(&mut tx, null_event_dispatcher)
+            .unwrap();
         return;
     }
 
@@ -1054,7 +1058,10 @@ simulating a miner.
                         .unwrap()
                         .sortition_id;
                 let sortition_tx = new_sortition_db.tx_handle_begin(&sortition_tip).unwrap();
-                let receipts = new_chainstate.process_blocks(sortition_tx, 1).unwrap();
+                let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
+                let receipts = new_chainstate
+                    .process_blocks(sortition_tx, 1, null_event_dispatcher)
+                    .unwrap();
                 if receipts.len() == 0 {
                     break;
                 }

@@ -2815,8 +2815,6 @@ impl SortitionDB {
                 BurnchainError::MissingParentBlock
             })?;
 
-        let parent_pox = sortition_db_handle.get_pox_id()?;
-
         let reward_set_vrf_hash = parent_snapshot
             .sortition_hash
             .mix_burn_header(&parent_snapshot.burn_header_hash);
