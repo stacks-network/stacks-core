@@ -833,9 +833,8 @@ impl<'a> ClarityBlockConnection<'a> {
         r
     }
 
-    /// Get the MARF root hash
-    pub fn get_root_hash(&mut self) -> TrieHash {
-        self.datastore.get_root_hash()
+    pub fn seal(&mut self) -> TrieHash {
+        self.datastore.seal()
     }
 
     pub fn destruct(self) -> WritableMarfStore<'a> {
