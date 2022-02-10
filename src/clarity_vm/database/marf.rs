@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
+use chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
 use chainstate::stacks::index::{Error, MarfTrieId};
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use util::db::IndexDBConn;
@@ -43,11 +43,12 @@ impl MarfedKV {
             .ok_or_else(|| InterpreterError::BadFileName)?
             .to_string();
 
+        let marf_opts = MARFOpenOpts::default();
         let mut marf: MARF<StacksBlockId> = if unconfirmed {
-            MARF::from_path_unconfirmed(&marf_path)
+            MARF::from_path_unconfirmed(&marf_path, marf_opts)
                 .map_err(|err| InterpreterError::MarfFailure(IncomparableError { err }))?
         } else {
-            MARF::from_path(&marf_path)
+            MARF::from_path(&marf_path, marf_opts)
                 .map_err(|err| InterpreterError::MarfFailure(IncomparableError { err }))?
         };
 
@@ -219,14 +220,6 @@ impl MarfedKV {
 
     pub fn set_chain_tip(&mut self, bhh: &StacksBlockId) {
         self.chain_tip = bhh.clone();
-    }
-
-    // This function *should not* be called by
-    //   a smart-contract, rather it should only be used by the VM
-    pub fn get_root_hash(&mut self) -> TrieHash {
-        self.marf
-            .get_root_hash_at(&self.chain_tip)
-            .expect("FATAL: Failed to read MARF root hash")
     }
 
     pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId> {
@@ -493,12 +486,8 @@ impl<'a> WritableMarfStore<'a> {
         });
     }
 
-    // This function *should not* be called by
-    //   a smart-contract, rather it should only be used by the VM
-    pub fn get_root_hash(&mut self) -> TrieHash {
-        self.marf
-            .get_root_hash_at(&self.chain_tip)
-            .expect("FATAL: Failed to read MARF root hash")
+    pub fn seal(&mut self) -> TrieHash {
+        self.marf.seal().expect("FATAL: failed to .seal() MARF")
     }
 }
 
