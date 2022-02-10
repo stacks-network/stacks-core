@@ -1067,6 +1067,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         root_to_block: &HashMap<TrieHash, T>,
     ) -> bool {
         if !TrieMerkleProof::is_proof_well_formed(&proof, path) {
+            test_debug!("Invalid proof -- proof is not well-formed");
             return false;
         }
 
@@ -1077,7 +1078,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
         // proof must be for this value
         if node_data != *value {
-            trace!(
+            test_debug!(
                 "Invalid proof -- not for value hash {:?}",
                 value.to_value_hash()
             );
@@ -1103,13 +1104,16 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash) {
             Some(h) => h,
             None => {
+                test_debug!("Unable to verify segment proof in range {}...{}", i, j);
                 return false;
             }
         };
 
         i = j;
         if i >= proof.len() {
-            trace!("Proof is too short -- needed at least one shunt proof for the first segment");
+            test_debug!(
+                "Proof is too short -- needed at least one shunt proof for the first segment"
+            );
             return false;
         }
 
@@ -1119,6 +1123,11 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             match TrieMerkleProof::verify_shunt_proof_head(&node_root_hash, &proof[i]) {
                 Some(h) => h,
                 None => {
+                    test_debug!(
+                        "Unable to verify shunt proof head at {}: {:?}",
+                        i,
+                        &proof[i]
+                    );
                     return false;
                 }
             };
@@ -1127,7 +1136,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         i += 1;
         if i >= proof.len() {
             // done -- no further shunts
-            trace!("Verify proof: {:?} =?= {:?}", root_hash, &trie_hash);
+            test_debug!("Verify proof: {:?} =?= {:?}", root_hash, &trie_hash);
             return *root_hash == trie_hash;
         }
 
@@ -1140,7 +1149,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 TrieHash(bhh.clone().to_bytes())
             }
             None => {
-                trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
+                test_debug!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
                 trace!("root-to-block map: {:?}", &root_to_block);
                 return false;
             }
@@ -1149,7 +1158,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         // next proof item should be part of a segment proof
         match proof[i] {
             TrieMerkleProofType::Shunt(_) => {
-                trace!("Malformed proof -- exepcted segment proof following first shunt proof head at {}", i);
+                test_debug!("Malformed proof -- exepcted segment proof following first shunt proof head at {}", i);
                 return false;
             }
             _ => {}
@@ -1174,13 +1183,14 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash) {
                     Some(h) => h,
                     None => {
+                        test_debug!("Unable to verify segment proof in range {}..{}", i, j);
                         return false;
                     }
                 };
 
             i = j;
             if i >= proof.len() {
-                trace!("Proof to short -- no shunt proof tail");
+                test_debug!("Proof to short -- no shunt proof tail");
                 return false;
             }
 
@@ -1202,7 +1212,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             j -= 1;
 
             if j < i {
-                trace!("Proof is malformed -- no tail or junction proof");
+                test_debug!("Proof is malformed -- no tail or junction proof");
                 return false;
             }
 
@@ -1217,6 +1227,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 match TrieMerkleProof::verify_shunt_proof_tail(&trie_hash, &proof[i..j]) {
                     Some(h) => h,
                     None => {
+                        test_debug!("Unable to verify shunt proof tail");
                         return false;
                     }
                 };
@@ -1229,7 +1240,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
             i = j;
             if i >= proof.len() {
-                trace!("Proof to short -- no junction proof");
+                test_debug!("Proof to short -- no junction proof");
                 return false;
             }
 
@@ -1241,6 +1252,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             ) {
                 Some(h) => h,
                 None => {
+                    test_debug!("Unable to verify shunt junction proof at {} next_node_root_hash = {:?} penultimate hash = {:?}: {:?}", i, &next_node_root_hash, &penultimate_trie_hash, &proof[i]);
                     return false;
                 }
             };
@@ -1255,8 +1267,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     TrieHash(bhh.clone().to_bytes())
                 }
                 None => {
-                    trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
-                    trace!("root-to-block map: {:?}", &root_to_block);
+                    test_debug!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
+                    test_debug!("root-to-block map: {:?}", &root_to_block);
                     return false;
                 }
             };
@@ -1272,7 +1284,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             }
         }
 
-        trace!("Verify proof: {:?} =?= {:?}", root_hash, &trie_hash);
+        test_debug!("Verify proof: {:?} =?= {:?}", root_hash, &trie_hash);
         *root_hash == trie_hash
     }
 
@@ -1518,7 +1530,8 @@ mod test {
         use std::env;
         env::set_var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID", "1");
 
-        let mut m = MARF::from_path(":memory:").unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut m = MARF::from_path(":memory:", marf_opts).unwrap();
 
         let sentinel_block = BlockHeaderHash::sentinel();
         let block_0 = BlockHeaderHash([0u8; 32]);
@@ -1584,9 +1597,8 @@ mod test {
 
     #[test]
     fn ncc_verifier_catches_stale_proof() {
-        // use std::env;
-        // env::set_var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID", "1");
-        let mut m = MARF::from_path(":memory:").unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut m = MARF::from_path(":memory:", marf_opts).unwrap();
 
         let sentinel_block = BlockHeaderHash::sentinel();
         let block_0 = BlockHeaderHash([0u8; 32]);
