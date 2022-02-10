@@ -5164,13 +5164,13 @@ impl StacksChainState {
                 }
             }
 
-            let root_hash = clarity_tx.get_root_hash();
+            let root_hash = clarity_tx.seal();
             if root_hash != block.header.state_index_root {
                 let msg = format!(
                     "Block {} state root mismatch: expected {}, got {}",
                     block.block_hash(),
+                    block.header.state_index_root,
                     root_hash,
-                    block.header.state_index_root
                 );
                 warn!("{}", &msg);
 
