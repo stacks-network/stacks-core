@@ -4189,10 +4189,12 @@ impl<'a> SortitionHandleTx<'a> {
         values.append(&mut block_arrival_values);
 
         // store each indexed field
-        //  -- marf tx _must_ have already began
-        self.put_indexed_begin(&parent_snapshot.sortition_id, &snapshot.sortition_id)?;
-
-        let root_hash = self.put_indexed_all(&keys, &values)?;
+        let root_hash = self.put_indexed_all(
+            &parent_snapshot.sortition_id,
+            &snapshot.sortition_id,
+            &keys,
+            &values,
+        )?;
         self.context.chain_tip = snapshot.sortition_id.clone();
         Ok(root_hash)
     }
