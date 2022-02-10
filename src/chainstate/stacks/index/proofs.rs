@@ -289,6 +289,17 @@ impl<T: MarfTrieId> StacksMessageCodec for TrieMerkleProofType<T> {
     }
 }
 
+impl<T: MarfTrieId> StacksMessageCodec for TrieMerkleProof<T> {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        self.0.consensus_serialize(fd)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TrieMerkleProof<T>, codec_error> {
+        let proof_parts: Vec<TrieMerkleProofType<T>> = read_next(fd)?;
+        Ok(TrieMerkleProof(proof_parts))
+    }
+}
+
 impl<T: MarfTrieId> TrieMerkleProof<T> {
     pub fn to_hex(&self) -> String {
         let mut marf_proof = vec![];

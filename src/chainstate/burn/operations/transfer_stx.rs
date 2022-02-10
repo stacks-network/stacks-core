@@ -193,18 +193,19 @@ impl TransferStxOp {
 
 impl StacksMessageCodec for TransferStxOp {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &(Opcodes::TransferStx as u8))?;
-        fd.write_all(&self.transfered_ustx.to_be_bytes())
-            .map_err(|e| codec_error::WriteError(e))?;
         if self.memo.len() > 61 {
             return Err(codec_error::ArrayTooLong);
         }
-        write_next(fd, &self.memo)?;
+        write_next(fd, &(Opcodes::TransferStx as u8))?;
+        fd.write_all(&self.transfered_ustx.to_be_bytes())
+            .map_err(|e| codec_error::WriteError(e))?;
+        fd.write_all(&self.memo)
+            .map_err(|e| codec_error::WriteError(e))?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<TransferStxOp, codec_error> {
-        // Op deserialized through burchain indexer
+        // Op deserialized through burnchain indexer
         unimplemented!();
     }
 }

@@ -5,6 +5,11 @@ name: stacks-bitcoin-integration-tests
 on:
   pull_request:
 
+concurrency:
+  group: stacks-bitcoin-integration-tests-${{ github.ref }}
+  # Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-integration-image:
     runs-on: ubuntu-latest
@@ -43,6 +48,7 @@ jobs:
           - tests::neon_integrations::bitcoind_forking_test
           - tests::neon_integrations::should_fix_2771
           - tests::neon_integrations::pox_integration_test
+          - tests::neon_integrations::mining_events_integration_test
           - tests::bitcoin_regtest::bitcoind_integration_test
           - tests::should_succeed_handling_malformed_and_valid_txs
           - tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
@@ -53,6 +59,14 @@ jobs:
           - tests::neon_integrations::filter_low_fee_tx_integration_test
           - tests::neon_integrations::filter_long_runtime_tx_integration_test
           - tests::neon_integrations::mining_transactions_is_fair
+          - tests::neon_integrations::microblock_large_tx_integration_test
+          - tests::neon_integrations::block_large_tx_integration_test
+          - tests::neon_integrations::microblock_limit_hit_integration_test
+          - tests::neon_integrations::block_limit_hit_integration_test
+          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window5
+          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
+          - tests::neon_integrations::use_latest_tip_integration_test
+          - tests::neon_integrations::test_flash_block_skip_tenure
           - tests::epoch_205::test_dynamic_db_method_costs
           - tests::epoch_205::transition_empty_blocks
           - tests::epoch_205::test_cost_limit_switch_version205
@@ -71,7 +85,12 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
-        run: docker build --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+        run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+      - uses: codecov/codecov-action@v2
+        with:
+          files: ./coverage-output/lcov.info
+          name: ${{ matrix.test-name }}
+          fail_ci_if_error: true
   atlas-test:
     if: ${{ true }}
     runs-on: ubuntu-latest
@@ -96,4 +115,9 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
-        run: docker build --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+        run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+      - uses: codecov/codecov-action@v2
+        with:
+          files: ./coverage-output/lcov.info
+          name: ${{ matrix.test-name }}
+          fail_ci_if_error: true

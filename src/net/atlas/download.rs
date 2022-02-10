@@ -47,6 +47,8 @@ use rand::thread_rng;
 use rand::Rng;
 use std::cmp;
 
+use core::mempool::MemPoolDB;
+
 #[derive(Debug)]
 pub struct AttachmentsDownloader {
     priority_queue: BinaryHeap<AttachmentsBatch>,
@@ -102,6 +104,7 @@ impl AttachmentsDownloader {
     pub fn run(
         &mut self,
         dns_client: &mut DNSClient,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         network: &mut PeerNetwork,
     ) -> Result<(Vec<(AttachmentInstance, Attachment)>, Vec<usize>), net_error> {
@@ -161,8 +164,13 @@ impl AttachmentsDownloader {
             }
         };
 
-        let mut progress =
-            AttachmentsBatchStateMachine::try_proceed(ongoing_fsm, dns_client, network, chainstate);
+        let mut progress = AttachmentsBatchStateMachine::try_proceed(
+            ongoing_fsm,
+            dns_client,
+            network,
+            mempool,
+            chainstate,
+        );
 
         match progress {
             AttachmentsBatchStateMachine::Done(ref mut context) => {
@@ -551,6 +559,7 @@ impl AttachmentsBatchStateMachine {
         fsm: AttachmentsBatchStateMachine,
         dns_client: &mut DNSClient,
         network: &mut PeerNetwork,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> AttachmentsBatchStateMachine {
         match fsm {
@@ -586,6 +595,7 @@ impl AttachmentsBatchStateMachine {
                     attachments_invs_requests,
                     &context.dns_lookups,
                     network,
+                    mempool,
                     chainstate,
                     &context.connection_options,
                 ) {
@@ -610,6 +620,7 @@ impl AttachmentsBatchStateMachine {
                     attachments_requests,
                     &context.dns_lookups,
                     network,
+                    mempool,
                     chainstate,
                     &context.connection_options,
                 ) {
@@ -786,6 +797,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
         fsm: BatchedRequestsState<T>,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         network: &mut PeerNetwork,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         connection_options: &ConnectionOptions,
     ) -> BatchedRequestsState<T> {
@@ -812,6 +824,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                             network,
                             dns_lookups,
                             &mut requestables,
+                            mempool,
                             chainstate,
                         );
                         if let Some((request, event_id)) = res {

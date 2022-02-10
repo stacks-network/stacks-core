@@ -12,6 +12,11 @@ on:
         description: 'The tag to create (optional)'
         required: false
 
+concurrency:
+  group: stacks-blockchain-${{ github.ref }}
+  # Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Notify Slack channel of workflow start
   notify-start:
@@ -42,7 +47,12 @@ jobs:
         # Remove .dockerignore file so codecov has access to git info
         run: |
           rm .dockerignore
-          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
+          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
+      - uses: codecov/codecov-action@v2
+        with:
+          files: ./coverage-output/lcov.info
+          name: large_genesis
+          fail_ci_if_error: true
 
   # Run unit tests with code coverage
   unit-tests:
@@ -55,7 +65,12 @@ jobs:
         # Remove .dockerignore file so codecov has access to git info
         run: |
           rm .dockerignore
-          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
+          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
+      - uses: codecov/codecov-action@v2
+        with:
+          files: ./coverage-output/lcov.info
+          name: unit_tests
+          fail_ci_if_error: true
 
   open-api-validation:
     runs-on: ubuntu-latest
@@ -99,7 +114,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        platform: [ windows-x64, macos-x64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
+        platform: [ windows-x64, macos-x64, macos-arm64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
 
     steps:
       - uses: actions/checkout@v2
@@ -234,7 +249,7 @@ jobs:
       - create-release
     strategy:
       matrix:
-        platform: [ windows-x64, macos-x64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
+        platform: [ windows-x64, macos-x64, macos-arm64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
 
     steps:
       - uses: actions/checkout@v2

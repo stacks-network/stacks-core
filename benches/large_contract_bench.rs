@@ -3,26 +3,27 @@ extern crate criterion;
 extern crate blockstack_lib;
 extern crate rand;
 
+use blockstack_lib::clarity_vm::clarity::ClarityInstance;
 use blockstack_lib::clarity_vm::database::marf::MarfedKV;
-use blockstack_lib::types::BlockHeaderHash;
-use blockstack_lib::{
-    chainstate::stacks::index::storage::TrieFileStorage, vm::clarity::ClarityInstance,
-    vm::database::NULL_HEADER_DB, vm::types::QualifiedContractIdentifier,
-};
+use blockstack_lib::types::chainstate::StacksBlockId;
+use blockstack_lib::types::proof::ClarityMarfTrieId;
+use blockstack_lib::vm::database::NULL_BURN_STATE_DB;
+use blockstack_lib::{vm::database::NULL_HEADER_DB, vm::types::QualifiedContractIdentifier};
 use criterion::Criterion;
 
 pub fn rollback_log_memory_test() {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf);
     let EXPLODE_N = 100;
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
     {
         let mut conn = clarity_instance.begin_block(
-            &TrieFileStorage::block_sentinel(),
-            &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            &StacksBlockId::sentinel(),
+            &StacksBlockId::from_bytes(&[0 as u8; 32]).unwrap(),
             &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
         );
 
         let define_data_var = "(define-data-var XZ (buff 1048576) \"a\")";
@@ -43,29 +44,35 @@ pub fn rollback_log_memory_test() {
             contract.push_str(&exploder);
         }
 
-        let (ct_ast, _ct_analysis) = conn
-            .analyze_smart_contract(&contract_identifier, &contract)
-            .unwrap();
-        assert!(format!(
-            "{:?}",
-            conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| false)
+        conn.as_transaction(|conn| {
+            let (ct_ast, _ct_analysis) = conn
+                .analyze_smart_contract(&contract_identifier, &contract)
+                .unwrap();
+
+            assert!(format!(
+                "{:?}",
+                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
+                    false
+                })
                 .unwrap_err()
-        )
-        .contains("MemoryBalanceExceeded"));
+            )
+            .contains("MemoryBalanceExceeded"));
+        });
     }
 }
 
 pub fn ccall_memory_test() {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf_kv, ExecutionCost::max_value());
+    let mut clarity_instance = ClarityInstance::new(false, marf);
     let COUNT_PER_CONTRACT = 20;
     let CONTRACTS = 5;
 
     {
         let mut conn = clarity_instance.begin_block(
-            &TrieFileStorage::block_sentinel(),
-            &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap(),
+            &StacksBlockId::sentinel(),
+            &StacksBlockId::from_bytes(&[0 as u8; 32]).unwrap(),
             &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
         );
 
         let define_data_var = "(define-constant buff-0 \"a\")\n";
@@ -104,30 +111,37 @@ pub fn ccall_memory_test() {
             let contract_identifier = QualifiedContractIdentifier::local(&contract_name).unwrap();
 
             if i < (CONTRACTS - 1) {
-                let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
-                    .unwrap();
-                conn.initialize_smart_contract(&contract_identifier, &ct_ast, &contract, |_, _| {
-                    false
-                })
-                .unwrap();
-                conn.save_analysis(&contract_identifier, &ct_analysis)
-                    .unwrap();
-            } else {
-                let (ct_ast, _ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
-                    .unwrap();
-                assert!(format!(
-                    "{:?}",
+                conn.as_transaction(|conn| {
+                    let (ct_ast, ct_analysis) = conn
+                        .analyze_smart_contract(&contract_identifier, &contract)
+                        .unwrap();
                     conn.initialize_smart_contract(
                         &contract_identifier,
                         &ct_ast,
                         &contract,
-                        |_, _| false
+                        |_, _| false,
                     )
-                    .unwrap_err()
-                )
-                .contains("MemoryBalanceExceeded"));
+                    .unwrap();
+                    conn.save_analysis(&contract_identifier, &ct_analysis)
+                        .unwrap();
+                })
+            } else {
+                conn.as_transaction(|conn| {
+                    let (ct_ast, _ct_analysis) = conn
+                        .analyze_smart_contract(&contract_identifier, &contract)
+                        .unwrap();
+                    assert!(format!(
+                        "{:?}",
+                        conn.initialize_smart_contract(
+                            &contract_identifier,
+                            &ct_ast,
+                            &contract,
+                            |_, _| false
+                        )
+                        .unwrap_err()
+                    )
+                    .contains("MemoryBalanceExceeded"));
+                })
             }
         }
     }
