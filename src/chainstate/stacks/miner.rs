@@ -1443,7 +1443,7 @@ impl StacksBlockBuilder {
 
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
-        let state_root_hash = clarity_tx.get_root_hash();
+        let state_root_hash = clarity_tx.seal();
 
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
@@ -2941,6 +2941,13 @@ pub mod test {
             .borrow_storage_backend()
             .read_block_root_hash(&index_block_hash)
             .unwrap();
+        test_debug!(
+            "checking {}/{} state root: expecting {}, got {}",
+            consensus_hash,
+            &stacks_header.block_hash(),
+            &stacks_header.state_index_root,
+            &state_root
+        );
         state_root == stacks_header.state_index_root
     }
 
