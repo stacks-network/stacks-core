@@ -211,7 +211,7 @@ impl<T: TrieNode, M: BlockMap> ConsensusSerializable<M> for T {
 }
 
 /// Child pointer
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TriePtr {
     pub id: u8, // ID of the child.  Will have bit 0x80 set if the child is a back-pointer (in which case, back_block will be nonzero)
     pub chr: u8, // Path character at which this child resides
@@ -5178,7 +5178,8 @@ mod test {
                 (i + 2) as u32
             )));
         }
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5207,7 +5208,8 @@ mod test {
             )));
         }
 
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5236,7 +5238,8 @@ mod test {
             )));
         }
 
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5266,7 +5269,8 @@ mod test {
         }
 
         let hash = TrieHash::from_data(&[0u8; 32]);
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5295,7 +5299,8 @@ mod test {
             ],
         );
 
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5313,7 +5318,8 @@ mod test {
 
     #[test]
     fn read_write_node4_hashes() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5356,7 +5362,8 @@ mod test {
 
     #[test]
     fn read_write_node16_hashes() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5401,7 +5408,8 @@ mod test {
 
     #[test]
     fn read_write_node48_hashes() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5447,7 +5455,8 @@ mod test {
 
     #[test]
     fn read_write_node256_hashes() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5493,7 +5502,8 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_full() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5606,7 +5616,8 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_1() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5703,7 +5714,8 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_2() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5795,7 +5807,8 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_3() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5884,7 +5897,8 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_4() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -5972,7 +5986,8 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_5() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -6059,7 +6074,8 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_6() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -6145,7 +6161,8 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_10() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -6232,7 +6249,8 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_20() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
         trie_io
             .extend_to_block(&BlockHeaderHash([0u8; 32]))
@@ -6323,7 +6341,8 @@ mod test {
 
     #[test]
     fn trie_cursor_walk_32() {
-        let mut trie_io_store = TrieFileStorage::new_memory().unwrap();
+        let marf_opts = MARFOpenOpts::default();
+        let mut trie_io_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut trie_io = trie_io_store.transaction().unwrap();
 
         trie_io
