@@ -47,7 +47,7 @@ pub fn get_path_byte_len(p: &Vec<u8>) -> usize {
 }
 
 /// Decode a trie path from a Readable object.
-/// Returns Error::CorruptionError if the path doens't decode.
+/// Returns Error::CorruptionError if the path doesn't decode.
 pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
     let mut lenbuf = [0u8; 1];
     r.read_exact(&mut lenbuf).map_err(|e| {
@@ -113,6 +113,7 @@ pub fn get_ptrs_byte_len(ptrs: &[TriePtr]) -> usize {
     node_id_len + TRIEPTR_SIZE * ptrs.len()
 }
 
+/*
 /// Read a Trie node's children from a Readable object, and write them to the given ptrs_buf slice.
 /// Returns the Trie node ID detected.
 #[inline]
@@ -170,6 +171,55 @@ pub fn ptrs_from_bytes<R: Read>(
     }
     Ok(nid)
 }
+*/
+/// Read a Trie node's children from a Readable object, and write them to the given ptrs_buf slice.
+/// Returns the Trie node ID detected.
+#[inline]
+pub fn ptrs_from_bytes<R: Read>(
+    node_id: u8,
+    r: &mut R,
+    ptrs_buf: &mut [TriePtr],
+) -> Result<u8, Error> {
+    if !check_node_id(node_id) {
+        trace!("Bad node ID {:x}", node_id);
+        return Err(Error::CorruptionError(format!(
+            "Bad node ID: {:x}",
+            node_id
+        )));
+    }
+
+    let num_ptrs = node_id_to_ptr_count(node_id);
+    let mut bytes = vec![0u8; 1 + num_ptrs * TRIEPTR_SIZE];
+    r.read_exact(&mut bytes).map_err(|e| {
+        if e.kind() == ErrorKind::UnexpectedEof {
+            Error::CorruptionError(format!(
+                "Failed to read 1 + {} bytes of ptrs",
+                num_ptrs * TRIEPTR_SIZE
+            ))
+        } else {
+            eprintln!("failed: {:?}", &e);
+            Error::IOError(e)
+        }
+    })?;
+
+    // verify the id is correct
+    let nid = bytes[0];
+    if clear_backptr(nid) != clear_backptr(node_id) {
+        trace!("Bad idbuf: {:x} != {:x}", nid, node_id);
+        return Err(Error::CorruptionError(
+            "Failed to read expected node ID".to_string(),
+        ));
+    }
+
+    let ptr_bytes = &bytes[1..];
+
+    let mut i = 0;
+    while i < num_ptrs {
+        ptrs_buf[i] = TriePtr::from_bytes(&ptr_bytes[i * TRIEPTR_SIZE..(i + 1) * TRIEPTR_SIZE]);
+        i += 1;
+    }
+    Ok(nid)
+}
 
 /// Calculate the hash of a TrieNode, given its childrens' hashes.
 pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(
@@ -200,7 +250,7 @@ pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(
     ret
 }
 
-/// Calculate the hash of a TrieNode, given its childrens' hashes.
+/// Calculate the hash of a TrieLeaf
 pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     let mut hasher = TrieHasher::new();
     node.write_consensus_bytes_leaf(&mut hasher)
@@ -232,6 +282,7 @@ pub fn get_nodetype_hash_bytes<T: MarfTrieId, M: BlockMap>(
 
 /// Low-level method for reading a TrieHash into a byte buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
+#[inline]
 pub fn read_hash_bytes<F: Read>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
     let mut hashbytes = [0u8; 32];
     f.read_exact(&mut hashbytes).map_err(|e| {
@@ -249,6 +300,7 @@ pub fn read_hash_bytes<F: Read>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE]
     Ok(hashbytes)
 }
 
+#[inline]
 pub fn read_block_identifier<F: Read + Seek>(f: &mut F) -> Result<u32, Error> {
     let mut bytes = [0u8; 4];
     f.read_exact(&mut bytes).map_err(|e| {
@@ -277,6 +329,7 @@ pub fn read_node_hash_bytes<F: Read + Seek>(
 }
 
 /// Read the root hash from a TrieFileStorage instance
+#[inline]
 pub fn read_root_hash<T: MarfTrieId>(s: &mut TrieStorageConnection<T>) -> Result<TrieHash, Error> {
     let ptr = s.root_trieptr();
     Ok(s.read_node_hash_bytes(&ptr)?)
@@ -310,7 +363,8 @@ pub fn read_nodetype<F: Read + Seek>(
 ///
 /// X is fixed and determined by the TrieNodeType variant.
 /// Y is variable, but no more than TriePath::len()
-pub fn read_nodetype_at_head<F: Read>(
+#[inline]
+fn read_nodetype_at_head<F: Read>(
     f: &mut F,
     ptr_id: u8,
 ) -> Result<(TrieNodeType, TrieHash), Error> {
