@@ -45,6 +45,7 @@ use blockstack_lib::burnchains::bitcoin::spv;
 use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
 use blockstack_lib::chainstate::burn::ConsensusHash;
 use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
+use blockstack_lib::chainstate::stacks::index::marf::MARFOpenOpts;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::miner::*;
@@ -607,7 +608,8 @@ simulating a miner.
         }
 
         let marf_bhh = StacksBlockId::from_hex(marf_tip).expect("Bad MARF block hash");
-        let mut marf = MARF::from_path(&marf_path).expect("Failed to open MARF");
+        let marf_opts = MARFOpenOpts::default();
+        let mut marf = MARF::from_path(&marf_path, marf_opts).expect("Failed to open MARF");
         let value_opt = marf.get(&marf_bhh, marf_key).expect("Failed to read MARF");
 
         if let Some(value) = value_opt {
@@ -658,7 +660,9 @@ simulating a miner.
         let consensustip = ConsensusHash::from_hex(&argv[4]).unwrap();
         let itip = StacksBlockHeader::make_index_block_hash(&consensustip, &tip);
         let key = &argv[5];
-        let mut marf = MARF::from_path(path).unwrap();
+
+        let marf_opts = MARFOpenOpts::default();
+        let mut marf = MARF::from_path(path, marf_opts).unwrap();
         let res = marf.get(&itip, key).expect("MARF error.");
         match res {
             Some(x) => println!("{}", x),
