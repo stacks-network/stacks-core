@@ -35,6 +35,7 @@ use crate::types::chainstate::{BurnchainHeaderHash, MARFValue, MARF_VALUE_ENCODE
 use crate::types::proof::{ClarityMarfTrieId, TrieHash, TRIEHASH_ENCODED_SIZE};
 
 pub mod bits;
+pub mod cache;
 pub mod marf;
 pub mod node;
 pub mod proofs;
@@ -338,6 +339,7 @@ pub trait BlockMap {
     type TrieId: MarfTrieId;
     fn get_block_hash(&self, id: u32) -> Result<Self::TrieId, Error>;
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&Self::TrieId, Error>;
+    fn is_block_hash_cached(&self, id: u32) -> bool;
 }
 
 #[cfg(test)]
@@ -348,6 +350,9 @@ impl BlockMap for () {
     }
     fn get_block_hash_caching(&mut self, _id: u32) -> Result<&BlockHeaderHash, Error> {
         Err(Error::NotFoundError)
+    }
+    fn is_block_hash_cached(&self, _id: u32) -> bool {
+        false
     }
 }
 
@@ -382,7 +387,10 @@ mod test {
     use super::*;
 
     /// Print out a trie to stderr
-    pub fn dump_trie(s: &mut TrieStorageConnection<BlockHeaderHash>) -> () {
+    pub fn dump_trie<T>(s: &mut TrieStorageConnection<T>)
+    where
+        T: MarfTrieId,
+    {
         test_debug!("\n----- BEGIN TRIE ------");
 
         fn space(cnt: usize) -> String {
@@ -394,31 +402,31 @@ mod test {
         }
 
         let root_ptr = s.root_ptr();
-        let mut frontier: Vec<(TrieNodeType, usize)> = vec![];
-        let (root, _) = Trie::read_root(s).unwrap();
-        frontier.push((root, 0));
+        let mut frontier: Vec<(TrieNodeType, TrieHash, usize)> = vec![];
+        let (root, root_hash) = Trie::read_root(s).unwrap();
+        frontier.push((root, root_hash, 0));
 
         while frontier.len() > 0 {
-            let (next, depth) = frontier.pop().unwrap();
+            let (next, next_hash, depth) = frontier.pop().unwrap();
             let (ptrs, path_len) = match next {
                 TrieNodeType::Leaf(ref leaf_data) => {
-                    test_debug!("{}{:?}", &space(depth), leaf_data);
+                    test_debug!("{}{} {:?}", &space(depth), next_hash, leaf_data);
                     (vec![], leaf_data.path.len())
                 }
                 TrieNodeType::Node4(ref data) => {
-                    test_debug!("{}{:?}", &space(depth), data);
+                    test_debug!("{}{} {:?}", &space(depth), next_hash, data);
                     (data.ptrs.to_vec(), data.path.len())
                 }
                 TrieNodeType::Node16(ref data) => {
-                    test_debug!("{}{:?}", &space(depth), data);
+                    test_debug!("{}{} {:?}", &space(depth), next_hash, data);
                     (data.ptrs.to_vec(), data.path.len())
                 }
                 TrieNodeType::Node48(ref data) => {
-                    test_debug!("{}{:?}", &space(depth), data);
+                    test_debug!("{}{} {:?}", &space(depth), next_hash, data);
                     (data.ptrs.to_vec(), data.path.len())
                 }
                 TrieNodeType::Node256(ref data) => {
-                    test_debug!("{}{:?}", &space(depth), data);
+                    test_debug!("{}{} {:?}", &space(depth), next_hash, data);
                     (data.ptrs.to_vec(), data.path.len())
                 }
             };
@@ -427,8 +435,8 @@ mod test {
                     continue;
                 }
                 if !is_backptr(ptr.id()) {
-                    let (child_node, _) = s.read_nodetype(ptr).unwrap();
-                    frontier.push((child_node, depth + path_len + 1));
+                    let (child_node, child_hash) = s.read_nodetype(ptr).unwrap();
+                    frontier.push((child_node, child_hash, depth + path_len + 1));
                 }
             }
         }
