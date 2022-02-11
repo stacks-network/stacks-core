@@ -2624,7 +2624,7 @@ mod test {
     }
 
     fn http_get_info(http_port: u16) -> RPCPeerInfoData {
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
         request.keep_alive = false;
         let getinfo = HttpRequestType::GetInfo(request);
         let response = http_rpc(http_port, getinfo).unwrap();
@@ -2646,7 +2646,7 @@ mod test {
             block.block_hash(),
             http_port
         );
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
         request.keep_alive = false;
         let post_block = HttpRequestType::PostBlock(request, consensus_hash.clone(), block.clone());
         let response = http_rpc(http_port, post_block).unwrap();
@@ -2670,7 +2670,7 @@ mod test {
             mblock.block_hash(),
             http_port
         );
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
         request.keep_alive = false;
         let tip = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         let post_microblock =

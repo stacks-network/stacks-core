@@ -364,8 +364,11 @@ impl AttachmentsBatchStateContext {
                         reliability_report: reliability_report.clone(),
                         contract_id: contract_id.clone(),
                         pages: pages.clone(),
-                        block_height: self.attachments_batch.block_height,
+                        stacks_block_height: self.attachments_batch.stacks_block_height,
                         index_block_hash: self.attachments_batch.index_block_hash,
+                        canonical_stacks_tip_height: self
+                            .attachments_batch
+                            .canonical_stacks_tip_height,
                     };
                     queue.push(request);
                 }
@@ -447,6 +450,8 @@ impl AttachmentsBatchStateContext {
                 let request = AttachmentRequest {
                     sources,
                     content_hash: content_hash.clone(),
+                    stacks_block_height: self.attachments_batch.stacks_block_height,
+                    canonical_stacks_tip_height: self.attachments_batch.canonical_stacks_tip_height,
                 };
                 enqueued.insert(content_hash);
                 queue.push(request);
@@ -972,9 +977,10 @@ pub struct AttachmentsInventoryRequest {
     pub url: UrlString,
     pub contract_id: QualifiedContractIdentifier,
     pub pages: Vec<u32>,
-    pub block_height: u64,
+    pub stacks_block_height: u64,
     pub index_block_hash: StacksBlockId,
     pub reliability_report: ReliabilityReport,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 impl Hash for AttachmentsInventoryRequest {
@@ -982,7 +988,7 @@ impl Hash for AttachmentsInventoryRequest {
         self.contract_id.hash(state);
         self.pages.hash(state);
         self.index_block_hash.hash(state);
-        self.block_height.hash(state);
+        self.stacks_block_height.hash(state);
     }
 }
 
@@ -1019,7 +1025,7 @@ impl Requestable for AttachmentsInventoryRequest {
             pages_indexes.insert(*page);
         }
         HttpRequestType::GetAttachmentsInv(
-            HttpRequestMetadata::from_host(peer_host),
+            HttpRequestMetadata::from_host(peer_host, self.canonical_stacks_tip_height),
             self.index_block_hash,
             pages_indexes,
         )
@@ -1037,6 +1043,8 @@ impl std::fmt::Display for AttachmentsInventoryRequest {
 pub struct AttachmentRequest {
     pub content_hash: Hash160,
     pub sources: HashMap<UrlString, ReliabilityReport>,
+    pub stacks_block_height: u64,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 impl AttachmentRequest {
@@ -1077,7 +1085,10 @@ impl Requestable for AttachmentRequest {
     }
 
     fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
-        HttpRequestType::GetAttachment(HttpRequestMetadata::from_host(peer_host), self.content_hash)
+        HttpRequestType::GetAttachment(
+            HttpRequestMetadata::from_host(peer_host, self.canonical_stacks_tip_height),
+            self.content_hash,
+        )
     }
 }
 
@@ -1090,7 +1101,8 @@ impl std::fmt::Display for AttachmentRequest {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AttachmentsBatch {
-    pub block_height: u64,
+    pub stacks_block_height: u64,
+    pub canonical_stacks_tip_height: Option<u64>,
     pub index_block_hash: StacksBlockId,
     pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<u32, Hash160>>,
     pub retry_count: u64,
@@ -1100,7 +1112,8 @@ pub struct AttachmentsBatch {
 impl AttachmentsBatch {
     pub fn new() -> AttachmentsBatch {
         AttachmentsBatch {
-            block_height: 0,
+            stacks_block_height: 0,
+            canonical_stacks_tip_height: None,
             index_block_hash: StacksBlockId([0u8; 32]),
             attachments_instances: HashMap::new(),
             retry_count: 0,
@@ -1110,10 +1123,11 @@ impl AttachmentsBatch {
 
     pub fn track_attachment(&mut self, attachment: &AttachmentInstance) {
         if self.attachments_instances.is_empty() {
-            self.block_height = attachment.block_height.clone();
+            self.stacks_block_height = attachment.stacks_block_height.clone();
             self.index_block_hash = attachment.index_block_hash.clone();
+            self.canonical_stacks_tip_height = attachment.canonical_stacks_tip_height;
         } else {
-            if self.block_height != attachment.block_height
+            if self.stacks_block_height != attachment.stacks_block_height
                 || self.index_block_hash != attachment.index_block_hash
             {
                 warn!("Atlas: attempt to add unrelated AttachmentInstance ({}, {}) to AttachmentsBatch", attachment.attachment_index, attachment.index_block_hash);
@@ -1213,7 +1227,7 @@ impl Ord for AttachmentsBatch {
                 self.attachments_instances_count()
                     .cmp(&other.attachments_instances_count())
             })
-            .then_with(|| other.block_height.cmp(&self.block_height))
+            .then_with(|| other.stacks_block_height.cmp(&self.stacks_block_height))
     }
 }
 

@@ -98,10 +98,11 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
             content_hash,
             attachment_index,
             index_block_hash,
-            block_height,
+            stacks_block_height: block_height,
             metadata,
             contract_id,
             tx_id,
+            canonical_stacks_tip_height: None,
         })
     }
 }
@@ -475,7 +476,7 @@ impl AtlasDB {
                 &now as &dyn ToSql,
                 &attachment.index_block_hash as &dyn ToSql,
                 &attachment.attachment_index as &dyn ToSql,
-                &u64_to_sql(attachment.block_height)?,
+                &u64_to_sql(attachment.stacks_block_height)?,
                 &is_available as &dyn ToSql,
                 &attachment.metadata as &dyn ToSql,
                 &attachment.contract_id.to_string() as &dyn ToSql,

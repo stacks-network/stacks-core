@@ -899,7 +899,7 @@ impl Node {
             if let Err(e) = estimator.notify_block(&processed_block, &stacks_epoch.block_limit) {
                 warn!("FeeEstimator failed to process block receipt";
                       "stacks_block" => %processed_block.header.anchored_header.block_hash(),
-                      "stacks_height" => %processed_block.header.block_height,
+                      "stacks_height" => %processed_block.header.stacks_block_height,
                       "error" => %e);
             }
         }
@@ -970,8 +970,11 @@ impl Node {
                                     &event_data.value,
                                     &contract_id,
                                     epoch_receipt.header.index_block_hash(),
-                                    epoch_receipt.header.block_height,
+                                    epoch_receipt.header.stacks_block_height,
                                     receipt.transaction.txid(),
+                                    self.chain_tip
+                                        .as_ref()
+                                        .map(|t| t.metadata.stacks_block_height),
                                 );
                                 if let Some(attachment_instance) = res {
                                     attachments_instances.insert(attachment_instance);

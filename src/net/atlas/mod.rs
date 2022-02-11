@@ -96,11 +96,12 @@ impl Attachment {
 pub struct AttachmentInstance {
     pub content_hash: Hash160,
     pub attachment_index: u32,
-    pub block_height: u64,
+    pub stacks_block_height: u64,
     pub index_block_hash: StacksBlockId,
     pub metadata: String,
     pub contract_id: QualifiedContractIdentifier,
     pub tx_id: Txid,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 impl AttachmentInstance {
@@ -110,8 +111,9 @@ impl AttachmentInstance {
         value: &Value,
         contract_id: &QualifiedContractIdentifier,
         index_block_hash: StacksBlockId,
-        block_height: u64,
+        stacks_block_height: u64,
         tx_id: Txid,
+        canonical_stacks_tip_height: Option<u64>,
     ) -> Option<AttachmentInstance> {
         if let Value::Tuple(ref attachment) = value {
             if let Ok(Value::Tuple(ref attachment_data)) = attachment.get("attachment") {
@@ -145,10 +147,11 @@ impl AttachmentInstance {
                             index_block_hash,
                             content_hash,
                             attachment_index: *attachment_index as u32,
-                            block_height,
+                            stacks_block_height,
                             metadata,
                             contract_id: contract_id.clone(),
                             tx_id,
+                            canonical_stacks_tip_height: canonical_stacks_tip_height,
                         };
                         return Some(instance);
                     }

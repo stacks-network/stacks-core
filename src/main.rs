@@ -516,7 +516,7 @@ simulating a miner.
             } else {
                 "Failed to"
             },
-            parent_header.block_height + 1,
+            parent_header.stacks_block_height + 1,
             StacksBlockHeader::make_index_block_hash(
                 &parent_header.consensus_hash,
                 &parent_header.anchored_header.block_hash()

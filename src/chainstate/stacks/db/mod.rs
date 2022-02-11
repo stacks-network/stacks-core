@@ -139,7 +139,7 @@ pub struct MinerPaymentSchedule {
 pub struct StacksHeaderInfo {
     pub anchored_header: StacksBlockHeader,
     pub microblock_tail: Option<StacksMicroblockHeader>,
-    pub block_height: u64,
+    pub stacks_block_height: u64,
     pub index_root: TrieHash,
     pub consensus_hash: ConsensusHash,
     pub burn_header_hash: BurnchainHeaderHash,
@@ -199,7 +199,7 @@ impl StacksHeaderInfo {
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
-            block_height: 0,
+            stacks_block_height: 0,
             index_root: TrieHash([0u8; 32]),
             burn_header_hash: burnchain_params.first_block_hash.clone(),
             burn_header_height: burnchain_params.first_block_height as u32,
@@ -218,7 +218,7 @@ impl StacksHeaderInfo {
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
-            block_height: 0,
+            stacks_block_height: 0,
             index_root: root_hash,
             burn_header_hash: first_burnchain_block_hash.clone(),
             burn_header_height: first_burnchain_block_height,
@@ -271,7 +271,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header,
             microblock_tail: None,
-            block_height,
+            stacks_block_height: block_height,
             index_root,
             consensus_hash,
             burn_header_hash,
@@ -2138,7 +2138,7 @@ impl StacksChainState {
             anchored_header: new_tip.clone(),
             microblock_tail: microblock_tail_opt,
             index_root: root_hash,
-            block_height: new_tip.total_work.work,
+            stacks_block_height: new_tip.total_work.work,
             consensus_hash: new_consensus_hash.clone(),
             burn_header_hash: new_burn_header_hash.clone(),
             burn_header_height: new_burnchain_height,
