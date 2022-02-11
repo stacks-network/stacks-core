@@ -99,6 +99,8 @@ impl AttachmentsDownloader {
         }
     }
 
+    /// This function executes `AttachmentsBatchStateMachine` for one step.
+    /// It handles initializing and setting the batch to be processed by the machine.
     pub fn run(
         &mut self,
         dns_client: &mut DNSClient,
@@ -148,6 +150,7 @@ impl AttachmentsDownloader {
                     Some(ready_batch) => ready_batch,
                     None => {
                         // unreachable
+                        warn!("BUG: Atlas; no batch ready although logic checking for ready batches found one");
                         return Ok((vec![], vec![]));
                     }
                 };
@@ -404,11 +407,9 @@ impl AttachmentsBatchStateContext {
                 let position_in_page =
                     attachment_index % AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
 
-                let mut peers_urls = vec![];
                 for (peer_url, response) in peers_responses.iter() {
                     // Considering the response, look for the page with the index
                     // we're looking for.
-                    peers_urls.push(format!("{}", peer_url));
                     let index = response
                         .pages
                         .iter()
@@ -556,6 +557,9 @@ impl AttachmentsBatchStateMachine {
         AttachmentsBatchStateMachine::Initialized(ctx)
     }
 
+    /// Runs the state machine one step. The machine transitions through the states sequentially:
+    /// `Initialized`, `DNSLookup` (which invokes a sub state machine, `BatchedDNSLookupsState`),
+    /// `DownloadingAttachmentsInv`, `DownloadingAttachment`, and `Done`.
     fn try_proceed(
         fsm: AttachmentsBatchStateMachine,
         dns_client: &mut DNSClient,
@@ -637,6 +641,8 @@ impl AttachmentsBatchStateMachine {
     }
 }
 
+/// State machine for doing DNS lookups for a list of URLs. The machine progresses linearly through
+/// the states, and advances through calls to `try_proceed`.
 #[derive(Debug)]
 enum BatchedDNSLookupsState {
     Initialized(Vec<UrlString>),
@@ -728,6 +734,7 @@ impl BatchedDNSLookupsState {
                 };
 
                 let mut inflight = 0;
+                let mut completed_lookups = Vec::new();
                 for (url_str, request) in state.parsed_urls.iter() {
                     match dns_client.poll_lookup(&request.host, request.port) {
                         Ok(Some(query_result)) => {
@@ -736,6 +743,7 @@ impl BatchedDNSLookupsState {
                                 match query_result.result {
                                     Ok(addrs) => {
                                         *dns_result = Some(addrs);
+                                        completed_lookups.push(url_str.clone());
                                     }
                                     Err(msg) => {
                                         warn!(
@@ -754,6 +762,16 @@ impl BatchedDNSLookupsState {
                             state.errors.insert(url_str.clone(), e);
                         }
                     }
+                }
+
+                // Remove urls that have successfully been looked up by the DNS client.
+                // If not removed, `poll_lookup` will return an error in successive calls of this
+                // function, when trying to process remaining inflight requests.
+                for url_str in completed_lookups.iter() {
+                    state
+                        .parsed_urls
+                        .remove(url_str)
+                        .expect("BUG: had key but then didn't");
                 }
 
                 if inflight > 0 {
