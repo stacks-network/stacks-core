@@ -25,7 +25,7 @@ use address::c32::c32_address_decode;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
 use burnchains::bitcoin::address::{
-    address_type_to_version_byte, to_b52_version_byte, to_c32_version_byte,
+    address_type_to_version_byte, to_b58_version_byte, to_c32_version_byte,
     version_byte_to_address_type, BitcoinAddress, BitcoinAddressType,
 };
 use burnchains::{Address, BurnchainSigner, PublicKey};
@@ -64,7 +64,7 @@ impl StacksAddressExtensions for StacksAddress {
     }
 
     fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
-        let btc_version = to_b52_version_byte(self.version)
+        let btc_version = to_b58_version_byte(self.version)
             .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
         let btc_addr_type = version_byte_to_address_type(btc_version)
             .expect("BUG: failed to decode Bitcoin version byte")
@@ -103,7 +103,7 @@ impl StacksAddressExtensions for StacksAddress {
 
     fn to_b58(self) -> String {
         let StacksAddress { version, bytes } = self;
-        let btc_version = to_b52_version_byte(version)
+        let btc_version = to_b58_version_byte(version)
             // fallback to version
             .unwrap_or(version);
         let mut all_bytes = vec![btc_version];

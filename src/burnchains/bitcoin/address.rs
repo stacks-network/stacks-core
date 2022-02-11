@@ -102,7 +102,7 @@ pub fn to_c32_version_byte(version: u8) -> Option<u8> {
     }
 }
 
-pub fn to_b52_version_byte(version: u8) -> Option<u8> {
+pub fn to_b58_version_byte(version: u8) -> Option<u8> {
     match version {
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG => Some(ADDRESS_VERSION_MAINNET_SINGLESIG),
         C32_ADDRESS_VERSION_MAINNET_MULTISIG => Some(ADDRESS_VERSION_MAINNET_MULTISIG),
