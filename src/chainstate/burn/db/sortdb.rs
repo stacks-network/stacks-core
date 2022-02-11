@@ -2793,6 +2793,7 @@ impl SortitionDB {
     /// * `burnchain` - a reference to the burnchain information struct
     /// * `from_tip` - tip of the "sortition chain" that is being built on
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
+    /// Returns the parent block snapshot, the parent sortition ID, and the reward set info.
     pub fn get_sortition_info(
         &mut self,
         burn_header: &BurnchainBlockHeader,
@@ -2843,7 +2844,7 @@ impl SortitionDB {
     /// * `parent_sort_id` - the parent sortition ID
     /// * `parent_snapshot` - the parent block snapshot
     /// * `reward_set_info` - computed using `next_pox_info`; contains reward address information
-    ///
+    /// Returns new snapshot and burnchain state transition.
     pub fn evaluate_sortition(
         &mut self,
         burn_header: &BurnchainBlockHeader,

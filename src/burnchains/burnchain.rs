@@ -894,6 +894,8 @@ impl Burnchain {
         let (parent_snapshot, parent_sort_id, reward_set_info) =
             db.get_sortition_info(&header, burnchain, &sortition_tip, None)?;
 
+        // The block is not broadcast to the event observer here since this is a legacy function.
+
         db.evaluate_sortition(
             &header,
             blockstack_txs,
