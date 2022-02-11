@@ -2318,12 +2318,22 @@ pub mod test {
         }
     }
 
-    fn trie_cmp<T: MarfTrieId>(t1: &mut TrieRAM<T>, t2: &mut TrieRAM<T>) -> bool {
+    fn trie_cmp<T: MarfTrieId>(
+        storage: &mut TrieStorageTransaction<T>,
+        t1: &mut TrieRAM<T>,
+        t2: &mut TrieRAM<T>,
+    ) -> bool {
         eprintln!("Begin comparing tries\nTrie 1:");
         trie_print(t1);
         eprintln!("Trie 2");
         trie_print(t2);
         eprintln!("End tries\n");
+
+        let mut t1 = t1.clone();
+        let mut t2 = t2.clone();
+
+        t1.inner_seal(storage).unwrap();
+        t2.inner_seal(storage).unwrap();
 
         let mut frontier_1 = VecDeque::new();
         let mut frontier_2 = VecDeque::new();
@@ -2434,10 +2444,16 @@ pub mod test {
             let mut new_inserted = vec![];
 
             if let Some(mut trie) = last_trie.take() {
-                if let Some((_, ref mut loaded_trie)) =
-                    marf.borrow_storage_backend().data.last_extended
-                {
-                    assert!(trie_cmp(loaded_trie.trie_ram_mut(), &mut trie));
+                let last_extended = marf.borrow_storage_backend().data.last_extended.take();
+                if let Some((bhh, orig_loaded_trie)) = last_extended {
+                    let mut loaded_trie = orig_loaded_trie.clone();
+                    marf.borrow_storage_backend().data.last_extended =
+                        Some((bhh, orig_loaded_trie));
+                    assert!(trie_cmp(
+                        &mut marf.borrow_storage_transaction(),
+                        loaded_trie.trie_ram_mut(),
+                        &mut trie
+                    ));
                 }
             }
 

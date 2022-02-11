@@ -6196,8 +6196,8 @@ pub mod test {
             .unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
-
         let mut microblocks = vec![];
+
         for i in 0..3 {
             // make a contract call
             let tx_contract_call_signed = make_contract_call(
@@ -6207,9 +6207,9 @@ pub mod test {
                 6,
                 2,
             );
-            builder
-                .try_mine_tx(clarity_tx, &tx_contract_call_signed)
-                .unwrap();
+
+            builder.micro_txs.clear();
+            builder.micro_txs.push(tx_contract_call_signed);
 
             // put the contract-call into a microblock
             let microblock = builder.mine_next_microblock().unwrap();
@@ -6294,9 +6294,8 @@ pub mod test {
                 6,
                 0,
             );
-            builder
-                .try_mine_tx(clarity_tx, &tx_contract_call_signed)
-                .unwrap();
+            builder.micro_txs.clear();
+            builder.micro_txs.push(tx_contract_call_signed);
 
             // put the contract-call into a microblock
             let microblock = builder.mine_next_microblock().unwrap();
