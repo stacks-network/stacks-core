@@ -34,7 +34,11 @@ use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
 pub use self::db::AtlasDB;
 pub use self::download::AttachmentsDownloader;
 
+/// Implements AtlasDB and associated API. Stores information about attachments and attachment
+/// instances.
 pub mod db;
+/// Implements `AttachmentsDownloader`, which attempts to download the requested batch of
+/// attachment instances from peers.
 pub mod download;
 
 pub const MAX_ATTACHMENT_INV_PAGES_PER_REQUEST: usize = 8;
