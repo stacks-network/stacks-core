@@ -26,6 +26,7 @@ use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
+use types::chainstate::MessageSignatureList;
 
 fn instantiate_test_db<CM: CostMetric>(m: CM) -> ScalarFeeRateEstimator<CM> {
     let mut path = env::temp_dir();
@@ -84,6 +85,7 @@ fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksEpoch
                 tx_merkle_root: Sha512Trunc256Sum([0; 32]),
                 state_index_root: TrieHash([0; 32]),
                 microblock_pubkey_hash: Hash160([0; 20]),
+                miner_signatures: MessageSignatureList::empty(),
             },
             microblock_tail: None,
             block_height: 1,

@@ -51,6 +51,7 @@ use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 use crate::types::proof::TrieHash;
+use types::chainstate::MessageSignatureList;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
@@ -619,6 +620,7 @@ impl StacksBlockBuilder {
         total_work: &StacksWorkScore,
         proof: &VRFProof,
         pubkh: Hash160,
+        miner_signatures: &MessageSignatureList,
     ) -> StacksBlockBuilder {
         let header = StacksBlockHeader::from_parent_empty(
             &parent_chain_tip.anchored_header,
@@ -626,6 +628,7 @@ impl StacksBlockBuilder {
             total_work,
             proof,
             &pubkh,
+            miner_signatures,
         );
 
         let mut header_bytes = vec![];
@@ -664,6 +667,7 @@ impl StacksBlockBuilder {
         total_work: &StacksWorkScore,
         proof: &VRFProof,
         microblock_privkey: &StacksPrivateKey,
+        miner_signatures: &MessageSignatureList,
     ) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
@@ -675,6 +679,7 @@ impl StacksBlockBuilder {
             total_work,
             proof,
             pubkh,
+            miner_signatures,
         );
         builder.miner_privkey = microblock_privkey.clone();
         builder
@@ -688,6 +693,7 @@ impl StacksBlockBuilder {
         genesis_burn_header_timestamp: u64,
         proof: &VRFProof,
         pubkh: Hash160,
+        miner_signatures: &MessageSignatureList,
     ) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
@@ -707,6 +713,7 @@ impl StacksBlockBuilder {
             &StacksWorkScore::initial(),
             proof,
             pubkh,
+            miner_signatures,
         );
         builder.header.parent_block = EMPTY_MICROBLOCK_PARENT_HASH.clone();
         builder
@@ -720,6 +727,7 @@ impl StacksBlockBuilder {
         genesis_burn_header_timestamp: u64,
         proof: &VRFProof,
         microblock_privkey: &StacksPrivateKey,
+        miner_signatures: &MessageSignatureList,
     ) -> StacksBlockBuilder {
         let mut pubk = StacksPublicKey::from_private(microblock_privkey);
         pubk.set_compressed(true);
@@ -733,6 +741,7 @@ impl StacksBlockBuilder {
             genesis_burn_header_timestamp,
             proof,
             pubkh,
+            miner_signatures,
         );
         builder.miner_privkey = microblock_privkey.clone();
         builder
@@ -1018,6 +1027,10 @@ impl StacksBlockBuilder {
 
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
+
+        self.header
+            .sign(&self.miner_privkey)
+            .expect("Failed to sign block header.");
 
         let block = StacksBlock {
             header: self.header.clone(),
@@ -1393,6 +1406,7 @@ impl StacksBlockBuilder {
         proof: VRFProof,
         total_burn: u64,
         pubkey_hash: Hash160,
+        miner_signatures: &MessageSignatureList,
     ) -> Result<StacksBlockBuilder, Error> {
         let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
             let (first_block_hash_hex, first_block_height, first_block_ts) = if mainnet {
@@ -1417,6 +1431,7 @@ impl StacksBlockBuilder {
                 first_block_ts as u64,
                 &proof,
                 pubkey_hash,
+                &MessageSignatureList::empty(),
             )
         } else {
             // building off an existing stacks block
@@ -1434,6 +1449,7 @@ impl StacksBlockBuilder {
                 &new_work,
                 &proof,
                 pubkey_hash,
+                miner_signatures,
             )
         };
 
@@ -1458,6 +1474,7 @@ impl StacksBlockBuilder {
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64,
                 &proof,
                 pubkey_hash,
+                &MessageSignatureList::empty(),
             )
         } else {
             // building off an existing stacks block
@@ -1475,6 +1492,7 @@ impl StacksBlockBuilder {
                 &new_work,
                 &proof,
                 pubkey_hash,
+                &MessageSignatureList::empty(),
             )
         };
         Ok(builder)
@@ -1523,6 +1541,7 @@ impl StacksBlockBuilder {
             proof,
             total_burn,
             pubkey_hash,
+            &MessageSignatureList::empty(),
         )?;
 
         let ts_start = get_epoch_time_ms();
@@ -2294,6 +2313,7 @@ pub mod test {
                         burn_block.parent_snapshot.burn_header_timestamp,
                         &proof,
                         &miner.next_microblock_privkey(),
+                        &MessageSignatureList::empty(),
                     );
                     (builder, None)
                 }
@@ -2346,6 +2366,7 @@ pub mod test {
                         &new_work,
                         &proof,
                         &miner.next_microblock_privkey(),
+                        &MessageSignatureList::empty(),
                     );
                     (builder, Some(parent_stacks_block_snapshot))
                 }

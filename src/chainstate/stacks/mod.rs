@@ -60,6 +60,7 @@ use crate::types::chainstate::{
 };
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 use crate::types::proof::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use types::chainstate::MessageSignatureList;
 
 pub mod address;
 pub mod auth;
@@ -921,7 +922,7 @@ pub mod test {
             sequence: 0x34,
             prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
-            signature: MessageSignature([2u8; 65]),
+            miner_signatures: MessageSignatureList::from_single(MessageSignature([2u8; 65])),
         };
 
         let mblock_header_2 = StacksMicroblockHeader {
@@ -929,7 +930,7 @@ pub mod test {
             sequence: 0x34,
             prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
-            signature: MessageSignature([3u8; 65]),
+            miner_signatures: MessageSignatureList::from_single(MessageSignature([3u8; 65])),
         };
 
         let spending_conditions = vec![
@@ -1282,6 +1283,7 @@ pub mod test {
             tx_merkle_root: tx_merkle_root,
             state_index_root: TrieHash([8u8; 32]),
             microblock_pubkey_hash: Hash160([9u8; 20]),
+            miner_signatures: MessageSignatureList::empty(),
         };
 
         StacksBlock {

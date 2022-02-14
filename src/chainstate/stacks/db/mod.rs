@@ -509,6 +509,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
         microblock_pubkey_hash TEXT NOT NULL,
         
         block_hash TEXT NOT NULL,                   -- NOTE: this is *not* unique, since two burn chain forks can commit to the same Stacks block.
+        miner_signatures TEXT NOT NULL,
         index_block_hash TEXT UNIQUE NOT NULL,      -- NOTE: this is the hash of the block hash and consensus hash of the burn block that selected it, 
                                                     -- and is guaranteed to be globally unique (across all Stacks forks and across all PoX forks).
                                                     -- index_block_hash is the block hash fed into the MARF index.

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use rusqlite::types::ToSqlOutput;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
@@ -39,6 +40,16 @@ use vm::costs::ExecutionCost;
 use crate::types::chainstate::{
     StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
 };
+use types::chainstate::MessageSignatureList;
+
+impl FromColumn<MessageSignatureList> for MessageSignatureList {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<MessageSignatureList, db_error> {
+        let string_rep: String = row.get_unwrap(column_name);
+        let val: MessageSignatureList = serde_json::from_str(&string_rep)
+            .expect("FAIL: could not deserialize MessageSignatureList");
+        Ok(val)
+    }
+}
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {
@@ -54,6 +65,7 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
         let microblock_pubkey_hash = Hash160::from_column(row, "microblock_pubkey_hash")?;
 
         let block_hash = BlockHeaderHash::from_column(row, "block_hash")?;
+        let miner_signatures = MessageSignatureList::from_column(row, "miner_signatures")?;
 
         let total_burn = total_burn_str
             .parse::<u64>()
@@ -75,6 +87,7 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
             tx_merkle_root,
             state_index_root,
             microblock_pubkey_hash,
+            miner_signatures,
         };
 
         if block_hash != FIRST_STACKS_BLOCK_HASH && header.block_hash() != block_hash {
@@ -91,7 +104,7 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
         let sequence: u16 = row.get_unwrap("sequence");
         let prev_block = BlockHeaderHash::from_column(row, "prev_block")?;
         let tx_merkle_root = Sha512Trunc256Sum::from_column(row, "tx_merkle_root")?;
-        let signature = MessageSignature::from_column(row, "signature")?;
+        let miner_signatures = MessageSignatureList::from_column(row, "signature")?;
 
         let microblock_hash = BlockHeaderHash::from_column(row, "microblock_hash")?;
 
@@ -100,7 +113,7 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
             sequence,
             prev_block,
             tx_merkle_root,
-            signature,
+            miner_signatures,
         };
 
         if microblock_hash != microblock_header.block_hash() {
@@ -166,6 +179,7 @@ impl StacksChainState {
             anchored_block_cost,
             &block_size_str,
             parent_id,
+            &header.miner_signatures,
         ];
 
         tx.execute("INSERT INTO block_headers \
@@ -189,8 +203,10 @@ impl StacksChainState {
                     index_root,
                     cost,
                     block_size,
-                    parent_block_id) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
+                    parent_block_id, \
+                    miner_signatures \
+                    ) \
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())

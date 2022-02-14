@@ -9,7 +9,12 @@ use util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use util::secp256k1::MessageSignature;
 use util::vrf::VRFProof;
 
+use rusqlite::types::ToSqlOutput;
+use rusqlite::Row;
+use rusqlite::ToSql;
 use types::proof::TrieHash;
+use util::db::Error as db_error;
+use util::db::FromColumn;
 
 #[derive(Serialize, Deserialize)]
 pub struct BurnchainHeaderHash(pub [u8; 32]);
@@ -145,6 +150,44 @@ pub struct StacksWorkScore {
     pub work: u64, // in Stacks, "work" == the length of the fork
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// This struct wraps a vector of signatures, especially to allow `impl` on a foreign type.
+pub struct MessageSignatureList {
+    signatures: Vec<MessageSignature>,
+}
+
+impl MessageSignatureList {
+    pub fn empty() -> MessageSignatureList {
+        MessageSignatureList { signatures: vec![] }
+    }
+
+    pub fn from_single(signature: MessageSignature) -> MessageSignatureList {
+        MessageSignatureList {
+            signatures: vec![signature],
+        }
+    }
+
+    pub fn from_vec(signatures: Vec<MessageSignature>) -> MessageSignatureList {
+        MessageSignatureList { signatures }
+    }
+
+    /// Append to internal list of signatures.
+    pub fn add_signature(&mut self, signature: MessageSignature) {
+        self.signatures.push(signature);
+    }
+
+    pub fn signatures(&self) -> &Vec<MessageSignature> {
+        &self.signatures
+    }
+}
+
+impl ToSql for MessageSignatureList {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        let val = serde_json::to_string(self).expect("FAIL: could not serialize ExecutionCost");
+        Ok(ToSqlOutput::from(val))
+    }
+}
+
 /// The header for an on-chain-anchored Stacks block
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StacksBlockHeader {
@@ -157,6 +200,8 @@ pub struct StacksBlockHeader {
     pub tx_merkle_root: Sha512Trunc256Sum,
     pub state_index_root: TrieHash,
     pub microblock_pubkey_hash: Hash160, // we'll get the public key back from the first signature (note that this is the Hash160 of the _compressed_ public key)
+    /// Signatures of miners that have signed this block.
+    pub miner_signatures: MessageSignatureList,
 }
 
 pub struct StacksBlockId(pub [u8; 32]);
@@ -173,7 +218,8 @@ pub struct StacksMicroblockHeader {
     pub sequence: u16,
     pub prev_block: BlockHeaderHash,
     pub tx_merkle_root: Sha512Trunc256Sum,
-    pub signature: MessageSignature,
+    /// Signatures of miners that have signed this block.
+    pub miner_signatures: MessageSignatureList,
 }
 
 /// Structure that holds the actual data in a MARF leaf node.

@@ -73,6 +73,7 @@ use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
 use crate::util::db::table_exists;
+use types::chainstate::MessageSignatureList;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
@@ -1411,6 +1412,7 @@ mod tests {
     };
 
     use super::MemPoolDB;
+    use types::chainstate::MessageSignatureList;
 
     const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                         (define-public (bar (x uint)) (ok x))";
@@ -1447,6 +1449,7 @@ mod tests {
             tx_merkle_root: Sha512Trunc256Sum::empty(),
             state_index_root: TrieHash::from_empty_data(),
             microblock_pubkey_hash: Hash160([0; 20]),
+            miner_signatures: MessageSignatureList::empty(),
         };
 
         let block_hash = anchored_header.block_hash();
