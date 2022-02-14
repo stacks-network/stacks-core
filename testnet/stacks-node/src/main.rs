@@ -26,16 +26,14 @@ pub mod config;
 pub mod event_dispatcher;
 pub mod genesis_data;
 pub mod keychain;
-pub mod node;
 pub mod neon_node;
+pub mod node;
 pub mod operations;
 pub mod run_loop;
 pub mod syncctl;
 pub mod tenure;
 
-pub use self::burnchains::{
-    BurnchainController, BurnchainTip,
-};
+pub use self::burnchains::{BurnchainController, BurnchainTip};
 pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
@@ -151,8 +149,7 @@ fn main() {
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
 
-    if conf.burnchain.mode == "mocknet"
-    {
+    if conf.burnchain.mode == "mocknet" {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(None, mine_start.unwrap_or(0));
     } else {

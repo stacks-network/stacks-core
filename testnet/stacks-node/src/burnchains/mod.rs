@@ -12,6 +12,12 @@ use stacks::chainstate::burn::BlockSnapshot;
 
 use stacks::core::StacksEpoch;
 
+/// This module implements a burnchain controller that
+/// simulates the L1 chain. This controller accepts miner
+/// commitments, and uses them to produce the next simulated
+/// burnchain block.
+pub mod mock_events;
+
 #[derive(Debug)]
 pub enum Error {
     CoordinatorClosed,
@@ -56,7 +62,10 @@ pub trait BurnchainController {
     /// Ask the burnchain controller to wait until a given sortition has been processed
     /// or if no target height is provided, wait until the sortition height has reached the
     /// burnchain height.
-    fn wait_for_sortitions(&mut self, target_sortition_height: Option<u64>) -> Result<BurnchainTip, Error>;
+    fn wait_for_sortitions(
+        &mut self,
+        target_sortition_height: Option<u64>,
+    ) -> Result<BurnchainTip, Error>;
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, blocks_count: u64);
@@ -65,16 +74,16 @@ pub trait BurnchainController {
 #[derive(Debug, Clone)]
 pub struct BurnchainTip {
     pub block_snapshot: BlockSnapshot,
-    pub state_transition: BurnchainStateTransition,
     pub received_at: Instant,
 }
-
 
 pub struct PanicController();
 
 impl BurnchainController for PanicController {
-    fn start(&mut self, _target_block_height_opt: Option<u64>)
-        -> Result<(BurnchainTip, u64), Error> {
+    fn start(
+        &mut self,
+        _target_block_height_opt: Option<u64>,
+    ) -> Result<(BurnchainTip, u64), Error> {
         panic!()
     }
 
@@ -87,7 +96,10 @@ impl BurnchainController for PanicController {
         panic!()
     }
 
-    fn sync(&mut self, _target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error> {
+    fn sync(
+        &mut self,
+        _target_block_height_opt: Option<u64>,
+    ) -> Result<(BurnchainTip, u64), Error> {
         panic!()
     }
 
@@ -124,7 +136,10 @@ impl BurnchainController for PanicController {
         panic!()
     }
 
-    fn wait_for_sortitions(&mut self, _target_sortition_height: Option<u64>) -> Result<BurnchainTip, Error> {
+    fn wait_for_sortitions(
+        &mut self,
+        _target_sortition_height: Option<u64>,
+    ) -> Result<BurnchainTip, Error> {
         panic!()
     }
 }

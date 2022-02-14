@@ -1,16 +1,13 @@
 use std::env;
 
+use stacks::chainstate::stacks::db::{
+    ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName, ChainstateBNSNamespace,
+    StacksHeaderInfo,
+};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::StacksBlock;
-use stacks::types::chainstate::TrieHash;
 use stacks::types::chainstate::BurnchainHeaderHash;
-use stacks::{
-    chainstate::stacks::db::{
-        ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
-        ChainstateBNSNamespace,
-        StacksHeaderInfo,
-    },
-};
+use stacks::types::chainstate::TrieHash;
 
 use crate::genesis_data::USE_TEST_GENESIS_CHAINSTATE;
 use crate::Config;

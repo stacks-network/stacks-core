@@ -1,18 +1,18 @@
 use std::cmp;
 use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
-use std::convert::{TryFrom};
+use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::{thread, thread::JoinHandle};
 
+use crate::burnchains::BurnchainController;
+use crate::burnchains::PanicController;
 use stacks::burnchains::{BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp,
-};
+use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -43,11 +43,7 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
 };
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress,
-};
-use crate::burnchains::BurnchainController;
-use crate::burnchains::PanicController;
+use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress};
 use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
@@ -57,9 +53,9 @@ use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 use stacks::{burnchains::BurnchainSigner, chainstate::stacks::db::StacksHeaderInfo};
 
+use crate::node::ChainTip;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
-use crate::node::ChainTip;
 
 use super::{BurnchainTip, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
@@ -242,9 +238,7 @@ fn inner_generate_poison_microblock_tx(
 }
 
 /// Constructs and returns a LeaderBlockCommitOp out of the provided params
-fn inner_generate_block_commit_op(
-    block_header_hash: BlockHeaderHash,
-) -> BlockstackOperationType {
+fn inner_generate_block_commit_op(block_header_hash: BlockHeaderHash) -> BlockstackOperationType {
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
         block_header_hash,
         txid: Txid([0; 32]),
@@ -1839,9 +1833,7 @@ impl StacksNode {
         );
 
         // let's commit
-        let op = inner_generate_block_commit_op(
-            anchored_block.block_hash(),
-        );
+        let op = inner_generate_block_commit_op(anchored_block.block_hash());
 
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
@@ -1943,16 +1935,14 @@ impl StacksNode {
             if op.txid == block_snapshot.winning_block_txid {
                 info!(
                     "Received burnchain block #{} including block_commit_op (winning) ({})",
-                    block_height,
-                    &op.block_header_hash
+                    block_height, &op.block_header_hash
                 );
                 last_sortitioned_block = Some(block_snapshot.clone());
             } else {
                 if self.is_miner {
                     info!(
                         "Received burnchain block #{} including block_commit_op ({})",
-                        block_height,
-                        &op.block_header_hash
+                        block_height, &op.block_header_hash
                     );
                 }
             }
