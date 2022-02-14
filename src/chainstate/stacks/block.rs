@@ -725,18 +725,17 @@ impl StacksMicroblockHeader {
 
         for pubkh in &pubkh_vec {
             if *pubkh == *pubk_hash {
-        return Ok(());
+                return Ok(());
             }
         }
-                info!(
-                    "Failed to verify miner_signatures: public key did not recover to hash {:?}",
-                    &pubkh_vec
-                );
-                return Err(net_error::VerifyingError(format!(
-                    "Failed to verify miner_signatures: public key did not recover to expected hash {:?}",
-                    &pubkh_vec
-                )));
-
+        info!(
+            "Failed to verify miner_signatures: public key did not recover to hash {:?}",
+            &pubkh_vec
+        );
+        return Err(net_error::VerifyingError(format!(
+            "Failed to verify miner_signatures: public key did not recover to expected hash {:?}",
+            &pubkh_vec
+        )));
     }
 
     pub fn block_hash(&self) -> BlockHeaderHash {
@@ -1013,10 +1012,9 @@ mod test {
             0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
             0x03, 0x03, 0x03, 0x03, // public key hash buf
             0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
-            0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
-            // signature list (empty)
-            0x00, 0x00, 0x00, 0x00
-                 ];
+            0x04, 0x04, 0x04, 0x04, 0x04, 0x04, // signature list (empty)
+            0x00, 0x00, 0x00, 0x00,
+        ];
 
         check_codec_and_corruption::<StacksBlockHeader>(&header, &header_bytes);
     }

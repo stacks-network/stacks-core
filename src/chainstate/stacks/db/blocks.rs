@@ -7405,8 +7405,7 @@ pub mod test {
             let mut new_child_block_header = child_block_header.clone();
 
             for i in 0..broken_microblocks.len() {
-                broken_microblocks[i].header.miner_signatures =
-                    MessageSignatureList::empty();
+                broken_microblocks[i].header.miner_signatures = MessageSignatureList::empty();
                 broken_microblocks[i].sign(&privk).unwrap();
                 if i + 1 < broken_microblocks.len() {
                     if i != num_mblocks / 2 {
@@ -7453,8 +7452,7 @@ pub mod test {
             let mut conflicting_microblock = microblocks[0].clone();
 
             for i in 0..broken_microblocks.len() {
-                broken_microblocks[i].header.miner_signatures =
-                    MessageSignatureList::empty();
+                broken_microblocks[i].header.miner_signatures = MessageSignatureList::empty();
                 broken_microblocks[i].sign(&privk).unwrap();
                 if i + 1 < broken_microblocks.len() {
                     broken_microblocks[i + 1].header.prev_block =
