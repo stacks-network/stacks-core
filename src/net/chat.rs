@@ -86,7 +86,9 @@ impl Default for NeighborHealthPoint {
 pub const NUM_HEALTH_POINTS: usize = 32;
 pub const HEALTH_POINT_LIFETIME: u64 = 12 * 3600; // 12 hours
 
+/// The max number of data points to gather for block/microblock/transaction push messages from a neighbor
 pub const NUM_BLOCK_POINTS: usize = 32;
+/// The number of seconds a block data point is valid for the purpose of computing stats
 pub const BLOCK_POINT_LIFETIME: u64 = 600;
 
 pub const MAX_PEER_HEARTBEAT_INTERVAL: usize = 3600 * 6; // 6 hours
@@ -134,9 +136,9 @@ pub struct NeighborStats {
     pub msgs_err: u64,
     pub healthpoints: VecDeque<NeighborHealthPoint>,
     pub msg_rx_counts: HashMap<StacksMessageID, u64>,
-    pub block_push_rx_counts: VecDeque<(u64, u64)>, // (count, num bytes)
-    pub microblocks_push_rx_counts: VecDeque<(u64, u64)>, // (count, num bytes)
-    pub transaction_push_rx_counts: VecDeque<(u64, u64)>, // (count, num bytes)
+    pub block_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
+    pub microblocks_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
+    pub transaction_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
     pub relayed_messages: HashMap<NeighborAddress, RelayStats>,
 }
 

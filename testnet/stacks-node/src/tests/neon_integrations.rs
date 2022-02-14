@@ -4131,7 +4131,7 @@ fn block_limit_hit_integration_test() {
     // included in first block
     let tx_4 = make_stacks_transfer(&third_spender_sk, 0, 180, &PrincipalData::from(addr), 100);
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),
@@ -4718,7 +4718,7 @@ fn microblock_large_tx_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // Check that the microblock contains the first tx.
-    let mut microblock_events = test_observer::get_microblocks();
+    let microblock_events = test_observer::get_microblocks();
     assert!(microblock_events.len() >= 1);
 
     let microblock = microblock_events[0].clone();

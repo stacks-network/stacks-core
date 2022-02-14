@@ -739,8 +739,12 @@ impl<
                                                 &event_data.value,
                                                 &contract_id,
                                                 block_receipt.header.index_block_hash(),
-                                                block_receipt.header.block_height,
+                                                block_receipt.header.stacks_block_height,
                                                 receipt.transaction.txid(),
+                                                Some(
+                                                    new_canonical_block_snapshot
+                                                        .canonical_stacks_tip_height,
+                                                ),
                                             );
                                             if let Some(attachment_instance) = res {
                                                 attachments_instances.insert(attachment_instance);
@@ -788,7 +792,7 @@ impl<
                         {
                             warn!("FeeEstimator failed to process block receipt";
                                   "stacks_block" => %block_hash,
-                                  "stacks_height" => %block_receipt.header.block_height,
+                                  "stacks_height" => %block_receipt.header.stacks_block_height,
                                   "error" => %e);
                         }
                     }

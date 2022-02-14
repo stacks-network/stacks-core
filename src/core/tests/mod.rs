@@ -135,7 +135,7 @@ fn make_block(
         anchored_header,
         microblock_tail: None,
         index_root: TrieHash::from_empty_data(),
-        block_height,
+        stacks_block_height: block_height,
         consensus_hash: block_consensus.clone(),
         burn_header_hash: BurnchainHeaderHash([0; 32]),
         burn_header_height: burn_height as u32,

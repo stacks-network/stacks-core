@@ -3338,7 +3338,10 @@ impl PeerNetwork {
     ) -> Result<(bool, Option<usize>), net_error> {
         let sync_data = mempool.make_mempool_sync_data()?;
         let request = HttpRequestType::MemPoolQuery(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(addr)),
+            HttpRequestMetadata::from_host(
+                PeerHost::from_socketaddr(addr),
+                Some(self.burnchain_tip.canonical_stacks_tip_height),
+            ),
             sync_data,
             Some(page_id),
         );
