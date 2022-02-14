@@ -43,7 +43,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use url;
 
-use crate::util::boot::boot_code_tx_auth;
+use crate::util_lib::boot::boot_code_tx_auth;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::coordinator::Error as coordinator_error;
@@ -62,9 +62,6 @@ use core::mempool::*;
 use core::POX_REWARD_CYCLE_LENGTH;
 use net::atlas::{Attachment, AttachmentInstance};
 use net::http::HttpReservedHeader;
-use util::bloom::{BloomFilter, BloomNodeHasher};
-use util::db::DBConn;
-use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::hash::Hash160;
 use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
@@ -74,20 +71,23 @@ use util::log;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::Secp256k1PublicKey;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-use util::strings::UrlString;
+use util_lib::bloom::{BloomFilter, BloomNodeHasher};
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
+use util_lib::strings::UrlString;
 use vm::types::TraitIdentifier;
 use vm::{
     analysis::contract_interface_builder::ContractInterface, types::PrincipalData, ClarityName,
     ContractName, Value,
 };
 
+use chainstate::stacks::StacksBlockHeader;
+
 use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::PoxId;
-use crate::types::chainstate::{
-    BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
-};
+use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use crate::types::StacksPublicKeyBuffer;
 use crate::util::hash::Sha256Sum;
 use crate::vm::costs::ExecutionCost;
@@ -747,10 +747,13 @@ pub struct PoxInvData {
     pub pox_bitvec: Vec<u8>, // a bit will be '1' if the node knows for sure the status of its reward cycle's anchor block; 0 if not.
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlocksDatum(pub ConsensusHash, pub StacksBlock);
+
 /// Blocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksData {
-    pub blocks: Vec<(ConsensusHash, StacksBlock)>,
+    pub blocks: Vec<BlocksDatum>,
 }
 
 /// Microblocks pushed
@@ -1733,17 +1736,8 @@ pub const GETPOXINV_MAX_BITLEN: u64 = 8;
 // message.
 pub const BLOCKS_PUSHED_MAX: u32 = 32;
 
-impl_byte_array_message_codec!(ConsensusHash, 20);
-impl_byte_array_message_codec!(Hash160, 20);
-impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
-impl_byte_array_message_codec!(BlockHeaderHash, 32);
-impl_byte_array_message_codec!(StacksBlockId, 32);
-impl_byte_array_message_codec!(MessageSignature, 65);
 impl_byte_array_message_codec!(PeerAddress, 16);
-impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
 impl_byte_array_message_codec!(Txid, 32);
-
-impl_byte_array_serde!(ConsensusHash);
 
 /// neighbor identifier
 #[derive(Clone, Eq, PartialOrd, Ord)]
@@ -2050,6 +2044,7 @@ pub mod test {
     use std::ops::Deref;
     use std::ops::DerefMut;
     use std::sync::mpsc::sync_channel;
+    use std::sync::Mutex;
     use std::thread;
 
     use mio;
@@ -2093,23 +2088,21 @@ pub mod test {
     use util::get_epoch_time_secs;
     use util::hash::*;
     use util::secp256k1::*;
-    use util::strings::*;
     use util::uint::*;
     use util::vrf::*;
+    use util_lib::strings::*;
     use vm::costs::ExecutionCost;
     use vm::database::STXBalance;
     use vm::types::*;
 
-    use crate::chainstate::stacks::boot::test::get_parent_tip;
-    use crate::codec::StacksMessageCodec;
-    use crate::types::chainstate::StacksMicroblockHeader;
-    use crate::types::proof::TrieHash;
-    use crate::util::boot::boot_code_test_addr;
-
     use super::*;
-    use chainstate::stacks::db::accounts::MinerReward;
-    use chainstate::stacks::events::StacksTransactionReceipt;
-    use std::sync::Mutex;
+    use chainstate::stacks::boot::test::get_parent_tip;
+    use chainstate::stacks::StacksMicroblockHeader;
+    use chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt};
+    use core::StacksEpochExtension;
+    use stacks_common::codec::StacksMessageCodec;
+    use stacks_common::types::chainstate::TrieHash;
+    use util_lib::boot::boot_code_test_addr;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

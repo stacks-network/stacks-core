@@ -45,17 +45,19 @@ use chainstate::stacks::index::node::{
 };
 use chainstate::stacks::index::Error;
 use chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
-use util::db::sql_pragma;
-use util::db::sqlite_open;
-use util::db::tx_begin_immediate;
-use util::db::tx_busy_handler;
-use util::db::Error as db_error;
-use util::db::SQLITE_MMAP_SIZE;
 use util::log;
+use util_lib::db::sql_pragma;
+use util_lib::db::sqlite_open;
+use util_lib::db::tx_begin_immediate;
+use util_lib::db::tx_busy_handler;
+use util_lib::db::Error as db_error;
+use util_lib::db::SQLITE_MMAP_SIZE;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use crate::types::proof::{ClarityMarfTrieId, TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
+use chainstate::stacks::index::TrieHashExtension;
+use chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 pub fn ftell<F: Seek>(f: &mut F) -> Result<u64, Error> {
     f.seek(SeekFrom::Current(0)).map_err(Error::IOError)

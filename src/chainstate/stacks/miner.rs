@@ -50,10 +50,14 @@ use vm::database::BurnStateDB;
 
 use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
-use crate::types::proof::TrieHash;
+use chainstate::stacks::address::StacksAddressExtensions;
 use chainstate::stacks::db::blocks::SetupBlockResult;
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
+use vm::clarity::TransactionConnection;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
@@ -2181,15 +2185,15 @@ pub mod test {
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
     use net::test::*;
-    use util::db::Error as db_error;
     use util::sleep_ms;
     use util::vrf::VRFProof;
+    use util_lib::db::Error as db_error;
     use vm::types::*;
 
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;
     use crate::types::chainstate::SortitionId;
-    use crate::util::boot::boot_code_addr;
+    use crate::util_lib::boot::boot_code_addr;
 
     use super::*;
 

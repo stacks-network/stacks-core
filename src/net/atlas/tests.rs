@@ -19,8 +19,6 @@ use std::convert::TryFrom;
 use std::thread;
 use std::time;
 
-use crate::types::chainstate::StacksBlockId;
-use crate::util::boot::boot_code_id;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::StacksChainState;
@@ -29,11 +27,12 @@ use net::{
     AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
     PeerHost, Requestable,
 };
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
 use util::hash::Hash160;
-use vm::representations::UrlString;
+use util_lib::boot::boot_code_id;
+use util_lib::strings::UrlString;
 use vm::types::QualifiedContractIdentifier;
-
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
 
 use super::download::{
     AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,

@@ -90,7 +90,8 @@ use crate::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
 };
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId};
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use chainstate::stacks::StacksBlockHeader;
 
 use super::FeeRateEstimateRequestBody;
 
@@ -5000,8 +5001,7 @@ mod test {
     use util::hash::MerkleTree;
     use util::hash::Sha512Trunc256Sum;
 
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::StacksBlockHeader;
+    use stacks_common::types::chainstate::StacksAddress;
 
     use super::*;
 

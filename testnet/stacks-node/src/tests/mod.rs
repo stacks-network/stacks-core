@@ -3,23 +3,24 @@ use std::convert::TryInto;
 use rand::RngCore;
 
 use stacks::chainstate::burn::ConsensusHash;
-use stacks::chainstate::stacks::events::{STXEventType, StacksTransactionEvent};
+use stacks::chainstate::stacks::events::StacksTransactionEvent;
 use stacks::chainstate::stacks::{
     db::StacksChainState, miner::BlockBuilderSettings, miner::StacksMicroblockBuilder,
-    CoinbasePayload, StacksBlock, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    CoinbasePayload, StacksBlock, StacksMicroblock, StacksMicroblockHeader, StacksPrivateKey,
+    StacksPublicKey, StacksTransaction, StacksTransactionSigner, TokenTransferMemo,
+    TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
+    TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
+    TransactionVersion, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::core::CHAIN_ID_TESTNET;
-use stacks::types::chainstate::{StacksAddress, StacksMicroblockHeader};
+use stacks::types::chainstate::StacksAddress;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::hex_bytes;
-use stacks::util::strings::StacksString;
+use stacks::util_lib::strings::StacksString;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::database::BurnStateDB;
+use stacks::vm::events::STXEventType;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
 use stacks::{address::AddressHashMode, util::hash::to_hex};

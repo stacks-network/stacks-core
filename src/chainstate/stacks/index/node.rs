@@ -29,14 +29,16 @@ use chainstate::stacks::index::bits::{
     get_path_byte_len, get_ptrs_byte_len, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
 };
 use chainstate::stacks::index::Error;
-use chainstate::stacks::index::{slice_partialeq, BlockMap, MarfTrieId, TrieHasher};
+use chainstate::stacks::index::{BlockMap, MarfTrieId, TrieHasher};
 use util::hash::to_hex;
-use util::log;
+use util::slice_partialeq;
 
 use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use crate::types::chainstate::{BlockHeaderHash, MARFValue, MARF_VALUE_ENCODED_SIZE};
-use crate::types::proof::{ClarityMarfTrieId, TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
+use chainstate::stacks::index::TrieHashExtension;
+use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieLeaf, MARF_VALUE_ENCODED_SIZE};
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CursorError {
@@ -618,6 +620,17 @@ impl TrieLeaf {
     }
 }
 
+impl fmt::Debug for TrieLeaf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "TrieLeaf(path={} data={})",
+            &to_hex(&self.path),
+            &self.data.to_hex()
+        )
+    }
+}
+
 impl StacksMessageCodec for TrieLeaf {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         self.path.consensus_serialize(fd)?;
@@ -1144,12 +1157,6 @@ impl TrieNode for TrieNode256 {
 
     fn as_trie_node_type(&self) -> TrieNodeType {
         TrieNodeType::Node256(Box::new(self.clone()))
-    }
-}
-
-impl TrieLeaf {
-    pub fn write_consensus_bytes_leaf<W: Write>(&self, w: &mut W) -> Result<(), Error> {
-        self.write_bytes(w)
     }
 }
 

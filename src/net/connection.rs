@@ -1414,7 +1414,7 @@ mod test {
     use chainstate::stacks::test::make_codec_test_block;
     use net::http::*;
 
-    use util::test::*;
+    use util_lib::test::*;
 
     fn test_connection_relay_producer_consumer<P, F>(
         mut protocol: P,

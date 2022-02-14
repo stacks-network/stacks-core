@@ -20,13 +20,15 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 
-use deps::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
-use deps::bitcoin::blockdata::constants::genesis_block;
-use deps::bitcoin::network::constants::Network;
-use deps::bitcoin::network::encodable::VarInt;
-use deps::bitcoin::network::message as btc_message;
-use deps::bitcoin::network::serialize::{deserialize, serialize, BitcoinHash};
-use deps::bitcoin::util::hash::Sha256dHash;
+use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
+use stacks_common::deps_common::bitcoin::blockdata::constants::genesis_block;
+use stacks_common::deps_common::bitcoin::network::constants::Network;
+use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
+use stacks_common::deps_common::bitcoin::network::message as btc_message;
+use stacks_common::deps_common::bitcoin::network::serialize::{
+    deserialize, serialize, BitcoinHash,
+};
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
 use util::uint::Uint256;
 
@@ -41,13 +43,13 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
-use util::db::{
-    query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn,
-    DBTx, Error as db_error, FromColumn, FromRow,
-};
 use util::get_epoch_time_secs;
 use util::hash::{hex_bytes, to_hex};
 use util::log;
+use util_lib::db::{
+    query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn,
+    DBTx, Error as db_error, FromColumn, FromRow,
+};
 
 const BLOCK_HEADER_SIZE: u64 = 81;
 
@@ -93,24 +95,9 @@ pub struct SpvClient {
     headers_db: DBConn,
 }
 
-impl FromSql for Sha256dHash {
-    fn column_result(value: ValueRef) -> FromSqlResult<Sha256dHash> {
-        let hex_str = value.as_str()?;
-        let hash = Sha256dHash::from_hex(hex_str).map_err(|_e| FromSqlError::InvalidType)?;
-        Ok(hash)
-    }
-}
-
 impl FromColumn<Sha256dHash> for Sha256dHash {
     fn from_column(row: &Row, column_name: &str) -> Result<Sha256dHash, db_error> {
         Ok(row.get_unwrap::<_, Self>(column_name))
-    }
-}
-
-impl ToSql for Sha256dHash {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let hex_str = self.be_hex_string();
-        Ok(hex_str.into())
     }
 }
 
@@ -950,9 +937,11 @@ mod test {
 
     use std::fs::*;
 
-    use deps::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
-    use deps::bitcoin::network::serialize::{deserialize, serialize, BitcoinHash};
-    use deps::bitcoin::util::hash::Sha256dHash;
+    use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
+    use stacks_common::deps_common::bitcoin::network::serialize::{
+        deserialize, serialize, BitcoinHash,
+    };
+    use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
     use util::log;
 
