@@ -1001,22 +1001,6 @@ impl StacksChainState {
         )
     }
 
-    fn has_blocks_with_microblock_pubkh(
-        block_conn: &DBConn,
-        pubkey_hashes: &Vec<Hash160>,
-        minimum_block_height: i64,
-    ) -> bool {
-        // REVIEWER QUESTION: What should this be?
-        let pubkey_hash = pubkey_hashes.last().unwrap();
-        let sql = "SELECT 1 FROM staging_blocks WHERE microblock_pubkey_hash = ?1 AND height >= ?2";
-        let args: &[&dyn ToSql] = &[pubkey_hash, &minimum_block_height];
-        block_conn
-            .query_row(sql, args, |_r| Ok(()))
-            .optional()
-            .expect("DB CORRUPTION: block header DB corrupted!")
-            .is_some()
-    }
-
     /// Load up a preprocessed (queued) but still unprocessed block.
     pub fn load_staging_block(
         block_conn: &DBConn,
@@ -5336,25 +5320,10 @@ impl StacksChainState {
                 }
             };
 
-        let has_microblock_pubk = match tx.payload {
-            TransactionPayload::PoisonMicroblock(ref microblock_header_1, _) => {
-                let microblock_pkh_1 = microblock_header_1
-                    .check_recover_pubkey()
-                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
-
-                StacksChainState::has_blocks_with_microblock_pubkh(
-                    &self.db(),
-                    &microblock_pkh_1,
-                    staging_height as i64,
-                )
-            }
-            _ => false, // unused
-        };
-
         let current_tip =
             StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
         let res = match self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
-            StacksChainState::can_include_tx(conn, &conf, has_microblock_pubk, tx, tx_size)
+            StacksChainState::can_include_tx(conn, &conf, true, tx, tx_size)
         }) {
             Some(r) => r,
             None => Err(MemPoolRejection::NoSuchChainTip(
@@ -5377,7 +5346,7 @@ impl StacksChainState {
                         StacksChainState::can_include_tx(
                             conn,
                             &conf,
-                            has_microblock_pubk,
+                            true,
                             tx,
                             tx_size,
                         )
