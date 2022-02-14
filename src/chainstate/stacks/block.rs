@@ -620,15 +620,13 @@ impl StacksMessageCodec for MessageSignatureList {
         let signatures: Vec<MessageSignature> = read_next(fd)?;
 
         // signature must be well-formed
-        let _ = signatures.iter().map(|signature| {
-            // DO NOT SUBMIT: fix this
-            signature
+        for signature in &signatures {
+            let _ = signature
                 .to_secp256k1_recoverable()
                 .ok_or(codec_error::DeserializeError(
                     "Failed to parse signature".to_string(),
-                ))
-                .expect("Fix this")
-        });
+                ))?;
+        }
 
         Ok(MessageSignatureList::from_vec(signatures))
     }
