@@ -42,15 +42,6 @@ use crate::types::chainstate::{
 };
 use types::chainstate::MessageSignatureList;
 
-impl FromColumn<MessageSignatureList> for MessageSignatureList {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<MessageSignatureList, db_error> {
-        let string_rep: String = row.get_unwrap(column_name);
-        let val: MessageSignatureList = serde_json::from_str(&string_rep)
-            .expect("FAIL: could not deserialize MessageSignatureList");
-        Ok(val)
-    }
-}
-
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {
         let version: u8 = row.get_unwrap("version");
