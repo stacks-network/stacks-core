@@ -415,8 +415,6 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS block_arrivals ON snapshots(arrival_index,burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS arrival_indexes ON snapshots(arrival_index);",
     "CREATE INDEX IF NOT EXISTS index_leader_keys_sortition_id_block_height_vtxindex ON leader_keys(sortition_id,block_height,vtxindex);",
-    "CREATE INDEX IF NOT EXISTS index_block_commits_sortition_id_vtxindex ON block_commits(sortition_id,vtxindex);",
-    "CREATE INDEX IF NOT EXISTS index_block_commits_sortition_id_block_height_vtxindex ON block_commits(sortition_id,block_height,vtxindex);",
     "CREATE INDEX IF NOT EXISTS index_user_burn_support_txid ON user_burn_support(txid);",
     "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_vtxindex ON user_burn_support(sortition_id,vtxindex);",
     "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_hash_160_key_vtxindex_key_block_ptr_vtxindex ON user_burn_support(sortition_id,block_header_hash_160,key_vtxindex,key_block_ptr,vtxindex ASC);",
