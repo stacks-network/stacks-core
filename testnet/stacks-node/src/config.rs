@@ -14,6 +14,8 @@ use stacks::core::StacksEpoch;
 use stacks::core::{
     CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
+use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
+use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use stacks::cost_estimates::metrics::CostMetric;
 use stacks::cost_estimates::metrics::ProportionalDotProduct;
@@ -505,6 +507,9 @@ impl Config {
                 subsequent_attempt_time_ms: miner
                     .subsequent_attempt_time_ms
                     .unwrap_or(miner_default_config.subsequent_attempt_time_ms),
+                microblock_attempt_time_ms: miner
+                    .microblock_attempt_time_ms
+                    .unwrap_or(miner_default_config.microblock_attempt_time_ms),
                 probability_pick_no_estimate_tx: miner
                     .probability_pick_no_estimate_tx
                     .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),
@@ -713,9 +718,6 @@ impl Config {
                     inv_sync_interval: opts
                         .inv_sync_interval
                         .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval),
-                    full_inv_sync_interval: opts.full_inv_sync_interval.unwrap_or_else(|| {
-                        HELIUM_DEFAULT_CONNECTION_OPTIONS.full_inv_sync_interval
-                    }),
                     inv_reward_cycles: opts.inv_reward_cycles.unwrap_or_else(|| {
                         if burnchain.mode == "mainnet" {
                             HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_reward_cycles
@@ -771,6 +773,17 @@ impl Config {
         let mut path = PathBuf::from(&self.node.working_dir);
         path.push(&self.burnchain.mode);
         path.push("chainstate");
+        path
+    }
+
+    /// Returns the path `{get_chainstate_path()}/estimates`, and ensures it exists.
+    pub fn get_estimates_path(&self) -> PathBuf {
+        let mut path = self.get_chainstate_path();
+        path.push("estimates");
+        fs::create_dir_all(&path).expect(&format!(
+            "Failed to create `estimates` directory at {}",
+            path.to_string_lossy()
+        ));
         path
     }
 
@@ -848,9 +861,15 @@ impl Config {
         self.events_observers.len() > 0
     }
 
-    pub fn make_block_builder_settings(&self, attempt: u64) -> BlockBuilderSettings {
+    pub fn make_block_builder_settings(
+        &self,
+        attempt: u64,
+        microblocks: bool,
+    ) -> BlockBuilderSettings {
         BlockBuilderSettings {
-            max_miner_time_ms: if attempt <= 1 {
+            max_miner_time_ms: if microblocks {
+                self.miner.microblock_attempt_time_ms
+            } else if attempt <= 1 {
                 // first attempt to mine a block -- do so right away
                 self.miner.first_attempt_time_ms
             } else {
@@ -859,7 +878,9 @@ impl Config {
             },
             mempool_settings: MemPoolWalkSettings {
                 min_tx_fee: self.miner.min_tx_fee,
-                max_walk_time_ms: if attempt <= 1 {
+                max_walk_time_ms: if microblocks {
+                    self.miner.microblock_attempt_time_ms
+                } else if attempt <= 1 {
                     // first attempt to mine a block -- do so right away
                     self.miner.first_attempt_time_ms
                 } else {
@@ -1040,6 +1061,7 @@ pub enum CostEstimatorName {
 #[derive(Clone, Debug)]
 pub enum FeeEstimatorName {
     ScalarFeeRate,
+    FuzzedWeightedMedianFeeRate,
 }
 
 #[derive(Clone, Debug)]
@@ -1082,6 +1104,8 @@ impl FeeEstimatorName {
     fn panic_parse(s: String) -> FeeEstimatorName {
         if &s.to_lowercase() == "scalar_fee_rate" {
             FeeEstimatorName::ScalarFeeRate
+        } else if &s.to_lowercase() == "fuzzed_weighted_median_fee_rate" {
+            FeeEstimatorName::FuzzedWeightedMedianFeeRate
         } else {
             panic!(
                 "Bad fee estimator name supplied in configuration file: {}",
@@ -1107,6 +1131,12 @@ pub struct FeeEstimationConfig {
     pub fee_estimator: Option<FeeEstimatorName>,
     pub cost_metric: Option<CostMetricName>,
     pub log_error: bool,
+    /// If using FeeRateFuzzer, the amount of random noise, as a percentage of the base value (in
+    /// [0, 1]) to add for fuzz. See comments on FeeRateFuzzer.
+    pub fee_rate_fuzzer_fraction: f64,
+    /// If using WeightedMedianFeeRateEstimator, the window size to use. See comments on
+    /// WeightedMedianFeeRateEstimator.
+    pub fee_rate_window_size: u64,
 }
 
 impl Default for FeeEstimationConfig {
@@ -1116,6 +1146,8 @@ impl Default for FeeEstimationConfig {
             fee_estimator: Some(FeeEstimatorName::default()),
             cost_metric: Some(CostMetricName::default()),
             log_error: false,
+            fee_rate_fuzzer_fraction: 0.1f64,
+            fee_rate_window_size: 5u64,
         }
     }
 }
@@ -1128,6 +1160,8 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
                 fee_estimator: None,
                 cost_metric: None,
                 log_error: false,
+                fee_rate_fuzzer_fraction: 0f64,
+                fee_rate_window_size: 0u64,
             };
         }
         let cost_estimator = f
@@ -1148,6 +1182,8 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
             fee_estimator: Some(fee_estimator),
             cost_metric: Some(cost_metric),
             log_error,
+            fee_rate_fuzzer_fraction: f.fee_rate_fuzzer_fraction.unwrap_or(0.1f64),
+            fee_rate_window_size: f.fee_rate_window_size.unwrap_or(5u64),
         }
     }
 }
@@ -1158,7 +1194,7 @@ impl Config {
             match self.estimation.cost_estimator.as_ref()? {
                 CostEstimatorName::NaivePessimistic => Box::new(
                     self.estimation
-                        .make_pessimistic_cost_estimator(self.get_chainstate_path()),
+                        .make_pessimistic_cost_estimator(self.get_estimates_path()),
                 ),
             };
 
@@ -1178,10 +1214,12 @@ impl Config {
     pub fn make_fee_estimator(&self) -> Option<Box<dyn FeeEstimator>> {
         let metric = self.make_cost_metric()?;
         let fee_estimator: Box<dyn FeeEstimator> = match self.estimation.fee_estimator.as_ref()? {
-            FeeEstimatorName::ScalarFeeRate => Box::new(
-                self.estimation
-                    .make_scalar_fee_estimator(self.get_chainstate_path(), metric),
-            ),
+            FeeEstimatorName::ScalarFeeRate => self
+                .estimation
+                .make_scalar_fee_estimator(self.get_estimates_path(), metric),
+            FeeEstimatorName::FuzzedWeightedMedianFeeRate => self
+                .estimation
+                .make_fuzzed_weighted_median_fee_estimator(self.get_estimates_path(), metric),
         };
 
         Some(fee_estimator)
@@ -1191,28 +1229,56 @@ impl Config {
 impl FeeEstimationConfig {
     pub fn make_pessimistic_cost_estimator(
         &self,
-        mut chainstate_path: PathBuf,
+        mut estimates_path: PathBuf,
     ) -> PessimisticEstimator {
         if let Some(CostEstimatorName::NaivePessimistic) = self.cost_estimator.as_ref() {
-            chainstate_path.push("cost_estimator_pessimistic.sqlite");
-            PessimisticEstimator::open(&chainstate_path, self.log_error)
+            estimates_path.push("cost_estimator_pessimistic.sqlite");
+            PessimisticEstimator::open(&estimates_path, self.log_error)
                 .expect("Error opening cost estimator")
         } else {
             panic!("BUG: Expected to configure a naive pessimistic cost estimator");
         }
     }
 
-    pub fn make_scalar_fee_estimator<CM: CostMetric>(
+    pub fn make_scalar_fee_estimator<CM: 'static + CostMetric>(
         &self,
-        mut chainstate_path: PathBuf,
+        mut estimates_path: PathBuf,
         metric: CM,
-    ) -> ScalarFeeRateEstimator<CM> {
+    ) -> Box<dyn FeeEstimator> {
         if let Some(FeeEstimatorName::ScalarFeeRate) = self.fee_estimator.as_ref() {
-            chainstate_path.push("fee_estimator_scalar_rate.sqlite");
-            ScalarFeeRateEstimator::open(&chainstate_path, metric)
-                .expect("Error opening fee estimator")
+            estimates_path.push("fee_estimator_scalar_rate.sqlite");
+            Box::new(
+                ScalarFeeRateEstimator::open(&estimates_path, metric)
+                    .expect("Error opening fee estimator"),
+            )
         } else {
             panic!("BUG: Expected to configure a scalar fee estimator");
+        }
+    }
+
+    // Creates a fuzzed WeightedMedianFeeRateEstimator with window_size 5. The fuzz
+    // is uniform with bounds [+/- 0.5].
+    pub fn make_fuzzed_weighted_median_fee_estimator<CM: 'static + CostMetric>(
+        &self,
+        mut estimates_path: PathBuf,
+        metric: CM,
+    ) -> Box<dyn FeeEstimator> {
+        if let Some(FeeEstimatorName::FuzzedWeightedMedianFeeRate) = self.fee_estimator.as_ref() {
+            estimates_path.push("fee_fuzzed_weighted_median.sqlite");
+            let underlying_estimator = WeightedMedianFeeRateEstimator::open(
+                &estimates_path,
+                metric,
+                self.fee_rate_window_size
+                    .try_into()
+                    .expect("Configured fee rate window size out of bounds."),
+            )
+            .expect("Error opening fee estimator");
+            Box::new(FeeRateFuzzer::new(
+                underlying_estimator,
+                self.fee_rate_fuzzer_fraction,
+            ))
+        } else {
+            panic!("BUG: Expected to configure a weighted median fee estimator");
         }
     }
 }
@@ -1340,6 +1406,7 @@ pub struct MinerConfig {
     pub min_tx_fee: u64,
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
+    pub microblock_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
 }
 
@@ -1347,8 +1414,9 @@ impl MinerConfig {
     pub fn default() -> MinerConfig {
         MinerConfig {
             min_tx_fee: 1,
-            first_attempt_time_ms: 1_000,
-            subsequent_attempt_time_ms: 60_000,
+            first_attempt_time_ms: 5_000,
+            subsequent_attempt_time_ms: 180_000,
+            microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
         }
     }
@@ -1427,6 +1495,8 @@ pub struct FeeEstimationConfigFile {
     pub cost_metric: Option<String>,
     pub disabled: Option<bool>,
     pub log_error: Option<bool>,
+    pub fee_rate_fuzzer_fraction: Option<f64>,
+    pub fee_rate_window_size: Option<u64>,
 }
 
 impl Default for FeeEstimationConfigFile {
@@ -1437,6 +1507,8 @@ impl Default for FeeEstimationConfigFile {
             cost_metric: None,
             disabled: None,
             log_error: None,
+            fee_rate_fuzzer_fraction: None,
+            fee_rate_window_size: None,
         }
     }
 }
@@ -1446,6 +1518,7 @@ pub struct MinerConfigFile {
     pub min_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
+    pub microblock_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
 }
 
@@ -1471,6 +1544,7 @@ pub enum EventKeyType {
     AnyEvent,
     BurnchainBlocks,
     MinedBlocks,
+    MinedMicroblocks,
 }
 
 impl EventKeyType {

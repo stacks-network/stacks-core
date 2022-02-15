@@ -19,8 +19,8 @@ use net::Neighbor;
 use net::NeighborKey;
 use net::PeerAddress;
 
-use util::db::DBConn;
-use util::db::Error as db_error;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
 
 use std::collections::HashMap;
 use std::collections::HashSet;

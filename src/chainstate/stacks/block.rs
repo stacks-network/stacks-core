@@ -41,56 +41,11 @@ use util::vrf::*;
 
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
-use crate::types::proof::TrieHash;
-
-impl StacksMessageCodec for VRFProof {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        fd.write_all(&self.to_bytes())
-            .map_err(codec_error::WriteError)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<VRFProof, codec_error> {
-        let mut bytes = [0u8; VRF_PROOF_ENCODED_SIZE as usize];
-        fd.read_exact(&mut bytes).map_err(codec_error::ReadError)?;
-        let res = VRFProof::from_slice(&bytes).ok_or(codec_error::DeserializeError(
-            "Failed to parse VRF proof".to_string(),
-        ))?;
-
-        Ok(res)
-    }
-}
-
-impl StacksMessageCodec for StacksWorkScore {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.burn)?;
-        write_next(fd, &self.work)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksWorkScore, codec_error> {
-        let burn = read_next(fd)?;
-        let work = read_next(fd)?;
-
-        Ok(StacksWorkScore { burn, work })
-    }
-}
-
-impl StacksWorkScore {
-    /// Stacks work score for the first-mined block
-    pub fn initial() -> StacksWorkScore {
-        StacksWorkScore {
-            burn: 0,
-            work: 1, // block 0 is the boot code
-        }
-    }
-
-    /// Stacks work score for the boot code block
-    pub fn genesis() -> StacksWorkScore {
-        StacksWorkScore { burn: 0, work: 0 }
-    }
-}
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
 
 impl StacksMessageCodec for StacksBlockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -175,12 +130,7 @@ impl StacksBlockHeader {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> StacksBlockId {
-        let mut hasher = Sha512Trunc256::new();
-        hasher.input(block_hash);
-        hasher.input(consensus_hash);
-
-        let h = Sha512Trunc256Sum::from_hasher(hasher);
-        StacksBlockId(h.0)
+        StacksBlockId::new(consensus_hash, block_hash)
     }
 
     pub fn index_block_hash(&self, consensus_hash: &ConsensusHash) -> StacksBlockId {
@@ -863,19 +813,19 @@ impl StacksMicroblock {
 
 #[cfg(test)]
 mod test {
-    use std::error::Error;
-
     use address::*;
     use burnchains::BurnchainBlockHeader;
     use burnchains::BurnchainSigner;
     use burnchains::Txid;
     use chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+    use chainstate::stacks::address::StacksAddressExtensions;
     use chainstate::stacks::test::make_codec_test_block;
     use chainstate::stacks::test::*;
     use chainstate::stacks::*;
     use net::codec::test::*;
     use net::codec::*;
     use net::*;
+    use std::error::Error;
     use util::hash::*;
 
     use crate::types::chainstate::StacksAddress;

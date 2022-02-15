@@ -11,11 +11,11 @@ use chainstate::burn::*;
 use chainstate::coordinator::comm::*;
 use chainstate::coordinator::*;
 use chainstate::stacks::*;
-use util::db::*;
 use util::get_epoch_time_secs;
 use util::hash::*;
 use util::secp256k1::*;
 use util::vrf::*;
+use util_lib::db::*;
 
 use crate::burnchains::events::ContractEvent;
 use crate::burnchains::events::NewBlock;
@@ -48,22 +48,20 @@ impl Txid {
     }
 }
 
-impl BurnchainHeaderHash {
-    pub fn from_test_data(
-        block_height: u64,
-        index_root: &TrieHash,
-        noise: u64,
-    ) -> BurnchainHeaderHash {
-        let mut bytes = vec![];
-        bytes.extend_from_slice(&block_height.to_be_bytes());
-        bytes.extend_from_slice(index_root.as_bytes());
-        bytes.extend_from_slice(&noise.to_be_bytes());
-        let h = DoubleSha256::from_data(&bytes[..]);
-        let mut hb = [0u8; 32];
-        hb.copy_from_slice(h.as_bytes());
+pub fn bhh_from_test_data(
+    mut block_height: u64,
+    index_root: &TrieHash,
+    noise: u64,
+) -> BurnchainHeaderHash {
+    let mut bytes = vec![];
+    bytes.extend_from_slice(&block_height.to_be_bytes());
+    bytes.extend_from_slice(index_root.as_bytes());
+    bytes.extend_from_slice(&noise.to_be_bytes());
+    let h = DoubleSha256::from_data(&bytes[..]);
+    let mut hb = [0u8; 32];
+    hb.copy_from_slice(h.as_bytes());
 
-        BurnchainHeaderHash(hb)
-    }
+    BurnchainHeaderHash(hb)
 }
 
 impl BurnchainBlockHeader {
@@ -400,7 +398,7 @@ impl TestBurnchainBlock {
             None => LeaderBlockCommitOp::initial(block_hash),
         };
 
-        txop.burn_header_hash = BurnchainHeaderHash::from_test_data(
+        txop.burn_header_hash = bhh_from_test_data(
             self.block_height,
             &self.parent_snapshot.index_root,
             self.fork_id,
@@ -425,7 +423,7 @@ impl TestBurnchainBlock {
     }
 
     pub fn mine(&self, db: &mut SortitionDB, burnchain: &Burnchain) -> BlockSnapshot {
-        let block_hash = BurnchainHeaderHash::from_test_data(
+        let block_hash = bhh_from_test_data(
             self.block_height,
             &self.parent_snapshot.index_root,
             self.fork_id,
@@ -480,7 +478,7 @@ impl TestBurnchainBlock {
         burnchain: &Burnchain,
         coord: &mut ChainsCoordinator<'a, T, N, R, (), ()>,
     ) -> BlockSnapshot {
-        let block_hash = BurnchainHeaderHash::from_test_data(
+        let block_hash = bhh_from_test_data(
             self.block_height,
             &self.parent_snapshot.index_root,
             self.fork_id,

@@ -9,20 +9,19 @@ use chainstate::burn::operations::{
     LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use chainstate::burn::ConsensusHash;
+use chainstate::stacks::index::TrieHashExtension;
 use chainstate::stacks::StacksPublicKey;
 use core::*;
 use rand::RngCore;
-use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::hash::{hex_bytes, Hash160};
 use util::vrf::*;
+use util_lib::db::Error as db_error;
 
-use types::chainstate::*;
-
-use crate::types::proof::TrieHash;
 use crate::util::hash::to_hex;
 use crate::vm::costs::ExecutionCost;
 use chainstate::burn::*;
+use types::chainstate::*;
 
 use super::sortdb::*;
 
