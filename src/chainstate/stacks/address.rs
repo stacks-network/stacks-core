@@ -25,7 +25,7 @@ use address::c32::c32_address_decode;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
 use burnchains::bitcoin::address::{
-    address_type_to_version_byte, to_b52_version_byte, to_c32_version_byte,
+    address_type_to_version_byte, to_b58_version_byte, to_c32_version_byte,
     version_byte_to_address_type, BitcoinAddress, BitcoinAddressType,
 };
 use burnchains::{Address, BurnchainSigner, PublicKey};
@@ -34,10 +34,11 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use deps::bitcoin::blockdata::opcodes::All as BtcOp;
-use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
-use deps::bitcoin::blockdata::transaction::TxOut;
+use clarity::vm::types::{TupleData, Value};
 use net::Error as net_error;
+use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as BtcOp;
+use stacks_common::deps_common::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
+use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
 use util::hash::Hash160;
 use util::hash::HASH160_ENCODED_SIZE;
 use vm::types::{PrincipalData, StandardPrincipalData};
@@ -45,176 +46,25 @@ use vm::types::{PrincipalData, StandardPrincipalData};
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
-use crate::util::boot::boot_code_addr;
+use crate::util_lib::boot::boot_code_addr;
 
-impl StacksMessageCodec for StacksAddress {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.version)?;
-        fd.write_all(self.bytes.as_bytes())
-            .map_err(codec_error::WriteError)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksAddress, codec_error> {
-        let version: u8 = read_next(fd)?;
-        let hash160: Hash160 = read_next(fd)?;
-        Ok(StacksAddress {
-            version: version,
-            bytes: hash160,
-        })
-    }
+pub trait StacksAddressExtensions {
+    fn to_bitcoin_tx_out(&self, value: u64) -> TxOut;
+    fn as_clarity_tuple(&self) -> TupleData;
+    fn to_b58(self) -> String;
+    fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress;
+    fn is_boot_code_addr(&self) -> bool;
 }
 
-impl From<StandardPrincipalData> for StacksAddress {
-    fn from(o: StandardPrincipalData) -> StacksAddress {
-        StacksAddress {
-            version: o.0,
-            bytes: Hash160(o.1),
-        }
-    }
-}
-
-impl PartialOrd for StacksAddress {
-    fn partial_cmp(&self, other: &StacksAddress) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for StacksAddress {
-    fn cmp(&self, other: &StacksAddress) -> Ordering {
-        match self.version.cmp(&other.version) {
-            Ordering::Equal => self.bytes.cmp(&other.bytes),
-            inequality => inequality,
-        }
-    }
-}
-
-impl StacksAddress {
-    pub fn new(version: u8, hash: Hash160) -> StacksAddress {
-        StacksAddress {
-            version,
-            bytes: hash,
-        }
-    }
-
+impl StacksAddressExtensions for StacksAddress {
     /// is this a boot code address, if the supplied address is mainnet or testnet,
     ///  it checks against the appropriate the boot code addr
-    pub fn is_boot_code_addr(&self) -> bool {
+    fn is_boot_code_addr(&self) -> bool {
         self == &boot_code_addr(self.is_mainnet())
     }
 
-    pub fn is_mainnet(&self) -> bool {
-        match self.version {
-            C32_ADDRESS_VERSION_MAINNET_MULTISIG | C32_ADDRESS_VERSION_MAINNET_SINGLESIG => true,
-            C32_ADDRESS_VERSION_TESTNET_MULTISIG | C32_ADDRESS_VERSION_TESTNET_SINGLESIG => false,
-            _ => false,
-        }
-    }
-
-    pub fn burn_address(mainnet: bool) -> StacksAddress {
-        StacksAddress {
-            version: if mainnet {
-                C32_ADDRESS_VERSION_MAINNET_SINGLESIG
-            } else {
-                C32_ADDRESS_VERSION_TESTNET_SINGLESIG
-            },
-            bytes: Hash160([0u8; 20]),
-        }
-    }
-
-    pub fn from_burnchain_signer(o: &BurnchainSigner, mainnet: bool) -> Option<StacksAddress> {
-        let version = if mainnet {
-            match &o.hash_mode {
-                AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                AddressHashMode::SerializeP2SH
-                | AddressHashMode::SerializeP2WPKH
-                | AddressHashMode::SerializeP2WSH => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-            }
-        } else {
-            match &o.hash_mode {
-                AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-                AddressHashMode::SerializeP2SH
-                | AddressHashMode::SerializeP2WPKH
-                | AddressHashMode::SerializeP2WSH => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-            }
-        };
-
-        StacksAddress::from_public_keys(version, &o.hash_mode, o.num_sigs, &o.public_keys)
-    }
-
-    /// Generate an address from a given address hash mode, signature threshold, and list of public
-    /// keys.  Only return an address if the combination given is supported.
-    /// The version is may be arbitrary.
-    pub fn from_public_keys(
-        version: u8,
-        hash_mode: &AddressHashMode,
-        num_sigs: usize,
-        pubkeys: &Vec<StacksPublicKey>,
-    ) -> Option<StacksAddress> {
-        // must be sufficient public keys
-        if pubkeys.len() < num_sigs {
-            return None;
-        }
-
-        // address hash mode must be consistent with the number of keys
-        match *hash_mode {
-            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
-                // must be a single public key, and must require one signature
-                if num_sigs != 1 || pubkeys.len() != 1 {
-                    return None;
-                }
-            }
-            _ => {}
-        }
-
-        // if segwit, then keys must all be compressed
-        match *hash_mode {
-            AddressHashMode::SerializeP2WPKH | AddressHashMode::SerializeP2WSH => {
-                for pubkey in pubkeys {
-                    if !pubkey.compressed() {
-                        return None;
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        let hash_bits = public_keys_to_address_hash(hash_mode, num_sigs, pubkeys);
-        Some(StacksAddress::new(version, hash_bits))
-    }
-
-    /// Convert from a Bitcoin address
-    pub fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress {
-        let btc_version = address_type_to_version_byte(addr.addrtype, addr.network_id);
-
-        // should not fail by construction
-        let version = to_c32_version_byte(btc_version)
-            .expect("Failed to decode Bitcoin version byte to Stacks version byte");
-        StacksAddress {
-            version: version,
-            bytes: addr.bytes.clone(),
-        }
-    }
-
-    pub fn to_b58(self) -> String {
-        let StacksAddress { version, bytes } = self;
-        let btc_version = to_b52_version_byte(version)
-            // fallback to version
-            .unwrap_or(version);
-        let mut all_bytes = vec![btc_version];
-        all_bytes.extend(bytes.0.iter());
-        b58::check_encode_slice(&all_bytes)
-    }
-
-    /// Convert to PrincipalData::Standard(StandardPrincipalData)
-    pub fn to_account_principal(&self) -> PrincipalData {
-        PrincipalData::Standard(StandardPrincipalData(
-            self.version,
-            self.bytes.as_bytes().clone(),
-        ))
-    }
-
-    pub fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
-        let btc_version = to_b52_version_byte(self.version)
+    fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
+        let btc_version = to_b58_version_byte(self.version)
             .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
         let btc_addr_type = version_byte_to_address_type(btc_version)
             .expect("BUG: failed to decode Bitcoin version byte")
@@ -226,43 +76,39 @@ impl StacksAddress {
             BitcoinAddressType::ScriptHash => BitcoinAddress::to_p2sh_tx_out(&self.bytes, value),
         }
     }
-}
 
-impl std::fmt::Display for StacksAddress {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        c32_address(self.version, self.bytes.as_bytes())
-            .expect("Stacks version is not C32-encodable")
-            .fmt(f)
-    }
-}
-
-impl Address for StacksAddress {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.bytes.as_bytes().to_vec()
+    fn as_clarity_tuple(&self) -> TupleData {
+        let version = Value::buff_from_byte(AddressHashMode::from_version(self.version) as u8);
+        let hashbytes = Value::buff_from(Vec::from(self.bytes.0.clone()))
+            .expect("BUG: hash160 bytes do not fit in Clarity Value");
+        TupleData::from_data(vec![
+            ("version".into(), version),
+            ("hashbytes".into(), hashbytes),
+        ])
+        .expect("BUG: StacksAddress byte representation does not fit in Clarity Value")
     }
 
-    fn from_string(s: &str) -> Option<StacksAddress> {
-        let (version, bytes) = match c32_address_decode(s) {
-            Ok((v, b)) => (v, b),
-            Err(_) => {
-                return None;
-            }
-        };
+    /// Convert from a Bitcoin address
+    fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress {
+        let btc_version = address_type_to_version_byte(addr.addrtype, addr.network_id);
 
-        if bytes.len() != 20 {
-            return None;
-        }
-
-        let mut hash_bytes = [0u8; 20];
-        hash_bytes.copy_from_slice(&bytes[..]);
-        Some(StacksAddress {
+        // should not fail by construction
+        let version = to_c32_version_byte(btc_version)
+            .expect("Failed to decode Bitcoin version byte to Stacks version byte");
+        StacksAddress {
             version: version,
-            bytes: Hash160(hash_bytes),
-        })
+            bytes: addr.bytes.clone(),
+        }
     }
 
-    fn is_burn(&self) -> bool {
-        self.bytes == Hash160([0u8; 20])
+    fn to_b58(self) -> String {
+        let StacksAddress { version, bytes } = self;
+        let btc_version = to_b58_version_byte(version)
+            // fallback to version
+            .unwrap_or(version);
+        let mut all_bytes = vec![btc_version];
+        all_bytes.extend(bytes.0.iter());
+        b58::check_encode_slice(&all_bytes)
     }
 }
 

@@ -19,9 +19,9 @@ use address::c32::c32_address;
 use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::Address;
-use deps::bitcoin::blockdata::opcodes::All as BtcOp;
-use deps::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
-use deps::bitcoin::blockdata::transaction::TxOut;
+use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as BtcOp;
+use stacks_common::deps_common::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
+use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
 use util::hash::Hash160;
 use util::log;
 
@@ -102,7 +102,7 @@ pub fn to_c32_version_byte(version: u8) -> Option<u8> {
     }
 }
 
-pub fn to_b52_version_byte(version: u8) -> Option<u8> {
+pub fn to_b58_version_byte(version: u8) -> Option<u8> {
     match version {
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG => Some(ADDRESS_VERSION_MAINNET_SINGLESIG),
         C32_ADDRESS_VERSION_MAINNET_MULTISIG => Some(ADDRESS_VERSION_MAINNET_MULTISIG),

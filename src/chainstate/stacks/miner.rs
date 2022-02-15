@@ -50,10 +50,14 @@ use vm::database::BurnStateDB;
 
 use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
-use crate::types::proof::TrieHash;
+use chainstate::stacks::address::StacksAddressExtensions;
 use chainstate::stacks::db::blocks::SetupBlockResult;
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
+use vm::clarity::TransactionConnection;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
@@ -420,7 +424,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             );
             Error::NoSuchBlockError
         })?
-        .block_height;
+        .stacks_block_height;
 
         // when we drop the miner, the underlying clarity instance will be rolled back
         chainstate.set_unconfirmed_dirty(true);
@@ -495,7 +499,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 (
                     header_info.consensus_hash,
                     header_info.anchored_header.block_hash(),
-                    header_info.block_height,
+                    header_info.stacks_block_height,
                 )
             } else {
                 // unconfirmed state needs to be initialized
@@ -1120,7 +1124,7 @@ impl StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
-            block_height: 0,
+            stacks_block_height: 0,
             index_root: TrieHash([0u8; 32]),
             consensus_hash: genesis_consensus_hash.clone(),
             burn_header_hash: genesis_burn_header_hash.clone(),
@@ -1828,7 +1832,7 @@ impl StacksBlockBuilder {
             let new_work = StacksWorkScore {
                 burn: total_burn,
                 work: stacks_parent_header
-                    .block_height
+                    .stacks_block_height
                     .checked_add(1)
                     .expect("FATAL: block height overflow"),
             };
@@ -1869,7 +1873,7 @@ impl StacksBlockBuilder {
             let new_work = StacksWorkScore {
                 burn: total_burn,
                 work: stacks_parent_header
-                    .block_height
+                    .stacks_block_height
                     .checked_add(1)
                     .expect("FATAL: block height overflow"),
             };
@@ -1912,7 +1916,7 @@ impl StacksBlockBuilder {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
             parent_stacks_header.anchored_header.block_hash(),
-            parent_stacks_header.block_height,
+            parent_stacks_header.stacks_block_height,
         );
 
         debug!(
@@ -2181,15 +2185,15 @@ pub mod test {
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
     use net::test::*;
-    use util::db::Error as db_error;
     use util::sleep_ms;
     use util::vrf::VRFProof;
+    use util_lib::db::Error as db_error;
     use vm::types::*;
 
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;
     use crate::types::chainstate::SortitionId;
-    use crate::util::boot::boot_code_addr;
+    use crate::util_lib::boot::boot_code_addr;
 
     use super::*;
 
@@ -3226,7 +3230,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -3248,7 +3252,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -3410,7 +3414,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -3432,7 +3436,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -3553,7 +3557,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -3575,7 +3579,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -3601,7 +3605,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -3623,7 +3627,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -3891,7 +3895,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -3913,7 +3917,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -3939,7 +3943,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -3961,7 +3965,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -4152,7 +4156,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -4174,7 +4178,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -4202,7 +4206,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -4224,7 +4228,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -4490,7 +4494,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -4512,7 +4516,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -4535,7 +4539,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -4557,7 +4561,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -4733,7 +4737,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -4755,7 +4759,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -4781,7 +4785,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -4803,7 +4807,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -5039,7 +5043,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -5061,7 +5065,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -5084,7 +5088,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -5106,7 +5110,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -5282,7 +5286,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -5304,7 +5308,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -5330,7 +5334,7 @@ pub mod test {
                     let all_prev_mining_rewards = get_all_mining_rewards(
                         &mut miner_chainstate,
                         &builder.chain_tip,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                     );
 
                     let sort_iconn = sortdb.index_conn();
@@ -5352,7 +5356,7 @@ pub mod test {
                     assert!(check_mining_reward(
                         &mut epoch,
                         miner,
-                        builder.chain_tip.block_height,
+                        builder.chain_tip.stacks_block_height,
                         &all_prev_mining_rewards
                     ));
 
@@ -10102,7 +10106,7 @@ pub mod test {
                 // check descendant blocks for their poison-microblock commissions
                 test_debug!(
                     "new tip at height {}: {}",
-                    next_tip.block_height,
+                    next_tip.stacks_block_height,
                     &new_tip_hash
                 );
                 reporters.push((reporter, new_tip_hash, seq));

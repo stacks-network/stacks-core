@@ -10,12 +10,11 @@ use std::{env, thread};
 
 use rusqlite::types::ToSql;
 
-use crate::util::boot::boot_code_id;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
-use stacks::clarity::vm_execute as execute;
+use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::{StacksEpoch, StacksEpochId, CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0};
@@ -25,13 +24,13 @@ use stacks::net::{
     PostTransactionRequestBody, RPCPeerInfoData,
 };
 use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
-    StacksMicroblockHeader,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
 use stacks::util::hash::Hash160;
 use stacks::util::hash::{bytes_to_hex, hex_bytes, to_hex};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
+use stacks::util_lib::boot::boot_code_id;
 use stacks::vm::database::ClarityDeserializable;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::Value;
@@ -45,13 +44,14 @@ use stacks::{
 };
 use stacks::{
     chainstate::stacks::{
-        db::StacksChainState, StacksBlock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
-        TransactionContractCall, TransactionPayload,
+        db::StacksChainState, StacksBlock, StacksBlockHeader, StacksMicroblockHeader,
+        StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionContractCall,
+        TransactionPayload,
     },
     net::RPCPoxInfoData,
-    util::db::query_row_columns,
-    util::db::query_rows,
-    util::db::u64_to_sql,
+    util_lib::db::query_row_columns,
+    util_lib::db::query_rows,
+    util_lib::db::u64_to_sql,
 };
 
 use crate::{
@@ -4131,7 +4131,7 @@ fn block_limit_hit_integration_test() {
     // included in first block
     let tx_4 = make_stacks_transfer(&third_spender_sk, 0, 180, &PrincipalData::from(addr), 100);
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),
@@ -4718,7 +4718,7 @@ fn microblock_large_tx_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // Check that the microblock contains the first tx.
-    let mut microblock_events = test_observer::get_microblocks();
+    let microblock_events = test_observer::get_microblocks();
     assert!(microblock_events.len() >= 1);
 
     let microblock = microblock_events[0].clone();

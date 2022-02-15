@@ -16,10 +16,10 @@ use serde_json::json;
 
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
+use stacks::chainstate::stacks::address::StacksAddressExtensions;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::events::{
-    FTEventType, NFTEventType, STXEventType, StacksTransactionEvent, StacksTransactionReceipt,
-    TransactionOrigin,
+    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::{
     db::accounts::MinerReward, db::MinerRewardInfo, StacksTransaction,
@@ -34,6 +34,7 @@ use stacks::types::chainstate::{
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
 use stacks::vm::costs::ExecutionCost;
+use stacks::vm::events::{FTEventType, NFTEventType, STXEventType};
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 
 use super::config::{EventKeyType, EventObserverConfig};
@@ -270,7 +271,7 @@ impl EventObserver {
         json!({
             "attachment_index": attachment.0.attachment_index,
             "index_block_hash": format!("0x{}", attachment.0.index_block_hash),
-            "block_height": attachment.0.block_height,
+            "block_height": attachment.0.stacks_block_height,
             "content_hash": format!("0x{}", attachment.0.content_hash),
             "contract_id": format!("{}", attachment.0.contract_id),
             "metadata": format!("0x{}", attachment.0.metadata),
@@ -367,7 +368,7 @@ impl EventObserver {
         // Wrap events
         let payload = json!({
             "block_hash": format!("0x{}", chain_tip.block.block_hash()),
-            "block_height": chain_tip.metadata.block_height,
+            "block_height": chain_tip.metadata.stacks_block_height,
             "burn_block_hash": format!("0x{}", chain_tip.metadata.burn_header_hash),
             "burn_block_height": chain_tip.metadata.burn_header_height,
             "miner_txid": format!("0x{}", winner_txid),
@@ -670,7 +671,7 @@ impl EventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
     ) {
-        let boot_receipts = if chain_tip.metadata.block_height == 1 {
+        let boot_receipts = if chain_tip.metadata.stacks_block_height == 1 {
             let mut boot_receipts_result = self
                 .boot_receipts
                 .lock()

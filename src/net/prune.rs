@@ -32,8 +32,8 @@ use net::db::PeerDB;
 
 use net::neighbors::*;
 
-use util::db::DBConn;
-use util::db::Error as db_error;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
 
 use std::net::Shutdown;
 use std::net::SocketAddr;

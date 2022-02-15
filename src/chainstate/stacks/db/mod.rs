@@ -52,6 +52,7 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use clarity::vm::events::*;
 use clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
     Error as clarity_error,
@@ -60,15 +61,16 @@ use core::*;
 use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
 use net::MemPoolSyncData;
-use util::db::Error as db_error;
-use util::db::{
+use util::hash::to_hex;
+use util_lib::db::Error as db_error;
+use util_lib::db::{
     query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, FromColumn, FromRow,
     IndexDBConn, IndexDBTx,
 };
-use util::hash::to_hex;
 use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
+use vm::clarity::TransactionConnection;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::{ExecutionCost, LimitedCostTracker};
 use vm::database::{
@@ -80,13 +82,15 @@ use vm::types::TupleData;
 use {monitoring, util};
 
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::{
-    MARFValue, StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
-};
-use crate::types::proof::{ClarityMarfTrieId, TrieHash};
-use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::clarity_vm::database::HeadersDBConn;
+use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use chainstate::burn::ConsensusHashExtensions;
+use chainstate::stacks::address::StacksAddressExtensions;
+use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 use vm::Value;
-
 pub mod accounts;
 pub mod blocks;
 pub mod contracts;
@@ -140,7 +144,7 @@ pub struct MinerPaymentSchedule {
 pub struct StacksHeaderInfo {
     pub anchored_header: StacksBlockHeader,
     pub microblock_tail: Option<StacksMicroblockHeader>,
-    pub block_height: u64,
+    pub stacks_block_height: u64,
     pub index_root: TrieHash,
     pub consensus_hash: ConsensusHash,
     pub burn_header_hash: BurnchainHeaderHash,
@@ -200,7 +204,7 @@ impl StacksHeaderInfo {
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
-            block_height: 0,
+            stacks_block_height: 0,
             index_root: TrieHash([0u8; 32]),
             burn_header_hash: burnchain_params.first_block_hash.clone(),
             burn_header_height: burnchain_params.first_block_height as u32,
@@ -219,7 +223,7 @@ impl StacksHeaderInfo {
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
-            block_height: 0,
+            stacks_block_height: 0,
             index_root: root_hash,
             burn_header_hash: first_burnchain_block_hash.clone(),
             burn_header_height: first_burnchain_block_height,
@@ -272,7 +276,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header,
             microblock_tail: None,
-            block_height,
+            stacks_block_height: block_height,
             index_root,
             consensus_hash,
             burn_header_hash,
@@ -1397,7 +1401,7 @@ impl StacksChainState {
 
             // Setup burnchain parameters for pox contract
             let pox_constants = &boot_data.pox_constants;
-            let contract = util::boot::boot_code_id("pox", mainnet);
+            let contract = boot_code_id("pox", mainnet);
             let sender = PrincipalData::from(contract.clone());
             let params = vec![
                 Value::UInt(boot_data.first_burnchain_block_height as u128),
@@ -1691,7 +1695,7 @@ impl StacksChainState {
     ) -> Value {
         let result = self.clarity_state.eval_read_only(
             parent_id_bhh,
-            self.state_index.sqlite_conn(),
+            &HeadersDBConn(self.state_index.sqlite_conn()),
             burn_dbconn,
             contract,
             code,
@@ -1709,7 +1713,7 @@ impl StacksChainState {
         self.clarity_state
             .eval_read_only(
                 parent_id_bhh,
-                self.state_index.sqlite_conn(),
+                &HeadersDBConn(self.state_index.sqlite_conn()),
                 burn_dbconn,
                 contract,
                 code,
@@ -1734,7 +1738,7 @@ impl StacksChainState {
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(
             conf,
-            chainstate_tx.deref().deref(),
+            chainstate_tx,
             clarity_instance,
             burn_dbconn,
             parent_consensus_hash,
@@ -1757,7 +1761,7 @@ impl StacksChainState {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
             conf,
-            self.state_index.sqlite_conn(),
+            &self.state_index,
             &mut self.clarity_state,
             burn_dbconn,
             parent_consensus_hash,
@@ -1779,7 +1783,7 @@ impl StacksChainState {
         new_block: &BlockHeaderHash,
     ) -> ClarityTx<'a> {
         let conf = self.config();
-        let db = self.state_index.sqlite_conn();
+        let db = &self.state_index;
         let clarity_instance = &mut self.clarity_state;
 
         // mix burn header hash and stacks block header hash together, since the stacks block hash
@@ -1834,11 +1838,8 @@ impl StacksChainState {
         burn_dbconn: &'a dyn BurnStateDB,
         index_block: &StacksBlockId,
     ) -> ClarityReadOnlyConnection<'a> {
-        self.clarity_state.read_only_connection(
-            &index_block,
-            self.state_index.sqlite_conn(),
-            burn_dbconn,
-        )
+        self.clarity_state
+            .read_only_connection(&index_block, &self.state_index, burn_dbconn)
     }
 
     /// Run to_do on the state of the Clarity VM at the given chain tip.
@@ -1889,7 +1890,7 @@ impl StacksChainState {
                 .clarity_inst
                 .read_only_connection_checked(
                     &unconfirmed_state.unconfirmed_chain_tip,
-                    self.db(),
+                    &self.state_index,
                     burn_dbconn,
                 )?;
             let result = to_do(&mut conn);
@@ -1975,7 +1976,7 @@ impl StacksChainState {
 
             Some(StacksChainState::chainstate_begin_unconfirmed(
                 conf,
-                self.state_index.sqlite_conn(),
+                &self.state_index,
                 &mut unconfirmed.clarity_inst,
                 burn_dbconn,
                 &unconfirmed.confirmed_chain_tip,
@@ -1989,7 +1990,7 @@ impl StacksChainState {
     /// Create a Clarity VM database transaction
     fn inner_clarity_tx_begin<'a>(
         conf: DBConfig,
-        headers_db: &'a Connection,
+        headers_db: &'a dyn HeadersDB,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'a dyn BurnStateDB,
         parent_consensus_hash: &ConsensusHash,
@@ -2143,7 +2144,7 @@ impl StacksChainState {
             anchored_header: new_tip.clone(),
             microblock_tail: microblock_tail_opt,
             index_root: root_hash,
-            block_height: new_tip.total_work.work,
+            stacks_block_height: new_tip.total_work.work,
             consensus_hash: new_consensus_hash.clone(),
             burn_header_hash: new_burn_header_hash.clone(),
             burn_header_height: new_burnchain_height,
@@ -2186,9 +2187,9 @@ pub mod test {
     use chainstate::stacks::db::*;
     use chainstate::stacks::*;
     use stx_genesis::GenesisData;
-    use vm::tests::TEST_BURN_STATE_DB;
+    use vm::test_util::TEST_BURN_STATE_DB;
 
-    use crate::util::boot::boot_code_test_addr;
+    use util_lib::boot::boot_code_test_addr;
 
     use super::*;
 
