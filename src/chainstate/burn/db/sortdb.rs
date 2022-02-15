@@ -4004,7 +4004,9 @@ impl<'a> SortitionHandleTx<'a> {
             .unwrap_or(SortitionId([0x00; 32]));
 
         if !cfg!(test) {
-            assert!(parent_sortition_id != SortitionId([0x00; 32]));
+            if block_commit.parent_block_ptr != 0 || block_commit.parent_vtxindex != 0 {
+                assert!(parent_sortition_id != SortitionId([0x00; 32]));
+            }
         }
 
         let args: &[&dyn ToSql] = &[
