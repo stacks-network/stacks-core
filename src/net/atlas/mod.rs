@@ -21,15 +21,17 @@ use std::hash::{Hash, Hasher};
 use regex::Regex;
 
 use crate::codec::StacksMessageCodec;
+use clarity::codec::StacksMessageCodec as ClarityStacksMessageCodec;
+
 use crate::types::chainstate::StacksBlockId;
-use crate::util::boot::boot_code_id;
+use crate::util_lib::boot::boot_code_id;
 use burnchains::Txid;
 use chainstate::burn::db::sortdb::SortitionDB;
 use chainstate::burn::ConsensusHash;
 use util::hash::{to_hex, Hash160, MerkleHashFunc};
 use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
 
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
+use crate::types::chainstate::BlockHeaderHash;
 
 pub use self::db::AtlasDB;
 pub use self::download::AttachmentsDownloader;

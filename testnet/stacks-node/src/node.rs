@@ -18,8 +18,8 @@ use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
-    TransactionAnchorMode, TransactionPayload, TransactionVersion,
+    CoinbasePayload, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
+    StacksTransactionSigner, TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
 use stacks::core::mempool::MemPoolDB;
@@ -33,15 +33,13 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, PeerAddress,
 };
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, VRFSeed,
-};
-use stacks::types::proof::TrieHash;
+use stacks::types::chainstate::TrieHash;
+use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
+use stacks::util_lib::strings::UrlString;
 use stacks::{
     burnchains::{Burnchain, Txid},
     chainstate::stacks::db::{

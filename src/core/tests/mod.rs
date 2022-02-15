@@ -46,32 +46,33 @@ use core::FIRST_STACKS_BLOCK_HASH;
 use net::Error as NetError;
 use net::HttpResponseType;
 use net::MemPoolSyncData;
-use util::bloom::test::setup_bloom_counter;
-use util::bloom::*;
-use util::db::{tx_begin_immediate, DBConn, FromRow};
+use stacks_common::types::chainstate::TrieHash;
 use util::get_epoch_time_ms;
 use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
-use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*, strings::StacksString};
+use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*};
+use util_lib::bloom::test::setup_bloom_counter;
+use util_lib::bloom::*;
+use util_lib::db::{tx_begin_immediate, DBConn, FromRow};
+use util_lib::strings::StacksString;
 use vm::{
     database::HeadersDB,
     errors::Error as ClarityError,
     errors::RuntimeErrorType,
-    tests::TEST_BURN_STATE_DB,
+    test_util::TEST_BURN_STATE_DB,
     types::{PrincipalData, QualifiedContractIdentifier},
     ClarityName, ContractName, Value,
 };
 
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-use crate::types::chainstate::{
-    StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
-    VRFSeed,
-};
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::{StacksAddress, StacksBlockId, StacksWorkScore, VRFSeed};
 use crate::{
     chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
 };
+use chainstate::stacks::index::TrieHashExtension;
+use chainstate::stacks::{StacksBlockHeader, StacksMicroblockHeader};
+use clarity::vm::types::StacksAddressExtensions;
 
 use super::MemPoolDB;
 

@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use util::db;
+use util_lib::db;
 
-use util::db::Error as db_error;
+use util_lib::db::Error as db_error;
 
 pub trait ChainstateDB {
     fn backup(backup_path: &String) -> Result<(), db_error>;

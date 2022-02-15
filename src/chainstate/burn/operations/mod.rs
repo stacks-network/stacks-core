@@ -23,8 +23,8 @@ use std::io;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::VRFSeed;
-use crate::types::proof::TrieHash;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;
 use burnchains::Error as BurnchainError;
@@ -38,13 +38,13 @@ use chainstate::burn::operations::leader_block_commit::{
 
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
-use util::db::DBConn;
-use util::db::DBTx;
-use util::db::Error as db_error;
 use util::hash::Hash160;
 use util::hash::Sha512Trunc256Sum;
 use util::secp256k1::MessageSignature;
 use util::vrf::VRFPublicKey;
+use util_lib::db::DBConn;
+use util_lib::db::DBTx;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 

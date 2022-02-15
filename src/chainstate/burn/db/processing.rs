@@ -30,13 +30,13 @@ use chainstate::burn::BlockSnapshot;
 use chainstate::coordinator::RewardCycleInfo;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::index::{
-    marf::MARF, storage::TrieFileStorage, Error as MARFError, MarfTrieId,
+    marf::MARF, storage::TrieFileStorage, Error as MARFError, MARFValue, MarfTrieId,
 };
 use core::INITIAL_MINING_BONUS_WINDOW;
-use util::db::Error as DBError;
+use util_lib::db::Error as DBError;
 
-use crate::types::chainstate::{BurnchainHeaderHash, MARFValue, PoxId, SortitionId};
-use crate::types::proof::TrieHash;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId};
 
 impl<'a> SortitionHandleTx<'a> {
     /// Run a blockstack operation's "check()" method and return the result.
@@ -372,6 +372,8 @@ mod tests {
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use chainstate::burn::*;
+    use chainstate::stacks::address::StacksAddressExtensions;
+    use chainstate::stacks::index::TrieHashExtension;
     use chainstate::stacks::StacksPublicKey;
     use core::MICROSTACKS_PER_STACKS;
     use util::{hash::hex_bytes, vrf::VRFPublicKey};

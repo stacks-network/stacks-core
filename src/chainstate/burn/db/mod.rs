@@ -22,18 +22,20 @@ use rusqlite::Error as sqlite_error;
 use rusqlite::Row;
 use serde_json::Error as serde_error;
 
-use crate::types::proof::TrieHash;
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::types::chainstate::TrieHash;
 use burnchains::{Address, Txid};
 use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash};
 use chainstate::stacks::StacksPublicKey;
-use util::db;
-use util::db::Error as db_error;
-use util::db::FromColumn;
 use util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
 use util::secp256k1::MessageSignature;
 use util::vrf::*;
+use util_lib::db;
+use util_lib::db::Error as db_error;
+use util_lib::db::FromColumn;
 
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
+use stacks_common::types::chainstate::StacksAddress;
 
 pub mod processing;
 pub mod sortdb;
@@ -41,17 +43,17 @@ pub mod sortdb;
 pub type DBConn = Connection;
 
 impl_byte_array_from_column!(Txid);
-impl_byte_array_from_column!(ConsensusHash);
-impl_byte_array_from_column!(Hash160);
-impl_byte_array_from_column!(BlockHeaderHash);
-impl_byte_array_from_column!(VRFSeed);
+impl_byte_array_from_column_only!(ConsensusHash);
+impl_byte_array_from_column_only!(Hash160);
+impl_byte_array_from_column_only!(BlockHeaderHash);
+impl_byte_array_from_column_only!(VRFSeed);
 impl_byte_array_from_column!(OpsHash);
-impl_byte_array_from_column!(BurnchainHeaderHash);
+impl_byte_array_from_column_only!(BurnchainHeaderHash);
 impl_byte_array_from_column!(SortitionHash);
-impl_byte_array_from_column!(Sha512Trunc256Sum);
-impl_byte_array_from_column!(VRFProof);
-impl_byte_array_from_column!(TrieHash);
-impl_byte_array_from_column!(MessageSignature);
+impl_byte_array_from_column_only!(Sha512Trunc256Sum);
+impl_byte_array_from_column_only!(VRFProof);
+impl_byte_array_from_column_only!(TrieHash);
+impl_byte_array_from_column_only!(MessageSignature);
 
 impl FromColumn<VRFPublicKey> for VRFPublicKey {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<VRFPublicKey, db_error> {
@@ -63,10 +65,20 @@ impl FromColumn<VRFPublicKey> for VRFPublicKey {
     }
 }
 
-impl<A: Address> FromColumn<A> for A {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<A, db_error> {
+impl FromColumn<StacksAddress> for StacksAddress {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Self, db_error> {
         let address_str: String = row.get_unwrap(column_name);
-        match A::from_string(&address_str) {
+        match Self::from_string(&address_str) {
+            Some(a) => Ok(a),
+            None => Err(db_error::ParseError),
+        }
+    }
+}
+
+impl FromColumn<BitcoinAddress> for BitcoinAddress {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Self, db_error> {
+        let address_str: String = row.get_unwrap(column_name);
+        match Self::from_string(&address_str) {
             Some(a) => Ok(a),
             None => Err(db_error::ParseError),
         }

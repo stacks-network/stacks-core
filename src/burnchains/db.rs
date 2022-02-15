@@ -26,13 +26,13 @@ use burnchains::Txid;
 use burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
 use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::stacks::index::MarfTrieId;
-use util::db::{
+use util_lib::db::{
     query_row, query_rows, sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler,
     u64_to_sql, Error as DBError, FromColumn, FromRow,
 };
 
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::proof::ClarityMarfTrieId;
+use chainstate::stacks::index::ClarityMarfTrieId;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub struct BurnchainDB {
     conn: Connection,
@@ -395,6 +395,7 @@ impl BurnchainDB {
 
 #[cfg(test)]
 mod tests {
+    use chainstate::stacks::address::StacksAddressExtensions;
     use std::convert::TryInto;
 
     use burnchains::bitcoin::address::*;
@@ -404,8 +405,8 @@ mod tests {
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
     use chainstate::burn::*;
     use chainstate::stacks::*;
-    use deps::bitcoin::blockdata::transaction::Transaction as BtcTx;
-    use deps::bitcoin::network::serialize::deserialize;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
     use util::hash::*;
 
     use crate::types::chainstate::StacksAddress;

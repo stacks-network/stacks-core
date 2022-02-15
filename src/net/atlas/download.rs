@@ -34,12 +34,12 @@ use net::NeighborKey;
 use net::{GetAttachmentResponse, GetAttachmentsInvResponse};
 use net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
 use util::hash::{Hash160, MerkleHashFunc};
-use util::strings;
 use util::{get_epoch_time_ms, get_epoch_time_secs};
-use vm::representations::UrlString;
+use util_lib::strings;
+use util_lib::strings::UrlString;
 use vm::types::QualifiedContractIdentifier;
 
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
+use crate::types::chainstate::BlockHeaderHash;
 
 use super::{AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 

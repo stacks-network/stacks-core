@@ -44,7 +44,7 @@ use chainstate::stacks::{
 use core::StacksEpoch;
 use monitoring::{increment_contract_calls_processed, increment_stx_blocks_processed_counter};
 use net::atlas::{AtlasConfig, AttachmentInstance};
-use util::db::Error as DBError;
+use util_lib::db::Error as DBError;
 use vm::{
     costs::ExecutionCost,
     types::{PrincipalData, QualifiedContractIdentifier},
@@ -53,10 +53,8 @@ use vm::{
 
 use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockHeader,
-    StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
 };
-use crate::util::boot::boot_code_id;
 use vm::database::BurnStateDB;
 
 pub use self::comm::CoordinatorCommunication;
@@ -453,8 +451,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
                 &stacks_block_hash,
             )?;
             let anchor_status = if anchor_block_known {
-                let block_id =
-                    StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block_hash);
+                let block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
                 let reward_set = provider.get_reward_set(
                     burn_height,
                     chain_state,
