@@ -77,7 +77,7 @@ impl MARFOpenOpts {
     pub fn default() -> MARFOpenOpts {
         MARFOpenOpts {
             hash_calculation_mode: TrieHashCalculationMode::Deferred,
-            cache_strategy: "node256".to_string(),
+            cache_strategy: "noop".to_string(),
         }
     }
 
