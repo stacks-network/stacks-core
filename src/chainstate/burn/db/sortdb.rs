@@ -2390,10 +2390,7 @@ impl SortitionDB {
         txid: &Txid,
         sortition_id: &SortitionId,
     ) -> Result<Option<SortitionId>, db_error> {
-        let qry = "SELECT block_commit_parents.parent_sortition_id AS sortition_id \
-                   FROM block_commits JOIN block_commit_parents \
-                   ON block_commits.txid = block_commit_parents.block_commit_txid AND block_commits.sortition_id = block_commit_parents.block_commit_sortition_id \
-                   WHERE block_commits.txid = ?1 AND block_commits.sortition_id = ?2";
+        let qry = "SELECT parent_sortition_id AS sortition_id FROM block_commit_parents WHERE block_commit_parents.block_commit_txid = ?1 AND block_commit_parents.block_commit_sortition_id = ?2";
         let args: &[&dyn ToSql] = &[txid, sortition_id];
         query_row(conn, qry, args)
     }
