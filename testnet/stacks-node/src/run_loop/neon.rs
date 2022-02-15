@@ -25,7 +25,7 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance};
 use stx_genesis::GenesisData;
 
-use crate::burnchains::PanicController;
+use crate::burnchains::mock_events::MockController;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::StacksNode;
 use crate::node::use_test_genesis_chainstate;
@@ -282,10 +282,11 @@ impl RunLoop {
     fn instantiate_burnchain_state(
         &mut self,
         _burnchain_opt: Option<Burnchain>,
-        _coordinator_senders: CoordinatorChannels,
-    ) -> PanicController {
+        coordinator_senders: CoordinatorChannels,
+    ) -> MockController {
         // Initialize and start the burnchain.
-        let mut burnchain_controller = PanicController();
+        let mut burnchain_controller =
+            MockController::new(self.config.clone(), coordinator_senders);
 
         let burnchain_config = burnchain_controller.get_burnchain();
         let epochs = burnchain_controller.get_stacks_epochs();

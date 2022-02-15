@@ -491,6 +491,7 @@ impl Config {
                         Some(epochs) => Some(epochs),
                         None => default_burnchain_config.epochs,
                     },
+                    ..BurnchainConfig::default()
                 }
             }
             None => default_burnchain_config,
@@ -918,7 +919,7 @@ impl std::default::Default for Config {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
@@ -945,10 +946,12 @@ pub struct BurnchainConfig {
     /// Custom override for the definitions of the epochs. This will only be applied for testnet and
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
+    /// The layer 1 contract that the hyperchain will watch for Stacks events.
+    pub contract_identifier: QualifiedContractIdentifier,
 }
 
-impl BurnchainConfig {
-    fn default() -> BurnchainConfig {
+impl Default for BurnchainConfig {
+    fn default() -> Self {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
             mode: "mocknet".to_string(),
@@ -973,9 +976,12 @@ impl BurnchainConfig {
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
+            contract_identifier: QualifiedContractIdentifier::transient(),
         }
     }
+}
 
+impl BurnchainConfig {
     pub fn get_rpc_url(&self) -> String {
         let scheme = match self.rpc_ssl {
             true => "https://",

@@ -150,6 +150,24 @@ impl MockBlockDownloader {
 }
 
 impl MockController {
+    pub fn new(config: Config, coordinator: CoordinatorChannels) -> MockController {
+        let contract_identifier = config.burnchain.contract_identifier.clone();
+        let indexer = MockIndexer::new(contract_identifier.clone());
+        MockController {
+            contract_identifier,
+            burnchain: None,
+            config,
+            indexer,
+            db: None,
+            burnchain_db: None,
+            should_keep_running: Some(Arc::new(AtomicBool::new(true))),
+            coordinator,
+            chain_tip: None,
+            next_burn_block: 1,
+            next_commit: None,
+        }
+    }
+
     /// Produce the next mocked layer-1 block. If `next_commit` is staged,
     /// this mocked block will contain that commitment.
     pub fn next_block(&mut self) {
