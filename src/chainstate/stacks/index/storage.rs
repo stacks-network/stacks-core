@@ -54,6 +54,7 @@ use chainstate::stacks::index::Error;
 use chainstate::stacks::index::TrieHasher;
 use chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
 
+use stacks_common::util::hash::to_hex;
 use util::log;
 use util_lib::db::sql_pragma;
 use util_lib::db::sqlite_open;
@@ -61,7 +62,6 @@ use util_lib::db::tx_begin_immediate;
 use util_lib::db::tx_busy_handler;
 use util_lib::db::Error as db_error;
 use util_lib::db::SQLITE_MMAP_SIZE;
-use stacks_common::util::hash::to_hex;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
