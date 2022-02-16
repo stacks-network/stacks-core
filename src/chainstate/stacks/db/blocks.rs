@@ -9658,4 +9658,32 @@ pub mod test {
     // place, and different places, with/without orphans)
     // TODO(test): process_next_staging_block
     // TODO(test): test resource limits -- shouldn't be able to load microblock streams that are too big
+
+    /// Tests the basic operations for MessageSignatureList.
+    #[test]
+    fn message_signature_list_operations() {
+        let list = MessageSignatureList::empty();
+        assert_eq!(0, list.signatures().len());
+
+        let mut list = MessageSignatureList::empty();
+        list.add_signature(MessageSignature([0u8; 65]));
+        assert_eq!(&vec![MessageSignature([0u8; 65])], list.signatures());
+        list.add_signature(MessageSignature([1u8; 65]));
+        assert_eq!(
+            &vec![MessageSignature([0u8; 65]), MessageSignature([1u8; 65])],
+            list.signatures()
+        );
+
+        let list = MessageSignatureList::from_single(MessageSignature([0u8; 65]));
+        assert_eq!(&vec![MessageSignature([0u8; 65])], list.signatures());
+
+        let list = MessageSignatureList::from_vec(vec![
+            MessageSignature([0u8; 65]),
+            MessageSignature([1u8; 65]),
+        ]);
+        assert_eq!(
+            &vec![MessageSignature([0u8; 65]), MessageSignature([1u8; 65])],
+            list.signatures()
+        );
+    }
 }

@@ -1412,7 +1412,7 @@ mod tests {
     };
 
     use super::MemPoolDB;
-    use types::chainstate::MessageSignatureList;
+    use chainstate::stacks::db::blocks::MessageSignatureList;
 
     const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                         (define-public (bar (x uint)) (ok x))";

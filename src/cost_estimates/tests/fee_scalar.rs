@@ -26,7 +26,7 @@ use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
-use types::chainstate::MessageSignatureList;
+use chainstate::stacks::db::blocks::MessageSignatureList;
 
 fn instantiate_test_db<CM: CostMetric>(m: CM) -> ScalarFeeRateEstimator<CM> {
     let mut path = env::temp_dir();
