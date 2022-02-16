@@ -176,7 +176,7 @@ impl Burnchain {
     ) -> Result<Burnchain, burnchain_error> {
         let (params, pox_constants, peer_version) = match (chain_name, network_name) {
             ("mockstack", "hyperchain") => (
-                BurnchainParameters::bitcoin_mainnet(),
+                BurnchainParameters::hyperchain_mocknet(),
                 PoxConstants::mainnet_default(),
                 PEER_VERSION_MAINNET,
             ),
@@ -790,14 +790,17 @@ impl Burnchain {
                         debug!("Try recv next parsed block");
 
                         let block_height = burnchain_block.block_height();
-                        if block_height == 0 {
-                            continue;
-                        }
 
                         let insert_start = get_epoch_time_ms();
                         last_processed =
-                            Burnchain::process_block(&myself, &mut burnchain_db, &burnchain_block)?;
+                            Burnchain::process_block(&myself, &mut burnchain_db, &burnchain_block)
+                                .map_err(|e| {
+                                    warn!("Error processing block {:?}", e);
+                                    e
+                                })
+                                .unwrap();
                         if !coord_comm.announce_new_burn_block() {
+                            warn!("Coordinator communication failed");
                             return Err(burnchain_error::CoordinatorClosed);
                         }
                         let insert_end = get_epoch_time_ms();

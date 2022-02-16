@@ -1,3 +1,4 @@
+use std::cmp;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -48,8 +49,8 @@ pub struct MockController {
     chain_tip: Option<BurnchainTip>,
 
     /// This will be a unique number for the next burn block. Starts at 1
-    next_burn_block: u64,
-    next_commit: Option<BlockHeaderHash>,
+    next_burn_block: Arc<Mutex<u64>>,
+    next_commit: Arc<Mutex<Option<BlockHeaderHash>>>,
 }
 
 pub struct MockIndexer {
@@ -69,9 +70,17 @@ pub struct MockBlockDownloader {
 
 lazy_static! {
     static ref MOCK_EVENTS_STREAM: MockChannels = MockChannels {
-        blocks: Arc::new(Mutex::new(vec![])),
+        blocks: Arc::new(Mutex::new(vec![NewBlock {
+            block_height: 0,
+            burn_block_time: 0,
+            index_block_hash: StacksBlockId(make_mock_byte_string(0)),
+            parent_index_block_hash: StacksBlockId::sentinel(),
+            events: vec![],
+        }])),
         minimum_recorded_height: Arc::new(Mutex::new(0)),
     };
+    static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
+    static ref NEXT_COMMIT: Arc<Mutex<Option<BlockHeaderHash>>> = Arc::new(Mutex::new(None));
 }
 
 fn make_mock_byte_string(from: u64) -> [u8; 32] {
@@ -83,6 +92,7 @@ fn make_mock_byte_string(from: u64) -> [u8; 32] {
 impl MockChannels {
     fn push_block(&self, new_block: NewBlock) {
         let mut blocks = self.blocks.lock().unwrap();
+
         blocks.push(new_block)
     }
 
@@ -134,7 +144,7 @@ impl MockChannels {
         let minimum_recorded_height = self.minimum_recorded_height.lock().unwrap();
         let blocks = self.blocks.lock().unwrap();
 
-        *minimum_recorded_height + (blocks.len() as u64)
+        *minimum_recorded_height + (blocks.len() as u64) - 1
     }
 }
 
@@ -163,22 +173,32 @@ impl MockController {
             should_keep_running: Some(Arc::new(AtomicBool::new(true))),
             coordinator,
             chain_tip: None,
-            next_burn_block: 1,
-            next_commit: None,
+            next_burn_block: NEXT_BURN_BLOCK.clone(),
+            next_commit: NEXT_COMMIT.clone(),
         }
     }
 
     /// Produce the next mocked layer-1 block. If `next_commit` is staged,
     /// this mocked block will contain that commitment.
     pub fn next_block(&mut self) {
-        let tx_event = self.next_commit.take().map(|next_commit| {
+        let mut next_burn_block = self.next_burn_block.lock().unwrap();
+        let mut next_commit = self.next_commit.lock().unwrap();
+
+        let tx_event = next_commit.take().map(|next_commit| {
             let mocked_txid = Txid(next_commit.0.clone());
             let topic = "print".into();
             let contract_identifier = self.contract_identifier.clone();
-            let value = TupleData::from_data(vec![(
-                "event".into(),
-                ClarityValue::string_ascii_from_bytes("block-commit".as_bytes().to_vec()).unwrap(),
-            )])
+            let value = TupleData::from_data(vec![
+                (
+                    "event".into(),
+                    ClarityValue::string_ascii_from_bytes("block-commit".as_bytes().to_vec())
+                        .unwrap(),
+                ),
+                (
+                    "block-commit".into(),
+                    ClarityValue::buff_from(next_commit.0.to_vec()).unwrap(),
+                ),
+            ])
             .expect("Should be a legal Clarity tuple")
             .into();
 
@@ -197,23 +217,21 @@ impl MockController {
             }
         });
 
-        let parent_index_block_hash = if self.next_burn_block <= 1 {
-            StacksBlockId::sentinel()
-        } else {
-            StacksBlockId(make_mock_byte_string(self.next_burn_block - 1))
-        };
+        let parent_index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block - 1));
 
-        let index_block_hash = StacksBlockId(make_mock_byte_string(self.next_burn_block));
+        let index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block));
 
         let new_block = NewBlock {
-            block_height: self.next_burn_block,
-            burn_block_time: self.next_burn_block,
+            block_height: *next_burn_block,
+            burn_block_time: *next_burn_block,
             index_block_hash,
             parent_index_block_hash,
             events: tx_event.into_iter().collect(),
         };
 
-        self.next_burn_block += 1;
+        *next_burn_block += 1;
+
+        info!("Layer 1 block mined");
 
         MOCK_EVENTS_STREAM.push_block(new_block);
     }
@@ -326,7 +344,8 @@ impl BurnchainController for MockController {
                 block_header_hash,
                 ..
             }) => {
-                if let Some(prior_commit) = self.next_commit.replace(block_header_hash) {
+                let mut next_commit = self.next_commit.lock().unwrap();
+                if let Some(prior_commit) = next_commit.replace(block_header_hash) {
                     warn!("Mocknet controller replaced a staged commit"; "prior_commit" => %prior_commit);
                 }
 
@@ -502,10 +521,10 @@ impl BurnchainBlockDownloader for MockBlockDownloader {
     type B = BlockIPC;
 
     fn download(&mut self, header: &MockHeader) -> Result<BlockIPC, BurnchainError> {
-        let block = self
-            .channel
-            .get_block(header.height)
-            .ok_or_else(|| BurnchainError::BurnchainPeerBroken)?;
+        let block = self.channel.get_block(header.height).ok_or_else(|| {
+            warn!("Failed to mock download height = {}", header.height);
+            BurnchainError::BurnchainPeerBroken
+        })?;
 
         Ok(BlockIPC(block))
     }
@@ -542,7 +561,7 @@ impl BurnchainIndexer for MockIndexer {
     }
 
     fn get_first_block_height(&self) -> u64 {
-        1
+        0
     }
 
     fn get_first_block_header_hash(&self) -> Result<BurnchainHeaderHash, BurnchainError> {
@@ -562,7 +581,11 @@ impl BurnchainIndexer for MockIndexer {
     }
 
     fn get_headers_height(&self) -> Result<u64, BurnchainError> {
-        Ok(self.minimum_recorded_height + (self.blocks.len() as u64))
+        if self.blocks.len() == 0 {
+            Err(BurnchainError::MissingHeaders)
+        } else {
+            Ok(self.minimum_recorded_height + (self.blocks.len() as u64) - 1)
+        }
     }
 
     fn get_highest_header_height(&self) -> Result<u64, BurnchainError> {
@@ -586,7 +609,10 @@ impl BurnchainIndexer for MockIndexer {
         }
 
         let d = self.downloader();
-        let start_fill = self.get_headers_height()?;
+        let start_fill = match self.get_headers_height() {
+            Ok(height) => height + 1,
+            Err(_) => 0,
+        };
         d.fill_blocks(&mut self.blocks, start_fill, end_height)?;
 
         self.get_headers_height()
@@ -607,6 +633,7 @@ impl BurnchainIndexer for MockIndexer {
         start_block: u64,
         end_block: u64,
     ) -> Result<Vec<MockHeader>, BurnchainError> {
+        info!("read_headers({}, {})", start_block, end_block);
         if start_block < self.minimum_recorded_height {
             return Err(BurnchainError::MissingHeaders);
         }
@@ -614,7 +641,10 @@ impl BurnchainIndexer for MockIndexer {
             return Err(BurnchainError::BurnchainPeerBroken);
         }
         let start_index = (start_block - self.minimum_recorded_height) as usize;
-        let end_index = (end_block - self.minimum_recorded_height) as usize;
+        let end_index = cmp::min(
+            self.blocks.len(),
+            (end_block - self.minimum_recorded_height) as usize,
+        );
         let headers = self.blocks[start_index..end_index]
             .iter()
             .map(|b| MockHeader::from(b))

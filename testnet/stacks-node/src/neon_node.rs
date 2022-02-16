@@ -8,8 +8,8 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::{thread, thread::JoinHandle};
 
+use crate::burnchains::mock_events::MockController;
 use crate::burnchains::BurnchainController;
-use crate::burnchains::PanicController;
 use stacks::burnchains::{BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
@@ -811,7 +811,7 @@ fn spawn_miner_relayer(
         Vec<(AssembledAnchorBlock, Secp256k1PrivateKey)>,
     > = HashMap::new();
 
-    let mut bitcoin_controller = PanicController();
+    let mut bitcoin_controller = MockController::new(config.clone(), coord_comms.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
     let mut miner_tip = None; // only set if we won the last sortition
     let mut last_microblock_tenure_time = 0;
@@ -1916,6 +1916,7 @@ impl StacksNode {
         sortdb: &SortitionDB,
         sort_id: &SortitionId,
     ) -> Option<BlockSnapshot> {
+        info!("process_burnchain_state({})", sort_id);
         let mut last_sortitioned_block = None;
 
         let ic = sortdb.index_conn();

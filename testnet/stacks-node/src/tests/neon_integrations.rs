@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, Instant};
-use std::{env, thread};
 
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::codec::StacksMessageCodec;
@@ -315,37 +315,6 @@ pub fn next_block_and_wait(
         get_epoch_time_secs(),
         blocks_processed.load(Ordering::SeqCst)
     );
-    true
-}
-
-/// This function will call `next_block_and_wait` until the burnchain height underlying `BitcoinRegtestController`
-/// reaches *exactly* `target_height`.
-///
-/// Returns `false` if `next_block_and_wait` times out.
-fn run_until_burnchain_height(
-    btc_regtest_controller: &mut MockController,
-    blocks_processed: &Arc<AtomicU64>,
-    target_height: u64,
-    conf: &Config,
-) -> bool {
-    let tip_info = get_chain_info(&conf);
-    let mut current_height = tip_info.burn_block_height;
-
-    while current_height < target_height {
-        eprintln!(
-            "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({})",
-            get_epoch_time_secs(),
-            current_height
-        );
-        let next_result = next_block_and_wait(btc_regtest_controller, &blocks_processed);
-        if !next_result {
-            return false;
-        }
-        let tip_info = get_chain_info(&conf);
-        current_height = tip_info.burn_block_height;
-    }
-
-    assert_eq!(current_height, target_height);
     true
 }
 

@@ -26,6 +26,7 @@ use super::Config;
 
 // mod integrations;
 // mod mempool;
+#[allow(dead_code)]
 pub mod neon_integrations;
 
 // $ cat /tmp/out.clar

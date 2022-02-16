@@ -350,8 +350,6 @@ impl RunLoop {
         burnchain_config: &Burnchain,
         coordinator_receivers: CoordinatorReceivers,
     ) -> (JoinHandle<()>, Receiver<HashSet<AttachmentInstance>>) {
-        let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
-
         // load up genesis balances
         let initial_balances = self
             .config
@@ -362,12 +360,7 @@ impl RunLoop {
 
         // load up genesis Atlas attachments
         let mut atlas_config = AtlasConfig::default(self.config.is_mainnet());
-        let genesis_attachments = GenesisData::new(use_test_genesis_data)
-            .read_name_zonefiles()
-            .into_iter()
-            .map(|z| Attachment::new(z.zonefile_content.as_bytes().to_vec()))
-            .collect();
-        atlas_config.genesis_attachments = Some(genesis_attachments);
+        atlas_config.genesis_attachments = None;
 
         // instantiate chainstate
         let mut boot_data = ChainStateBootData {
@@ -377,16 +370,10 @@ impl RunLoop {
             first_burnchain_block_height: burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain_config.first_block_timestamp,
             pox_constants: burnchain_config.pox_constants.clone(),
-            get_bulk_initial_lockups: Some(Box::new(move || {
-                get_account_lockups(use_test_genesis_data)
-            })),
-            get_bulk_initial_balances: Some(Box::new(move || {
-                get_account_balances(use_test_genesis_data)
-            })),
-            get_bulk_initial_namespaces: Some(Box::new(move || {
-                get_namespaces(use_test_genesis_data)
-            })),
-            get_bulk_initial_names: Some(Box::new(move || get_names(use_test_genesis_data))),
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+            get_bulk_initial_namespaces: None,
+            get_bulk_initial_names: None,
         };
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
