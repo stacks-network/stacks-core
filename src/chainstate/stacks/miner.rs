@@ -51,7 +51,7 @@ use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 use crate::types::proof::TrieHash;
-use types::chainstate::MessageSignatureList;
+use chainstate::stacks::db::blocks::MessageSignatureList;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {

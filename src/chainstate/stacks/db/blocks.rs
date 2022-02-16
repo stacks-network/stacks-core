@@ -78,8 +78,8 @@ use crate::types::chainstate::{
     StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
 };
 use crate::{types, util};
+use rusqlite::types::ToSqlOutput;
 use types::chainstate::BurnchainHeaderHash;
-use types::chainstate::MessageSignatureList;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -5343,13 +5343,7 @@ impl StacksChainState {
                     debug!("Transaction {} is unminable in the confirmed chain tip due to nonce {} != {}; trying the unconfirmed chain tip",
                            &tx.txid(), mismatch_error.expected, mismatch_error.actual);
                     self.with_read_only_unconfirmed_clarity_tx(&NULL_BURN_STATE_DB, |conn| {
-                        StacksChainState::can_include_tx(
-                            conn,
-                            &conf,
-                            true,
-                            tx,
-                            tx_size,
-                        )
+                        StacksChainState::can_include_tx(conn, &conf, true, tx, tx_size)
                     })
                     .map_err(|_| {
                         MemPoolRejection::NoSuchChainTip(
@@ -5566,6 +5560,53 @@ impl StacksChainState {
         };
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// A list of signatures. Used to allow multiple miners to sign a block or micro-block. Supports
+/// various kinds of serialization.
+pub struct MessageSignatureList {
+    signatures: Vec<MessageSignature>,
+}
+
+impl MessageSignatureList {
+    pub fn empty() -> MessageSignatureList {
+        MessageSignatureList { signatures: vec![] }
+    }
+
+    pub fn from_single(signature: MessageSignature) -> MessageSignatureList {
+        MessageSignatureList {
+            signatures: vec![signature],
+        }
+    }
+
+    pub fn from_vec(signatures: Vec<MessageSignature>) -> MessageSignatureList {
+        MessageSignatureList { signatures }
+    }
+
+    pub fn add_signature(&mut self, signature: MessageSignature) {
+        self.signatures.push(signature);
+    }
+
+    pub fn signatures(&self) -> &Vec<MessageSignature> {
+        &self.signatures
+    }
+}
+
+impl ToSql for MessageSignatureList {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        let val = serde_json::to_string(self).expect("FAIL: could not serialize ExecutionCost");
+        Ok(ToSqlOutput::from(val))
+    }
+}
+
+impl FromColumn<MessageSignatureList> for MessageSignatureList {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<MessageSignatureList, db_error> {
+        let string_rep: String = row.get_unwrap(column_name);
+        let val: MessageSignatureList = serde_json::from_str(&string_rep)
+            .expect("FAIL: could not deserialize MessageSignatureList");
+        Ok(val)
     }
 }
 

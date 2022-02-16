@@ -56,7 +56,7 @@ use vm::types::{
 };
 
 use crate::types::chainstate::StacksMicroblockHeader;
-use types::chainstate::MessageSignatureList;
+use chainstate::stacks::db::blocks::MessageSignatureList;
 
 // make it possible to have a set of Values
 impl std::hash::Hash for Value {

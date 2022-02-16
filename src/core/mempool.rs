@@ -73,7 +73,7 @@ use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
 use crate::util::db::table_exists;
-use types::chainstate::MessageSignatureList;
+use chainstate::stacks::db::blocks::MessageSignatureList;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;

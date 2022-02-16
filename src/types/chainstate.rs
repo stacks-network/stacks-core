@@ -16,6 +16,8 @@ use types::proof::TrieHash;
 use util::db::Error as db_error;
 use util::db::FromColumn;
 
+use chainstate::stacks::db::blocks::MessageSignatureList;
+
 #[derive(Serialize, Deserialize)]
 pub struct BurnchainHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
@@ -148,53 +150,6 @@ pub const STACKS_ADDRESS_ENCODED_SIZE: u32 = 1 + HASH160_ENCODED_SIZE;
 pub struct StacksWorkScore {
     pub burn: u64, // number of burn tokens destroyed
     pub work: u64, // in Stacks, "work" == the length of the fork
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-/// A list of signatures. Used to allow multiple miners to sign a block or micro-block. Supports
-/// various kinds of serialization.
-pub struct MessageSignatureList {
-    signatures: Vec<MessageSignature>,
-}
-
-impl MessageSignatureList {
-    pub fn empty() -> MessageSignatureList {
-        MessageSignatureList { signatures: vec![] }
-    }
-
-    pub fn from_single(signature: MessageSignature) -> MessageSignatureList {
-        MessageSignatureList {
-            signatures: vec![signature],
-        }
-    }
-
-    pub fn from_vec(signatures: Vec<MessageSignature>) -> MessageSignatureList {
-        MessageSignatureList { signatures }
-    }
-
-    pub fn add_signature(&mut self, signature: MessageSignature) {
-        self.signatures.push(signature);
-    }
-
-    pub fn signatures(&self) -> &Vec<MessageSignature> {
-        &self.signatures
-    }
-}
-
-impl ToSql for MessageSignatureList {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let val = serde_json::to_string(self).expect("FAIL: could not serialize ExecutionCost");
-        Ok(ToSqlOutput::from(val))
-    }
-}
-
-impl FromColumn<MessageSignatureList> for MessageSignatureList {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<MessageSignatureList, db_error> {
-        let string_rep: String = row.get_unwrap(column_name);
-        let val: MessageSignatureList = serde_json::from_str(&string_rep)
-            .expect("FAIL: could not deserialize MessageSignatureList");
-        Ok(val)
-    }
 }
 
 /// The header for an on-chain-anchored Stacks block

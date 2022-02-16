@@ -60,7 +60,7 @@ use crate::types::chainstate::{
 };
 use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
 use crate::types::proof::{TrieHash, TRIEHASH_ENCODED_SIZE};
-use types::chainstate::MessageSignatureList;
+use chainstate::stacks::db::blocks::MessageSignatureList;
 
 pub mod address;
 pub mod auth;

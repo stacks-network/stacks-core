@@ -40,7 +40,7 @@ use vm::costs::ExecutionCost;
 use crate::types::chainstate::{
     StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
 };
-use types::chainstate::MessageSignatureList;
+use chainstate::stacks::db::blocks::MessageSignatureList;
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<StacksBlockHeader, db_error> {
