@@ -965,6 +965,22 @@ mod test {
     }
 
     #[test]
+    fn codec_encode_message_signature_list() {
+        // Empty list, edge case.
+        let list = MessageSignatureList::empty();
+        let expected_bytes = vec![0, 0, 0, 0];
+        check_codec_and_corruption::<MessageSignatureList>(&list, &expected_bytes);
+
+        // Two-element list, typical case.
+        let list = MessageSignatureList::from_vec(vec![
+            MessageSignature([0u8; 65]),
+            MessageSignature([1u8; 65]),
+        ]);
+        let expected_bytes = vec![0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+        check_codec_and_corruption::<MessageSignatureList>(&list, &expected_bytes);
+    }
+
+    #[test]
     fn codec_stacks_block_header() {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
