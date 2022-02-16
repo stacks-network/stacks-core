@@ -1,4 +1,4 @@
-name: stacks-blockchain
+name: CI
 
 # Only run when:
 #   - PRs are opened against the master branch
@@ -18,24 +18,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Notify Slack channel of workflow start
-  notify-start:
-    runs-on: ubuntu-latest
-    # Only run on non-PR events or only PRs that aren't from forks
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    outputs:
-      slack_message_id: ${{ steps.slack.outputs.message_id }}
-    steps:
-      - name: Notify slack start
-        id: slack
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-        uses: voxmedia/github-action-slack-notify-build@v1.1.2
-        with:
-          channel: devops-notify
-          status: STARTING
-          color: warning
-
   # Run full genesis test
   full-genesis:
     runs-on: ubuntu-latest
@@ -127,7 +109,7 @@ jobs:
         uses: docker/setup-buildx-action@v1
 
       - name: Build distributable
-        uses: docker/build-push-action@v2.2.1
+        uses: docker/build-push-action@v2
         with:
           file: build-scripts/Dockerfile.${{ matrix.platform }}
           outputs: dist/${{ matrix.platform }}
@@ -145,6 +127,15 @@ jobs:
           name: ${{ matrix.platform }}
           path: ${{ matrix.platform }}.zip
 
+  call-docker-platforms-workflow:
+    if: ${{ github.event.inputs.tag != '' }}
+    uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master
+    with:
+      tag: ${{ github.event.inputs.tag }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+
   # Build docker image, tag it with the git tag and `latest` if running on master branch, and publish under the following conditions
   # Will publish if:
   #   - a tag was passed into this workflow
@@ -154,21 +145,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+
       - name: Set Vars
         run: |
           echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
           echo "GITHUB_REF_SHORT=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
 
-      - name: Build/Tag/Push Image
-        uses: docker/build-push-action@v1
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v3
         with:
-          repository: blockstack/${{ github.workflow }}
+          images: |
+            blockstack/${{ github.event.repository.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            ${{ github.event.inputs.tag }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
-          tags: ${{ github.event.inputs.tag }}
-          tag_with_ref: true
-          add_git_labels: true
-          build_args: STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }},GIT_BRANCH=${{ env.GITHUB_REF_SHORT }},GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
+
+      - name: Build/Tag/Push Image
+        uses: docker/build-push-action@v2
+        with:
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
+            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
+            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
           # Only push if (a tag was passed in) or (we're building a non-master branch which isn't a PR)
           push: ${{ github.event.inputs.tag != '' || (github.ref != 'refs/heads/master' && !contains(github.ref, 'refs/pull')) }}
 
@@ -182,6 +191,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       # Stretch tag will be "<TAG>-stretch" if a tag was passed in, otherwise "<BRANCH>-stretch". If the BRANCH is master, will result in "latest-stretch"
+      # Also determines platforms to be build in docker step
       - name: Determine Stretch Tag
         run: |
           if [[ -z ${TAG} ]]; then
@@ -202,17 +212,34 @@ jobs:
           echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
           echo "GITHUB_REF_SHORT=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
 
-      - name: Build/Tag/Push Image
-        uses: docker/build-push-action@v1
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v3
         with:
-          repository: blockstack/${{ github.workflow }}
-          dockerfile: Dockerfile.stretch
+          images: |
+            blockstack/${{ github.event.repository.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            ${{ env.STRETCH_TAG }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
-          tags: ${{ env.STRETCH_TAG }}
-          tag_with_ref: false
-          add_git_labels: true
-          build_args: STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }},GIT_BRANCH=${{ env.GITHUB_REF_SHORT }},GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
+
+      - name: Build/Tag/Push Image
+        uses: docker/build-push-action@v2
+        with:
+          platforms: linux/amd64
+          file: Dockerfile.stretch
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
+            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
+            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
           # Only push if (a tag was passed in) or (we're building a non-master branch which isn't a PR)
           push: ${{ github.event.inputs.tag != '' || (github.ref != 'refs/heads/master' && !contains(github.ref, 'refs/pull')) }}
 
@@ -268,39 +295,3 @@ jobs:
           asset_path: ./dist/${{ matrix.platform }}.zip
           asset_name: ${{ matrix.platform }}.zip
           asset_content_type: application/zip
-
-  # Notify Slack channel of workflow end
-  notify-end:
-    runs-on: ubuntu-latest
-    needs:
-      - notify-start
-      - dist
-      - build-publish
-      - build-publish-stretch
-      - create-release
-      - upload-dist
-    if: always()
-    steps:
-      - name: Notify slack success
-        # Only run on non-PR events or only PRs that aren't from forks
-        if: (!contains(needs.*.result, 'failure')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-        uses: voxmedia/github-action-slack-notify-build@v1.1.2
-        with:
-          message_id: ${{ needs.notify-start.outputs.slack_message_id }}
-          channel: devops-notify
-          status: SUCCESS
-          color: good
-
-      - name: Notify slack fail
-        # Only run on non-PR events or only PRs that aren't from forks
-        if: (contains(needs.*.result, 'failure')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-        uses: voxmedia/github-action-slack-notify-build@v1.1.2
-        with:
-          message_id: ${{ needs.notify-start.outputs.slack_message_id }}
-          channel: devops-notify
-          status: FAILED
-          color: danger
