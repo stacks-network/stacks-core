@@ -1916,7 +1916,6 @@ impl StacksNode {
         sortdb: &SortitionDB,
         sort_id: &SortitionId,
     ) -> Option<BlockSnapshot> {
-        info!("process_burnchain_state({})", sort_id);
         let mut last_sortitioned_block = None;
 
         let ic = sortdb.index_conn();

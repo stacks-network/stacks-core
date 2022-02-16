@@ -238,7 +238,7 @@ impl StacksHyperBlock {
                             ) {
                                 Ok(x) => Some(x),
                                 Err(e) => {
-                                    warn!(
+                                    info!(
                                         "StacksHyperBlock parser skipped event because of {:?}",
                                         e
                                     );

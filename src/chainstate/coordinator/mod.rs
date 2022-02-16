@@ -307,19 +307,19 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
             // timeout so that we handle Ctrl-C a little gracefully
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
-                    info!("Received new stacks block notice");
+                    debug!("Received new stacks block notice");
                     if let Err(e) = inst.handle_new_stacks_block() {
                         warn!("Error processing new stacks block: {:?}", e);
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
-                    info!("Received new burn block notice");
+                    debug!("Received new burn block notice");
                     if let Err(e) = inst.handle_new_burnchain_block() {
                         warn!("Error processing new burn block: {:?}", e);
                     }
                 }
                 CoordinatorEvents::STOP => {
-                    info!("Received stop notice");
+                    debug!("Received stop notice");
                     return;
                 }
                 CoordinatorEvents::TIMEOUT => {}
@@ -434,7 +434,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             }));
         }
 
-        info!("Beginning reward cycle";
+        debug!("Beginning reward cycle";
               "burn_height" => burn_height,
               "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
               "prepare_phase_length" => burnchain.pox_constants.prepare_length);
@@ -531,7 +531,7 @@ impl<
     pub fn handle_new_burnchain_block(&mut self) -> Result<(), Error> {
         // Retrieve canonical burnchain chain tip from the BurnchainBlocksDB
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
-        info!("Handle new canonical burnchain tip";
+        debug!("Handle new canonical burnchain tip";
                "height" => %canonical_burnchain_tip.block_height,
                "block_hash" => %canonical_burnchain_tip.block_hash.to_string());
 
@@ -566,7 +566,7 @@ impl<
             .map(|block| block.header.block_hash.to_string())
             .collect();
 
-        info!(
+        debug!(
             "Unprocessed burn chain blocks [{}]",
             burn_header_hashes.join(", ")
         );
@@ -610,7 +610,7 @@ impl<
 
             self.notifier.notify_sortition_processed();
 
-            info!(
+            debug!(
                 "Sortition processed";
                 "sortition_id" => &sortition_id.to_string(),
                 "burn_header_hash" => &next_snapshot.burn_header_hash.to_string(),
@@ -694,7 +694,7 @@ impl<
                     let new_canonical_stacks_block =
                         new_canonical_block_snapshot.get_canonical_stacks_block_id();
                     self.canonical_chain_tip = Some(new_canonical_stacks_block);
-                    info!("Bump blocks processed");
+                    debug!("Bump blocks processed");
                     self.notifier.notify_stacks_block_processed();
                     increment_stx_blocks_processed_counter();
 

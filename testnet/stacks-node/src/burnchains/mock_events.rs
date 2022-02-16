@@ -633,7 +633,6 @@ impl BurnchainIndexer for MockIndexer {
         start_block: u64,
         end_block: u64,
     ) -> Result<Vec<MockHeader>, BurnchainError> {
-        info!("read_headers({}, {})", start_block, end_block);
         if start_block < self.minimum_recorded_height {
             return Err(BurnchainError::MissingHeaders);
         }
