@@ -9659,7 +9659,7 @@ pub mod test {
     // TODO(test): process_next_staging_block
     // TODO(test): test resource limits -- shouldn't be able to load microblock streams that are too big
 
-    /// Tests the basic operations for MessageSignatureList.
+    /// Tests the basic create, read and update operations for MessageSignatureList.
     #[test]
     fn message_signature_list_operations() {
         let list = MessageSignatureList::empty();
@@ -9685,5 +9685,16 @@ pub mod test {
             &vec![MessageSignature([0u8; 65]), MessageSignature([1u8; 65])],
             list.signatures()
         );
+    }
+
+    /// Tests the SQL serialize/deserialize operations for MessageSignatureList.
+    #[test]
+    fn message_signature_list_sql_serialize() {
+        let list = MessageSignatureList::from_vec(vec![
+            MessageSignature([0u8; 65]),
+            MessageSignature([1u8; 65]),
+        ]);
+        info!("sql_row {:?}", &sql_row);
+        assert_eq!(ToSqlOutput::from("{\"signatures\":[\"0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\",\"0101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101\"]}".to_string()), list.to_sql().unwrap());
     }
 }
