@@ -195,7 +195,7 @@ impl StacksMessageCodec for Preamble {
             )));
         }
 
-        if burn_block_height <= burn_stable_block_height {
+        if burn_block_height < burn_stable_block_height {
             test_debug!(
                 "burn block height {} <= burn stable block height {}",
                 burn_block_height,

@@ -280,7 +280,7 @@ impl Burnchain {
 
     pub fn regtest(working_dir: &str) -> Burnchain {
         let ret =
-            Burnchain::new(working_dir, &"bitcoin".to_string(), &"regtest".to_string()).unwrap();
+            Burnchain::new(working_dir, &"mockstack".to_string(), &"hyperchain".to_string()).unwrap();
         ret
     }
 
@@ -290,9 +290,9 @@ impl Burnchain {
         first_block_hash: &BurnchainHeaderHash,
     ) -> Burnchain {
         let mut ret = Burnchain::new(
-            &"/unit-tests".to_string(),
-            &"bitcoin".to_string(),
-            &"mainnet".to_string(),
+            &"/tmp/stacks-node-tests/unit-tests".to_string(),
+            &"mockstack".to_string(),
+            &"hyperchain".to_string(),
         )
         .unwrap();
         ret.first_block_height = first_block_height;

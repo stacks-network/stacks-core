@@ -2413,7 +2413,7 @@ mod test {
         asn4_entries: &Vec<ASEntry4>,
         initial_neighbors: &Vec<Neighbor>,
     ) -> (PeerDB, SortitionDB, PoxId, StacksChainState) {
-        let test_path = format!("/tmp/blockstack-test-databases-{}", testname);
+        let test_path = format!("/tmp/stacks-node-tests/net/test-db-{}", testname);
         match fs::metadata(&test_path) {
             Ok(_) => {
                 fs::remove_dir_all(&test_path).unwrap();

@@ -65,7 +65,7 @@ jobs:
         # Remove .dockerignore file so codecov has access to git info
         run: |
           rm .dockerignore
-          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
+          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.integrations .
       - uses: codecov/codecov-action@v2
         with:
           files: ./coverage-output/lcov.info
