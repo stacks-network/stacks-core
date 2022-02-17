@@ -1334,8 +1334,9 @@ impl Relayer {
 
         let mut processed_unconfirmed_state = Default::default();
 
-        // finally, refresh the unconfirmed chainstate, if need be
-        if network_result.has_microblocks() {
+        // finally, refresh the unconfirmed chainstate, if need be.
+        // only bother if we're not in IBD; otherwise this is a waste of time
+        if network_result.has_microblocks() && !ibd {
             processed_unconfirmed_state = Relayer::refresh_unconfirmed(chainstate, sortdb);
         }
 
