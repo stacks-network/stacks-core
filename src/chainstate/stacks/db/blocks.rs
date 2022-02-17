@@ -1667,6 +1667,7 @@ impl StacksChainState {
             .map_err(|e| Error::from(db_error::from(e)))
     }
 
+    /// only used in integration tests with stacks-node
     pub fn get_parent_consensus_hash(
         sort_ic: &SortitionDBConn,
         parent_block_hash: &BlockHeaderHash,
@@ -1691,6 +1692,7 @@ impl StacksChainState {
 
     /// Get an anchored block's parent block header.
     /// Doesn't matter if it's staging or not.
+    #[cfg(test)]
     pub fn load_parent_block_header(
         sort_ic: &SortitionDBConn,
         blocks_path: &str,
