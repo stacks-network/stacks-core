@@ -891,19 +891,16 @@ impl Burnchain {
 
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
-        let (parent_snapshot, parent_sort_id, reward_set_info) =
-            db.get_sortition_info(&header, burnchain, &sortition_tip, None)?;
-
-        // The block is not broadcast to the event observer here since this is a legacy function.
+        // Do not emit sortition/burn block events to event observer in this method, because this
+        // method is deprecated and only used in defunct helium nodes
 
         db.evaluate_sortition(
             &header,
             blockstack_txs,
             burnchain,
+            &sortition_tip,
             None,
-            parent_sort_id,
-            parent_snapshot,
-            reward_set_info,
+            |_| {},
         )
     }
 

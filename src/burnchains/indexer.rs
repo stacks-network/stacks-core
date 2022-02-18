@@ -75,7 +75,7 @@ pub trait BurnchainIndexer {
         end_height: Option<u64>,
     ) -> Result<u64, burnchain_error>;
     fn drop_headers(&mut self, new_height: u64) -> Result<(), burnchain_error>;
-
+    /// Return headers that fall within the range. If end_block extends beyond the downloaded header range, then the result is truncated.
     fn read_headers(&self, start_block: u64, end_block: u64) -> Result<Vec<<<<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D as BurnchainBlockDownloader>::H>, burnchain_error>;
 
     fn downloader(&self) -> <<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D;

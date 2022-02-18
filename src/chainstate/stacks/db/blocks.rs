@@ -5727,7 +5727,7 @@ impl StacksChainState {
         }
 
         if let Some(dispatcher) = dispatcher_opt {
-            let parent_id = StacksBlockHeader::make_index_block_hash(
+            let parent_id = StacksBlockId::new(
                 &next_staging_block.parent_consensus_hash,
                 &next_staging_block.parent_anchored_block_hash,
             );

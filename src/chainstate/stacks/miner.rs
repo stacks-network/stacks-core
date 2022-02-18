@@ -771,9 +771,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                         == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                     {
                                         test_debug!(
-                                            "Stop mining anchored block due to limit exceeded"
+                                            "Stop mining microblock block due to limit exceeded"
                                         );
-                                        block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                                         break;
                                     }
                                 }

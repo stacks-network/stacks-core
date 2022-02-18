@@ -2788,19 +2788,27 @@ impl SortitionDB {
         Ok(Some((snapshot, transition_ops)))
     }
 
+    /// Evaluate the sortition (SIP-001 miner block election) in the burnchain block defined by
+    /// `burn_header`. Returns the new snapshot and burnchain state
+    /// transition.
+    ///
     /// # Arguments
     /// * `burn_header` - the burnchain block header to process sortition for
+    /// * `ops` - the parsed blockstack operations (will be validated in this function)
     /// * `burnchain` - a reference to the burnchain information struct
     /// * `from_tip` - tip of the "sortition chain" that is being built on
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
-    /// Returns the parent block snapshot, the parent sortition ID, and the reward set info.
-    pub fn get_sortition_info(
+    /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
+    ///                   commits its results.
+    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>) -> ()>(
         &mut self,
         burn_header: &BurnchainBlockHeader,
+        ops: Vec<BlockstackOperationType>,
         burnchain: &Burnchain,
         from_tip: &SortitionId,
-        next_pox_info: Option<&RewardCycleInfo>,
-    ) -> Result<(BlockSnapshot, SortitionId, Option<RewardSetInfo>), BurnchainError> {
+        next_pox_info: Option<RewardCycleInfo>,
+        announce_to: F,
+    ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
             .ok_or_else(|| {
@@ -2816,6 +2824,8 @@ impl SortitionDB {
                 BurnchainError::MissingParentBlock
             })?;
 
+        let parent_pox = sortition_db_handle.get_pox_id()?;
+
         let reward_set_vrf_hash = parent_snapshot
             .sortition_hash
             .mix_burn_header(&parent_snapshot.burn_header_hash);
@@ -2827,37 +2837,10 @@ impl SortitionDB {
                 burnchain,
                 burn_header.block_height,
                 &reward_set_vrf_hash,
-                next_pox_info,
+                next_pox_info.as_ref(),
             )?
         };
-        sortition_db_handle.commit()?;
 
-        Ok((parent_snapshot, parent_sort_id, reward_set_info))
-    }
-
-    ///
-    /// # Arguments
-    /// * `burn_header` - the burnchain block header to process sortition for
-    /// * `ops` - the parsed blockstack operations (will be validated in this function)
-    /// * `burnchain` - a reference to the burnchain information struct
-    /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
-    /// * `parent_sort_id` - the parent sortition ID
-    /// * `parent_snapshot` - the parent block snapshot
-    /// * `reward_set_info` - computed using `next_pox_info`; contains reward address information
-    /// Returns new snapshot and burnchain state transition.
-    pub fn evaluate_sortition(
-        &mut self,
-        burn_header: &BurnchainBlockHeader,
-        ops: Vec<BlockstackOperationType>,
-        burnchain: &Burnchain,
-        next_pox_info: Option<RewardCycleInfo>,
-        parent_sort_id: SortitionId,
-        parent_snapshot: BlockSnapshot,
-        reward_set_info: Option<RewardSetInfo>,
-    ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
-        let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_sort_id)?;
-
-        let parent_pox = sortition_db_handle.get_pox_id()?;
         // Get any initial mining bonus which would be due to the winner of this block.
         let bonus_remaining =
             sortition_db_handle.get_initial_mining_bonus_remaining(&parent_sort_id)?;
@@ -2883,6 +2866,8 @@ impl SortitionDB {
         )?;
 
         sortition_db_handle.store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
+
+        announce_to(reward_set_info);
 
         // commit everything!
         sortition_db_handle.commit()?;
