@@ -1846,7 +1846,8 @@ mod test {
 
         assert_eq!(exit, 0);
         assert!(result["message"].as_str().unwrap().len() > 0);
-        assert!(result["events"].as_array().unwrap().len() == 0);
+        // there is 1 map-set event
+        assert!(result["events"].as_array().unwrap().len() == 1);
         assert_eq!(result["output"], json!({"UInt": 1000}));
 
         eprintln!("eval tokens");
