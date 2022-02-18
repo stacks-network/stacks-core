@@ -369,3 +369,227 @@ fn test_emit_nft_mint_nok() {
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 0);
 }
+
+#[test]
+fn test_emit_var_set_ok() {
+    let contract = "(define-data-var my-variable uint u0)
+        (define-public (emit-var-set)
+            (begin
+                (var-set my-variable u999)
+                (ok u1)))";
+
+    let (value, mut events) = helper_execute(contract, "emit-var-set");
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 1);
+    match events.pop() {
+        Some(StacksTransactionEvent::StorageEvent(StorageEventType::StorageVarSetEvent(data))) => {
+            let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
+            assert_eq!(data.contract_id, contract_id);
+            assert_eq!(data.var_name, "my-variable");
+            assert_eq!(data.value, Value::UInt(999))
+        }
+        _ => panic!("assertion failed"),
+    };
+}
+
+#[test]
+fn test_emit_var_set_nok() {
+    let contract = "(define-data-var my-variable uint u0)
+        (define-public (emit-var-set)
+            (begin
+                (var-set my-variable u999)
+                (err u1)))";
+
+    let (value, mut events) = helper_execute(contract, "emit-var-set");
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 0);
+}
+
+#[test]
+fn test_emit_map_insert_ok() {
+    let contract = "(define-map my-map uint uint)
+        (define-public (emit-map-insert)
+            (begin
+                (map-insert my-map u1 u999)
+                (ok u1)))";
+
+    let (value, mut events) = helper_execute(contract, "emit-map-insert");
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 1);
+    match events.pop() {
+        Some(StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapInsertEvent(
+            data,
+        ))) => {
+            let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
+            assert_eq!(data.contract_id, contract_id);
+            assert_eq!(data.map_name, "my-map");
+            assert_eq!(data.key, Value::UInt(1));
+            assert_eq!(data.value, Value::UInt(999));
+        }
+        _ => panic!("assertion failed"),
+    };
+}
+
+#[test]
+fn test_emit_map_insert_nok() {
+    let contract = "(define-map my-map uint uint)
+        (define-public (emit-map-insert)
+            (begin
+                (map-insert my-map u1 u999)
+                (err u1)))";
+
+    let (value, mut events) = helper_execute(contract, "emit-map-insert");
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 0);
+}
+
+#[test]
+fn test_emit_map_set_ok() {
+    let contract = "(define-map my-map uint uint)
+        (define-public (emit-map-set)
+            (begin
+                (map-set my-map u1 u999)
+                (ok u1)))";
+
+    let (value, mut events) = helper_execute(contract, "emit-map-set");
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 1);
+    match events.pop() {
+        Some(StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapSetEvent(data))) => {
+            let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
+            assert_eq!(data.contract_id, contract_id);
+            assert_eq!(data.map_name, "my-map");
+            assert_eq!(data.key, Value::UInt(1));
+            assert_eq!(data.value, Value::UInt(999));
+        }
+        _ => panic!("assertion failed"),
+    };
+}
+
+#[test]
+fn test_emit_map_set_nok() {
+    let contract = "(define-map my-map uint uint)
+        (define-public (emit-map-set)
+            (begin
+                (map-set my-map u1 u999)
+                (err u1)))";
+
+    let (value, mut events) = helper_execute(contract, "emit-map-set");
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 0);
+}
+
+#[test]
+fn test_emit_map_delete_ok() {
+    let contract = "(define-map my-map uint uint)
+        (map-insert my-map u1 u999)
+        (define-public (emit-map-delete)
+            (begin
+                (map-delete my-map u1)
+                (ok u1)))";
+
+    let (value, mut events) = helper_execute(contract, "emit-map-delete");
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 1);
+    match events.pop() {
+        Some(StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapDeleteEvent(
+            data,
+        ))) => {
+            let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
+            assert_eq!(data.contract_id, contract_id);
+            assert_eq!(data.map_name, "my-map");
+            assert_eq!(data.key, Value::UInt(1));
+        }
+        _ => panic!("assertion failed"),
+    };
+}
+
+#[test]
+fn test_emit_map_delete_nok() {
+    let contract = "(define-map my-map uint uint)
+    (map-insert my-map u1 u999)
+    (define-public (emit-map-delete)
+        (begin
+            (map-delete my-map u1)
+            (err u1)))";
+
+    let (value, mut events) = helper_execute(contract, "emit-map-delete");
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 0);
+}
+
+#[test]
+fn test_emit_contract_call_ok() {
+    let contract_1 = "(define-public (test (input uint))
+            (ok input)
+        )";
+    let contract_2 = "(define-public (emit-contract-call)
+            (contract-call? .contract1 test u1))
+        ";
+
+    let contract_1_id = QualifiedContractIdentifier::local("contract1").unwrap();
+    let contract_2_id = QualifiedContractIdentifier::local("contract2").unwrap();
+
+    let mut marf_kv = MemoryBackingStore::new();
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+
+    let mut env = owned_env.get_exec_environment(None);
+    env.initialize_contract(contract_1_id.clone(), contract_1)
+        .unwrap();
+
+    env.initialize_contract(contract_2_id.clone(), contract_2)
+        .unwrap();
+
+    let address = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
+    let sender = execute(address).expect_principal();
+
+    let (value, _, mut events) = owned_env
+        .execute_transaction(sender, contract_2_id, "emit-contract-call", &vec![])
+        .unwrap();
+
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 1);
+    match events.pop() {
+        Some(StacksTransactionEvent::ContractCallEvent(data)) => {
+            let contract_id = QualifiedContractIdentifier::local("contract1").unwrap();
+            assert_eq!(data.contract_id, contract_id);
+            assert_eq!(data.function_name, "test");
+            assert_eq!(data.function_args.len(), 1);
+            assert_eq!(data.function_args[0], Value::UInt(1));
+        }
+        _ => panic!("assertion failed"),
+    };
+}
+
+#[test]
+fn test_emit_contract_call_nok() {
+    let contract_1 = "(define-public (test (input uint))
+            (err input)
+        )";
+    let contract_2 = "(define-public (emit-contract-call)
+            (contract-call? .contract1 test u1))
+        ";
+
+    let contract_1_id = QualifiedContractIdentifier::local("contract1").unwrap();
+    let contract_2_id = QualifiedContractIdentifier::local("contract2").unwrap();
+
+    let mut marf_kv = MemoryBackingStore::new();
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+
+    let mut env = owned_env.get_exec_environment(None);
+    env.initialize_contract(contract_1_id.clone(), contract_1)
+        .unwrap();
+
+    env.initialize_contract(contract_2_id.clone(), contract_2)
+        .unwrap();
+
+    let address = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
+    let sender = execute(address).expect_principal();
+
+    let (value, _, mut events) = owned_env
+        .execute_transaction(sender, contract_2_id, "emit-contract-call", &vec![])
+        .unwrap();
+
+    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 0);
+}
