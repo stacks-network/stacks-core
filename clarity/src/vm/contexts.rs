@@ -1396,6 +1396,28 @@ impl<'a, 'b> Environment<'a, 'b> {
         Ok(())
     }
 
+    pub fn register_map_insert_event(
+        &mut self,
+        contract_id: QualifiedContractIdentifier,
+        map_name: String,
+        key: Value,
+        value: Value,
+    ) -> Result<()> {
+        let event_data = StorageMapInsertEventData {
+            contract_id,
+            map_name,
+            key,
+            value,
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::StorageEvent(
+                StorageEventType::StorageMapInsertEvent(event_data),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn register_map_delete_event(
         &mut self,
         contract_id: QualifiedContractIdentifier,

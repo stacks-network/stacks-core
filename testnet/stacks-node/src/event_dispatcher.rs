@@ -599,6 +599,7 @@ impl EventDispatcher {
                     | StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(_))
                     | StacksTransactionEvent::StorageEvent(StorageEventType::StorageVarSetEvent(_))
+                    | StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapInsertEvent(_))
                     | StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapSetEvent(_))
                     | StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapDeleteEvent(_)) 
                     | StacksTransactionEvent::ContractCallEvent(_)=> {

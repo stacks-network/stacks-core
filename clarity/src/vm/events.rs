@@ -125,6 +125,13 @@ impl StacksTransactionEvent {
                 "type": "var_set_event",
                 "var_set_event": event_data.json_serialize()
             }),
+            StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapInsertEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "map_insert_event",
+                "map_insert_event": event_data.json_serialize()
+            }),
             StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapSetEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
                 "event_index": event_index,
@@ -389,6 +396,7 @@ impl SmartContractEventData {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StorageEventType {
     StorageVarSetEvent(StorageVarSetEventData),
+    StorageMapInsertEvent(StorageMapInsertEventData),
     StorageMapSetEvent(StorageMapSetEventData),
     StorageMapDeleteEvent(StorageMapDeleteEventData)
 }
@@ -413,6 +421,39 @@ impl StorageVarSetEventData {
             "contract_identifier": self.contract_id.to_string(),
             "var_name": self.var_name,
             "var_value": formatted_value
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StorageMapInsertEventData {
+    pub contract_id: QualifiedContractIdentifier,
+    pub map_name: String,
+    pub key: Value,
+    pub value: Value,
+}
+
+impl StorageMapInsertEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        let formatted_key = {
+            let mut bytes = vec![];
+            self.key.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            format!("0x{}", formatted_bytes.join(""))
+        };
+        
+        let formatted_value = {
+            let mut bytes = vec![];
+            self.value.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            format!("0x{}", formatted_bytes.join(""))
+        };
+
+        json!({
+            "contract_identifier": self.contract_id.to_string(),
+            "map_name": self.map_name,
+            "map_key": formatted_key,
+            "map_value": formatted_value
         })
     }
 }

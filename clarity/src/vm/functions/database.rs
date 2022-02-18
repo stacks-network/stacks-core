@@ -586,7 +586,7 @@ pub fn special_insert_entry_v200(
     env.add_memory(key.get_memory_use())?;
     env.add_memory(value.get_memory_use())?;
 
-    env.register_map_set_event(contract.clone(), map_name.to_string(), key.clone(), value.clone())?;
+    env.register_map_insert_event(contract.clone(), map_name.to_string(), key.clone(), value.clone())?;
 
     env.global_context
         .database
@@ -637,7 +637,7 @@ pub fn special_insert_entry_v205(
 
     env.add_memory(result_size)?;
 
-    env.register_map_set_event(contract.clone(), map_name.to_string(), key_copy, value_copy)?;
+    env.register_map_insert_event(contract.clone(), map_name.to_string(), key_copy, value_copy)?;
 
     result.map(|data| data.value)
 }
