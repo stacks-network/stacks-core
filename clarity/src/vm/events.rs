@@ -29,7 +29,8 @@ pub enum StacksTransactionEvent {
     STXEvent(STXEventType),
     NFTEvent(NFTEventType),
     FTEvent(FTEventType),
-    StorageEvent(StorageEventType)
+    StorageEvent(StorageEventType),
+    ContractCallEvent(ContractCallEventData),
 }
 
 impl StacksTransactionEvent {
@@ -138,6 +139,13 @@ impl StacksTransactionEvent {
                 "type": "map_delete_event",
                 "map_delete_event": event_data.json_serialize()
             }),
+            StacksTransactionEvent::ContractCallEvent(event_data) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "contract_call_event",
+                "contract_call_event": event_data.json_serialize()
+            })
         }
     }
 }
@@ -462,6 +470,36 @@ impl StorageMapDeleteEventData {
             "contract_identifier": self.contract_id.to_string(),
             "map_name": self.map_name,
             "map_key": formatted_key
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContractCallEventData {
+    pub contract_id: QualifiedContractIdentifier,
+    pub sender: Option<PrincipalData>,
+    pub caller: Option<PrincipalData>,
+    pub function_name: String,
+    pub function_args: Vec<Value>
+}
+
+impl ContractCallEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        let mut args = vec![];
+
+        for arg in &self.function_args {
+            let mut bytes = vec![];
+            arg.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            args.push(format!("0x{}", formatted_bytes.join("")));
+        }
+
+        json!({
+            "contract_identifier": &self.contract_id.to_string(),
+            "sender": &self.sender.clone().unwrap().to_string(),
+            "caller": &self.caller.clone().unwrap().to_string(),
+            "function_name": &self.function_name,
+            "function_args": args
         })
     }
 }

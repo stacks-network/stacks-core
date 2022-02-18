@@ -203,6 +203,23 @@ pub fn special_contract_call(
         }
     }
 
+    let sender = nested_env.sender.clone();
+    let caller = nested_env.caller.clone();
+
+    let mut function_args = vec![];
+    for arg in args[2..].iter() {
+        let evaluated_arg = eval(arg, env, context)?;
+        function_args.push(evaluated_arg);
+    }
+
+    env.register_contract_call_event(
+        contract_identifier.clone(), 
+        sender,
+        caller, 
+        function_name.to_string(),
+        function_args
+    )?;
+
     Ok(result)
 }
 

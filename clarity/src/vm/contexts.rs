@@ -1415,6 +1415,30 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
         Ok(())
     }
+
+    pub fn register_contract_call_event(
+        &mut self,
+        contract_id: QualifiedContractIdentifier,
+        sender: Option<PrincipalData>,
+        caller: Option<PrincipalData>,
+        function_name: String,
+        function_args: Vec<Value>
+    ) -> Result<()> {
+        let event_data = ContractCallEventData {
+            contract_id,
+            sender,
+            caller,
+            function_name,
+            function_args,
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch
+                .events
+                .push(StacksTransactionEvent::ContractCallEvent(event_data));
+        }
+        Ok(())
+    }
 }
 
 impl<'a> GlobalContext<'a> {

@@ -600,7 +600,8 @@ impl EventDispatcher {
                     | StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(_))
                     | StacksTransactionEvent::StorageEvent(StorageEventType::StorageVarSetEvent(_))
                     | StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapSetEvent(_))
-                    | StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapDeleteEvent(_)) => {
+                    | StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapDeleteEvent(_)) 
+                    | StacksTransactionEvent::ContractCallEvent(_)=> {
                         for o_i in &self.stx_observers_lookup {
                             dispatch_matrix[*o_i as usize].insert(i);
                         }
