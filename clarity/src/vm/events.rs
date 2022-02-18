@@ -29,6 +29,7 @@ pub enum StacksTransactionEvent {
     STXEvent(STXEventType),
     NFTEvent(NFTEventType),
     FTEvent(FTEventType),
+    StorageEvent(StorageEventType)
 }
 
 impl StacksTransactionEvent {
@@ -115,6 +116,27 @@ impl StacksTransactionEvent {
                 "committed": committed,
                 "type": "ft_burn_event",
                 "ft_burn_event": event_data.json_serialize()
+            }),
+            StacksTransactionEvent::StorageEvent(StorageEventType::StorageVarSetEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "var_set_event",
+                "var_set_event": event_data.json_serialize()
+            }),
+            StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapSetEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "map_set_event",
+                "map_set_event": event_data.json_serialize()
+            }),
+            StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapDeleteEvent(event_data)) => json!({
+                "txid": format!("0x{:?}", txid),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "map_delete_event",
+                "map_delete_event": event_data.json_serialize()
             }),
         }
     }
@@ -352,6 +374,94 @@ impl SmartContractEventData {
             "topic": self.key.1,
             "value": self.value,
             "raw_value": format!("0x{}", raw_value.join("")),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StorageEventType {
+    StorageVarSetEvent(StorageVarSetEventData),
+    StorageMapSetEvent(StorageMapSetEventData),
+    StorageMapDeleteEvent(StorageMapDeleteEventData)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StorageVarSetEventData {
+    pub contract_id: QualifiedContractIdentifier,
+    pub var_name: String,
+    pub value: Value,
+}
+
+impl StorageVarSetEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        let formatted_value = {
+            let mut bytes = vec![];
+            self.value.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            format!("0x{}", formatted_bytes.join(""))
+        };
+
+        json!({
+            "contract_identifier": self.contract_id.to_string(),
+            "var_name": self.var_name,
+            "var_value": formatted_value
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StorageMapSetEventData {
+    pub contract_id: QualifiedContractIdentifier,
+    pub map_name: String,
+    pub key: Value,
+    pub value: Value,
+}
+
+impl StorageMapSetEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        let formatted_key = {
+            let mut bytes = vec![];
+            self.key.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            format!("0x{}", formatted_bytes.join(""))
+        };
+        
+        let formatted_value = {
+            let mut bytes = vec![];
+            self.value.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            format!("0x{}", formatted_bytes.join(""))
+        };
+
+        json!({
+            "contract_identifier": self.contract_id.to_string(),
+            "map_name": self.map_name,
+            "map_key": formatted_key,
+            "map_value": formatted_value
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StorageMapDeleteEventData {
+    pub contract_id: QualifiedContractIdentifier,
+    pub map_name: String,
+    pub key: Value,
+}
+
+impl StorageMapDeleteEventData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        let formatted_key = {
+            let mut bytes = vec![];
+            self.key.consensus_serialize(&mut bytes).unwrap();
+            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+            format!("0x{}", formatted_bytes.join(""))
+        };
+        
+        json!({
+            "contract_identifier": self.contract_id.to_string(),
+            "map_name": self.map_name,
+            "map_key": formatted_key
         })
     }
 }

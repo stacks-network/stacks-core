@@ -34,7 +34,7 @@ use stacks::types::chainstate::{
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
 use stacks::vm::costs::ExecutionCost;
-use stacks::vm::events::{FTEventType, NFTEventType, STXEventType};
+use stacks::vm::events::{FTEventType, NFTEventType, STXEventType, StorageEventType};
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 
 use super::config::{EventKeyType, EventObserverConfig};
@@ -597,7 +597,10 @@ impl EventDispatcher {
                     StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(_))
-                    | StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(_)) => {
+                    | StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(_))
+                    | StacksTransactionEvent::StorageEvent(StorageEventType::StorageVarSetEvent(_))
+                    | StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapSetEvent(_))
+                    | StacksTransactionEvent::StorageEvent(StorageEventType::StorageMapDeleteEvent(_)) => {
                         for o_i in &self.stx_observers_lookup {
                             dispatch_matrix[*o_i as usize].insert(i);
                         }

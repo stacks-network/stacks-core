@@ -299,6 +299,8 @@ pub fn special_set_variable_v200(
 
     env.add_memory(value.get_memory_use())?;
 
+    env.register_var_set_event(contract.clone(), var_name.to_string(), value.clone())?;
+
     env.global_context
         .database
         .set_variable(contract, var_name, value, data_types)
@@ -319,6 +321,7 @@ pub fn special_set_variable_v205(
     check_argument_count(2, args)?;
 
     let value = eval(&args[1], env, &context)?;
+    let value_copy = value.clone();
 
     let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -343,6 +346,8 @@ pub fn special_set_variable_v205(
     runtime_cost(ClarityCostFunction::SetVar, env, result_size)?;
 
     env.add_memory(result_size)?;
+
+    env.register_var_set_event(contract.clone(), var_name.to_string(), value_copy)?;
 
     result.map(|data| data.value)
 }
@@ -474,6 +479,8 @@ pub fn special_set_entry_v200(
     env.add_memory(key.get_memory_use())?;
     env.add_memory(value.get_memory_use())?;
 
+    env.register_map_set_event(contract.clone(), map_name.to_string(), key.clone(), value.clone())?;
+
     env.global_context
         .database
         .set_entry(contract, map_name, key, value, data_types)
@@ -494,8 +501,10 @@ pub fn special_set_entry_v205(
     check_argument_count(3, args)?;
 
     let key = eval(&args[1], env, &context)?;
+    let key_copy = key.clone();
 
     let value = eval(&args[2], env, &context)?;
+    let value_copy = value.clone();
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -520,6 +529,8 @@ pub fn special_set_entry_v205(
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
 
     env.add_memory(result_size)?;
+
+    env.register_map_set_event(contract.clone(), map_name.to_string(), key_copy, value_copy)?;
 
     result.map(|data| data.value)
 }
@@ -558,6 +569,8 @@ pub fn special_insert_entry_v200(
     env.add_memory(key.get_memory_use())?;
     env.add_memory(value.get_memory_use())?;
 
+    env.register_map_set_event(contract.clone(), map_name.to_string(), key.clone(), value.clone())?;
+
     env.global_context
         .database
         .insert_entry(contract, map_name, key, value, data_types)
@@ -578,8 +591,10 @@ pub fn special_insert_entry_v205(
     check_argument_count(3, args)?;
 
     let key = eval(&args[1], env, &context)?;
+    let key_copy = key.clone();
 
     let value = eval(&args[2], env, &context)?;
+    let value_copy = value.clone();
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
 
@@ -604,6 +619,8 @@ pub fn special_insert_entry_v205(
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
 
     env.add_memory(result_size)?;
+
+    env.register_map_set_event(contract.clone(), map_name.to_string(), key_copy, value_copy)?;
 
     result.map(|data| data.value)
 }
@@ -638,6 +655,8 @@ pub fn special_delete_entry_v200(
     )?;
 
     env.add_memory(key.get_memory_use())?;
+
+    env.register_map_delete_event(contract.clone(), map_name.to_string(), key.clone())?;
 
     env.global_context
         .database
@@ -683,6 +702,8 @@ pub fn special_delete_entry_v205(
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
 
     env.add_memory(result_size)?;
+
+    env.register_map_delete_event(contract.clone(), map_name.to_string(), key.clone())?;
 
     result.map(|data| data.value)
 }

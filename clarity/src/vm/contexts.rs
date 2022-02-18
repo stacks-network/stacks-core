@@ -1353,6 +1353,68 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
         Ok(())
     }
+
+    pub fn register_var_set_event(
+        &mut self,
+        contract_id: QualifiedContractIdentifier,
+        var_name: String,
+        value: Value,
+    ) -> Result<()> {
+        let event_data = StorageVarSetEventData {
+            contract_id,
+            var_name,
+            value,
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::StorageEvent(
+                StorageEventType::StorageVarSetEvent(event_data),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn register_map_set_event(
+        &mut self,
+        contract_id: QualifiedContractIdentifier,
+        map_name: String,
+        key: Value,
+        value: Value,
+    ) -> Result<()> {
+        let event_data = StorageMapSetEventData {
+            contract_id,
+            map_name,
+            key,
+            value,
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::StorageEvent(
+                StorageEventType::StorageMapSetEvent(event_data),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn register_map_delete_event(
+        &mut self,
+        contract_id: QualifiedContractIdentifier,
+        map_name: String,
+        key: Value,
+    ) -> Result<()> {
+        let event_data = StorageMapDeleteEventData {
+            contract_id,
+            map_name,
+            key,
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::StorageEvent(
+                StorageEventType::StorageMapDeleteEvent(event_data),
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl<'a> GlobalContext<'a> {
