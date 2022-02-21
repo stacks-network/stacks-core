@@ -72,6 +72,9 @@ pub type DBTx<'a> = rusqlite::Transaction<'a>;
 // 256MB
 pub const SQLITE_MMAP_SIZE: i64 = 256 * 1024 * 1024;
 
+// 32K
+pub const SQLITE_MARF_PAGE_SIZE: i64 = 32768;
+
 #[derive(Debug)]
 pub enum Error {
     /// Not implemented
@@ -656,6 +659,7 @@ pub fn sqlite_open<P: AsRef<Path>>(
     let db = Connection::open_with_flags(path, flags)?;
     db.busy_handler(Some(tx_busy_handler))?;
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
+    inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
     if foreign_keys {
         inner_sql_pragma(&db, "foreign_keys", &true)?;
     }
