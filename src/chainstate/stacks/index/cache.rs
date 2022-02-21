@@ -300,6 +300,10 @@ pub struct TrieBenchmark {
     total_write_children_hashes_same_block_time_ns: u128,
     total_write_children_hashes_ancestor_block_time_ns: u128,
 
+    total_marf_walk_from_time_ns: u128,
+    total_marf_walk_backptr_time_ns: u128,
+    total_marf_walk_find_backptr_node_time_ns: u128,
+
     read_nodetype_start_time: SystemTime,
     read_node_hash_start_time: SystemTime,
     open_block_start_time: SystemTime,
@@ -308,6 +312,9 @@ pub struct TrieBenchmark {
     write_children_hashes_same_block_start_time: SystemTime,
     write_children_hashes_ancestor_block_start_time: SystemTime,
     get_block_hash_caching_start_time: SystemTime,
+    marf_walk_from_start_time: SystemTime,
+    marf_walk_backptr_start_time: SystemTime,
+    marf_walk_find_backptr_node_start_time: SystemTime,
 
     time_errors: u64,
 }
@@ -340,6 +347,10 @@ impl TrieBenchmark {
             total_write_children_hashes_same_block_time_ns: 0,
             total_write_children_hashes_ancestor_block_time_ns: 0,
 
+            total_marf_walk_from_time_ns: 0,
+            total_marf_walk_backptr_time_ns: 0,
+            total_marf_walk_find_backptr_node_time_ns: 0,
+
             read_nodetype_start_time: SystemTime::now(),
             read_node_hash_start_time: SystemTime::now(),
             open_block_start_time: SystemTime::now(),
@@ -348,6 +359,9 @@ impl TrieBenchmark {
             write_children_hashes_same_block_start_time: SystemTime::now(),
             write_children_hashes_ancestor_block_start_time: SystemTime::now(),
             get_block_hash_caching_start_time: SystemTime::now(),
+            marf_walk_from_start_time: SystemTime::now(),
+            marf_walk_backptr_start_time: SystemTime::now(),
+            marf_walk_find_backptr_node_start_time: SystemTime::now(),
 
             time_errors: 0,
         }
@@ -379,7 +393,11 @@ impl TrieBenchmark {
         self.total_write_children_hashes_same_block_time_ns = 0;
         self.total_write_children_hashes_ancestor_block_time_ns = 0;
 
-        self.time_errors += 0;
+        self.total_marf_walk_from_time_ns = 0;
+        self.total_marf_walk_backptr_time_ns = 0;
+        self.total_marf_walk_find_backptr_node_time_ns = 0;
+
+        self.time_errors = 0;
     }
 
     pub fn add(&mut self, other: &TrieBenchmark) {
@@ -413,6 +431,11 @@ impl TrieBenchmark {
             other.total_write_children_hashes_same_block_time_ns;
         self.total_write_children_hashes_ancestor_block_time_ns +=
             other.total_write_children_hashes_ancestor_block_time_ns;
+
+        self.total_marf_walk_from_time_ns += other.total_marf_walk_from_time_ns;
+        self.total_marf_walk_backptr_time_ns += other.total_marf_walk_backptr_time_ns;
+        self.total_marf_walk_find_backptr_node_time_ns +=
+            other.total_marf_walk_find_backptr_node_time_ns;
 
         self.time_errors += other.time_errors;
     }
@@ -559,6 +582,45 @@ impl TrieBenchmark {
             self.time_errors += 1;
         }
     }
+
+    pub fn marf_walk_from_start(&mut self) {
+        self.marf_walk_from_start_time = SystemTime::now();
+    }
+
+    pub fn marf_walk_from_finish(&mut self, found: bool) {
+        if let Ok(elapsed) = self.marf_walk_from_start_time.elapsed() {
+            let total_time = elapsed.as_nanos();
+            self.total_marf_walk_from_time_ns += total_time;
+        } else {
+            self.time_errors += 1;
+        }
+    }
+
+    pub fn marf_walk_backptr_start(&mut self) {
+        self.marf_walk_backptr_start_time = SystemTime::now();
+    }
+
+    pub fn marf_walk_backptr_finish(&mut self) {
+        if let Ok(elapsed) = self.marf_walk_backptr_start_time.elapsed() {
+            let total_time = elapsed.as_nanos();
+            self.total_marf_walk_backptr_time_ns += total_time;
+        } else {
+            self.time_errors += 1;
+        }
+    }
+
+    pub fn marf_find_backptr_node_start(&mut self) {
+        self.marf_walk_find_backptr_node_start_time = SystemTime::now();
+    }
+
+    pub fn marf_find_backptr_node_finish(&mut self) {
+        if let Ok(elapsed) = self.marf_walk_find_backptr_node_start_time.elapsed() {
+            let total_time = elapsed.as_nanos();
+            self.total_marf_walk_find_backptr_node_time_ns += total_time;
+        } else {
+            self.time_errors += 1;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -619,16 +681,21 @@ pub mod test {
         data: &[Vec<(String, MARFValue)>],
         batch_size: Option<usize>,
     ) -> TrieHash {
-        let test_dir = format!("/tmp/stacks-marf-tests/{}", test_name);
-        if fs::metadata(&test_dir).is_ok() {
-            fs::remove_dir_all(&test_dir).unwrap();
-        }
-        fs::create_dir_all(&test_dir).unwrap();
+        let test_file = if test_name == ":memory:" {
+            test_name.to_string()
+        } else {
+            let test_dir = format!("/tmp/stacks-marf-tests/{}", test_name);
+            if fs::metadata(&test_dir).is_ok() {
+                fs::remove_dir_all(&test_dir).unwrap();
+            }
+            fs::create_dir_all(&test_dir).unwrap();
 
-        let test_file = format!(
-            "{}/marf-cache-{}-{:?}.sqlite",
-            &test_dir, cache_strategy, hash_strategy
-        );
+            let test_file = format!(
+                "{}/marf-cache-{}-{:?}.sqlite",
+                &test_dir, cache_strategy, hash_strategy
+            );
+            test_file
+        };
 
         let marf_opts = MARFOpenOpts::new(hash_strategy, cache_strategy);
         let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
@@ -675,27 +742,25 @@ pub mod test {
         let mut root_hash = TrieHash([0u8; 32]);
         for (i, block_data) in data.iter().enumerate() {
             test_debug!("Read block {}", i);
-            let mut block_hash_bytes = [0u8; 32];
-            block_hash_bytes[0..8].copy_from_slice(&(i as u64).to_be_bytes());
-
-            let block_header = BlockHeaderHash(block_hash_bytes);
             for (key, value) in block_data.iter() {
                 let path = TriePath::from_key(key);
                 let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
 
                 let read_time = SystemTime::now();
-                let leaf = MARF::get_path(&mut marf.borrow_storage_backend(), &block_header, &path)
-                    .unwrap()
-                    .unwrap();
+                let leaf = MARF::get_path(
+                    &mut marf.borrow_storage_backend(),
+                    &last_block_header,
+                    &path,
+                )
+                .unwrap()
+                .unwrap();
 
                 let read_time = read_time.elapsed().unwrap().as_nanos();
                 total_read_time += read_time;
 
                 assert_eq!(leaf.data.to_vec(), marf_leaf.data.to_vec());
-                assert_eq!(marf.borrow_storage_backend().get_cur_block(), block_header);
+                // assert_eq!(marf.borrow_storage_backend().get_cur_block(), last_block_header);
             }
-
-            root_hash = marf.get_root_hash_at(&block_header).unwrap();
         }
 
         let read_bench = marf.borrow_storage_backend().get_benchmarks();
@@ -709,6 +774,8 @@ pub mod test {
 
         eprintln!("MARF bench total: {:#?}", &bench);
 
+        root_hash = marf.get_root_hash_at(&last_block_header).unwrap();
+        eprintln!("root hash at {:?}: {:?}", &last_block_header, &root_hash);
         root_hash
     }
 
@@ -765,7 +832,7 @@ pub mod test {
     fn test_marf_node_cache_noop_deferred() {
         let test_data = make_test_insert_data(128, 128);
         let root_hash = test_marf_with_cache(
-            "test_marf_node_cache_noop",
+            "test_marf_node_cache_noop_deferred",
             "noop",
             TrieHashCalculationMode::Immediate,
             &test_data,
@@ -774,7 +841,7 @@ pub mod test {
         eprintln!("Final root hash is {}", root_hash);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_noop",
+            "test_marf_node_cache_noop_deferred",
             "noop",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -783,7 +850,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_noop",
+            "test_marf_node_cache_noop_deferred",
             "noop",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -792,7 +859,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_noop",
+            "test_marf_node_cache_noop_deferred",
             "noop",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -801,7 +868,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_noop",
+            "test_marf_node_cache_noop_deferred",
             "noop",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -810,13 +877,25 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_noop",
+            "test_marf_node_cache_noop_deferred",
             "noop",
             TrieHashCalculationMode::Deferred,
             &test_data,
             Some(13),
         );
         assert_eq!(root_hash, root_hash_batched);
+    }
+
+    #[test]
+    fn test_marf_node_cache_ram_noop_deferred() {
+        let test_data = make_test_insert_data(16384, 256);
+        test_marf_with_cache(
+            ":memory:",
+            "noop",
+            TrieHashCalculationMode::Deferred,
+            &test_data,
+            None,
+        );
     }
 
     #[test]
@@ -872,7 +951,7 @@ pub mod test {
     fn test_marf_node_cache_everything_deferred() {
         let test_data = make_test_insert_data(128, 128);
         let root_hash = test_marf_with_cache(
-            "test_marf_node_cache_everything",
+            "test_marf_node_cache_everything_deferred",
             "noop",
             TrieHashCalculationMode::Immediate,
             &test_data,
@@ -881,7 +960,7 @@ pub mod test {
         eprintln!("Final root hash is {}", root_hash);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_everything",
+            "test_marf_node_cache_everything_deferred",
             "everything",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -890,7 +969,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_everything",
+            "test_marf_node_cache_everything_deferred",
             "everything",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -899,7 +978,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_everything",
+            "test_marf_node_cache_everything_deferred",
             "everything",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -908,7 +987,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_everything",
+            "test_marf_node_cache_everything_deferred",
             "everything",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -970,7 +1049,7 @@ pub mod test {
     fn test_marf_node_cache_node256_deferred() {
         let test_data = make_test_insert_data(128, 128);
         let root_hash = test_marf_with_cache(
-            "test_marf_node_cache_node256",
+            "test_marf_node_cache_node256_deferred",
             "noop",
             TrieHashCalculationMode::Immediate,
             &test_data,
@@ -979,7 +1058,7 @@ pub mod test {
         eprintln!("Final root hash is {}", root_hash);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_node256",
+            "test_marf_node_cache_node256_deferred",
             "node256",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -988,7 +1067,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_node256",
+            "test_marf_node_cache_node256_deferred",
             "node256",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -997,7 +1076,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_node256",
+            "test_marf_node_cache_node256_deferred",
             "node256",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -1006,7 +1085,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_node256",
+            "test_marf_node_cache_node256_deferred",
             "node256",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -1019,7 +1098,7 @@ pub mod test {
     fn test_marf_node_cache_node256_deferred_15500() {
         let test_data = make_test_insert_data(15500, 10);
         let root_hash = test_marf_with_cache(
-            "test_marf_node_cache_node256",
+            "test_marf_node_cache_node256_deferred_15500",
             "noop",
             TrieHashCalculationMode::Immediate,
             &test_data,
@@ -1028,7 +1107,7 @@ pub mod test {
         eprintln!("Final root hash is {}", root_hash);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_node256",
+            "test_marf_node_cache_node256_deferred_15500",
             "node256",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -1037,7 +1116,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_node256",
+            "test_marf_node_cache_node256_deferred_15500",
             "node256",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -1046,7 +1125,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_node256",
+            "test_marf_node_cache_node256_deferred_15500",
             "node256",
             TrieHashCalculationMode::Deferred,
             &test_data,
@@ -1055,7 +1134,7 @@ pub mod test {
         assert_eq!(root_hash, root_hash_batched);
 
         let root_hash_batched = test_marf_with_cache(
-            "test_marf_node_cache_node256",
+            "test_marf_node_cache_node256_deferred_15500",
             "node256",
             TrieHashCalculationMode::Deferred,
             &test_data,
