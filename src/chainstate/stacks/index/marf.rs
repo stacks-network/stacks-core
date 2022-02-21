@@ -600,6 +600,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     // helper method for walking a node's backpr
+    #[inline]
     fn walk_backptr(
         storage: &mut TrieStorageConnection<T>,
         start_node: &TrieNodeType,
@@ -779,14 +780,14 @@ impl<T: MarfTrieId> MARF<T> {
         let mut cursor = TrieCursor::new(path, storage.root_trieptr());
 
         // walk to insertion point
-        let (mut node, _) = Trie::read_root(storage)?;
+        let mut node = Trie::read_root_nohash(storage)?;
         let mut node_ptr = TriePtr::new(0, 0, 0);
 
         for _ in 0..(cursor.path.len() + 1) {
-            match Trie::walk_from(storage, &node, &mut cursor) {
+            match Trie::walk_from_nohash(storage, &node, &mut cursor) {
                 Ok(node_info_opt) => {
                     match node_info_opt {
-                        Some((next_node_ptr, next_node, _)) => {
+                        Some((next_node_ptr, next_node)) => {
                             // end of node path.
                             // keep walking.
                             node = next_node;
@@ -883,13 +884,14 @@ impl<T: MarfTrieId> MARF<T> {
         let mut cursor = TrieCursor::new(path, storage.root_trieptr());
 
         // walk to insertion point
-        let (mut node, _) = Trie::read_root(storage)?;
+        let mut node = Trie::read_root_nohash(storage)?;
 
         for _ in 0..(cursor.path.len() + 1) {
-            match Trie::walk_from(storage, &node, &mut cursor) {
+            storage.bench_mut().marf_walk_from_start();
+            match Trie::walk_from_nohash(storage, &node, &mut cursor) {
                 Ok(node_info_opt) => {
                     match node_info_opt {
-                        Some((_, next_node, _)) => {
+                        Some((_, next_node)) => {
                             // end-of-node-path, and found a child.
                             // keep walking
                             node = next_node;
@@ -904,6 +906,7 @@ impl<T: MarfTrieId> MARF<T> {
                             }
 
                             trace!("Cursor reached leaf {:?}", &node);
+                            storage.bench_mut().marf_walk_from_finish(true);
                             return Ok((cursor, node));
                         }
                     }
@@ -915,19 +918,23 @@ impl<T: MarfTrieId> MARF<T> {
                                 CursorError::PathDiverged => {
                                     // we're done -- path diverged.  No backptr-walking can help us.
                                     trace!("Path diverged -- we're done.");
+                                    storage.bench_mut().marf_walk_from_finish(false);
                                     return Err(Error::NotFoundError);
                                 }
                                 CursorError::ChrNotFound => {
                                     // we're done -- end-of-node-path, but no child node.
                                     // Not even a backptr.
                                     trace!("ChrNotFound encountered -- node does not exist");
+                                    storage.bench_mut().marf_walk_from_finish(false);
                                     return Err(Error::NotFoundError);
                                 }
                                 CursorError::BackptrEncountered(ptr) => {
+                                    storage.bench_mut().marf_walk_backptr_start();
                                     // at intermediate node whose child is not present in this trie.
                                     // try to shunt to the prior node that has the child itself.
                                     let (next_node, _, next_node_ptr, _) =
                                         MARF::walk_backptr(storage, &node, ptr.chr(), &mut cursor)?;
+                                    storage.bench_mut().marf_walk_backptr_finish();
 
                                     // finish taking the step
                                     cursor.repair_backptr_finish(
@@ -943,6 +950,7 @@ impl<T: MarfTrieId> MARF<T> {
                         }
                         _ => {
                             // some other error (e.g. I/O error)
+                            storage.bench_mut().marf_walk_from_finish(false);
                             return Err(e);
                         }
                     }
