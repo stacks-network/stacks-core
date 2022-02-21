@@ -61,6 +61,7 @@ use util_lib::db::sqlite_open;
 use util_lib::db::tx_begin_immediate;
 use util_lib::db::tx_busy_handler;
 use util_lib::db::Error as db_error;
+use util_lib::db::SQLITE_MARF_PAGE_SIZE;
 use util_lib::db::SQLITE_MMAP_SIZE;
 
 use crate::types::chainstate::BlockHeaderHash;
@@ -181,17 +182,17 @@ impl<T: MarfTrieId> fmt::Display for FlushOptions<'_, T> {
 
 /// Uncommitted storage state to be flushed
 #[derive(Clone)]
-pub enum LastExtended<T: MarfTrieId> {
+pub enum UncommittedState<T: MarfTrieId> {
     /// read-write
     RW(TrieRAM<T>),
     /// read-only, sealed, with root hash
     Sealed(TrieRAM<T>, TrieHash),
 }
 
-impl<T: MarfTrieId> LastExtended<T> {
+impl<T: MarfTrieId> UncommittedState<T> {
     pub fn format(&mut self) -> Result<(), Error> {
         match self {
-            LastExtended::RW(ref mut trie_ram) => trie_ram.format(),
+            UncommittedState::RW(ref mut trie_ram) => trie_ram.format(),
             _ => {
                 panic!("FATAL: cannot format a sealed TrieRAM");
             }
@@ -200,22 +201,22 @@ impl<T: MarfTrieId> LastExtended<T> {
 
     pub fn size_hint(&self) -> usize {
         match self {
-            LastExtended::RW(ref trie_ram) => trie_ram.size_hint(),
-            LastExtended::Sealed(ref trie_ram, _) => trie_ram.size_hint(),
+            UncommittedState::RW(ref trie_ram) => trie_ram.size_hint(),
+            UncommittedState::Sealed(ref trie_ram, _) => trie_ram.size_hint(),
         }
     }
 
     fn trie_ram_ref(&self) -> &TrieRAM<T> {
         match self {
-            LastExtended::RW(ref trie_ram) => trie_ram,
-            LastExtended::Sealed(ref trie_ram, ..) => trie_ram,
+            UncommittedState::RW(ref trie_ram) => trie_ram,
+            UncommittedState::Sealed(ref trie_ram, ..) => trie_ram,
         }
     }
 
     fn trie_ram_mut(&mut self) -> &mut TrieRAM<T> {
         match self {
-            LastExtended::RW(ref mut trie_ram) => trie_ram,
-            LastExtended::Sealed(ref mut trie_ram, ..) => trie_ram,
+            UncommittedState::RW(ref mut trie_ram) => trie_ram,
+            UncommittedState::Sealed(ref mut trie_ram, ..) => trie_ram,
         }
     }
 
@@ -234,10 +235,10 @@ impl<T: MarfTrieId> LastExtended<T> {
         hash: TrieHash,
     ) -> Result<(), Error> {
         match self {
-            LastExtended::RW(ref mut trie_ram) => {
+            UncommittedState::RW(ref mut trie_ram) => {
                 trie_ram.write_nodetype(node_array_ptr, node, hash)
             }
-            LastExtended::Sealed(..) => {
+            UncommittedState::Sealed(..) => {
                 panic!("FATAL: tried to write to a sealed TrieRAM");
             }
         }
@@ -245,8 +246,10 @@ impl<T: MarfTrieId> LastExtended<T> {
 
     pub fn write_node_hash(&mut self, node_array_ptr: u32, hash: TrieHash) -> Result<(), Error> {
         match self {
-            LastExtended::RW(ref mut trie_ram) => trie_ram.write_node_hash(node_array_ptr, hash),
-            LastExtended::Sealed(..) => {
+            UncommittedState::RW(ref mut trie_ram) => {
+                trie_ram.write_node_hash(node_array_ptr, hash)
+            }
+            UncommittedState::Sealed(..) => {
                 panic!("FATAL: tried to write to a sealed TrieRAM");
             }
         }
@@ -256,11 +259,14 @@ impl<T: MarfTrieId> LastExtended<T> {
         self.trie_ram_mut().last_ptr()
     }
 
-    fn seal(self, storage_tx: &mut TrieStorageTransaction<T>) -> Result<LastExtended<T>, Error> {
+    fn seal(
+        self,
+        storage_tx: &mut TrieStorageTransaction<T>,
+    ) -> Result<UncommittedState<T>, Error> {
         match self {
-            LastExtended::RW(mut trie_ram) => {
+            UncommittedState::RW(mut trie_ram) => {
                 let root_hash = trie_ram.inner_seal(storage_tx)?;
-                Ok(LastExtended::Sealed(trie_ram, root_hash))
+                Ok(UncommittedState::Sealed(trie_ram, root_hash))
             }
             _ => {
                 panic!("FATAL: tried to re-seal a sealed TrieRAM");
@@ -280,14 +286,14 @@ impl<T: MarfTrieId> LastExtended<T> {
         }
 
         match self {
-            LastExtended::RW(mut trie_ram) => {
+            UncommittedState::RW(mut trie_ram) => {
                 // seal it first, then dump it
                 debug!("Seal and dump trie for {}", bhh);
                 trie_ram.inner_seal_dump(storage_tx)?;
                 trie_ram.dump_consume(f)?;
                 Ok(())
             }
-            LastExtended::Sealed(trie_ram, _rh) => {
+            UncommittedState::Sealed(trie_ram, _rh) => {
                 // already sealed
                 debug!(
                     "Dump already-sealed trie for {} (root hash was {})",
@@ -413,8 +419,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let _ = std::mem::replace(&mut self.data, other.data);
     }
 
-    /// Temporarily re-instate this TrieRAM's data as the `last_extended` field in a given storage
-    /// connection, run the closure `f` with it, and then restore the original `last_extended` data.
+    /// Temporarily re-instate this TrieRAM's data as the `uncommitted_writes` field in a given storage
+    /// connection, run the closure `f` with it, and then restore the original `uncommitted_writes` data.
     /// This method does not compose -- calling `with_reinstated_data` within `f` will lead to a
     /// runtime panic.
     fn with_reinstated_data<F, R>(&mut self, storage: &mut TrieStorageTransaction<T>, f: F) -> R
@@ -428,23 +434,25 @@ impl<T: MarfTrieId> TrieRAM<T> {
             "FATAL: tried to move a TrieRAM after it had been moved"
         );
 
-        let old_last_extended = storage.data.last_extended.take();
+        let old_uncommitted_writes = storage.data.uncommitted_writes.take();
 
         let moved_trie_ram = self.move_to();
-        storage.data.last_extended =
-            Some((self.block_header.clone(), LastExtended::RW(moved_trie_ram)));
+        storage.data.uncommitted_writes = Some((
+            self.block_header.clone(),
+            UncommittedState::RW(moved_trie_ram),
+        ));
 
         let result = f(self, storage);
 
         // restore
         let (_, moved_extended) = storage
             .data
-            .last_extended
+            .uncommitted_writes
             .take()
             .expect("FATAL: unable to retake moved TrieRAM");
 
         match moved_extended {
-            LastExtended::RW(trie_ram) => {
+            UncommittedState::RW(trie_ram) => {
                 self.replace_from(trie_ram);
             }
             _ => {
@@ -452,7 +460,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             }
         };
 
-        storage.data.last_extended = old_last_extended;
+        storage.data.uncommitted_writes = old_uncommitted_writes;
         result
     }
 
@@ -541,7 +549,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let marf_root_hash = Trie::get_trie_root_hash(storage, root_hash)
             .expect("FATAL: unable to calculate MARF root hash from moved TrieRAM");
 
-        debug!("cur_block_hash = {}, cur_block_id = {:?}, self.block_header = {}, have last extended? {}, root_hash: {}, trie_root_hash = {}", &cur_block_hash, &cur_block_id, &self.block_header, storage.data.last_extended.is_some(), root_hash, &marf_root_hash);
+        debug!("cur_block_hash = {}, cur_block_id = {:?}, self.block_header = {}, have last extended? {}, root_hash: {}, trie_root_hash = {}", &cur_block_hash, &cur_block_id, &self.block_header, storage.data.uncommitted_writes.is_some(), root_hash, &marf_root_hash);
 
         storage.data.set_block(cur_block_hash, cur_block_id);
 
@@ -1098,11 +1106,11 @@ pub struct TrieStorageConnection<'a, T: MarfTrieId> {
 ///
 struct TrieStorageTransientData<T: MarfTrieId> {
     /// This is all the nodes written but not yet committed to disk.
-    last_extended: Option<(T, LastExtended<T>)>,
+    uncommitted_writes: Option<(T, UncommittedState<T>)>,
 
-    /// Currently-open block (may be `last_extended.unwrap().0`)
+    /// Currently-open block (may be `uncommitted_writes.unwrap().0`)
     cur_block: T,
-    /// Tracking the row_id for the cur_block. If cur_block == last_extended,
+    /// Tracking the row_id for the cur_block. If cur_block == uncommitted_writes,
     ///   this value should always be None
     cur_block_id: Option<u32>,
 
@@ -1115,10 +1123,10 @@ struct TrieStorageTransientData<T: MarfTrieId> {
     write_node_count: u64,
     write_leaf_count: u64,
 
-    /// List of ancestral trie root hashes that must be hashed with the `last_extended` root node
+    /// List of ancestral trie root hashes that must be hashed with the `uncommitted_writes` root node
     /// hash to produce the MarfTrieId for the trie when it gets written to disk.  This is
     /// maintained by the MARF whenever it needs to update the trie root hash after a leaf insert,
-    /// so that a batch of leaf inserts into `last_extended` don't require an ancestor trie hash
+    /// so that a batch of leaf inserts into `uncommitted_writes` don't require an ancestor trie hash
     /// query more than once.
     trie_ancestor_hash_bytes_cache: Option<(T, Vec<TrieHash>)>,
 
@@ -1154,6 +1162,7 @@ fn marf_sqlite_open<P: AsRef<Path>>(
 ) -> Result<Connection, db_error> {
     let db = sqlite_open(db_path, open_flags, foreign_keys)?;
     sql_pragma(&db, "mmap_size", &SQLITE_MMAP_SIZE)?;
+    sql_pragma(&db, "page_size", &SQLITE_MARF_PAGE_SIZE)?;
     Ok(db)
 }
 
@@ -1274,7 +1283,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             hash_calculation_mode: marf_opts.hash_calculation_mode,
 
             data: TrieStorageTransientData {
-                last_extended: None,
+                uncommitted_writes: None,
                 cur_block: T::sentinel(),
                 cur_block_id: None,
 
@@ -1339,7 +1348,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
         trace!("Make read-only view of TrieFileStorage: {}", &self.db_path);
 
-        // TODO: borrow self.last_extended; don't copy them
+        // TODO: borrow self.uncommitted_writes; don't copy them
         let ret = TrieFileStorage {
             db_path: self.db_path.clone(),
             db: db,
@@ -1348,7 +1357,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             hash_calculation_mode: self.hash_calculation_mode,
 
             data: TrieStorageTransientData {
-                last_extended: self.data.last_extended.clone(),
+                uncommitted_writes: self.data.uncommitted_writes.clone(),
                 cur_block: self.data.cur_block.clone(),
                 cur_block_id: self.data.cur_block_id.clone(),
 
@@ -1380,6 +1389,10 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         self.bench.clone()
     }
 
+    pub fn bench_mut(&mut self) -> &mut TrieBenchmark {
+        &mut self.bench
+    }
+
     pub fn reset_benchmarks(&mut self) {
         self.bench.reset();
     }
@@ -1398,7 +1411,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
         let cache = TrieCache::default(&db)?;
 
-        // TODO: borrow self.last_extended; don't copy them
+        // TODO: borrow self.uncommitted_writes; don't copy them
         let ret = TrieFileStorage {
             db_path: self.db_path.to_string(),
             db: db,
@@ -1407,7 +1420,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             hash_calculation_mode: self.hash_calculation_mode,
 
             data: TrieStorageTransientData {
-                last_extended: None,
+                uncommitted_writes: None,
                 cur_block: T::sentinel(),
                 cur_block_id: None,
 
@@ -1445,7 +1458,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         if self.data.readonly {
             return Err(Error::ReadOnlyError);
         }
-        if let Some((bhh, trie_ram)) = self.data.last_extended.take() {
+        if let Some((bhh, trie_ram)) = self.data.uncommitted_writes.take() {
             trace!("Buffering block flush started.");
             let mut buffer = Cursor::new(Vec::new());
             trie_ram.dump(self, &mut buffer, &bhh)?;
@@ -1523,11 +1536,11 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     pub fn drop_extending_trie(&mut self) {
         self.clear_cached_ancestor_hashes_bytes();
         if !self.data.readonly {
-            if let Some((ref bhh, _)) = self.data.last_extended.take() {
+            if let Some((ref bhh, _)) = self.data.uncommitted_writes.take() {
                 trie_sql::drop_lock(&self.db, bhh)
                     .expect("Corruption: Failed to drop the extended trie lock");
             }
-            self.data.last_extended = None;
+            self.data.uncommitted_writes = None;
             self.data.clear_block_id();
             self.data.trie_ancestor_hash_bytes_cache = None;
         }
@@ -1540,7 +1553,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                 .expect("Corruption: Failed to drop unconfirmed trie");
             trie_sql::drop_lock(&self.db, bhh)
                 .expect("Corruption: Failed to drop the extended trie lock");
-            self.data.last_extended = None;
+            self.data.uncommitted_writes = None;
             self.data.clear_block_id();
             self.data.trie_ancestor_hash_bytes_cache = None;
         }
@@ -1549,15 +1562,15 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     /// Seal the inner uncommitted TrieRAM and return the MARF root hash.
     /// Only works if there's an uncommitted TrieRAM extension; panics if not.
     pub fn seal(&mut self) -> Result<TrieHash, Error> {
-        if let Some((bhh, trie_ram)) = self.data.last_extended.take() {
+        if let Some((bhh, trie_ram)) = self.data.uncommitted_writes.take() {
             let sealed_trie_ram = trie_ram.seal(self)?;
             let root_hash = match sealed_trie_ram {
-                LastExtended::Sealed(_, root_hash) => root_hash.clone(),
+                UncommittedState::Sealed(_, root_hash) => root_hash.clone(),
                 _ => {
                     unreachable!("FATAL: .seal() did not make a sealed trieram");
                 }
             };
-            self.data.last_extended = Some((bhh, sealed_trie_ram));
+            self.data.uncommitted_writes = Some((bhh, sealed_trie_ram));
             Ok(root_hash)
         } else {
             panic!("FATAL: tried to a .seal() a trie that was not extended");
@@ -1583,7 +1596,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
         self.flush()?;
 
-        let size_hint = match self.data.last_extended {
+        let size_hint = match self.data.uncommitted_writes {
             Some((_, ref trie_storage)) => 2 * trie_storage.size_hint(),
             None => (1024), // don't try to guess _byte_ allocation here.
         };
@@ -1596,12 +1609,12 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             return Err(Error::ExistsError);
         }
 
-        self.switch_trie(bhh, LastExtended::RW(trie_buf));
+        self.switch_trie(bhh, UncommittedState::RW(trie_buf));
         Ok(())
     }
 
     /// Extend the forest of Tries to include a new unconfirmed block.
-    /// If the unconfirmed block (bhh) already exists, then load up its trie as the last_extended
+    /// If the unconfirmed block (bhh) already exists, then load up its trie as the uncommitted_writes
     /// trie.
     pub fn extend_to_unconfirmed_block(&mut self, bhh: &T) -> Result<bool, Error> {
         self.clear_cached_ancestor_hashes_bytes();
@@ -1623,7 +1636,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                 debug!("Instantiate unconfirmed trie {}", bhh);
 
                 // new trie
-                let size_hint = match self.data.last_extended {
+                let size_hint = match self.data.uncommitted_writes {
                     Some((_, ref trie_storage)) => 2 * trie_storage.size_hint(),
                     None => (1024), // don't try to guess _byte_ allocation here.
                 };
@@ -1637,7 +1650,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             return Err(Error::ExistsError);
         }
 
-        self.switch_trie(bhh, LastExtended::RW(trie_buf));
+        self.switch_trie(bhh, UncommittedState::RW(trie_buf));
         Ok(created)
     }
 
@@ -1651,14 +1664,14 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         // blow away db
         trie_sql::clear_tables(self.sqlite_tx())?;
 
-        match self.data.last_extended {
+        match self.data.uncommitted_writes {
             Some((_, ref mut trie_storage)) => trie_storage.format()?,
             None => {}
         };
 
         self.data.set_block(T::sentinel(), None);
 
-        self.data.last_extended = None;
+        self.data.uncommitted_writes = None;
         self.clear_cached_ancestor_hashes_bytes();
 
         Ok(())
@@ -1807,7 +1820,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         let mut ret =
             HashMap::from_iter(trie_sql::read_all_block_hashes_and_roots(&self.db)?.into_iter());
 
-        let last_extended = match self.data.last_extended.take() {
+        let uncommitted_writes = match self.data.uncommitted_writes.take() {
             Some((bhh, trie_ram)) => {
                 let ptr = TriePtr::new(set_backptr(TrieNodeID::Node256 as u8), 0, 0);
 
@@ -1819,20 +1832,20 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             _ => None,
         };
 
-        self.data.last_extended = last_extended;
+        self.data.uncommitted_writes = uncommitted_writes;
 
         Ok(ret)
     }
 
     /// internal procedure for locking a trie hash for work
-    fn switch_trie(&mut self, bhh: &T, trie_buf: LastExtended<T>) {
+    fn switch_trie(&mut self, bhh: &T, trie_buf: UncommittedState<T>) {
         trace!("Extended from {} to {}", &self.data.cur_block, bhh);
 
         // update internal structures
         self.data.set_block(bhh.clone(), None);
         self.clear_cached_ancestor_hashes_bytes();
 
-        self.data.last_extended = Some((bhh.clone(), trie_buf));
+        self.data.uncommitted_writes = Some((bhh.clone(), trie_buf));
     }
 
     pub fn has_confirmed_block(&self, bhh: &T) -> Result<bool, Error> {
@@ -1856,7 +1869,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     }
 
     // used for providing a option<block identifier> when re-opening a block --
-    //   because the previously open block may have been the last_extended block,
+    //   because the previously open block may have been the uncommitted_writes block,
     //   id may have been None.
     pub fn open_block_maybe_id(&mut self, bhh: &T, id: Option<u32>) -> Result<(), Error> {
         match id {
@@ -1873,8 +1886,8 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             return Ok(());
         }
 
-        if let Some((ref last_extended, _)) = self.data.last_extended {
-            if last_extended == bhh {
+        if let Some((ref uncommitted_writes, _)) = self.data.uncommitted_writes {
+            if uncommitted_writes == bhh {
                 panic!("BUG: passed id of a currently building block");
             }
         }
@@ -1902,8 +1915,8 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             return Ok(());
         }
 
-        if let Some((ref last_extended, _)) = self.data.last_extended {
-            if last_extended == bhh {
+        if let Some((ref uncommitted_writes, _)) = self.data.uncommitted_writes {
+            if uncommitted_writes == bhh {
                 // nothing to do -- we're already ready.
                 // just clear out.
                 self.data.set_block(bhh.clone(), None);
@@ -1925,8 +1938,8 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     ///  is currently being extended, return None, since the row_id won't
     ///  be known until the extended trie is flushed.
     pub fn get_block_identifier(&self, bhh: &T) -> Option<u32> {
-        if let Some((ref last_extended, _)) = self.data.last_extended {
-            if bhh == last_extended {
+        if let Some((ref uncommitted_writes, _)) = self.data.uncommitted_writes {
+            if bhh == uncommitted_writes {
                 return None;
             }
         }
@@ -1935,8 +1948,8 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     }
 
     pub fn get_cur_block_identifier(&mut self) -> Result<u32, Error> {
-        if let Some((ref last_extended, _)) = self.data.last_extended {
-            if &self.data.cur_block == last_extended {
+        if let Some((ref uncommitted_writes, _)) = self.data.uncommitted_writes {
+            if &self.data.cur_block == uncommitted_writes {
                 return Err(Error::RequestedIdentifierForExtensionTrie);
             }
         }
@@ -1953,15 +1966,13 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     }
 
     pub fn get_block_from_local_id(&mut self, local_id: u32) -> Result<&T, Error> {
-        // self.bench.get_block_hash_caching_start();
         let res = self.get_block_hash_caching(local_id);
-        // self.bench.get_block_hash_caching_finish();
         res
     }
 
     pub fn root_ptr(&self) -> u32 {
-        if let Some((ref last_extended, _)) = self.data.last_extended {
-            if &self.data.cur_block == last_extended {
+        if let Some((ref uncommitted_writes, _)) = self.data.uncommitted_writes {
+            if &self.data.cur_block == uncommitted_writes {
                 return 0;
             }
         }
@@ -2014,11 +2025,13 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             cache: &mut self.cache,
         };
 
-        if let Some((ref last_extended, ref mut last_extended_trie)) = self.data.last_extended {
-            if &self.data.cur_block == last_extended {
+        if let Some((ref uncommitted_writes, ref mut uncommitted_writes_trie)) =
+            self.data.uncommitted_writes
+        {
+            if &self.data.cur_block == uncommitted_writes {
                 self.bench.write_children_hashes_start();
                 let res = TrieStorageConnection::<T>::inner_write_children_hashes(
-                    last_extended_trie.trie_ram_mut(),
+                    uncommitted_writes_trie.trie_ram_mut(),
                     &mut map,
                     node,
                     w,
@@ -2112,9 +2125,9 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     }
 
     pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        if let Some((ref last_extended, ref mut trie_ram)) = self.data.last_extended {
+        if let Some((ref uncommitted_writes, ref mut trie_ram)) = self.data.uncommitted_writes {
             // special case
-            if &self.data.cur_block == last_extended {
+            if &self.data.cur_block == uncommitted_writes {
                 return trie_ram.read_node_hash(ptr);
             }
         }
@@ -2142,8 +2155,23 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         }
     }
 
-    // NOTE: ptr will not be treated as a backptr
     pub fn read_nodetype(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
+        self.read_nodetype_maybe_hash(ptr, true)
+    }
+
+    pub fn read_nodetype_nohash(&mut self, ptr: &TriePtr) -> Result<TrieNodeType, Error> {
+        self.read_nodetype_maybe_hash(ptr, false)
+            .map(|(node, _)| node)
+    }
+
+    /// Read a node and optionally its hash.  If `read_hash` is false, then an empty hash will be
+    /// returned
+    /// NOTE: ptr will not be treated as a backptr
+    fn read_nodetype_maybe_hash(
+        &mut self,
+        ptr: &TriePtr,
+        read_hash: bool,
+    ) -> Result<(TrieNodeType, TrieHash), Error> {
         trace!("read_nodetype({:?}): {:?}", &self.data.cur_block, ptr);
 
         self.data.read_count += 1;
@@ -2157,10 +2185,10 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
 
         let clear_ptr = ptr.from_backptr();
 
-        if let Some((ref last_extended, ref mut trie_storage)) = self.data.last_extended {
+        if let Some((ref uncommitted_writes, ref mut trie_ram)) = self.data.uncommitted_writes {
             // special case
-            if &self.data.cur_block == last_extended {
-                return trie_storage.read_nodetype(&clear_ptr);
+            if &self.data.cur_block == uncommitted_writes {
+                return trie_ram.read_nodetype(&clear_ptr);
             }
         }
 
@@ -2169,14 +2197,27 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             Some(id) => {
                 self.bench.read_nodetype_start();
                 if let Some((node_inst, node_hash)) = self.cache.load_node(id, ptr) {
+                    // if this is a cache hit, then just return the node_hash -- it costs us
+                    // nothing
                     let res = (node_inst, node_hash);
                     self.bench.read_nodetype_finish(true);
                     Ok(res)
                 } else {
-                    let (node_inst, node_hash) =
-                        trie_sql::read_node_type(&self.db, id, &clear_ptr)?;
-                    self.cache
-                        .store_node(id, ptr.clone(), node_inst.clone(), node_hash.clone());
+                    let (node_inst, node_hash) = if read_hash {
+                        trie_sql::read_node_type(&self.db, id, &clear_ptr)?
+                    } else {
+                        let node = trie_sql::read_node_type_nohash(&self.db, id, &clear_ptr)?;
+                        (node, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
+                    };
+
+                    if read_hash {
+                        self.cache.store_node(
+                            id,
+                            ptr.clone(),
+                            node_inst.clone(),
+                            node_hash.clone(),
+                        );
+                    }
                     self.bench.read_nodetype_finish(false);
                     Ok((node_inst, node_hash))
                 }
@@ -2217,8 +2258,8 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         }
 
         // Only allow writes when the cur_block is the current in-RAM extending block.
-        if let Some((ref last_extended, ref mut trie_storage)) = self.data.last_extended {
-            if &self.data.cur_block == last_extended {
+        if let Some((ref uncommitted_writes, ref mut trie_storage)) = self.data.uncommitted_writes {
+            if &self.data.cur_block == uncommitted_writes {
                 return trie_storage.write_nodetype(disk_ptr, node, hash);
             }
         }
@@ -2241,7 +2282,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     }
 
     pub fn last_ptr(&mut self) -> Result<u32, Error> {
-        if let Some((_, ref mut trie_ram)) = self.data.last_extended {
+        if let Some((_, ref mut trie_ram)) = self.data.uncommitted_writes {
             trie_ram.last_ptr()
         } else {
             panic!("Cannot allocate new ptrs in a Trie that is not in RAM");
@@ -2249,7 +2290,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     }
 
     pub fn num_blocks(&self) -> usize {
-        let result = if self.data.last_extended.is_some() {
+        let result = if self.data.uncommitted_writes.is_some() {
             1
         } else {
             0
@@ -2261,6 +2302,10 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
 
     pub fn get_benchmarks(&self) -> TrieBenchmark {
         self.bench.clone()
+    }
+
+    pub fn bench_mut(&mut self) -> &mut TrieBenchmark {
+        self.bench
     }
 
     pub fn reset_benchmarks(&mut self) {
@@ -2447,10 +2492,11 @@ pub mod test {
             let mut new_inserted = vec![];
 
             if let Some(mut trie) = last_trie.take() {
-                let last_extended = marf.borrow_storage_backend().data.last_extended.take();
-                if let Some((bhh, orig_loaded_trie)) = last_extended {
+                let uncommitted_writes =
+                    marf.borrow_storage_backend().data.uncommitted_writes.take();
+                if let Some((bhh, orig_loaded_trie)) = uncommitted_writes {
                     let mut loaded_trie = orig_loaded_trie.clone();
-                    marf.borrow_storage_backend().data.last_extended =
+                    marf.borrow_storage_backend().data.uncommitted_writes =
                         Some((bhh, orig_loaded_trie));
                     assert!(trie_cmp(
                         &mut marf.borrow_storage_transaction(),
@@ -2522,13 +2568,13 @@ pub mod test {
                 match marf
                     .borrow_storage_backend()
                     .data
-                    .last_extended
+                    .uncommitted_writes
                     .clone()
                     .unwrap()
                     .1
                 {
-                    LastExtended::RW(trie) => trie,
-                    LastExtended::Sealed(trie, ..) => trie,
+                    UncommittedState::RW(trie) => trie,
+                    UncommittedState::Sealed(trie, ..) => trie,
                 },
             );
             marf.commit().unwrap();
