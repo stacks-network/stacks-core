@@ -18,7 +18,7 @@ use std::io::{Read, Write};
 
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::StacksAddress;
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::TrieHash;
 use address::AddressHashMode;
 use burnchains::Address;
 use burnchains::Burnchain;
@@ -36,11 +36,11 @@ use chainstate::burn::Opcodes;
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
 use net::Error as net_error;
-use util::db::DBConn;
-use util::db::DBTx;
 use util::hash::DoubleSha256;
 use util::log;
 use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+use util_lib::db::DBConn;
+use util_lib::db::DBTx;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
@@ -263,8 +263,10 @@ pub mod tests {
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
     use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-    use deps::bitcoin::blockdata::transaction::Transaction;
-    use deps::bitcoin::network::serialize::deserialize;
+    use chainstate::stacks::address::StacksAddressExtensions;
+    use chainstate::stacks::index::TrieHashExtension;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
     use util::get_epoch_time_secs;
     use util::hash::{hex_bytes, to_hex};
     use util::log;

@@ -11,11 +11,14 @@ use vm::costs::ExecutionCost;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
 use chainstate::stacks::events::StacksTransactionReceipt;
-use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockHeader, StacksWorkScore};
-use types::proof::TrieHash;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
+
 use util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use util::vrf::VRFProof;
 
+use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
@@ -25,7 +28,6 @@ use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::cost_estimates::PessimisticEstimator;
-use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
 use core::BLOCK_LIMIT_MAINNET_20;

@@ -55,16 +55,15 @@ use net::StacksMessage;
 use net::StacksP2P;
 use net::GETPOXINV_MAX_BITLEN;
 use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::PoxId;
-use crate::types::chainstate::StacksBlockHeader;
 use crate::types::StacksPublicKeyBuffer;
 use core::StacksEpoch;
 
@@ -382,7 +381,10 @@ impl Neighbor {
         conn: &DBConn,
         handshake_data: &HandshakeData,
     ) -> Result<(), net_error> {
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
         let asn_opt =
             PeerDB::asn_lookup(conn, &handshake_data.addrbytes).map_err(net_error::DBError)?;
 
@@ -410,7 +412,10 @@ impl Neighbor {
         handshake_data: &HandshakeData,
     ) -> Result<Neighbor, net_error> {
         let addr = NeighborKey::from_handshake(peer_version, network_id, handshake_data);
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
 
         let peer_opt = PeerDB::get_peer(conn, network_id, &addr.addrbytes, addr.port)
             .map_err(net_error::DBError)?;
@@ -1033,7 +1038,10 @@ impl ConversationP2P {
         preamble: &Preamble,
         handshake_data: &HandshakeData,
     ) -> Result<bool, net_error> {
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
 
         self.peer_version = preamble.peer_version;
         self.peer_network_id = preamble.network_id;
@@ -2392,8 +2400,8 @@ mod test {
     use net::*;
     use util::pipe::*;
     use util::secp256k1::*;
-    use util::test::*;
     use util::uint::*;
+    use util_lib::test::*;
     use vm::costs::ExecutionCost;
 
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};

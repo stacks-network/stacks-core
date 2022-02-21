@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
 use chainstate::stacks::index::{Error, MarfTrieId};
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use util::db::IndexDBConn;
+use util_lib::db::IndexDBConn;
 use vm::analysis::AnalysisDatabase;
 use vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
@@ -13,10 +13,14 @@ use vm::database::{
 use vm::errors::{IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
 use vm::types::QualifiedContractIdentifier;
 
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
-use crate::types::chainstate::{MARFValue, StacksBlockId};
-use crate::types::proof::{ClarityMarfTrieId, TrieHash, TrieMerkleProof};
-use crate::util::db::Error as db_error;
+use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
+use clarity::vm::database::SpecialCaseHandler;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
+
+use crate::clarity_vm::special::handle_contract_call_special_cases;
+use crate::codec::StacksMessageCodec;
+use crate::util_lib::db::Error as DatabaseError;
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -45,10 +49,10 @@ impl MarfedKV {
 
         let mut marf: MARF<StacksBlockId> = if unconfirmed {
             MARF::from_path_unconfirmed(&marf_path)
-                .map_err(|err| InterpreterError::MarfFailure(IncomparableError { err }))?
+                .map_err(|err| InterpreterError::MarfFailure(err.to_string()))?
         } else {
             MARF::from_path(&marf_path)
-                .map_err(|err| InterpreterError::MarfFailure(IncomparableError { err }))?
+                .map_err(|err| InterpreterError::MarfFailure(err.to_string()))?
         };
 
         if SqliteConnection::check_schema(&marf.sqlite_conn()).is_ok() {
@@ -58,7 +62,7 @@ impl MarfedKV {
 
         let tx = marf
             .storage_tx()
-            .map_err(|err| InterpreterError::DBError(IncomparableError { err }))?;
+            .map_err(|err| InterpreterError::DBError(err.to_string()))?;
 
         SqliteConnection::initialize_conn(&tx)?;
         tx.commit()
@@ -144,9 +148,7 @@ impl MarfedKV {
                     "Failed to open read only connection at {}: {:?}",
                     at_block, &e
                 );
-                InterpreterError::MarfFailure(IncomparableError {
-                    err: Error::NotFoundError,
-                })
+                InterpreterError::MarfFailure(Error::NotFoundError.to_string())
             })?;
             at_block.clone()
         } else {
@@ -269,10 +271,10 @@ impl<'a> ReadOnlyMarfStore<'a> {
         AnalysisDatabase::new(self)
     }
 
-    pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, db_error> {
+    pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, DatabaseError> {
         self.marf.with_conn(|conn| match conn.has_block(bhh) {
             Ok(res) => Ok(res),
-            Err(e) => Err(db_error::IndexError(e)),
+            Err(e) => Err(DatabaseError::IndexError(e)),
         })
     }
 }
@@ -280,6 +282,10 @@ impl<'a> ReadOnlyMarfStore<'a> {
 impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
     fn get_side_store(&mut self) -> &Connection {
         self.marf.sqlite_conn()
+    }
+
+    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        Some(&handle_contract_call_special_cases)
     }
 
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
@@ -315,10 +321,8 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
         {
             Ok(Some(x)) => x,
             Ok(None) => {
-                let first_tip = StacksBlockHeader::make_index_block_hash(
-                    &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                    &FIRST_STACKS_BLOCK_HASH,
-                );
+                let first_tip =
+                    StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
                 if self.chain_tip == first_tip || self.chain_tip == StacksBlockId([0u8; 32]) {
                     // the current block height should always work, except if it's the first block
                     // height (in which case, the current chain tip should match the first-ever
@@ -371,7 +375,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             .expect("Attempted to get the open chain tip from an unopened context.")
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -386,7 +390,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ));
-                (data, proof)
+                (data, proof.serialize_to_vec())
             })
     }
 
@@ -529,6 +533,10 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         result
     }
 
+    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        Some(&handle_contract_call_special_cases)
+    }
+
     fn get(&mut self, key: &str) -> Option<String> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
@@ -555,7 +563,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
             })
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -570,7 +578,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ));
-                (data, proof)
+                (data, proof.serialize_to_vec())
             })
     }
 
@@ -607,10 +615,8 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         {
             Ok(Some(x)) => x,
             Ok(None) => {
-                let first_tip = StacksBlockHeader::make_index_block_hash(
-                    &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                    &FIRST_STACKS_BLOCK_HASH,
-                );
+                let first_tip =
+                    StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
                 if self.chain_tip == first_tip || self.chain_tip == StacksBlockId([0u8; 32]) {
                     // the current block height should always work, except if it's the first block
                     // height (in which case, the current chain tip should match the first-ever

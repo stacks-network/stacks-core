@@ -90,7 +90,8 @@ use crate::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
 };
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId};
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use chainstate::stacks::StacksBlockHeader;
 
 use super::FeeRateEstimateRequestBody;
 
@@ -158,11 +159,12 @@ lazy_static! {
 
 /// HTTP headers that we really care about
 #[derive(Debug, Clone, PartialEq)]
-enum HttpReservedHeader {
+pub(crate) enum HttpReservedHeader {
     ContentLength(u32),
     ContentType(HttpContentType),
     XRequestID(u32),
     Host(PeerHost),
+    CanonicalStacksTipHeight(u64),
 }
 
 /// Stacks block accepted struct
@@ -251,7 +253,11 @@ impl HttpReservedHeader {
     pub fn is_reserved(header: &str) -> bool {
         let hdr = header.to_string();
         match hdr.as_str() {
-            "content-length" | "content-type" | "x-request-id" | "host" => true,
+            "content-length"
+            | "content-type"
+            | "x-request-id"
+            | "host"
+            | "x-canonical-stacks-tip-height" => true,
             _ => false,
         }
     }
@@ -273,6 +279,10 @@ impl HttpReservedHeader {
             },
             "host" => match value.parse::<PeerHost>() {
                 Ok(ph) => Some(HttpReservedHeader::Host(ph)),
+                Err(_) => None,
+            },
+            "x-canonical-stacks-tip-height" => match value.parse::<u64>() {
+                Ok(h) => Some(HttpReservedHeader::CanonicalStacksTipHeight(h)),
                 Err(_) => None,
             },
             _ => None,
@@ -863,6 +873,20 @@ fn empty_headers<W: Write>(_fd: &mut W) -> Result<(), codec_error> {
     Ok(())
 }
 
+fn stacks_height_headers<W: Write>(
+    fd: &mut W,
+    md: &HttpRequestMetadata,
+) -> Result<(), codec_error> {
+    match md.canonical_stacks_tip_height {
+        Some(height) => {
+            fd.write_all(format!("X-Canonical-Stacks-Tip-Height: {}\r\n", height).as_bytes())
+                .map_err(codec_error::WriteError)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result<(), codec_error> {
     match md.client_version {
         HttpVersion::Http10 => {
@@ -882,6 +906,13 @@ fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result
                     .map_err(codec_error::WriteError)?;
             }
         }
+    }
+    match md.canonical_stacks_tip_height {
+        Some(height) => {
+            fd.write_all(format!("X-Canonical-Stacks-Tip-Height: {}\r\n", height).as_bytes())
+                .map_err(codec_error::WriteError)?;
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -2944,7 +2975,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(request_body_bytes.len() as u32),
                     content_type,
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&request_body_bytes)
                     .map_err(net_error::WriteError)?;
@@ -2962,7 +2993,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(block_bytes.len() as u32),
                     Some(&HttpContentType::Bytes),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&block_bytes).map_err(net_error::WriteError)?;
             }
@@ -2979,7 +3010,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(mb_bytes.len() as u32),
                     Some(&HttpContentType::Bytes),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&mb_bytes).map_err(net_error::WriteError)?;
             }
@@ -3005,7 +3036,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(request_json.as_bytes().len() as u32),
                     Some(&HttpContentType::JSON),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&request_json.as_bytes())
                     .map_err(net_error::WriteError)?;
@@ -3049,7 +3080,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(request_body_bytes.len() as u32),
                     Some(&HttpContentType::JSON),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&request_body_bytes)
                     .map_err(net_error::WriteError)?;
@@ -3082,7 +3113,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     None,
                     None,
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
             }
         }
@@ -4970,8 +5001,7 @@ mod test {
     use util::hash::MerkleTree;
     use util::hash::Sha512Trunc256Sum;
 
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::StacksBlockHeader;
+    use stacks_common::types::chainstate::StacksAddress;
 
     use super::*;
 
@@ -5909,11 +5939,13 @@ mod test {
                 12345,
             ),
             keep_alive: true,
+            canonical_stacks_tip_height: None,
         };
         let http_request_metadata_dns = HttpRequestMetadata {
             version: HttpVersion::Http11,
             peer: PeerHost::DNS("www.foo.com".to_string(), 80),
             keep_alive: true,
+            canonical_stacks_tip_height: None,
         };
 
         let tests = vec![
@@ -6124,6 +6156,7 @@ mod test {
                         123,
                         Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32),
                         true,
+                        None,
                     ),
                     test_neighbors_info.clone(),
                 ),
@@ -6136,6 +6169,7 @@ mod test {
                         123,
                         Some(test_block_info_bytes.len() as u32),
                         true,
+                        None,
                     ),
                     test_block_info.clone(),
                 ),
@@ -6148,6 +6182,7 @@ mod test {
                         123,
                         Some(test_microblock_info_bytes.len() as u32),
                         true,
+                        None,
                     ),
                     test_microblock_info.clone(),
                 ),
@@ -6163,6 +6198,7 @@ mod test {
                         123,
                         Some((Txid([0x1; 32]).to_hex().len() + 2) as u32),
                         true,
+                        None,
                     ),
                     Txid([0x1; 32]),
                 ),
@@ -6171,21 +6207,21 @@ mod test {
             // length is unknown
             (
                 HttpResponseType::Neighbors(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     test_neighbors_info.clone(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Block(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     test_block_info.clone(),
                 ),
                 format!("/v2/blocks/{}", test_block_info.block_hash().to_hex()),
             ),
             (
                 HttpResponseType::Microblocks(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     test_microblock_info.clone(),
                 ),
                 format!(
@@ -6195,7 +6231,7 @@ mod test {
             ),
             (
                 HttpResponseType::TransactionID(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     Txid([0x1; 32]),
                 ),
                 "/v2/transactions".to_string(),
@@ -6203,56 +6239,56 @@ mod test {
             // errors without error messages
             (
                 HttpResponseType::BadRequest(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Unauthorized(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::PaymentRequired(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Forbidden(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::NotFound(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServerError(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServiceUnavailable(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Error(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     502,
                     "".to_string(),
                 ),
@@ -6261,56 +6297,56 @@ mod test {
             // errors with specific messages
             (
                 HttpResponseType::BadRequest(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Unauthorized(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::PaymentRequired(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Forbidden(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::NotFound(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServerError(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServiceUnavailable(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Error(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     502,
                     "foo".to_string(),
                 ),
@@ -6824,7 +6860,7 @@ mod test {
         let mut responses = vec![];
         for res in responses_args.iter() {
             let mut bytes = vec![];
-            let md = HttpResponseMetadata::new(res.0.clone(), 123, None, res.1);
+            let md = HttpResponseMetadata::new(res.0.clone(), 123, None, res.1, None);
             HttpResponsePreamble::new_serialized(
                 &mut bytes,
                 200,

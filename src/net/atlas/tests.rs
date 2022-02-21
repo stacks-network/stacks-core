@@ -19,8 +19,6 @@ use std::convert::TryFrom;
 use std::thread;
 use std::time;
 
-use crate::types::chainstate::StacksBlockId;
-use crate::util::boot::boot_code_id;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::StacksChainState;
@@ -29,11 +27,12 @@ use net::{
     AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
     PeerHost, Requestable,
 };
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::StacksBlockId;
 use util::hash::Hash160;
-use vm::representations::UrlString;
+use util_lib::boot::boot_code_id;
+use util_lib::strings::UrlString;
 use vm::types::QualifiedContractIdentifier;
-
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
 
 use super::download::{
     AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
@@ -47,6 +46,7 @@ fn new_attachment_from(content: &str) -> Attachment {
     }
 }
 
+#[cfg(test)]
 fn new_attachment_instance_from(
     attachment: &Attachment,
     attachment_index: u32,
@@ -55,11 +55,12 @@ fn new_attachment_instance_from(
     AttachmentInstance {
         content_hash: attachment.hash().clone(),
         attachment_index,
-        block_height,
+        stacks_block_height: block_height,
         index_block_hash: StacksBlockId([block_height as u8; 32]),
         metadata: "".to_string(),
         contract_id: QualifiedContractIdentifier::transient(),
         tx_id: Txid([0; 32]),
+        canonical_stacks_tip_height: Some(block_height),
     }
 }
 
@@ -86,14 +87,16 @@ fn new_peers(peers: Vec<(&str, u32, u32)>) -> HashMap<UrlString, ReliabilityRepo
     new_peers
 }
 
+#[cfg(test)]
 fn new_attachment_request(
     sources: Vec<(&str, u32, u32)>,
     content_hash: &Hash160,
+    block_height: u64,
 ) -> AttachmentRequest {
     let sources = {
         let mut s = HashMap::new();
         for (url, req_sent, req_success) in sources {
-            let url = UrlString::try_from(format!("{}", url).as_str()).unwrap();
+            let url = UrlString::try_from(format!("{}", url)).unwrap();
             s.insert(url, ReliabilityReport::new(req_sent, req_success));
         }
         s
@@ -101,9 +104,12 @@ fn new_attachment_request(
     AttachmentRequest {
         sources,
         content_hash: content_hash.clone(),
+        stacks_block_height: block_height,
+        canonical_stacks_tip_height: Some(block_height),
     }
 }
 
+#[cfg(test)]
 fn new_attachments_inventory_request(
     url: &str,
     pages: Vec<u32>,
@@ -115,16 +121,17 @@ fn new_attachments_inventory_request(
 
     AttachmentsInventoryRequest {
         url,
-        block_height,
+        stacks_block_height: block_height,
         pages,
         contract_id: QualifiedContractIdentifier::transient(),
         index_block_hash: StacksBlockId([0x00; 32]),
         reliability_report: ReliabilityReport::new(req_sent, req_success),
+        canonical_stacks_tip_height: Some(block_height),
     }
 }
 
 fn new_attachments_inventory_response(pages: Vec<(u32, Vec<u8>)>) -> HttpResponseType {
-    let md = HttpResponseMetadata::new(HttpVersion::Http11, 1, None, true);
+    let md = HttpResponseMetadata::new(HttpVersion::Http11, 1, None, true, None);
     let pages = pages
         .into_iter()
         .map(|(index, inventory)| AttachmentPage { index, inventory })
@@ -142,7 +149,7 @@ fn test_attachment_instance_parsing() {
     use vm;
 
     let contract_id = QualifiedContractIdentifier::transient();
-    let block_height = 0;
+    let stacks_block_height = 0;
     let index_block_hash = StacksBlockId([0x00; 32]);
 
     let value_1 = vm::execute(
@@ -164,8 +171,9 @@ fn test_attachment_instance_parsing() {
         &value_1,
         &contract_id,
         index_block_hash.clone(),
-        block_height,
+        stacks_block_height,
         Txid([0; 32]),
+        Some(stacks_block_height),
     )
     .unwrap();
     assert_eq!(attachment_instance_1.attachment_index, 1);
@@ -190,8 +198,9 @@ fn test_attachment_instance_parsing() {
         &value_2,
         &contract_id,
         index_block_hash.clone(),
-        block_height,
+        stacks_block_height,
         Txid([0; 32]),
+        Some(stacks_block_height),
     )
     .unwrap();
     assert_eq!(attachment_instance_2.attachment_index, 2);
@@ -216,8 +225,9 @@ fn test_attachment_instance_parsing() {
         &value_3,
         &contract_id,
         index_block_hash.clone(),
-        block_height,
+        stacks_block_height,
         Txid([0; 32]),
+        Some(stacks_block_height),
     )
     .unwrap();
     assert_eq!(attachment_instance_3.attachment_index, 3);
@@ -273,8 +283,9 @@ fn test_attachment_instance_parsing() {
             &value,
             &contract_id,
             index_block_hash.clone(),
-            block_height,
+            stacks_block_height,
             Txid([0; 32]),
+            Some(stacks_block_height)
         )
         .is_none());
     }
@@ -411,6 +422,7 @@ fn test_attachment_requests_ordering() {
             ("http://localhost:40443", 0, 1),
         ],
         &attachment_1.hash(),
+        10,
     );
 
     let attachment_2_request = new_attachment_request(
@@ -420,13 +432,20 @@ fn test_attachment_requests_ordering() {
             ("http://localhost:30443", 0, 1),
         ],
         &attachment_2.hash(),
+        10,
     );
 
-    let attachment_3_request =
-        new_attachment_request(vec![("http://localhost:30443", 0, 1)], &attachment_3.hash());
+    let attachment_3_request = new_attachment_request(
+        vec![("http://localhost:30443", 0, 1)],
+        &attachment_3.hash(),
+        10,
+    );
 
-    let attachment_4_request =
-        new_attachment_request(vec![("http://localhost:50443", 4, 4)], &attachment_4.hash());
+    let attachment_4_request = new_attachment_request(
+        vec![("http://localhost:50443", 4, 4)],
+        &attachment_4.hash(),
+        10,
+    );
 
     let mut priority_queue = BinaryHeap::new();
     priority_queue.push(attachment_1_request.clone());

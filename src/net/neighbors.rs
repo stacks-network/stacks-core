@@ -33,9 +33,9 @@ use net::db::LocalPeer;
 
 use net::p2p::*;
 
-use util::db::DBConn;
-use util::db::DBTx;
-use util::db::Error as db_error;
+use util_lib::db::DBConn;
+use util_lib::db::DBTx;
+use util_lib::db::Error as db_error;
 
 use util::secp256k1::Secp256k1PublicKey;
 
@@ -3095,7 +3095,7 @@ mod test {
     use net::test::*;
     use util::hash::*;
     use util::sleep_ms;
-    use util::test::*;
+    use util_lib::test::*;
 
     const TEST_IN_OUT_DEGREES: u64 = 0x1;
 

@@ -54,21 +54,21 @@ use cost_estimates::EstimatorError;
 use net::BlocksInvData;
 use net::Error as net_error;
 use net::ExtendedStacksHeader;
-use net::MemPoolSyncData;
-use util::db::u64_to_sql;
-use util::db::Error as db_error;
-use util::db::{
-    query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
-    tx_busy_handler, DBConn, FromColumn, FromRow,
-};
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::retry::BoundReader;
-use util::strings::StacksString;
+use util_lib::db::u64_to_sql;
+use util_lib::db::Error as db_error;
+use util_lib::db::{
+    query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
+    tx_busy_handler, DBConn, FromColumn, FromRow,
+};
+use util_lib::strings::StacksString;
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
+use vm::clarity::TransactionConnection;
 use vm::contexts::AssetMap;
 use vm::contracts::Contract;
 use vm::costs::LimitedCostTracker;
@@ -78,13 +78,15 @@ use vm::types::{
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
-use crate::types::chainstate::{
-    StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
-};
 use crate::{types, util};
 use chainstate::coordinator::BlockEventDispatcher;
+use chainstate::stacks::address::StacksAddressExtensions;
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
 use monitoring::set_last_execution_cost_observed;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use types::chainstate::BurnchainHeaderHash;
+use util_lib::boot::boot_code_id;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -4608,7 +4610,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx<'a>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
         let mainnet = clarity_tx.config.mainnet;
-        let lockup_contract_id = util::boot::boot_code_id("lockup", mainnet);
+        let lockup_contract_id = boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {
@@ -6232,10 +6234,10 @@ pub mod test {
     use core::mempool::*;
     use net::test::*;
     use net::ExtendedStacksHeader;
-    use util::db::Error as db_error;
-    use util::db::*;
     use util::hash::*;
     use util::retry::*;
+    use util_lib::db::Error as db_error;
+    use util_lib::db::*;
 
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;

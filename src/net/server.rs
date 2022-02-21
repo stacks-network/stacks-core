@@ -760,8 +760,8 @@ mod test {
     use util::sleep_ms;
 
     use chainstate::burn::ConsensusHash;
+    use chainstate::stacks::StacksBlockHeader;
     use codec::MAX_MESSAGE_LEN;
-    use types::chainstate::StacksBlockHeader;
     use vm::contracts::Contract;
     use vm::representations::ClarityName;
     use vm::representations::ContractName;
@@ -894,6 +894,7 @@ mod test {
             |client_id, _| {
                 let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51001),
+                    None,
                 ));
                 request.metadata_mut().keep_alive = false;
 
@@ -923,6 +924,7 @@ mod test {
             |client_id, _| {
                 let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51011),
+                    None,
                 ));
                 request.metadata_mut().keep_alive = false;
 
@@ -967,10 +969,10 @@ mod test {
                 );
 
                 let mut request = HttpRequestType::GetBlock(
-                    HttpRequestMetadata::from_host(PeerHost::from_host_port(
-                        "127.0.0.1".to_string(),
-                        51021,
-                    )),
+                    HttpRequestMetadata::from_host(
+                        PeerHost::from_host_port("127.0.0.1".to_string(), 51021),
+                        None,
+                    ),
                     index_block_hash,
                 );
                 request.metadata_mut().keep_alive = false;
@@ -1031,10 +1033,10 @@ mod test {
                 );
 
                 let mut request = HttpRequestType::GetBlock(
-                    HttpRequestMetadata::from_host(PeerHost::from_host_port(
-                        "127.0.0.1".to_string(),
-                        51031,
-                    )),
+                    HttpRequestMetadata::from_host(
+                        PeerHost::from_host_port("127.0.0.1".to_string(), 51031),
+                        None,
+                    ),
                     index_block_hash,
                 );
                 request.metadata_mut().keep_alive = false;
@@ -1086,6 +1088,7 @@ mod test {
             |client_id, _| {
                 let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51041),
+                    None,
                 ));
                 request.metadata_mut().keep_alive = false;
 
@@ -1141,6 +1144,7 @@ mod test {
             |client_id, _| {
                 let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51051),
+                    None,
                 ));
                 request.metadata_mut().keep_alive = false;
 
@@ -1210,10 +1214,10 @@ mod test {
                 let signed_contract_tx = signer.get_tx().unwrap();
 
                 let mut request = HttpRequestType::PostTransaction(
-                    HttpRequestMetadata::from_host(PeerHost::from_host_port(
-                        "127.0.0.1".to_string(),
-                        51061,
-                    )),
+                    HttpRequestMetadata::from_host(
+                        PeerHost::from_host_port("127.0.0.1".to_string(), 51061),
+                        None,
+                    ),
                     signed_contract_tx,
                     None,
                 );
@@ -1313,6 +1317,7 @@ mod test {
                 // send a different request
                 let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51083),
+                    None,
                 ));
                 request.metadata_mut().keep_alive = false;
 
@@ -1361,10 +1366,10 @@ mod test {
                 );
 
                 let mut request = HttpRequestType::GetBlock(
-                    HttpRequestMetadata::from_host(PeerHost::from_host_port(
-                        "127.0.0.1".to_string(),
-                        51071,
-                    )),
+                    HttpRequestMetadata::from_host(
+                        PeerHost::from_host_port("127.0.0.1".to_string(), 51071),
+                        None,
+                    ),
                     index_block_hash,
                 );
                 request.metadata_mut().keep_alive = false;

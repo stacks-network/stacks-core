@@ -12,17 +12,12 @@ use rusqlite::{
 use serde_json::Value as JsonValue;
 
 use chainstate::stacks::TransactionPayload;
-use util::db::sqlite_open;
-use util::db::tx_begin_immediate_sqlite;
-use util::db::u64_to_sql;
+use util_lib::db::{sql_pragma, sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql};
 
 use vm::costs::ExecutionCost;
 
 use chainstate::stacks::db::StacksEpochReceipt;
 use chainstate::stacks::events::TransactionOrigin;
-
-use crate::util::db::sql_pragma;
-use crate::util::db::table_exists;
 
 use super::metrics::CostMetric;
 use super::FeeRateEstimate;
