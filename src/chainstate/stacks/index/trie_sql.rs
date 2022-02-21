@@ -40,7 +40,8 @@ use rusqlite::{
 
 use chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes,
-    read_node_hash_bytes as bits_read_node_hash_bytes, read_nodetype, write_nodetype_bytes,
+    read_node_hash_bytes as bits_read_node_hash_bytes, read_nodetype, read_nodetype_nohash,
+    write_nodetype_bytes,
 };
 use chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
@@ -311,6 +312,21 @@ pub fn read_node_type(
         true,
     )?;
     read_nodetype(&mut blob, ptr)
+}
+
+pub fn read_node_type_nohash(
+    conn: &Connection,
+    block_id: u32,
+    ptr: &TriePtr,
+) -> Result<TrieNodeType, Error> {
+    let mut blob = conn.blob_open(
+        rusqlite::DatabaseName::Main,
+        "marf_data",
+        "data",
+        block_id.into(),
+        true,
+    )?;
+    read_nodetype_nohash(&mut blob, ptr)
 }
 
 pub fn get_node_hash_bytes(
