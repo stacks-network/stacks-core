@@ -285,7 +285,7 @@ pub fn get_nodetype_hash_bytes<T: MarfTrieId, M: BlockMap>(
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
 #[inline]
 pub fn read_hash_bytes<F: Read>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
-    let mut hashbytes = [0u8; 32];
+    let mut hashbytes = [0u8; TRIEHASH_ENCODED_SIZE];
     f.read_exact(&mut hashbytes).map_err(|e| {
         if e.kind() == ErrorKind::UnexpectedEof {
             Error::CorruptionError(format!(
@@ -321,6 +321,7 @@ pub fn read_block_identifier<F: Read + Seek>(f: &mut F) -> Result<u32, Error> {
 
 /// Low-level method for reading a node's hash bytes into a buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
+#[inline]
 pub fn read_node_hash_bytes<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
@@ -347,13 +348,26 @@ pub fn count_children(children: &[TriePtr]) -> usize {
     cnt
 }
 
+/// Read a node and its hash
+#[inline]
 pub fn read_nodetype<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
 ) -> Result<(TrieNodeType, TrieHash), Error> {
     fseek(f, ptr.ptr() as u64)?;
     trace!("read_nodetype at {:?}", ptr);
-    read_nodetype_at_head(f, ptr.id())
+    read_nodetype_at_head(f, ptr.id(), true)
+}
+
+/// Read a node
+#[inline]
+pub fn read_nodetype_nohash<F: Read + Seek>(
+    f: &mut F,
+    ptr: &TriePtr,
+) -> Result<TrieNodeType, Error> {
+    fseek(f, ptr.ptr() as u64)?;
+    trace!("read_nodetype_nohash at {:?}", ptr);
+    read_nodetype_at_head(f, ptr.id(), false).map(|(node, _)| node)
 }
 
 /// Deserialize a node.
@@ -363,13 +377,21 @@ pub fn read_nodetype<F: Read + Seek>(
 ///   node hash      id  ptrs & ptr data      path
 ///
 /// X is fixed and determined by the TrieNodeType variant.
-/// Y is variable, but no more than TriePath::len()
+/// Y is variable, but no more than TriePath::len().
+///
+/// If `read_hash` is false, then the contents of the node hash are undefined.
 #[inline]
-fn read_nodetype_at_head<F: Read>(
+fn read_nodetype_at_head<F: Read + Seek>(
     f: &mut F,
     ptr_id: u8,
+    read_hash: bool,
 ) -> Result<(TrieNodeType, TrieHash), Error> {
-    let h = read_hash_bytes(f)?;
+    let h = if read_hash {
+        read_hash_bytes(f)?
+    } else {
+        f.seek(SeekFrom::Current(TRIEHASH_ENCODED_SIZE as i64))?;
+        [0u8; TRIEHASH_ENCODED_SIZE]
+    };
 
     let node = match TrieNodeID::from_u8(ptr_id).ok_or_else(|| {
         Error::CorruptionError(format!("read_node_type: Unknown trie node type {}", ptr_id))
