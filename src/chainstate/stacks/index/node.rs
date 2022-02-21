@@ -515,6 +515,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
 
     /// Replace the last-visited node and ptr within this trie.  Used when doing a copy-on-write or
     /// promoting a node, so the cursor state accurately reflects the nodes and tries visited.
+    #[inline]
     pub fn repair_retarget(&mut self, node: &TrieNodeType, ptr: &TriePtr, hash: &T) -> () {
         // this can only be called if we failed to walk to a node (this method _should not_ be
         // called if we walked to a backptr).
@@ -540,6 +541,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
     /// next_node should be the node walked to.
     /// ptr is the ptr we'll be walking from, off of next_node.
     /// block_hash is the block where next_node came from.
+    #[inline]
     pub fn repair_backptr_step_backptr(
         &mut self,
         next_node: &TrieNodeType,
@@ -571,6 +573,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
 
     /// Record that we landed on a non-backptr from a backptr.
     /// ptr is a non-backptr that refers to the node we landed on.
+    #[inline]
     pub fn repair_backptr_finish(&mut self, ptr: &TriePtr, block_hash: T) -> () {
         // this can only be called if we walked to a backptr.
         // If it's anything else, we're in trouble.
