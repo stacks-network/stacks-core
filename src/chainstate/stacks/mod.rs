@@ -76,8 +76,10 @@ pub use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-
 use chainstate::stacks::db::blocks::MessageSignatureList;
+
+pub const STACKS_BLOCK_VERSION: u8 = 0;
+pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
