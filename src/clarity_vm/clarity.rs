@@ -890,32 +890,6 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         }
     }
 
-    /// Evaluate a poison-microblock transaction
-    pub fn run_poison_microblock(
-        &mut self,
-        sender: &PrincipalData,
-        mblock_header_1: &StacksMicroblockHeader,
-        mblock_header_2: &StacksMicroblockHeader,
-    ) -> Result<Value, Error> {
-        self.with_abort_callback(
-            |vm_env| {
-                vm_env
-                    .execute_in_env(sender.clone(), |env| {
-                        env.run_as_transaction(|env| {
-                            StacksChainState::handle_poison_microblock(
-                                env,
-                                mblock_header_1,
-                                mblock_header_2,
-                            )
-                        })
-                    })
-                    .map_err(Error::from)
-            },
-            |_, _| false,
-        )
-        .and_then(|(value, ..)| Ok(value))
-    }
-
     /// Commit the changes from the edit log.
     /// panics if there is more than one open savepoint
     pub fn commit(mut self) {
