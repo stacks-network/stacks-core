@@ -77,8 +77,7 @@ pub use stacks_common::address::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
-pub const STACKS_BLOCK_VERSION: u8 = 0;
-pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
+use chainstate::stacks::db::blocks::MessageSignatureList;
 
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
@@ -810,6 +809,8 @@ pub struct StacksBlockHeader {
     pub tx_merkle_root: Sha512Trunc256Sum,
     pub state_index_root: TrieHash,
     pub microblock_pubkey_hash: Hash160, // we'll get the public key back from the first signature (note that this is the Hash160 of the _compressed_ public key)
+    /// Signatures of miners that have signed this block.
+    pub miner_signatures: MessageSignatureList,
 }
 
 /// Header structure for a microblock
@@ -819,7 +820,8 @@ pub struct StacksMicroblockHeader {
     pub sequence: u16,
     pub prev_block: BlockHeaderHash,
     pub tx_merkle_root: Sha512Trunc256Sum,
-    pub signature: MessageSignature,
+    /// Signatures of miners that have signed this block.
+    pub miner_signatures: MessageSignatureList,
 }
 
 // values a miner uses to produce the next block
