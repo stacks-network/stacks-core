@@ -24,8 +24,8 @@ use std::io;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::VRFSeed;
-use crate::types::proof::TrieHash;
 use burnchains::Burnchain;
 use burnchains::BurnchainBlockHeader;
 use burnchains::Error as BurnchainError;
@@ -39,13 +39,13 @@ use chainstate::burn::operations::leader_block_commit::{
 
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::Opcodes;
-use util::db::DBConn;
-use util::db::DBTx;
-use util::db::Error as db_error;
 use util::hash::Hash160;
 use util::hash::Sha512Trunc256Sum;
 use util::secp256k1::MessageSignature;
 use util::vrf::VRFPublicKey;
+use util_lib::db::DBConn;
+use util_lib::db::DBTx;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 
@@ -217,7 +217,7 @@ pub struct LeaderKeyRegisterOp {
     pub consensus_hash: ConsensusHash, // consensus hash at time of issuance
     pub public_key: VRFPublicKey,      // EdDSA public key
     pub memo: Vec<u8>,                 // extra bytes in the op-return
-    pub address: StacksAddress, // hash of public key(s) that will send the leader block commit
+    pub address: StacksAddress, // NOTE: no longer used for anything consensus-critical, but identifies the change address output
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -226,6 +226,7 @@ pub struct LeaderKeyRegisterOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of burn chain block
 }
 
+/// NOTE: this struct is currently not used
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct UserBurnSupportOp {
     pub address: StacksAddress,

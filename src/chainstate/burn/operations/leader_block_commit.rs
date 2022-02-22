@@ -19,8 +19,8 @@ use std::io::{Read, Write};
 
 use crate::burnchains::{BitcoinNetworkType, StacksHyperOp, StacksHyperOpType};
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
-use crate::types::proof::TrieHash;
 use address::AddressHashMode;
 use burnchains::Address;
 use burnchains::Burnchain;

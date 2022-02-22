@@ -32,31 +32,26 @@ use burnchains::PublicKey;
 use burnchains::Txid;
 use chainstate::burn::db::sortdb::SortitionHandleTx;
 use core::SYSTEM_FORK_SET_VERSION;
-use util::db::Error as db_error;
 use util::hash::Hash32;
 use util::hash::Sha512Trunc256Sum;
 use util::hash::{to_hex, Hash160};
 use util::log;
 use util::uint::Uint256;
 use util::vrf::VRFProof;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
-use crate::types::proof::TrieHash;
+
+pub use types::chainstate::ConsensusHash;
 
 /// This module contains the code for processing the burn chain state database
 pub mod db;
-pub mod distribution;
 pub mod operations;
 pub mod sortition;
 
 pub const CONSENSUS_HASH_LIFETIME: u32 = 24;
-
-pub struct ConsensusHash(pub [u8; 20]);
-impl_array_newtype!(ConsensusHash, u8, 20);
-impl_array_hexstring_fmt!(ConsensusHash);
-impl_byte_array_newtype!(ConsensusHash, u8, 20);
-pub const CONSENSUS_HASH_ENCODED_SIZE: u32 = 20;
 
 // operations hash -- the sha256 hash of a sequence of transaction IDs
 pub struct OpsHash(pub [u8; 32]);
@@ -69,23 +64,6 @@ pub struct SortitionHash(pub [u8; 32]);
 impl_array_newtype!(SortitionHash, u8, 32);
 impl_array_hexstring_fmt!(SortitionHash);
 impl_byte_array_newtype!(SortitionHash, u8, 32);
-
-impl VRFSeed {
-    /// First-ever VRF seed from the genesis block.  It's all 0's
-    pub fn initial() -> VRFSeed {
-        VRFSeed::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
-            .unwrap()
-    }
-
-    pub fn from_proof(proof: &VRFProof) -> VRFSeed {
-        let h = Sha512Trunc256Sum::from_data(&proof.to_bytes());
-        VRFSeed(h.0)
-    }
-
-    pub fn is_from_proof(&self, proof: &VRFProof) -> bool {
-        self.as_bytes().to_vec() == VRFSeed::from_proof(proof).as_bytes().to_vec()
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
@@ -141,19 +119,6 @@ pub struct BlockSnapshot {
     ///   will accrue to the sortition winner elected by this block
     ///   or to the next winner if there is no winner in this block
     pub accumulated_coinbase_ustx: u128,
-}
-
-impl BlockHeaderHash {
-    pub fn to_hash160(&self) -> Hash160 {
-        Hash160::from_sha256(&self.0)
-    }
-
-    pub fn from_serialized_header(buf: &[u8]) -> BlockHeaderHash {
-        let h = Sha512Trunc256Sum::from_data(buf);
-        let mut b = [0u8; 32];
-        b.copy_from_slice(h.as_bytes());
-        BlockHeaderHash(b)
-    }
 }
 
 impl SortitionHash {
@@ -238,8 +203,44 @@ impl OpsHash {
     }
 }
 
-impl ConsensusHash {
-    pub fn empty() -> ConsensusHash {
+pub trait ConsensusHashExtensions {
+    /// Returns a consensus hash of all zeros
+    fn empty() -> ConsensusHash;
+
+    /// Instantiate a consensus hash from this block's operations, the total burn so far
+    /// for the resulting consensus hash, and the geometric series of previous consensus
+    /// hashes.  Note that prev_consensus_hashes should be in order from most-recent to
+    /// least-recent.
+    fn from_ops(
+        burn_header_hash: &BurnchainHeaderHash,
+        opshash: &OpsHash,
+        total_burn: u64,
+        prev_consensus_hashes: &Vec<ConsensusHash>,
+    ) -> ConsensusHash;
+
+    /// Get the previous consensus hashes that must be hashed to find
+    /// the *next* consensus hash at a particular block.
+    fn get_prev_consensus_hashes(
+        sort_tx: &mut SortitionHandleTx,
+        block_height: u64,
+        first_block_height: u64,
+    ) -> Result<Vec<ConsensusHash>, db_error>;
+
+    /// Make a new consensus hash, given the ops hash and parent block data
+    fn from_parent_block_data(
+        sort_tx: &mut SortitionHandleTx,
+        opshash: &OpsHash,
+        parent_block_height: u64,
+        first_block_height: u64,
+        this_block_hash: &BurnchainHeaderHash,
+        total_burn: u64,
+    ) -> Result<ConsensusHash, db_error>;
+    /// raw consensus hash
+    fn from_data(bytes: &[u8]) -> ConsensusHash;
+}
+
+impl ConsensusHashExtensions for ConsensusHash {
+    fn empty() -> ConsensusHash {
         ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap()
     }
 
@@ -247,7 +248,7 @@ impl ConsensusHash {
     /// for the resulting consensus hash, and the geometric series of previous consensus
     /// hashes.  Note that prev_consensus_hashes should be in order from most-recent to
     /// least-recent.
-    pub fn from_ops(
+    fn from_ops(
         burn_header_hash: &BurnchainHeaderHash,
         opshash: &OpsHash,
         total_burn: u64,
@@ -298,7 +299,7 @@ impl ConsensusHash {
 
     /// Get the previous consensus hashes that must be hashed to find
     /// the *next* consensus hash at a particular block.
-    pub fn get_prev_consensus_hashes(
+    fn get_prev_consensus_hashes(
         sort_tx: &mut SortitionHandleTx,
         block_height: u64,
         first_block_height: u64,
@@ -332,7 +333,7 @@ impl ConsensusHash {
     }
 
     /// Make a new consensus hash, given the ops hash and parent block data
-    pub fn from_parent_block_data(
+    fn from_parent_block_data(
         sort_tx: &mut SortitionHandleTx,
         opshash: &OpsHash,
         parent_block_height: u64,
@@ -354,7 +355,7 @@ impl ConsensusHash {
     }
 
     /// raw consensus hash
-    pub fn from_data(bytes: &[u8]) -> ConsensusHash {
+    fn from_data(bytes: &[u8]) -> ConsensusHash {
         let result = {
             use sha2::Digest;
             let mut hasher = Sha256::new();
@@ -374,13 +375,13 @@ impl ConsensusHash {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::Connection;
-
     use chainstate::burn::db::sortdb::*;
-    use util::db::Error as db_error;
+    use chainstate::stacks::index::TrieHashExtension;
+    use rusqlite::Connection;
     use util::get_epoch_time_secs;
     use util::hash::{hex_bytes, Hash160};
     use util::log;
+    use util_lib::db::Error as db_error;
 
     use crate::types::chainstate::BurnchainHeaderHash;
 

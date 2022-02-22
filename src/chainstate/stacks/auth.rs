@@ -89,14 +89,18 @@ impl StacksMessageCodec for TransactionAuthField {
         let field = match field_id {
             x if x == TransactionAuthFieldID::PublicKeyCompressed as u8 => {
                 let pubkey_buf: StacksPublicKeyBuffer = read_next(fd)?;
-                let mut pubkey = pubkey_buf.to_public_key()?;
+                let mut pubkey = pubkey_buf
+                    .to_public_key()
+                    .map_err(|e| codec_error::DeserializeError(e.into()))?;
                 pubkey.set_compressed(true);
 
                 TransactionAuthField::PublicKey(pubkey)
             }
             x if x == TransactionAuthFieldID::PublicKeyUncompressed as u8 => {
                 let pubkey_buf: StacksPublicKeyBuffer = read_next(fd)?;
-                let mut pubkey = pubkey_buf.to_public_key()?;
+                let mut pubkey = pubkey_buf
+                    .to_public_key()
+                    .map_err(|e| codec_error::DeserializeError(e.into()))?;
                 pubkey.set_compressed(false);
 
                 TransactionAuthField::PublicKey(pubkey)

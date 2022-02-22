@@ -12,6 +12,11 @@ on:
         description: 'The tag to create (optional)'
         required: false
 
+concurrency:
+  group: stacks-blockchain-${{ github.ref }}
+  # Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Notify Slack channel of workflow start
   notify-start:
@@ -218,7 +223,7 @@ jobs:
   #         draft: false
   #         prerelease: true
 
-  # # Upload distributables to a new release if we're building a tag or a tag was passed in
+  # Upload distributables to a new release if we're building a tag or a tag was passed in
   # upload-dist:
   #   runs-on: ubuntu-latest
   #   if: ${{ github.event.inputs.tag != '' }}
@@ -226,7 +231,7 @@ jobs:
   #     - create-release
   #   strategy:
   #     matrix:
-  #       platform: [ windows-x64, macos-x64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
+  #       platform: [ windows-x64, macos-x64, macos-arm64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
 
   #   steps:
   #     - uses: actions/checkout@v2

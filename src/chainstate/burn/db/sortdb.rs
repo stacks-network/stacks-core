@@ -61,27 +61,29 @@ use core::FIRST_STACKS_BLOCK_HASH;
 use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use net::{Error as NetError, Error};
-use util::db::tx_begin_immediate;
-use util::db::tx_busy_handler;
-use util::db::Error as db_error;
-use util::db::{
-    db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
-    u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
-};
 use util::get_epoch_time_secs;
 use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use util::log;
 use util::secp256k1::MessageSignature;
-use util::strings::StacksString;
 use util::vrf::*;
+use util_lib::db::tx_begin_immediate;
+use util_lib::db::tx_busy_handler;
+use util_lib::db::Error as db_error;
+use util_lib::db::{
+    db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
+    u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+};
 use vm::representations::{ClarityName, ContractName};
 use vm::types::Value;
 
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, MARFValue, PoxId, SortitionId, VRFSeed,
+use chainstate::burn::ConsensusHashExtensions;
+use chainstate::stacks::address::StacksAddressExtensions;
+use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,
 };
-use crate::types::proof::{ClarityMarfTrieId, TrieHash};
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
 
@@ -89,20 +91,6 @@ pub const REWARD_WINDOW_START: u64 = 144 * 15;
 pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
 
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
-
-// for using BurnchainHeaderHash values as block hashes in a MARF
-impl From<BurnchainHeaderHash> for BlockHeaderHash {
-    fn from(bhh: BurnchainHeaderHash) -> BlockHeaderHash {
-        BlockHeaderHash(bhh.0)
-    }
-}
-
-// for using BurnchainHeaderHash values as block hashes in a MARF
-impl From<BlockHeaderHash> for BurnchainHeaderHash {
-    fn from(bhh: BlockHeaderHash) -> BurnchainHeaderHash {
-        BurnchainHeaderHash(bhh.0)
-    }
-}
 
 impl FromRow<SortitionId> for SortitionId {
     fn from_row<'a>(row: &'a Row) -> Result<SortitionId, db_error> {
@@ -123,12 +111,6 @@ impl FromRow<MissedBlockCommit> for MissedBlockCommit {
             txid,
             intended_sortition,
         })
-    }
-}
-
-impl From<&BurnchainHeaderHash> for SortitionId {
-    fn from(block_id: &BurnchainHeaderHash) -> Self {
-        SortitionId(block_id.0.clone())
     }
 }
 
@@ -314,12 +296,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(sortition_id)
     );"#,
-    "CREATE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
-    "CREATE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
-    "CREATE INDEX snapshots_block_heights ON snapshots(burn_header_hash,block_height);",
-    "CREATE INDEX snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);",
-    "CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);",
-    "CREATE INDEX arrival_indexes ON snapshots(arrival_index);",
     r#"
     CREATE TABLE snapshot_transition_ops(
       sortition_id TEXT PRIMARY KEY,
@@ -417,7 +393,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         block_height INTEGER NOT NULL,
         PRIMARY KEY(consensus_hash, stacks_block_hash)
     );"#,
-    "CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
     "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
 ];
 
@@ -430,6 +405,24 @@ const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
          network_epoch INTEGER NOT NULL,
          PRIMARY KEY(start_block_height,epoch_id)
      );"#];
+
+const SORTITION_DB_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS snapshots_block_heights ON snapshots(burn_header_hash,block_height);",
+    "CREATE INDEX IF NOT EXISTS snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS snapshots_canonical_chain_tip ON snapshots(pox_valid,block_height DESC,burn_header_hash ASC);",
+    "CREATE INDEX IF NOT EXISTS block_arrivals ON snapshots(arrival_index,burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS arrival_indexes ON snapshots(arrival_index);",
+    "CREATE INDEX IF NOT EXISTS index_leader_keys_sortition_id_block_height_vtxindex ON leader_keys(sortition_id,block_height,vtxindex);",
+    "CREATE INDEX IF NOT EXISTS index_user_burn_support_txid ON user_burn_support(txid);",
+    "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_vtxindex ON user_burn_support(sortition_id,vtxindex);",
+    "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_hash_160_key_vtxindex_key_block_ptr_vtxindex ON user_burn_support(sortition_id,block_header_hash_160,key_vtxindex,key_block_ptr,vtxindex ASC);",
+    "CREATE INDEX IF NOT EXISTS index_stack_stx_burn_header_hash ON stack_stx(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);",
+    "CREATE INDEX IF NOT EXISTS canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);"
+];
 
 pub struct SortitionDB {
     pub readwrite: bool,
@@ -1342,43 +1335,6 @@ impl<'a> SortitionHandleConn<'a> {
     }
 }
 
-impl FromStr for PoxId {
-    type Err = NetError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = vec![];
-        for i in s.chars() {
-            if i == '1' {
-                result.push(true);
-            } else if i == '0' {
-                result.push(false);
-            } else {
-                return Err(NetError::DeserializeError(
-                    "Unexpected character in PoX ID serialization".into(),
-                ));
-            }
-        }
-        Ok(PoxId::new(result))
-    }
-}
-
-impl SortitionId {
-    pub fn stubbed(from: &BurnchainHeaderHash) -> SortitionId {
-        SortitionId::new(from, &PoxId::stubbed())
-    }
-
-    pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxId) -> SortitionId {
-        if pox == &PoxId::stubbed() {
-            SortitionId(bhh.0.clone())
-        } else {
-            let mut hasher = Sha512Trunc256::new();
-            hasher.input(bhh);
-            write!(hasher, "{}", pox).expect("Failed to deserialize PoX ID into the hasher");
-            let h = Sha512Trunc256Sum::from_hasher(hasher);
-            SortitionId(h.0)
-        }
-    }
-}
-
 // Connection methods
 impl SortitionDB {
     /// Begin a transaction.
@@ -1534,6 +1490,9 @@ impl SortitionDB {
         }
 
         db.check_schema_version_and_update(epochs)?;
+        if readwrite {
+            db.add_indexes()?;
+        }
         Ok(db)
     }
 
@@ -1543,10 +1502,15 @@ impl SortitionDB {
         first_block_height: u64,
         first_burn_hash: &BurnchainHeaderHash,
     ) -> Result<SortitionDB, db_error> {
+        use core::StacksEpochExtension;
+
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         SortitionDB::connect(
             &db_path_dir,
@@ -1717,6 +1681,8 @@ impl SortitionDB {
         )?;
 
         db_tx.commit()?;
+
+        self.add_indexes()?;
         Ok(())
     }
 
@@ -1915,6 +1881,15 @@ impl SortitionDB {
             Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
         }
     }
+
+    fn add_indexes(&mut self) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        for row_text in SORTITION_DB_INDEXES {
+            tx.execute_batch(row_text)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 impl<'a> SortitionDBConn<'a> {
@@ -2045,12 +2020,15 @@ impl<'a> SortitionDBConn<'a> {
 
 // High-level functions used by ChainsCoordinator
 impl SortitionDB {
+    /// Get the sortition identifier corresponding to the provided
+    ///  burnchain hash. In Hyperchains, because there is *no* PoX, this
+    ///  is always just equal to the burnchain hash.
     pub fn get_sortition_id(
         &self,
         burnchain_header_hash: &BurnchainHeaderHash,
         _sortition_tip: &SortitionId,
     ) -> Result<Option<SortitionId>, BurnchainError> {
-        Ok(Some(SortitionId::from(burnchain_header_hash)))
+        Ok(Some(SortitionId(burnchain_header_hash.0.clone())))
     }
 
     pub fn is_sortition_processed(

@@ -30,13 +30,13 @@ use chainstate::burn::BlockSnapshot;
 use chainstate::coordinator::RewardCycleInfo;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::index::{
-    marf::MARF, storage::TrieFileStorage, Error as MARFError, MarfTrieId,
+    marf::MARF, storage::TrieFileStorage, Error as MARFError, MARFValue, MarfTrieId,
 };
 use core::INITIAL_MINING_BONUS_WINDOW;
-use util::db::Error as DBError;
+use util_lib::db::Error as DBError;
 
-use crate::types::chainstate::{BurnchainHeaderHash, MARFValue, PoxId, SortitionId};
-use crate::types::proof::TrieHash;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId};
 
 impl<'a> SortitionHandleTx<'a> {
     /// Run a blockstack operation's "check()" method and return the result.
@@ -96,7 +96,9 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|ref op| op.txid())
             .collect();
 
-        let next_sortition_id = SortitionId::from(&this_block_hash);
+        // the SortitionId in Hyperchains is always equal to the identifying hash
+        // of the L1 block (i.e., the burn block hash)
+        let next_sortition_id = SortitionId(this_block_hash.0.clone());
 
         let block_commits: Vec<_> = this_block_ops
             .iter()
@@ -302,6 +304,8 @@ mod tests {
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use chainstate::burn::*;
+    use chainstate::stacks::address::StacksAddressExtensions;
+    use chainstate::stacks::index::TrieHashExtension;
     use chainstate::stacks::StacksPublicKey;
     use core::MICROSTACKS_PER_STACKS;
     use util::{hash::hex_bytes, vrf::VRFPublicKey};
