@@ -81,6 +81,7 @@ use rand::thread_rng;
 
 use codec::read_next;
 use codec::Error as codec_error;
+use chainstate::stacks::db::blocks::MessageSignatureList;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
@@ -117,6 +118,7 @@ fn make_block(
         tx_merkle_root: Sha512Trunc256Sum::empty(),
         state_index_root: TrieHash::from_empty_data(),
         microblock_pubkey_hash: Hash160([0; 20]),
+        miner_signatures: MessageSignatureList::empty(),
     };
 
     let block_hash = anchored_header.block_hash();
