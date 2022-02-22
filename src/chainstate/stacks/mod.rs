@@ -72,11 +72,11 @@ pub mod transaction;
 
 pub use types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
+use chainstate::stacks::db::blocks::MessageSignatureList;
 pub use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use chainstate::stacks::db::blocks::MessageSignatureList;
 
 pub const STACKS_BLOCK_VERSION: u8 = 0;
 pub const STACKS_MICROBLOCK_VERSION: u8 = 0;

@@ -83,10 +83,10 @@ use chainstate::stacks::address::StacksAddressExtensions;
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblockHeader;
 use monitoring::set_last_execution_cost_observed;
+use rusqlite::types::ToSqlOutput;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use types::chainstate::BurnchainHeaderHash;
 use util_lib::boot::boot_code_id;
-use rusqlite::types::ToSqlOutput;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {

@@ -79,9 +79,9 @@ use super::MemPoolDB;
 use rand::prelude::*;
 use rand::thread_rng;
 
+use chainstate::stacks::db::blocks::MessageSignatureList;
 use codec::read_next;
 use codec::Error as codec_error;
-use chainstate::stacks::db::blocks::MessageSignatureList;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
