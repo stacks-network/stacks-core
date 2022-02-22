@@ -85,6 +85,14 @@ impl StacksBlockHeader {
         let mut bytes = vec![];
         self.serialize(&mut bytes, true)
             .expect("BUG: failed to serialize to a vec");
+        let sha2 = Sha512Trunc256Sum::from_data(bytes.as_slice());
+        let sig = privk.sign(sha2.as_ref())
+                               .map_err(|se| ...)
+
+    }
+        let mut bytes = vec![];
+        self.serialize(&mut bytes, true)
+            .expect("BUG: failed to serialize to a vec");
 
         let mut digest_bits = [0u8; 32];
         let mut sha2 = Sha512Trunc256::new();
