@@ -49,3 +49,4 @@ assert-json-diff = "1.0.0"
 default = ["developer-mode"]
 developer-mode = []
 testing = []
+slog_json = ["stacks_common/slog_json"]
