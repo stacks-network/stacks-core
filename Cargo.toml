@@ -111,7 +111,7 @@ stacks_common = { package = "stacks-common", features = ["default", "testing"], 
 default = ["developer-mode"]
 developer-mode = []
 monitoring_prom = ["prometheus"]
-slog_json = ["slog-json"]
+slog_json = ["slog-json", "stacks_common/slog_json", "clarity/slog_json"]
 
 
 [profile.dev.package.regex]
