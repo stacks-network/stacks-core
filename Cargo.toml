@@ -81,7 +81,7 @@ version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
 
 [dependencies.secp256k1]
-version = "0.19.0"
+version = "0.21.0"
 features = ["serde", "recovery"]
 
 [dependencies.rusqlite]
@@ -126,4 +126,5 @@ members = [
     "clarity",
     "stx-genesis",
     "testnet/stacks-node",
-    "testnet/puppet-chain"]
+    "testnet/puppet-chain",
+    "stacks-encoding-native-js"]
