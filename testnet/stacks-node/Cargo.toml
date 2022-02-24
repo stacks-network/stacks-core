@@ -40,6 +40,6 @@ path = "src/main.rs"
 
 [features]
 monitoring_prom = ["stacks/monitoring_prom"]
-slog_json = ["stacks/slog_json"]
+slog_json = ["stacks/slog_json", "stacks_common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
