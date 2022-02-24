@@ -1501,13 +1501,6 @@ impl ConversationP2P {
         pox_id: &PoxId,
         getpoxinv: &GetPoxInv,
     ) -> Result<StacksMessageType, net_error> {
-        if pox_id.len() <= 1 {
-            // not initialized yet
-            debug!("{:?}: PoX not initialized yet", local_peer);
-            return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::InvalidPoxFork,
-            )));
-        }
         // consensus hash in getpoxinv must exist on the canonical chain tip
         match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &getpoxinv.consensus_hash) {
             Ok(Some(sn)) => {
