@@ -1,12 +1,20 @@
-use std::convert::{TryInto, TryFrom};
-use clarity::vm::types::Value as ClarityValue;
 use clarity::vm::types::signatures::TypeSignature as ClarityTypeSignature;
-use sha2::Sha512_256;
-use sha2::Digest;
-use stacks_common::codec::StacksMessageCodec;
-use stacks::{chainstate::stacks::{StacksTransaction, TransactionAuth, TransactionAuthFlags, TransactionSpendingCondition, SinglesigSpendingCondition, MultisigSpendingCondition, TransactionAuthField, TransactionAuthFieldID, TransactionPublicKeyEncoding, MultisigHashMode, StacksPublicKey, TransactionVersion}, types::{StacksPublicKeyBuffer, chainstate::StacksAddress}, address::AddressHashMode, };
+use clarity::vm::types::Value as ClarityValue;
 use neon::prelude::*;
-
+use sha2::Digest;
+use sha2::Sha512_256;
+use stacks::{
+    address::AddressHashMode,
+    chainstate::stacks::{
+        MultisigHashMode, MultisigSpendingCondition, SinglesigSpendingCondition, StacksPublicKey,
+        StacksTransaction, TransactionAuth, TransactionAuthField, TransactionAuthFieldID,
+        TransactionAuthFlags, TransactionPublicKeyEncoding, TransactionSpendingCondition,
+        TransactionVersion,
+    },
+    types::{chainstate::StacksAddress, StacksPublicKeyBuffer},
+};
+use stacks_common::codec::StacksMessageCodec;
+use std::convert::{TryFrom, TryInto};
 
 fn hello(mut cx: FunctionContext) -> JsResult<JsString> {
     Ok(cx.string("test3: hello nodejs from libclarity!"))
@@ -14,18 +22,22 @@ fn hello(mut cx: FunctionContext) -> JsResult<JsString> {
 
 fn decode_clarity_value(mut cx: FunctionContext) -> JsResult<JsString> {
     let hex_string = cx.argument::<JsString>(0)?.value(&mut cx);
-    let val_bytes = hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
+    let val_bytes =
+        hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
     let byte_cursor = &mut &val_bytes[..];
-    let value = ClarityValue::consensus_deserialize(byte_cursor).or_else(|e| cx.throw_error(format!("{}", e)))?;
+    let value = ClarityValue::consensus_deserialize(byte_cursor)
+        .or_else(|e| cx.throw_error(format!("{}", e)))?;
     Ok(cx.string(format!("{}", value)))
 }
 
 fn decode_clarity_value2(mut cx: FunctionContext) -> JsResult<JsString> {
     let hex_string = cx.argument::<JsString>(0)?.value(&mut cx);
-    let val_bytes = hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
+    let val_bytes =
+        hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
     let byte_cursor = &mut &val_bytes[..];
     while !byte_cursor.is_empty() {
-        let value = ClarityValue::consensus_deserialize(byte_cursor).or_else(|e| cx.throw_error(format!("{}", e)))?;
+        let value = ClarityValue::consensus_deserialize(byte_cursor)
+            .or_else(|e| cx.throw_error(format!("{}", e)))?;
         let value_type = ClarityTypeSignature::type_of(&value).to_string();
         return Ok(cx.string(format!("{}{}", value, value_type)));
     }
@@ -34,10 +46,12 @@ fn decode_clarity_value2(mut cx: FunctionContext) -> JsResult<JsString> {
 
 fn decode_clarity_value3(mut cx: FunctionContext) -> JsResult<JsString> {
     let hex_string = cx.argument::<JsString>(0)?.value(&mut cx);
-    let val_bytes = hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
+    let val_bytes =
+        hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
     let mut byte_cursor = val_bytes.as_slice();
     while !byte_cursor.is_empty() {
-        let value = ClarityValue::consensus_deserialize(&mut byte_cursor).or_else(|e| cx.throw_error(format!("{}", e)))?;
+        let value = ClarityValue::consensus_deserialize(&mut byte_cursor)
+            .or_else(|e| cx.throw_error(format!("{}", e)))?;
         let value_type = ClarityTypeSignature::type_of(&value).to_string();
         return Ok(cx.string(format!("{}{}", value, value_type)));
     }
@@ -46,9 +60,10 @@ fn decode_clarity_value3(mut cx: FunctionContext) -> JsResult<JsString> {
 
 fn decode_clarity_value_array_old(mut cx: FunctionContext) -> JsResult<JsArray> {
     let hex_string = cx.argument::<JsString>(0)?.value(&mut cx);
-    let val_bytes = hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
+    let val_bytes =
+        hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
     let array_len = u32::from_be_bytes(val_bytes[..4].try_into().unwrap());
-    
+
     let val_slice = &val_bytes[4..];
     let mut byte_cursor = std::io::Cursor::new(val_slice);
     let val_len = val_slice.len() as u64;
@@ -57,7 +72,8 @@ fn decode_clarity_value_array_old(mut cx: FunctionContext) -> JsResult<JsArray> 
     let array_result = JsArray::new(&mut cx, array_len * 3);
     while byte_cursor.position() < val_len - 1 {
         let cur_start = byte_cursor.position() as usize;
-        let clarity_value = ClarityValue::consensus_deserialize(&mut byte_cursor).or_else(|e| cx.throw_error(format!("{}", e)))?;
+        let clarity_value = ClarityValue::consensus_deserialize(&mut byte_cursor)
+            .or_else(|e| cx.throw_error(format!("{}", e)))?;
         let cur_end = byte_cursor.position() as usize;
         let value_hex = cx.string("0x".to_owned() + &hex::encode(&val_slice[cur_start..cur_end]));
         let value_type = cx.string(ClarityTypeSignature::type_of(&clarity_value).to_string());
@@ -72,7 +88,8 @@ fn decode_clarity_value_array_old(mut cx: FunctionContext) -> JsResult<JsArray> 
 
 fn decode_clarity_value_array(mut cx: FunctionContext) -> JsResult<JsArray> {
     let input_hex = cx.argument::<JsString>(0)?.value(&mut cx);
-    let input_bytes = hex::decode(input_hex).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
+    let input_bytes =
+        hex::decode(input_hex).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
     let result_length = u32::from_be_bytes(input_bytes[..4].try_into().unwrap());
     let array_result = JsArray::new(&mut cx, result_length);
 
@@ -82,7 +99,8 @@ fn decode_clarity_value_array(mut cx: FunctionContext) -> JsResult<JsArray> {
     let mut i: u32 = 0;
     while byte_cursor.position() < val_len - 1 {
         let cur_start = byte_cursor.position() as usize;
-        let clarity_value = ClarityValue::consensus_deserialize(&mut byte_cursor).or_else(|e| cx.throw_error(format!("{}", e)))?;
+        let clarity_value = ClarityValue::consensus_deserialize(&mut byte_cursor)
+            .or_else(|e| cx.throw_error(format!("{}", e)))?;
         let cur_end = byte_cursor.position() as usize;
         let value_hex = cx.string("0x".to_owned() + &hex::encode(&val_slice[cur_start..cur_end]));
         let value_type = cx.string(ClarityTypeSignature::type_of(&clarity_value).to_string());
@@ -99,17 +117,20 @@ fn decode_clarity_value_array(mut cx: FunctionContext) -> JsResult<JsArray> {
 
 fn inspect_clarity_value_array(mut cx: FunctionContext) -> JsResult<JsString> {
     let hex_string = cx.argument::<JsString>(0)?.value(&mut cx);
-    let val_bytes = hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
+    let val_bytes =
+        hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
     let array_len = u32::from_be_bytes(val_bytes[0..4].try_into().unwrap());
     Ok(cx.string(array_len.to_string()))
 }
 
 fn decode_transaction(mut cx: FunctionContext) -> JsResult<JsObject> {
     let hex_string = cx.argument::<JsString>(0)?.value(&mut cx);
-    let val_bytes = hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
+    let val_bytes =
+        hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
     // let tx_id = Txid::from_stacks_tx(&val_bytes);
     let byte_cursor = &mut &val_bytes[..];
-    let tx = StacksTransaction::consensus_deserialize(byte_cursor).or_else(|e| cx.throw_error(format!("Failed to decode transaction: {:?}\n", &e)))?;
+    let tx = StacksTransaction::consensus_deserialize(byte_cursor)
+        .or_else(|e| cx.throw_error(format!("Failed to decode transaction: {:?}\n", &e)))?;
     let tx_json_obj = cx.empty_object();
 
     let tx_id_bytes = Sha512_256::digest(val_bytes);
@@ -127,34 +148,50 @@ pub fn new<'a, C: Context<'a>>(cx: &mut C, len: u32) -> Handle<'a, JsArray> {
 }
 */
 
-
-
-
 /*
 pub trait NeonJsSerialize {
     fn neon_js_serialize(&self, cx: &mut FunctionContext, obj: &Handle<JsObject>) -> NeonResult<()>;
 }
 */
 
-pub trait NeonJsSerialize<ExtraCtx=()> {
-    fn neon_js_serialize(&self, cx: &mut FunctionContext, obj: &Handle<JsObject>, extra_ctx: &ExtraCtx) -> NeonResult<()>;
+pub trait NeonJsSerialize<ExtraCtx = ()> {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        extra_ctx: &ExtraCtx,
+    ) -> NeonResult<()>;
 }
 pub trait NeonJsSerializeWithContext<SerializationContext> {
-    fn neon_js_serialize(&self, cx: &mut FunctionContext, obj: &Handle<JsObject>, serialization_context: &SerializationContext) -> NeonResult<()>;
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        serialization_context: &SerializationContext,
+    ) -> NeonResult<()>;
 }
 
 impl NeonJsSerialize for StacksTransaction {
-    fn neon_js_serialize(&self, cx: &mut FunctionContext, obj: &Handle<JsObject>, _extra_ctx: &()) -> NeonResult<()> {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        _extra_ctx: &(),
+    ) -> NeonResult<()> {
         let version_number = cx.number(self.version as u8);
         obj.set(cx, "version", version_number)?;
 
-        let chain_id =  cx.number(self.chain_id);
+        let chain_id = cx.number(self.chain_id);
         obj.set(cx, "chain_id", chain_id)?;
 
         let auth_obj = cx.empty_object();
-        self.auth.neon_js_serialize(cx, &auth_obj, &TxSerializationContext {
-            transaction_version: self.version,
-        })?;
+        self.auth.neon_js_serialize(
+            cx,
+            &auth_obj,
+            &TxSerializationContext {
+                transaction_version: self.version,
+            },
+        )?;
         obj.set(cx, "auth", auth_obj)?;
 
         // write_next(fd, &(self.version as u8))?;
@@ -173,7 +210,12 @@ struct TxSerializationContext {
 }
 
 impl NeonJsSerialize<TxSerializationContext> for TransactionAuth {
-    fn neon_js_serialize(&self, cx: &mut FunctionContext, obj: &Handle<JsObject>, extra_ctx: &TxSerializationContext) -> NeonResult<()> {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        extra_ctx: &TxSerializationContext,
+    ) -> NeonResult<()> {
         match *self {
             TransactionAuth::Standard(ref origin_condition) => {
                 let type_id = cx.number(TransactionAuthFlags::AuthStandard as u8);
@@ -201,7 +243,12 @@ impl NeonJsSerialize<TxSerializationContext> for TransactionAuth {
 }
 
 impl NeonJsSerialize<TxSerializationContext> for TransactionSpendingCondition {
-    fn neon_js_serialize(&self, cx: &mut FunctionContext, obj: &Handle<JsObject>, extra_ctx: &TxSerializationContext) -> NeonResult<()> {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        extra_ctx: &TxSerializationContext,
+    ) -> NeonResult<()> {
         match *self {
             TransactionSpendingCondition::Singlesig(ref data) => {
                 data.neon_js_serialize(cx, obj, &extra_ctx)?;
@@ -273,9 +320,14 @@ impl SpendingConditionCommon for SinglesigSpendingCondition {
 */
 
 impl NeonJsSerializeWithContext<TxSerializationContext> for SinglesigSpendingCondition {
-    fn neon_js_serialize(&self, cx: &mut FunctionContext, obj: &Handle<JsObject>, extra_ctx: &TxSerializationContext) -> NeonResult<()> {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        extra_ctx: &TxSerializationContext,
+    ) -> NeonResult<()> {
         let hash_mode_int = self.hash_mode.clone() as u8;
-        
+
         let hash_mode = cx.number(hash_mode_int);
         obj.set(cx, "hash_mode", hash_mode)?;
 
@@ -299,7 +351,8 @@ impl NeonJsSerializeWithContext<TxSerializationContext> for SinglesigSpendingCon
             TransactionVersion::Mainnet => stacks_address_hash_mode.to_version_mainnet(),
             TransactionVersion::Testnet => stacks_address_hash_mode.to_version_testnet(),
         };
-        let stacks_address = cx.string(StacksAddress::new(stacks_address_version, self.signer).to_string());
+        let stacks_address =
+            cx.string(StacksAddress::new(stacks_address_version, self.signer).to_string());
         obj.set(cx, "stacks_address", stacks_address)?;
 
         Ok(())
@@ -307,7 +360,12 @@ impl NeonJsSerializeWithContext<TxSerializationContext> for SinglesigSpendingCon
 }
 
 impl NeonJsSerialize for MultisigSpendingCondition {
-    fn neon_js_serialize(&self, cx: &mut FunctionContext, obj: &Handle<JsObject>, _extra_ctx: &()) -> NeonResult<()> {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        _extra_ctx: &(),
+    ) -> NeonResult<()> {
         let hash_mode = cx.number(self.hash_mode.clone() as u8);
         obj.set(cx, "hash_mode", hash_mode)?;
 
@@ -380,7 +438,12 @@ impl NeonJsSerialize for Secp256k1PublicKey {
 
 // impl NeonJsSerializeWithContext<TransactionAuthFieldContext<'_>> for TransactionAuthField {
 impl NeonJsSerialize for TransactionAuthField {
-    fn neon_js_serialize(&self, cx: &mut FunctionContext, obj: &Handle<JsObject>, _extra_ctx: &()) -> NeonResult<()> {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        _extra_ctx: &(),
+    ) -> NeonResult<()> {
         match *self {
             TransactionAuthField::PublicKey(ref pubkey) => {
                 let field_id = if pubkey.compressed() {
