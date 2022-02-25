@@ -7,7 +7,13 @@ use stacks::chainstate::stacks::AssetInfo;
 use stacks::chainstate::stacks::AssetInfoID;
 use stacks::chainstate::stacks::PostConditionPrincipal;
 use stacks::chainstate::stacks::PostConditionPrincipalID;
+use stacks::chainstate::stacks::StacksMicroblockHeader;
+use stacks::chainstate::stacks::TransactionContractCall;
+use stacks::chainstate::stacks::TransactionPayload;
+use stacks::chainstate::stacks::TransactionPayloadID;
 use stacks::chainstate::stacks::TransactionPostCondition;
+use stacks::chainstate::stacks::TransactionSmartContract;
+use stacks::vm::types::PrincipalData;
 use stacks::{
     address::AddressHashMode,
     chainstate::stacks::{
@@ -34,62 +40,6 @@ fn decode_clarity_value(mut cx: FunctionContext) -> JsResult<JsString> {
     Ok(cx.string(format!("{}", value)))
 }
 
-fn decode_clarity_value2(mut cx: FunctionContext) -> JsResult<JsString> {
-    let hex_string = cx.argument::<JsString>(0)?.value(&mut cx);
-    let val_bytes =
-        hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
-    let byte_cursor = &mut &val_bytes[..];
-    while !byte_cursor.is_empty() {
-        let value = ClarityValue::consensus_deserialize(byte_cursor)
-            .or_else(|e| cx.throw_error(format!("{}", e)))?;
-        let value_type = ClarityTypeSignature::type_of(&value).to_string();
-        return Ok(cx.string(format!("{}{}", value, value_type)));
-    }
-    cx.throw_error("Empty input bytes")
-}
-
-fn decode_clarity_value3(mut cx: FunctionContext) -> JsResult<JsString> {
-    let hex_string = cx.argument::<JsString>(0)?.value(&mut cx);
-    let val_bytes =
-        hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
-    let mut byte_cursor = val_bytes.as_slice();
-    while !byte_cursor.is_empty() {
-        let value = ClarityValue::consensus_deserialize(&mut byte_cursor)
-            .or_else(|e| cx.throw_error(format!("{}", e)))?;
-        let value_type = ClarityTypeSignature::type_of(&value).to_string();
-        return Ok(cx.string(format!("{}{}", value, value_type)));
-    }
-    cx.throw_error("Empty input bytes")
-}
-
-fn decode_clarity_value_array_old(mut cx: FunctionContext) -> JsResult<JsArray> {
-    let hex_string = cx.argument::<JsString>(0)?.value(&mut cx);
-    let val_bytes =
-        hex::decode(hex_string).or_else(|e| cx.throw_error(format!("Parsing error: {}", e)))?;
-    let array_len = u32::from_be_bytes(val_bytes[..4].try_into().unwrap());
-
-    let val_slice = &val_bytes[4..];
-    let mut byte_cursor = std::io::Cursor::new(val_slice);
-    let val_len = val_slice.len() as u64;
-    // let byte_len = byte_cursor.get_ref().len();
-    let mut i: u32 = 0;
-    let array_result = JsArray::new(&mut cx, array_len * 3);
-    while byte_cursor.position() < val_len - 1 {
-        let cur_start = byte_cursor.position() as usize;
-        let clarity_value = ClarityValue::consensus_deserialize(&mut byte_cursor)
-            .or_else(|e| cx.throw_error(format!("{}", e)))?;
-        let cur_end = byte_cursor.position() as usize;
-        let value_hex = cx.string(format!("0x{}", hex::encode(&val_slice[cur_start..cur_end])));
-        let value_type = cx.string(ClarityTypeSignature::type_of(&clarity_value).to_string());
-        let value_repr = cx.string(clarity_value.to_string());
-        array_result.set(&mut cx, i, value_type)?;
-        array_result.set(&mut cx, i + 1, value_repr)?;
-        array_result.set(&mut cx, i + 2, value_hex)?;
-        i = i + 3;
-    }
-    Ok(array_result)
-}
-
 fn decode_clarity_value_array(mut cx: FunctionContext) -> JsResult<JsArray> {
     let input_hex = cx.argument::<JsString>(0)?.value(&mut cx);
     let input_bytes =
@@ -106,13 +56,16 @@ fn decode_clarity_value_array(mut cx: FunctionContext) -> JsResult<JsArray> {
         let clarity_value = ClarityValue::consensus_deserialize(&mut byte_cursor)
             .or_else(|e| cx.throw_error(format!("{}", e)))?;
         let cur_end = byte_cursor.position() as usize;
-        let value_hex = cx.string(format!("0x{}", hex::encode(&val_slice[cur_start..cur_end])));
+        let value_slice = &val_slice[cur_start..cur_end];
+        let value_hex = cx.string(format!("0x{}", hex::encode(value_slice)));
         let value_type = cx.string(ClarityTypeSignature::type_of(&clarity_value).to_string());
         let value_repr = cx.string(clarity_value.to_string());
         let value_obj = cx.empty_object();
+        let value_buff = JsBuffer::external(&mut cx, value_slice.to_vec());
         value_obj.set(&mut cx, "type", value_type)?;
         value_obj.set(&mut cx, "repr", value_repr)?;
         value_obj.set(&mut cx, "hex", value_hex)?;
+        value_obj.set(&mut cx, "buffer", value_buff)?;
         array_result.set(&mut cx, i, value_obj)?;
         i = i + 1;
     }
@@ -146,13 +99,13 @@ fn decode_transaction(mut cx: FunctionContext) -> JsResult<JsObject> {
     Ok(tx_json_obj)
 }
 
-pub trait NeonJsSerialize<ExtraCtx = ()> {
+pub trait NeonJsSerialize<ExtraCtx = (), TResult = ()> {
     fn neon_js_serialize(
         &self,
         cx: &mut FunctionContext,
         obj: &Handle<JsObject>,
         extra_ctx: &ExtraCtx,
-    ) -> NeonResult<()>;
+    ) -> NeonResult<TResult>;
 }
 
 impl NeonJsSerialize for StacksTransaction {
@@ -252,7 +205,7 @@ impl NeonJsSerialize<TxSerializationContext> for TransactionSpendingCondition {
                 data.neon_js_serialize(cx, obj, &extra_ctx)?;
             }
             TransactionSpendingCondition::Multisig(ref data) => {
-                data.neon_js_serialize(cx, obj, &())?;
+                data.neon_js_serialize(cx, obj, &extra_ctx)?;
             }
         }
         Ok(())
@@ -318,6 +271,15 @@ impl NeonJsSerialize<TxSerializationContext> for SinglesigSpendingCondition {
         let signer = cx.string(format!("0x{}", hex::encode(&self.signer)));
         obj.set(cx, "signer", signer)?;
 
+        let stacks_address_hash_mode = AddressHashMode::try_from(hash_mode_int).unwrap();
+        let stacks_address_version = match extra_ctx.transaction_version {
+            TransactionVersion::Mainnet => stacks_address_hash_mode.to_version_mainnet(),
+            TransactionVersion::Testnet => stacks_address_hash_mode.to_version_testnet(),
+        };
+        let stacks_address =
+            cx.string(StacksAddress::new(stacks_address_version, self.signer).to_string());
+        obj.set(cx, "signer_stacks_address", stacks_address)?;
+
         let nonce = cx.string(self.nonce.to_string());
         obj.set(cx, "nonce", nonce)?;
 
@@ -330,6 +292,24 @@ impl NeonJsSerialize<TxSerializationContext> for SinglesigSpendingCondition {
         let signature = cx.string(format!("0x{}", hex::encode(&self.signature)));
         obj.set(cx, "signature", signature)?;
 
+        Ok(())
+    }
+}
+
+impl NeonJsSerialize<TxSerializationContext> for MultisigSpendingCondition {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        extra_ctx: &TxSerializationContext,
+    ) -> NeonResult<()> {
+        let hash_mode_int = self.hash_mode.clone() as u8;
+        let hash_mode = cx.number(hash_mode_int);
+        obj.set(cx, "hash_mode", hash_mode)?;
+
+        let signer = cx.string(format!("0x{}", hex::encode(&self.signer)));
+        obj.set(cx, "signer", signer)?;
+
         let stacks_address_hash_mode = AddressHashMode::try_from(hash_mode_int).unwrap();
         let stacks_address_version = match extra_ctx.transaction_version {
             TransactionVersion::Mainnet => stacks_address_hash_mode.to_version_mainnet(),
@@ -337,24 +317,7 @@ impl NeonJsSerialize<TxSerializationContext> for SinglesigSpendingCondition {
         };
         let stacks_address =
             cx.string(StacksAddress::new(stacks_address_version, self.signer).to_string());
-        obj.set(cx, "stacks_address", stacks_address)?;
-
-        Ok(())
-    }
-}
-
-impl NeonJsSerialize for MultisigSpendingCondition {
-    fn neon_js_serialize(
-        &self,
-        cx: &mut FunctionContext,
-        obj: &Handle<JsObject>,
-        _extra_ctx: &(),
-    ) -> NeonResult<()> {
-        let hash_mode = cx.number(self.hash_mode.clone() as u8);
-        obj.set(cx, "hash_mode", hash_mode)?;
-
-        let signer = cx.string(format!("0x{}", hex::encode(&self.signer)));
-        obj.set(cx, "signer", signer)?;
+        obj.set(cx, "signer_stacks_address", stacks_address)?;
 
         let nonce = cx.string(self.nonce.to_string());
         obj.set(cx, "nonce", nonce)?;
@@ -545,21 +508,199 @@ impl NeonJsSerialize for AssetInfo {
     }
 }
 
-impl NeonJsSerialize for ClarityValue {
+impl NeonJsSerialize<(), Vec<u8>> for ClarityValue {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        _extra_ctx: &(),
+    ) -> NeonResult<Vec<u8>> {
+        let value_bytes = ClarityValue::serialize_to_vec(&self);
+        let value_hex = cx.string(format!("0x{}", hex::encode(&value_bytes)));
+        let value_type = cx.string(ClarityTypeSignature::type_of(self).to_string());
+        let value_repr = cx.string(self.to_string());
+        // TODO: raw clarity value binary slice is already determined during deserialization, ideally
+        // try to use that rather than re-serializing (slow)
+        let value_buff = JsBuffer::external(cx, value_bytes.to_vec());
+        obj.set(cx, "type", value_type)?;
+        obj.set(cx, "repr", value_repr)?;
+        obj.set(cx, "hex", value_hex)?;
+        obj.set(cx, "buffer", value_buff)?;
+        Ok(value_bytes)
+    }
+}
+
+impl NeonJsSerialize for TransactionPayload {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        extra_ctx: &(),
+    ) -> NeonResult<()> {
+        match *self {
+            TransactionPayload::TokenTransfer(ref address, ref amount, ref memo) => {
+                let type_id = cx.number(TransactionPayloadID::TokenTransfer as u8);
+                obj.set(cx, "type_id", type_id)?;
+
+                let recipient_obj = cx.empty_object();
+                address.neon_js_serialize(cx, &recipient_obj, extra_ctx)?;
+                obj.set(cx, "recipient", recipient_obj)?;
+
+                let amount_str = cx.string(amount.to_string());
+                obj.set(cx, "amount", amount_str)?;
+
+                let memo_hex = cx.string(format!("0x{}", hex::encode(memo)));
+                obj.set(cx, "memo", memo_hex)?;
+            }
+            TransactionPayload::ContractCall(ref contract_call) => {
+                let type_id = cx.number(TransactionPayloadID::ContractCall as u8);
+                obj.set(cx, "type_id", type_id)?;
+
+                contract_call.neon_js_serialize(cx, obj, extra_ctx)?;
+            }
+            TransactionPayload::SmartContract(ref smart_contract) => {
+                let type_id = cx.number(TransactionPayloadID::SmartContract as u8);
+                obj.set(cx, "type_id", type_id)?;
+
+                smart_contract.neon_js_serialize(cx, obj, extra_ctx)?;
+            }
+            TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
+                let type_id = cx.number(TransactionPayloadID::PoisonMicroblock as u8);
+                obj.set(cx, "type_id", type_id)?;
+
+                let microblock_header_1_obj = cx.empty_object();
+                h1.neon_js_serialize(cx, &microblock_header_1_obj, extra_ctx)?;
+                obj.set(cx, "microblock_header_1", microblock_header_1_obj)?;
+
+                let microblock_header_2_obj = cx.empty_object();
+                h2.neon_js_serialize(cx, &microblock_header_2_obj, extra_ctx)?;
+                obj.set(cx, "microblock_header_2", microblock_header_2_obj)?;
+            }
+            TransactionPayload::Coinbase(ref buf) => {
+                let type_id = cx.number(TransactionPayloadID::Coinbase as u8);
+                obj.set(cx, "type_id", type_id)?;
+
+                let payload_buffer = JsBuffer::external(cx, buf.to_bytes());
+                obj.set(cx, "payload_buffer", payload_buffer)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl NeonJsSerialize for PrincipalData {
     fn neon_js_serialize(
         &self,
         cx: &mut FunctionContext,
         obj: &Handle<JsObject>,
         _extra_ctx: &(),
     ) -> NeonResult<()> {
-        let value_bytes = ClarityValue::serialize_to_vec(&self);
-        let value_hex = cx.string(format!("0x{}", hex::encode(value_bytes)));
-        let value_type = cx.string(ClarityTypeSignature::type_of(self).to_string());
-        let value_repr = cx.string(self.to_string());
-        obj.set(cx, "type", value_type)?;
-        obj.set(cx, "repr", value_repr)?;
-        obj.set(cx, "hex", value_hex)?;
+        match self {
+            PrincipalData::Standard(standard_principal) => {
+                let type_int = 0x05; // TypePrefix::PrincipalStandard
+                let type_id = cx.number(type_int);
+                obj.set(cx, "type_id", type_id)?;
+
+                let address = cx.string(standard_principal.to_address());
+                obj.set(cx, "address", address)?;
+            }
+            PrincipalData::Contract(contract_identifier) => {
+                let type_int = 0x06; // TypePrefix::PrincipalContract
+                let type_id = cx.number(type_int);
+                obj.set(cx, "type_id", type_id)?;
+
+                let address = cx.string(contract_identifier.issuer.to_address());
+                obj.set(cx, "address", address)?;
+
+                let contract_name = cx.string(contract_identifier.name.to_string());
+                obj.set(cx, "contract_name", contract_name)?;
+            }
+        };
         Ok(())
+    }
+}
+
+impl NeonJsSerialize for TransactionContractCall {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        extra_ctx: &(),
+    ) -> NeonResult<()> {
+        let address = cx.string(self.address.to_string());
+        obj.set(cx, "address", address)?;
+
+        let contract_name = cx.string(self.contract_name.to_string());
+        obj.set(cx, "contract_name", contract_name)?;
+
+        let function_name = cx.string(self.function_name.to_string());
+        obj.set(cx, "function_name", function_name)?;
+
+        // TODO: raw function args binary slice is already determined during raw tx deserialization, ideally
+        // try to use that rather than re-serializing (slow)
+        let mut function_args_raw = u32::to_be_bytes(self.function_args.len() as u32).to_vec();
+        let function_args = JsArray::new(cx, self.function_args.len() as u32);
+        for (i, x) in self.function_args.iter().enumerate() {
+            let val_obj = cx.empty_object();
+            let mut val_bytes = x.neon_js_serialize(cx, &val_obj, extra_ctx)?;
+            function_args_raw.append(&mut val_bytes);
+            function_args.set(cx, i as u32, val_obj)?;
+        }
+        obj.set(cx, "function_args", function_args)?;
+
+        let function_args_buff = JsBuffer::external(cx, function_args_raw);
+        obj.set(cx, "function_args_buffer", function_args_buff)?;
+
+        Ok(())
+    }
+}
+
+impl NeonJsSerialize for TransactionSmartContract {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        _extra_ctx: &(),
+    ) -> NeonResult<()> {
+        let contract_name = cx.string(self.name.to_string());
+        obj.set(cx, "contract_name", contract_name)?;
+
+        let code_body = cx.string(self.code_body.to_string());
+        obj.set(cx, "code_body", code_body)?;
+        Ok(())
+    }
+}
+
+impl NeonJsSerialize<(), Vec<u8>> for StacksMicroblockHeader {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        _extra_ctx: &(),
+    ) -> NeonResult<Vec<u8>> {
+        let vec = self.serialize_to_vec();
+
+        // TODO: raw microblock header binary slice is already determined during raw tx deserialization, ideally
+        // try to use that rather than re-serializing (slow)
+        let buffer = JsBuffer::external(cx, vec.clone());
+        obj.set(cx, "buffer", buffer)?;
+
+        let version = cx.number(self.version);
+        obj.set(cx, "version", version)?;
+
+        let sequence = cx.number(self.sequence);
+        obj.set(cx, "sequence", sequence)?;
+
+        let prev_block = JsBuffer::external(cx, self.prev_block.to_bytes());
+        obj.set(cx, "prev_block", prev_block)?;
+
+        let tx_merkle_root = JsBuffer::external(cx, self.tx_merkle_root.to_bytes());
+        obj.set(cx, "tx_merkle_root", tx_merkle_root)?;
+
+        let signature = JsBuffer::external(cx, self.signature.to_bytes());
+        obj.set(cx, "signature", signature)?;
+
+        Ok(vec)
     }
 }
 
