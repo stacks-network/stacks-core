@@ -82,6 +82,8 @@ use {monitoring, util};
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
+use crate::cost_estimates::metrics::UnitMetric;
+use crate::cost_estimates::UnitEstimator;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use chainstate::burn::ConsensusHashExtensions;
 use chainstate::stacks::address::StacksAddressExtensions;
@@ -441,6 +443,7 @@ impl<'a> ChainstateTx<'a> {
     pub fn log_transactions_processed(
         &self,
         block_id: &StacksBlockId,
+        block_height: u64,
         events: &[StacksTransactionReceipt],
     ) {
         if *TRANSACTION_LOG {
@@ -456,8 +459,39 @@ impl<'a> ChainstateTx<'a> {
                 }
             }
         }
+
+        let mempool = match MemPoolDB::open(
+            self.config.mainnet,
+            self.config.chain_id,
+            &self.root_path,
+            Box::new(UnitEstimator),
+            Box::new(UnitMetric),
+        ) {
+            Ok(x) => x,
+            Err(e) => {
+                info!("Failed to open mempool for transaction logging: {}", e);
+                return;
+            }
+        };
+
         for tx_event in events.iter() {
             let txid = tx_event.transaction.txid();
+
+            let cur_level = util::log::get_loglevel();
+            if slog::Level::Debug.is_at_least(cur_level) {
+                if let Ok(Some(tx_info)) = MemPoolDB::get_tx(mempool.conn(), &txid) {
+                    let received_at = tx_info.metadata.block_height;
+                    let confirmed_at = block_height;
+                    let confirmed_within = confirmed_at.saturating_sub(received_at);
+                    info!("Transaction from mempool confirmed";
+                           "txid" => %txid,
+                           "received_at" => %received_at,
+                           "confirmed_at" => %confirmed_at,
+                           "confirmed_within" => %confirmed_within,
+                    );
+                }
+            }
+
             if let Err(e) = monitoring::log_transaction_processed(&txid, &self.root_path) {
                 warn!("Failed to monitor TX processed: {:?}", e; "txid" => %txid);
             }

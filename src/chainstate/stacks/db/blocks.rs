@@ -5256,7 +5256,11 @@ impl StacksChainState {
         )
         .expect("FATAL: failed to advance chain tip");
 
-        chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
+        chainstate_tx.log_transactions_processed(
+            &new_tip.index_block_hash(),
+            new_tip.stacks_block_height,
+            &tx_receipts,
+        );
 
         set_last_execution_cost_observed(&block_execution_cost, &block_limit);
 

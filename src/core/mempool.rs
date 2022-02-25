@@ -241,6 +241,8 @@ pub struct MemPoolTxMetadata {
     pub tx_fee: u64,
     pub consensus_hash: ConsensusHash,
     pub block_header_hash: BlockHeaderHash,
+    /// Stacks block height of the canonical block when this transaction was received by
+    ///  the current stacks-node.
     pub block_height: u64,
     pub origin_address: StacksAddress,
     pub origin_nonce: u64,
