@@ -126,5 +126,4 @@ members = [
     "clarity",
     "stx-genesis",
     "testnet/stacks-node",
-    "testnet/puppet-chain",
-    "stacks-encoding-native-js"]
+    "testnet/puppet-chain"]
