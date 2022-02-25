@@ -21,7 +21,7 @@ use std::io;
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 
 use sha2::Digest;
-use sha2::Sha512Trunc256 as TrieHasher;
+use sha2::Sha512_256 as TrieHasher;
 
 use chainstate::stacks::index::node::{
     clear_backptr, ConsensusSerializable, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
@@ -184,11 +184,11 @@ pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(
         .expect("IO Failure pushing to hasher.");
 
     for child_hash in child_hashes {
-        hasher.input(child_hash.as_ref());
+        hasher.update(child_hash.as_ref());
     }
 
     let mut res = [0u8; 32];
-    res.copy_from_slice(hasher.result().as_slice());
+    res.copy_from_slice(hasher.finalize().as_slice());
 
     let ret = TrieHash(res);
 
@@ -208,7 +208,7 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
         .expect("IO Failure pushing to hasher.");
 
     let mut res = [0u8; 32];
-    res.copy_from_slice(hasher.result().as_slice());
+    res.copy_from_slice(hasher.finalize().as_slice());
 
     let ret = TrieHash(res);
 

@@ -4,7 +4,7 @@ use std::io::Write;
 use std::str::FromStr;
 
 use curve25519_dalek::digest::Digest;
-use sha2::Sha512Trunc256;
+use sha2::{Sha512_256, Digest as Sha2Digest};
 
 use util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use util::secp256k1::MessageSignature;
@@ -92,8 +92,8 @@ impl SortitionId {
         if pox == &PoxId::stubbed() {
             SortitionId(bhh.0.clone())
         } else {
-            let mut hasher = Sha512Trunc256::new();
-            hasher.input(bhh);
+            let mut hasher = Sha512_256::new();
+            hasher.update(bhh);
             write!(hasher, "{}", pox).expect("Failed to deserialize PoX ID into the hasher");
             let h = Sha512Trunc256Sum::from_hasher(hasher);
             SortitionId(h.0)
@@ -241,9 +241,9 @@ impl StacksBlockId {
         sortition_consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> StacksBlockId {
-        let mut hasher = Sha512Trunc256::new();
-        hasher.input(block_hash);
-        hasher.input(sortition_consensus_hash);
+        let mut hasher = Sha512_256::new();
+        hasher.update(block_hash);
+        hasher.update(sortition_consensus_hash);
 
         let h = Sha512Trunc256Sum::from_hasher(hasher);
         StacksBlockId(h.0)

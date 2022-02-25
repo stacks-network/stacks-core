@@ -534,8 +534,8 @@ impl BurnchainView {
                     use sha2::Digest;
                     use sha2::Sha256;
                     let mut hasher = Sha256::new();
-                    hasher.input(&i.to_le_bytes());
-                    hasher.result()
+                    hasher.update(&i.to_le_bytes());
+                    hasher.finalize()
                 };
                 let mut data_32 = [0x00; 32];
                 data_32.copy_from_slice(&data[0..32]);
