@@ -4,7 +4,7 @@ use std::io::Write;
 use std::str::FromStr;
 
 use curve25519_dalek::digest::Digest;
-use sha2::{Sha512_256, Digest as Sha2Digest};
+use sha2::{Digest as Sha2Digest, Sha512_256};
 
 use util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use util::secp256k1::MessageSignature;

@@ -18,12 +18,12 @@ use secp256k1;
 use secp256k1::constants as LibSecp256k1Constants;
 use secp256k1::ecdsa::RecoverableSignature as LibSecp256k1RecoverableSignature;
 use secp256k1::ecdsa::RecoveryId as LibSecp256k1RecoveryID;
+use secp256k1::ecdsa::Signature as LibSecp256k1Signature;
 use secp256k1::Error as LibSecp256k1Error;
 use secp256k1::Message as LibSecp256k1Message;
 use secp256k1::PublicKey as LibSecp256k1PublicKey;
 use secp256k1::Secp256k1;
 use secp256k1::SecretKey as LibSecp256k1PrivateKey;
-use secp256k1::ecdsa::Signature as LibSecp256k1Signature;
 
 use types::PrivateKey;
 use types::PublicKey;
