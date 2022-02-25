@@ -137,21 +137,25 @@ impl NeonJsSerialize for StacksTransaction {
         let post_condition_mode = cx.number(self.post_condition_mode as u8);
         obj.set(cx, "post_condition_mode", post_condition_mode)?;
 
+        // TODO: raw post conditions binary slice is already determined during raw tx deserialization, ideally
+        // try to use that rather than re-serializing (slow)
+        let mut post_conditions_raw = u32::to_be_bytes(self.post_conditions.len() as u32).to_vec();
         let post_conditions = JsArray::new(cx, self.post_conditions.len() as u32);
         for (i, x) in self.post_conditions.iter().enumerate() {
             let post_condition_obj = cx.empty_object();
-            x.neon_js_serialize(cx, &post_condition_obj, &())?;
+            let mut val_bytes = x.neon_js_serialize(cx, &post_condition_obj, &())?;
+            post_conditions_raw.append(&mut val_bytes);
             post_conditions.set(cx, i as u32, post_condition_obj)?;
         }
         obj.set(cx, "post_conditions", post_conditions)?;
 
-        // write_next(fd, &(self.version as u8))?;
-        // write_next(fd, &self.chain_id)?;
-        // write_next(fd, &self.auth)?;
-        // write_next(fd, &(self.anchor_mode as u8))?;
-        // write_next(fd, &(self.post_condition_mode as u8))?;
-        // write_next(fd, &self.post_conditions)?;
-        // write_next(fd, &self.payload)?;
+        let post_conditions_buff = JsBuffer::external(cx, post_conditions_raw);
+        obj.set(cx, "post_conditions_buffer", post_conditions_buff)?;
+
+        let payload_obj = cx.empty_object();
+        self.payload.neon_js_serialize(cx, &payload_obj, &())?;
+        obj.set(cx, "payload", payload_obj)?;
+
         Ok(())
     }
 }
@@ -381,13 +385,13 @@ impl NeonJsSerialize for TransactionAuthField {
     }
 }
 
-impl NeonJsSerialize for TransactionPostCondition {
+impl NeonJsSerialize<(), Vec<u8>> for TransactionPostCondition {
     fn neon_js_serialize(
         &self,
         cx: &mut FunctionContext,
         obj: &Handle<JsObject>,
         extra_ctx: &(),
-    ) -> NeonResult<()> {
+    ) -> NeonResult<Vec<u8>> {
         match *self {
             TransactionPostCondition::STX(ref principal, ref fungible_condition, ref amount) => {
                 let asset_info_id = cx.number(AssetInfoID::STX as u8);
@@ -451,7 +455,8 @@ impl NeonJsSerialize for TransactionPostCondition {
                 obj.set(cx, "condition_code", condition_code)?;
             }
         };
-        Ok(())
+        let value_bytes = TransactionPostCondition::serialize_to_vec(&self);
+        Ok(value_bytes)
     }
 }
 
