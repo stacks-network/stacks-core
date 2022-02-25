@@ -16,7 +16,6 @@ use serde_json::json;
 
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
-use stacks::chainstate::stacks::address::StacksAddressExtensions;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
@@ -172,24 +171,12 @@ impl EventObserver {
     fn make_new_burn_block_payload(
         burn_block: &BurnchainHeaderHash,
         burn_block_height: u64,
-        rewards: Vec<(StacksAddress, u64)>,
+        _rewards: Vec<(StacksAddress, u64)>,
         burns: u64,
-        slot_holders: Vec<StacksAddress>,
+        _slot_holders: Vec<StacksAddress>,
     ) -> serde_json::Value {
-        let reward_recipients = rewards
-            .into_iter()
-            .map(|(stx_addr, amt)| {
-                json!({
-                    "recipient": stx_addr.to_b58(),
-                    "amt": amt,
-                })
-            })
-            .collect();
-
-        let reward_slot_holders = slot_holders
-            .into_iter()
-            .map(|stx_addr| json!(stx_addr.to_b58()))
-            .collect();
+        let reward_recipients = vec![];
+        let reward_slot_holders = vec![];
 
         json!({
             "burn_block_hash": format!("0x{}", burn_block),
@@ -249,7 +236,7 @@ impl EventObserver {
         receipt: &StacksTransactionReceipt,
         tx_index: u32,
     ) -> serde_json::Value {
-        let receipt_paoyload_info = EventObserver::generate_payload_info_for_receipt(receipt);
+        let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
 
         json!({
             "txid": format!("0x{}", &receipt_payload_info.txid),

@@ -108,6 +108,21 @@ impl BurnchainParameters {
         }
     }
 
+    pub fn hyperchain_mocknet() -> BurnchainParameters {
+        BurnchainParameters {
+            chain_name: "bitcoin".to_string(),
+            network_name: "mainnet".into(),
+            network_id: 0,
+            stable_confirmations: 0,
+            consensus_hash_lifetime: 24,
+            first_block_height: 0,
+            first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH)
+                .unwrap(),
+            first_block_timestamp: 0,
+            initial_reward_start_block: 0,
+        }
+    }
+
     pub fn bitcoin_mainnet() -> BurnchainParameters {
         BurnchainParameters {
             chain_name: "bitcoin".to_string(),

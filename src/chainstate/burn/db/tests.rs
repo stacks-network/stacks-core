@@ -34,13 +34,16 @@ fn test_instantiate() {
     let _db = SortitionDB::connect_test(123, &first_burn_hash).unwrap();
 }
 
-#[test]
-fn test_v1_to_v2_migration() {
+fn random_sortdb_test_dir() -> String {
     let mut rng = rand::thread_rng();
     let mut buf = [0u8; 32];
     rng.fill_bytes(&mut buf);
-    let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+    format!("/tmp/stacks-node-tests/sortdb/test-{}", to_hex(&buf))
+}
 
+#[test]
+fn test_v1_to_v2_migration() {
+    let db_path_dir = random_sortdb_test_dir();
     let first_block_height = 123;
     let first_burn_hash = BurnchainHeaderHash::from_hex(
         "0000000000000000000000000000000000000000000000000000000000000000",
@@ -2220,10 +2223,7 @@ fn test_set_stacks_block_accepted() {
 
 #[test]
 fn test_epoch_switch() {
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 32];
-    rng.fill_bytes(&mut buf);
-    let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+    let db_path_dir = random_sortdb_test_dir();
 
     let mut db = SortitionDB::connect(
         &db_path_dir,
@@ -2281,10 +2281,7 @@ fn test_epoch_switch() {
 #[test]
 #[should_panic]
 fn test_bad_epochs_discontinuous() {
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 32];
-    rng.fill_bytes(&mut buf);
-    let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+    let db_path_dir = random_sortdb_test_dir();
 
     let db = SortitionDB::connect(
         &db_path_dir,
@@ -2322,10 +2319,7 @@ fn test_bad_epochs_discontinuous() {
 #[test]
 #[should_panic]
 fn test_bad_epochs_overlapping() {
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 32];
-    rng.fill_bytes(&mut buf);
-    let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+    let db_path_dir = random_sortdb_test_dir();
 
     let db = SortitionDB::connect(
         &db_path_dir,
@@ -2363,10 +2357,7 @@ fn test_bad_epochs_overlapping() {
 #[test]
 #[should_panic]
 fn test_bad_epochs_missing_past() {
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 32];
-    rng.fill_bytes(&mut buf);
-    let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+    let db_path_dir = random_sortdb_test_dir();
 
     let db = SortitionDB::connect(
         &db_path_dir,
@@ -2404,10 +2395,7 @@ fn test_bad_epochs_missing_past() {
 #[test]
 #[should_panic]
 fn test_bad_epochs_missing_future() {
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 32];
-    rng.fill_bytes(&mut buf);
-    let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+    let db_path_dir = random_sortdb_test_dir();
 
     let db = SortitionDB::connect(
         &db_path_dir,
@@ -2445,10 +2433,7 @@ fn test_bad_epochs_missing_future() {
 #[test]
 #[should_panic]
 fn test_bad_epochs_invalid() {
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 32];
-    rng.fill_bytes(&mut buf);
-    let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+    let db_path_dir = random_sortdb_test_dir();
 
     let db = SortitionDB::connect(
         &db_path_dir,

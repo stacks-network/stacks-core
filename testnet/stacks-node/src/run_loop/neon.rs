@@ -15,9 +15,7 @@ use std::collections::HashSet;
 use stacks::deps::ctrlc as termination;
 use stacks::deps::ctrlc::SignalId;
 
-use stacks::burnchains::bitcoin::address::BitcoinAddress;
-use stacks::burnchains::bitcoin::address::BitcoinAddressType;
-use stacks::burnchains::{Address, Burnchain};
+use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
@@ -27,13 +25,14 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance};
 use stx_genesis::GenesisData;
 
+use crate::burnchains::mock_events::MockController;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::StacksNode;
 use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
     node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
-    BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
+    BurnchainController, Config, EventDispatcher,
 };
 
 use super::RunLoopCallbacks;
@@ -267,40 +266,10 @@ impl RunLoop {
 
     /// Determine if we're the miner.
     /// If there's a network error, then assume that we're not a miner.
-    fn check_is_miner(&mut self, burnchain: &mut BitcoinRegtestController) -> bool {
+    fn check_is_miner(&mut self) -> bool {
         if self.config.node.miner {
-            let keychain = Keychain::default(self.config.node.seed.clone());
-            let node_address = Keychain::address_from_burnchain_signer(
-                &keychain.get_burnchain_signer(),
-                self.config.is_mainnet(),
-            );
-            let btc_addr = BitcoinAddress::from_bytes(
-                self.config.burnchain.get_bitcoin_network().1,
-                BitcoinAddressType::PublicKeyHash,
-                &node_address.to_bytes(),
-            )
-            .expect("FATAL: unable to determine Bitcoin address for miner");
-            info!("Miner node: checking UTXOs at address: {}", btc_addr);
-
-            match burnchain.create_wallet_if_dne() {
-                Err(e) => warn!("Error when creating wallet: {:?}", e),
-                _ => {}
-            }
-
-            let utxos =
-                burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1, None, 0);
-            if utxos.is_none() {
-                if self.config.node.mock_mining {
-                    info!("No UTXOs found, but configured to mock mine");
-                    true
-                } else {
-                    error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
-                    false
-                }
-            } else {
-                info!("UTXOs found - will run as a Miner node");
-                true
-            }
+            info!("Will run as a Miner node");
+            true
         } else {
             info!("Will run as a Follower node");
             false
@@ -312,16 +281,12 @@ impl RunLoop {
     /// Panics on failure.
     fn instantiate_burnchain_state(
         &mut self,
-        burnchain_opt: Option<Burnchain>,
+        _burnchain_opt: Option<Burnchain>,
         coordinator_senders: CoordinatorChannels,
-    ) -> BitcoinRegtestController {
+    ) -> MockController {
         // Initialize and start the burnchain.
-        let mut burnchain_controller = BitcoinRegtestController::with_burnchain(
-            self.config.clone(),
-            Some(coordinator_senders),
-            burnchain_opt,
-            Some(self.should_keep_running.clone()),
-        );
+        let mut burnchain_controller =
+            MockController::new(self.config.clone(), coordinator_senders);
 
         let burnchain_config = burnchain_controller.get_burnchain();
         let epochs = burnchain_controller.get_stacks_epochs();
@@ -385,8 +350,6 @@ impl RunLoop {
         burnchain_config: &Burnchain,
         coordinator_receivers: CoordinatorReceivers,
     ) -> (JoinHandle<()>, Receiver<HashSet<AttachmentInstance>>) {
-        let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
-
         // load up genesis balances
         let initial_balances = self
             .config
@@ -397,12 +360,7 @@ impl RunLoop {
 
         // load up genesis Atlas attachments
         let mut atlas_config = AtlasConfig::default(self.config.is_mainnet());
-        let genesis_attachments = GenesisData::new(use_test_genesis_data)
-            .read_name_zonefiles()
-            .into_iter()
-            .map(|z| Attachment::new(z.zonefile_content.as_bytes().to_vec()))
-            .collect();
-        atlas_config.genesis_attachments = Some(genesis_attachments);
+        atlas_config.genesis_attachments = None;
 
         // instantiate chainstate
         let mut boot_data = ChainStateBootData {
@@ -412,16 +370,10 @@ impl RunLoop {
             first_burnchain_block_height: burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain_config.first_block_timestamp,
             pox_constants: burnchain_config.pox_constants.clone(),
-            get_bulk_initial_lockups: Some(Box::new(move || {
-                get_account_lockups(use_test_genesis_data)
-            })),
-            get_bulk_initial_balances: Some(Box::new(move || {
-                get_account_balances(use_test_genesis_data)
-            })),
-            get_bulk_initial_namespaces: Some(Box::new(move || {
-                get_namespaces(use_test_genesis_data)
-            })),
-            get_bulk_initial_names: Some(Box::new(move || get_names(use_test_genesis_data))),
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+            get_bulk_initial_namespaces: None,
+            get_bulk_initial_names: None,
         };
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
@@ -535,7 +487,7 @@ impl RunLoop {
         let burnchain_config = burnchain.get_burnchain();
         self.burnchain = Some(burnchain_config.clone());
 
-        let is_miner = self.check_is_miner(&mut burnchain);
+        let is_miner = self.check_is_miner();
         self.is_miner = Some(is_miner);
 
         // have headers; boot up the chains coordinator and instantiate the chain state
@@ -682,7 +634,7 @@ impl RunLoop {
                         let sortition_id = &block.sortition_id;
 
                         // Have the node process the new block, that can include, or not, a sortition.
-                        node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd);
+                        node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id);
 
                         // Now, tell the relayer to check if it won a sortition during this block,
                         // and, if so, to process and advertize the block.  This is basically a

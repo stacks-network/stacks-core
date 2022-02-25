@@ -31,7 +31,7 @@ use stacks::vm::{
 };
 
 use crate::config::InitialBalance;
-use crate::helium::RunLoop;
+use crate::neon::RunLoop;
 use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 use stacks::core::StacksEpoch;
 use stacks::core::StacksEpochId;

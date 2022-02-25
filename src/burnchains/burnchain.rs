@@ -175,20 +175,10 @@ impl Burnchain {
         network_name: &str,
     ) -> Result<Burnchain, burnchain_error> {
         let (params, pox_constants, peer_version) = match (chain_name, network_name) {
-            ("bitcoin", "mainnet") => (
-                BurnchainParameters::bitcoin_mainnet(),
+            ("mockstack", "hyperchain") => (
+                BurnchainParameters::hyperchain_mocknet(),
                 PoxConstants::mainnet_default(),
                 PEER_VERSION_MAINNET,
-            ),
-            ("bitcoin", "testnet") => (
-                BurnchainParameters::bitcoin_testnet(),
-                PoxConstants::testnet_default(),
-                PEER_VERSION_TESTNET,
-            ),
-            ("bitcoin", "regtest") => (
-                BurnchainParameters::bitcoin_regtest(),
-                PoxConstants::regtest_default(),
-                PEER_VERSION_TESTNET,
             ),
             (_, _) => {
                 return Err(burnchain_error::UnsupportedBurnchain);
@@ -289,8 +279,12 @@ impl Burnchain {
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
-        let ret =
-            Burnchain::new(working_dir, &"bitcoin".to_string(), &"regtest".to_string()).unwrap();
+        let ret = Burnchain::new(
+            working_dir,
+            &"mockstack".to_string(),
+            &"hyperchain".to_string(),
+        )
+        .unwrap();
         ret
     }
 
@@ -300,9 +294,9 @@ impl Burnchain {
         first_block_hash: &BurnchainHeaderHash,
     ) -> Burnchain {
         let mut ret = Burnchain::new(
-            &"/unit-tests".to_string(),
-            &"bitcoin".to_string(),
-            &"mainnet".to_string(),
+            &"/tmp/stacks-node-tests/unit-tests".to_string(),
+            &"mockstack".to_string(),
+            &"hyperchain".to_string(),
         )
         .unwrap();
         ret.first_block_height = first_block_height;
@@ -590,15 +584,295 @@ impl Burnchain {
     /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
     pub fn sync_with_indexer<I>(
         &mut self,
-        _indexer: &mut I,
-        _coord_comm: CoordinatorChannels,
-        _target_block_height_opt: Option<u64>,
-        _max_blocks_opt: Option<u64>,
-        _should_keep_running: Option<Arc<AtomicBool>>,
+        indexer: &mut I,
+        coord_comm: CoordinatorChannels,
+        target_block_height_opt: Option<u64>,
+        max_blocks_opt: Option<u64>,
+        should_keep_running: Option<Arc<AtomicBool>>,
     ) -> Result<BurnchainBlockHeader, burnchain_error>
     where
         I: BurnchainIndexer + 'static,
     {
-        panic!("Not implemented")
+        self.setup_chainstate(indexer)?;
+        let (_, mut burnchain_db) = self.connect_db(
+            indexer,
+            true,
+            indexer.get_first_block_header_hash()?,
+            indexer.get_first_block_header_timestamp()?,
+        )?;
+
+        let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
+            error!("Failed to query burn chain tip from burn DB: {}", e);
+            e
+        })?;
+
+        let db_height = burn_chain_tip.block_height;
+
+        // handle reorgs
+        let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
+        if did_reorg {
+            // a reorg happened
+            warn!(
+                "Dropping headers higher than {} due to burnchain reorg",
+                sync_height
+            );
+            indexer.drop_headers(sync_height)?;
+        }
+
+        // get latest headers.
+        trace!("Sync headers from {}", sync_height);
+
+        // fetch all headers, no matter what
+        let mut end_block = indexer.sync_headers(sync_height, None)?;
+        if did_reorg && sync_height > 0 {
+            // a reorg happened, and the last header fetched
+            // is on a smaller fork than the one we just
+            // invalidated. Wait for more blocks.
+            while end_block < db_height {
+                if let Some(ref should_keep_running) = should_keep_running {
+                    if !should_keep_running.load(Ordering::SeqCst) {
+                        return Err(burnchain_error::CoordinatorClosed);
+                    }
+                }
+                let end_height = target_block_height_opt.unwrap_or(0).max(db_height);
+                info!("Burnchain reorg happened at height {} invalidating chain tip {} but only {} headers presents on canonical chain. Retry in 2s", sync_height, db_height, end_block);
+                thread::sleep(Duration::from_millis(2000));
+                end_block = indexer.sync_headers(sync_height, Some(end_height))?;
+            }
+        }
+
+        let mut start_block = sync_height;
+        if db_height < start_block {
+            start_block = db_height;
+        }
+
+        debug!(
+            "Sync'ed headers from {} to {}. DB at {}",
+            sync_height, end_block, db_height
+        );
+
+        if let Some(target_block_height) = target_block_height_opt {
+            // `target_block_height` is used as a hint, but could also be completely off
+            // in certain situations. This function is directly reading the
+            // headers and syncing with the bitcoin-node, and the interval of blocks
+            // to download computed here should be considered as our source of truth.
+            if target_block_height > start_block && target_block_height < end_block {
+                debug!(
+                    "Will download up to max burn block height {}",
+                    target_block_height
+                );
+                end_block = target_block_height;
+            } else {
+                debug!(
+                    "Ignoring target block height {} considered as irrelevant",
+                    target_block_height
+                );
+            }
+        }
+
+        if let Some(max_blocks) = max_blocks_opt {
+            if start_block + max_blocks < end_block {
+                debug!(
+                    "Will download only {} blocks (up to block height {})",
+                    max_blocks,
+                    start_block + max_blocks
+                );
+                end_block = start_block + max_blocks;
+
+                // make sure we resume at this height next time
+                indexer.drop_headers(end_block.saturating_sub(1))?;
+            }
+        }
+
+        if end_block < start_block {
+            // nothing to do -- go get the burnchain block data at that height
+            let mut hdrs = indexer.read_headers(end_block, end_block + 1)?;
+            if let Some(hdr) = hdrs.pop() {
+                debug!("Nothing to do; already have blocks up to {}", end_block);
+                let bhh =
+                    BurnchainHeaderHash::from_bitcoin_hash(&BitcoinSha256dHash(hdr.header_hash()));
+                return burnchain_db
+                    .get_burnchain_block(&bhh)
+                    .map(|block_data| block_data.header);
+            }
+        }
+
+        if start_block == db_height && db_height == end_block {
+            // all caught up
+            return Ok(burn_chain_tip);
+        }
+
+        let total = sync_height - self.first_block_height;
+        let progress = (end_block - self.first_block_height) as f32 / total as f32 * 100.;
+        info!(
+            "Syncing Bitcoin blocks: {:.1}% ({} to {} out of {})",
+            progress, start_block, end_block, sync_height
+        );
+
+        // synchronize
+        let (downloader_send, downloader_recv) = sync_channel(1);
+        let (parser_send, parser_recv) = sync_channel(1);
+        let (db_send, db_recv) = sync_channel(1);
+
+        let mut downloader = indexer.downloader();
+        let mut parser = indexer.parser();
+
+        let myself = self.clone();
+
+        // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
+        // and if so, do nothing.
+        let download_thread: thread::JoinHandle<Result<(), burnchain_error>> =
+            thread::Builder::new()
+                .name("burnchain-downloader".to_string())
+                .spawn(move || {
+                    while let Ok(Some(ipc_header)) = downloader_recv.recv() {
+                        debug!("Try recv next header");
+
+                        match should_keep_running {
+                            Some(ref should_keep_running)
+                                if !should_keep_running.load(Ordering::SeqCst) =>
+                            {
+                                return Err(burnchain_error::CoordinatorClosed);
+                            }
+                            _ => {}
+                        };
+
+                        let download_start = get_epoch_time_ms();
+                        let ipc_block = downloader.download(&ipc_header)?;
+                        let download_end = get_epoch_time_ms();
+
+                        debug!(
+                            "Downloaded block {} in {}ms",
+                            ipc_block.height(),
+                            download_end.saturating_sub(download_start)
+                        );
+
+                        parser_send
+                            .send(Some(ipc_block))
+                            .map_err(|_e| burnchain_error::ThreadChannelError)?;
+                    }
+                    parser_send
+                        .send(None)
+                        .map_err(|_e| burnchain_error::ThreadChannelError)?;
+                    Ok(())
+                })
+                .unwrap();
+
+        let parse_thread: thread::JoinHandle<Result<(), burnchain_error>> = thread::Builder::new()
+            .name("burnchain-parser".to_string())
+            .spawn(move || {
+                while let Ok(Some(ipc_block)) = parser_recv.recv() {
+                    debug!("Try recv next block");
+
+                    let parse_start = get_epoch_time_ms();
+                    let burnchain_block = parser.parse(&ipc_block)?;
+                    let parse_end = get_epoch_time_ms();
+
+                    debug!(
+                        "Parsed block {} in {}ms",
+                        burnchain_block.block_height(),
+                        parse_end.saturating_sub(parse_start)
+                    );
+
+                    db_send
+                        .send(Some(burnchain_block))
+                        .map_err(|_e| burnchain_error::ThreadChannelError)?;
+                }
+                db_send
+                    .send(None)
+                    .map_err(|_e| burnchain_error::ThreadChannelError)?;
+                Ok(())
+            })
+            .unwrap();
+
+        let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
+            thread::Builder::new()
+                .name("burnchain-db".to_string())
+                .spawn(move || {
+                    let mut last_processed = burn_chain_tip;
+                    while let Ok(Some(burnchain_block)) = db_recv.recv() {
+                        debug!("Try recv next parsed block");
+
+                        let block_height = burnchain_block.block_height();
+
+                        let insert_start = get_epoch_time_ms();
+                        last_processed =
+                            Burnchain::process_block(&myself, &mut burnchain_db, &burnchain_block)
+                                .map_err(|e| {
+                                    warn!("Error processing block {:?}", e);
+                                    e
+                                })
+                                .unwrap();
+                        if !coord_comm.announce_new_burn_block() {
+                            warn!("Coordinator communication failed");
+                            return Err(burnchain_error::CoordinatorClosed);
+                        }
+                        let insert_end = get_epoch_time_ms();
+
+                        debug!(
+                            "Inserted block {} in {}ms",
+                            burnchain_block.block_height(),
+                            insert_end.saturating_sub(insert_start)
+                        );
+                    }
+                    Ok(last_processed)
+                })
+                .unwrap();
+
+        // feed the pipeline!
+        let input_headers = indexer.read_headers(start_block + 1, end_block + 1)?;
+        let mut downloader_result: Result<(), burnchain_error> = Ok(());
+        for i in 0..input_headers.len() {
+            debug!(
+                "Downloading burnchain block {} out of {}...",
+                start_block + 1 + (i as u64),
+                end_block
+            );
+            if let Err(e) = downloader_send.send(Some(input_headers[i].clone())) {
+                info!(
+                    "Failed to feed burnchain block header {}: {:?}",
+                    start_block + 1 + (i as u64),
+                    &e
+                );
+                downloader_result = Err(burnchain_error::TrySyncAgain);
+                break;
+            }
+        }
+
+        if downloader_result.is_ok() {
+            if let Err(e) = downloader_send.send(None) {
+                info!("Failed to instruct downloader thread to finish: {:?}", &e);
+                downloader_result = Err(burnchain_error::TrySyncAgain);
+            }
+        }
+
+        // join up
+        let _ = download_thread.join().unwrap();
+        let _ = parse_thread.join().unwrap();
+        let block_header = match db_thread.join().unwrap() {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("Failed to join burnchain download thread: {:?}", &e);
+                if let burnchain_error::CoordinatorClosed = e {
+                    return Err(burnchain_error::CoordinatorClosed);
+                } else {
+                    return Err(burnchain_error::TrySyncAgain);
+                }
+            }
+        };
+
+        if block_header.block_height < end_block {
+            warn!(
+                "Try synchronizing the burn chain again: final snapshot {} < {}",
+                block_header.block_height, end_block
+            );
+            return Err(burnchain_error::TrySyncAgain);
+        }
+
+        if let Err(e) = downloader_result {
+            return Err(e);
+        }
+        update_burnchain_height(block_header.block_height as i64);
+        Ok(block_header)
     }
 }

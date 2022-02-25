@@ -1,23 +1,21 @@
 use std::cmp;
 use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
+use crate::burnchains::mock_events::MockController;
+use crate::burnchains::BurnchainController;
+use stacks::burnchains::{BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::{
-    leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
+use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
-use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::Error as ChainstateError;
@@ -33,7 +31,6 @@ use stacks::chainstate::stacks::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use stacks::core::STACKS_EPOCH_2_05_MARKER;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
@@ -46,25 +43,21 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
 };
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
-};
+use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress};
 use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::vrf::VRFPublicKey;
+use stacks::util::vrf::VRFProof;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 use stacks::{burnchains::BurnchainSigner, chainstate::stacks::db::StacksHeaderInfo};
 
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
+use crate::node::ChainTip;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
-use crate::run_loop::RegisteredKey;
-use crate::ChainTip;
 
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use super::{BurnchainTip, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
@@ -91,20 +84,20 @@ struct MicroblockMinerState {
 enum RelayerDirective {
     HandleNetResult(NetworkResult),
     ProcessTenure(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
-    RunTenure(RegisteredKey, BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
-    RegisterKey(BlockSnapshot),
+    RunTenure(BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
     RunMicroblockTenure(BlockSnapshot, u128), // time of issuance in ms
     Exit,
 }
 
 pub struct StacksNode {
+    #[allow(dead_code)]
     config: Config,
     relay_channel: SyncSender<RelayerDirective>,
     last_sortition: Arc<Mutex<Option<BlockSnapshot>>>,
+    #[allow(dead_code)]
     burnchain_signer: BurnchainSigner,
     is_miner: bool,
     pub atlas_config: AtlasConfig,
-    leader_key_registration_state: LeaderKeyRegistrationState,
     pub p2p_thread_handle: JoinHandle<()>,
     pub relayer_thread_handle: JoinHandle<()>,
 }
@@ -135,7 +128,6 @@ fn fault_injection_long_tenure() {}
 
 enum Error {
     HeaderNotFoundForChainTip,
-    WinningVtxNotFoundForChainTip,
     SnapshotNotFoundForChainTip,
     BurnchainTipChanged,
 }
@@ -148,7 +140,6 @@ struct MiningTenureInformation {
     parent_block_burn_height: u64,
     /// the total amount burned in the sortition that selected the Stacks block parent
     parent_block_total_burn: u64,
-    parent_winning_vtxindex: u16,
     coinbase_nonce: u64,
 }
 
@@ -246,76 +237,12 @@ fn inner_generate_poison_microblock_tx(
     tx_signer.get_tx().unwrap()
 }
 
-/// Constructs and returns a LeaderKeyRegisterOp out of the provided params
-fn inner_generate_leader_key_register_op(
-    address: StacksAddress,
-    vrf_public_key: VRFPublicKey,
-    consensus_hash: &ConsensusHash,
-) -> BlockstackOperationType {
-    BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
-        public_key: vrf_public_key,
-        memo: vec![],
-        address,
-        consensus_hash: consensus_hash.clone(),
-        vtxindex: 0,
-        txid: Txid([0u8; 32]),
-        block_height: 0,
-        burn_header_hash: BurnchainHeaderHash::zero(),
-    })
-}
-
-fn rotate_vrf_and_register(
-    is_mainnet: bool,
-    keychain: &mut Keychain,
-    burn_block: &BlockSnapshot,
-    btc_controller: &mut BitcoinRegtestController,
-) -> bool {
-    let vrf_pk = keychain.rotate_vrf_keypair(burn_block.block_height);
-    let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
-    let op = inner_generate_leader_key_register_op(
-        keychain.get_address(is_mainnet),
-        vrf_pk,
-        burnchain_tip_consensus_hash,
-    );
-
-    let mut one_off_signer = keychain.generate_op_signer();
-    btc_controller.submit_operation(op, &mut one_off_signer, 1)
-}
-
 /// Constructs and returns a LeaderBlockCommitOp out of the provided params
-fn inner_generate_block_commit_op(
-    sender: BurnchainSigner,
-    block_header_hash: BlockHeaderHash,
-    burn_fee: u64,
-    key: &RegisteredKey,
-    parent_burnchain_height: u32,
-    parent_winning_vtx: u16,
-    vrf_seed: VRFSeed,
-    commit_outs: Vec<StacksAddress>,
-    sunset_burn: u64,
-    current_burn_height: u64,
-) -> BlockstackOperationType {
-    let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
-    let burn_parent_modulus = (current_burn_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
-
+fn inner_generate_block_commit_op(block_header_hash: BlockHeaderHash) -> BlockstackOperationType {
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-        sunset_burn,
         block_header_hash,
-        burn_fee,
-        input: (Txid([0; 32]), 0),
-        apparent_sender: sender,
-        key_block_ptr: key.block_height as u32,
-        key_vtxindex: key.op_vtxindex as u16,
-        memo: vec![STACKS_EPOCH_2_05_MARKER],
-        new_seed: vrf_seed,
-        parent_block_ptr,
-        parent_vtxindex,
-        vtxindex: 0,
-        txid: Txid([0u8; 32]),
-        block_height: 0,
-        burn_header_hash: BurnchainHeaderHash::zero(),
-        burn_parent_modulus,
-        commit_outs,
+        txid: Txid([0; 32]),
+        burn_header_hash: BurnchainHeaderHash([0; 32]),
     })
 }
 
@@ -862,7 +789,6 @@ fn spawn_miner_relayer(
     let event_dispatcher = runloop.get_event_dispatcher();
     let counters = runloop.get_counters();
     let sync_comms = runloop.get_pox_sync_comms();
-    let burnchain = runloop.get_burnchain();
 
     let is_mainnet = config.is_mainnet();
     let chain_id = config.burnchain.chain_id;
@@ -884,9 +810,8 @@ fn spawn_miner_relayer(
         BurnchainHeaderHash,
         Vec<(AssembledAnchorBlock, Secp256k1PrivateKey)>,
     > = HashMap::new();
-    let burn_fee_cap = config.burnchain.burn_fee_cap;
 
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
+    let mut bitcoin_controller = MockController::new(config.clone(), coord_comms.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
     let mut miner_tip = None; // only set if we won the last sortition
     let mut last_microblock_tenure_time = 0;
@@ -1061,7 +986,7 @@ fn spawn_miner_relayer(
                         }
                     }
                 }
-                RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
+                RelayerDirective::RunTenure(last_burn_block, issue_timestamp_ms) => {
                     if let Some(cur_sortition) = get_last_sortition(&last_sortition) {
                         if last_burn_block.sortition_id != cur_sortition.sortition_id {
                             debug!("Drop stale RunTenure for {}: current sortition is for {}", &last_burn_block.burn_header_hash, &cur_sortition.burn_header_hash);
@@ -1114,14 +1039,11 @@ fn spawn_miner_relayer(
 
                     let last_mined_block_opt = StacksNode::relayer_run_tenure(
                         &config,
-                        registered_key,
                         &mut chainstate,
                         &mut sortdb,
-                        &burnchain,
                         burn_tenure_snapshot,
                         &mut keychain,
                         &mut mem_pool,
-                        burn_fee_cap,
                         &mut bitcoin_controller,
                         &last_mined_blocks_vec.iter().map(|(blk, _)| blk).collect(),
                         &event_dispatcher,
@@ -1136,15 +1058,6 @@ fn spawn_miner_relayer(
 
                     last_tenure_issue_time = get_epoch_time_ms();
                     debug!("Relayer: RunTenure finished at {} (in {}ms)", last_tenure_issue_time, last_tenure_issue_time.saturating_sub(tenure_begin));
-                }
-                RelayerDirective::RegisterKey(ref last_burn_block) => {
-                    rotate_vrf_and_register(
-                        is_mainnet,
-                        &mut keychain,
-                        last_burn_block,
-                        &mut bitcoin_controller,
-                    );
-                    counters.bump_blocks_processed();
                 }
                 RelayerDirective::RunMicroblockTenure(burnchain_tip, tenure_issue_ms) => {
                     if last_microblock_tenure_time > tenure_issue_ms {
@@ -1206,12 +1119,6 @@ fn spawn_miner_relayer(
     Ok(relayer_handle)
 }
 
-enum LeaderKeyRegistrationState {
-    Inactive,
-    Pending,
-    Active(RegisteredKey),
-}
-
 impl StacksNode {
     pub fn spawn(
         runloop: &RunLoop,
@@ -1223,7 +1130,7 @@ impl StacksNode {
         let miner = runloop.is_miner();
         let burnchain = runloop.get_burnchain();
         let atlas_config = AtlasConfig::default(config.is_mainnet());
-        let mut keychain = Keychain::default(config.node.seed.clone());
+        let keychain = Keychain::default(config.node.seed.clone());
 
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -1401,18 +1308,6 @@ impl StacksNode {
         let relayer = Relayer::from_p2p(&mut p2p_net);
         let shared_unconfirmed_txs = Arc::new(Mutex::new(UnconfirmedTxMap::new()));
 
-        let leader_key_registration_state = if config.node.mock_mining {
-            // mock mining, pretend to have a registered key
-            let vrf_public_key = keychain.rotate_vrf_keypair(1);
-            LeaderKeyRegistrationState::Active(RegisteredKey {
-                block_height: 1,
-                op_vtxindex: 1,
-                vrf_public_key,
-            })
-        } else {
-            LeaderKeyRegistrationState::Inactive
-        };
-
         let relayer_thread_handle = spawn_miner_relayer(
             runloop,
             relayer,
@@ -1449,7 +1344,6 @@ impl StacksNode {
             burnchain_signer,
             is_miner,
             atlas_config,
-            leader_key_registration_state,
             p2p_thread_handle,
             relayer_thread_handle,
         }
@@ -1464,32 +1358,17 @@ impl StacksNode {
         }
 
         if let Some(burnchain_tip) = get_last_sortition(&self.last_sortition) {
-            match self.leader_key_registration_state {
-                LeaderKeyRegistrationState::Active(ref key) => {
-                    debug!(
-                        "Tenure: Using key {:?} off of {}",
-                        &key.vrf_public_key, &burnchain_tip.burn_header_hash
-                    );
+            debug!(
+                "Tenure: Building off of {}",
+                &burnchain_tip.burn_header_hash
+            );
 
-                    self.relay_channel
-                        .send(RelayerDirective::RunTenure(
-                            key.clone(),
-                            burnchain_tip,
-                            get_epoch_time_ms(),
-                        ))
-                        .is_ok()
-                }
-                LeaderKeyRegistrationState::Inactive => {
-                    warn!(
-                        "Tenure: skipped tenure because no active VRF key. Trying to register one."
-                    );
-                    self.leader_key_registration_state = LeaderKeyRegistrationState::Pending;
-                    self.relay_channel
-                        .send(RelayerDirective::RegisterKey(burnchain_tip))
-                        .is_ok()
-                }
-                LeaderKeyRegistrationState::Pending => true,
-            }
+            self.relay_channel
+                .send(RelayerDirective::RunTenure(
+                    burnchain_tip,
+                    get_epoch_time_ms(),
+                ))
+                .is_ok()
         } else {
             warn!("Tenure: Do not know the last burn block. As a miner, this is bad.");
             true
@@ -1560,16 +1439,6 @@ impl StacksNode {
                 .expect("Failed to look up block's parent snapshot");
 
         let parent_sortition_id = &parent_snapshot.sortition_id;
-        let parent_winning_vtxindex =
-            SortitionDB::get_block_winning_vtxindex(burn_db.conn(), parent_sortition_id)
-                .expect("SortitionDB failure.")
-                .ok_or_else(|| {
-                    error!(
-                        "Failed to find winning vtx index for the parent sortition";
-                        "parent_sortition_id" => %parent_sortition_id
-                    );
-                    Error::WinningVtxNotFoundForChainTip
-                })?;
 
         let parent_block = SortitionDB::get_block_snapshot(burn_db.conn(), parent_sortition_id)
             .expect("SortitionDB failure.")
@@ -1620,7 +1489,6 @@ impl StacksNode {
             parent_consensus_hash: mine_tip_ch.clone(),
             parent_block_burn_height: parent_block.block_height,
             parent_block_total_burn: parent_block.total_burn,
-            parent_winning_vtxindex,
             coinbase_nonce,
         })
     }
@@ -1629,15 +1497,12 @@ impl StacksNode {
     /// Return None if we couldn't build a block for whatever reason
     fn relayer_run_tenure(
         config: &Config,
-        registered_key: RegisteredKey,
         chain_state: &mut StacksChainState,
         burn_db: &mut SortitionDB,
-        burnchain: &Burnchain,
         burn_block: BlockSnapshot,
         keychain: &mut Keychain,
         mem_pool: &mut MemPoolDB,
-        burn_fee_cap: u64,
-        bitcoin_controller: &mut BitcoinRegtestController,
+        bitcoin_controller: &mut dyn BurnchainController,
         last_mined_blocks: &Vec<&AssembledAnchorBlock>,
         event_dispatcher: &EventDispatcher,
     ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey)> {
@@ -1646,8 +1511,8 @@ impl StacksNode {
             parent_consensus_hash,
             parent_block_burn_height,
             parent_block_total_burn,
-            parent_winning_vtxindex,
             coinbase_nonce,
+            ..
         } = if let Some(stacks_tip) = chain_state
             .get_stacks_chain_tip(burn_db)
             .expect("FATAL: could not query chain tip")
@@ -1664,9 +1529,9 @@ impl StacksNode {
             .ok()?
         } else {
             debug!("No Stacks chain tip known, will return a genesis block");
-            let (network, _) = config.burnchain.get_bitcoin_network();
             let burnchain_params =
-                BurnchainParameters::from_params(&config.burnchain.chain, &network)
+                // TODO(hyperchains): set burnchain parameters with hyperchain configuration
+                BurnchainParameters::from_params(&config.burnchain.chain, "mainnet")
                     .expect("Bitcoin network unsupported");
 
             let chain_tip = ChainTip::genesis(
@@ -1680,7 +1545,6 @@ impl StacksNode {
                 parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
                 parent_block_burn_height: 0,
                 parent_block_total_burn: 0,
-                parent_winning_vtxindex: 0,
                 coinbase_nonce: 0,
             }
         };
@@ -1784,41 +1648,6 @@ impl StacksNode {
             }
             best_attempt + 1
         };
-
-        // Generates a proof out of the sortition hash provided in the params.
-        let vrf_proof = match keychain.generate_proof(
-            &registered_key.vrf_public_key,
-            burn_block.sortition_hash.as_bytes(),
-        ) {
-            Some(vrfp) => vrfp,
-            None => {
-                // Try to recover a key registered in a former session.
-                // registered_key.block_height gives us a pointer to the height of the block
-                // holding the key register op, but the VRF was derived using the height of one
-                // of the parents blocks.
-                let _ = keychain.rotate_vrf_keypair(registered_key.block_height - 1);
-                match keychain.generate_proof(
-                    &registered_key.vrf_public_key,
-                    burn_block.sortition_hash.as_bytes(),
-                ) {
-                    Some(vrfp) => vrfp,
-                    None => {
-                        error!(
-                            "Failed to generate proof with {:?}",
-                            &registered_key.vrf_public_key
-                        );
-                        return None;
-                    }
-                }
-            }
-        };
-
-        debug!(
-            "Generated VRF Proof: {} over {} with key {}",
-            vrf_proof.to_hex(),
-            &burn_block.sortition_hash,
-            &registered_key.vrf_public_key.to_hex()
-        );
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
@@ -1931,7 +1760,7 @@ impl StacksNode {
             mem_pool,
             &stacks_parent_header,
             parent_block_total_burn,
-            vrf_proof.clone(),
+            VRFProof::empty(),
             mblock_pubkey_hash,
             &coinbase_tx,
             config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64, false),
@@ -1971,7 +1800,7 @@ impl StacksNode {
                     mem_pool,
                     &stacks_parent_header,
                     parent_block_total_burn,
-                    vrf_proof.clone(),
+                    VRFProof::empty(),
                     mblock_pubkey_hash,
                     &coinbase_tx,
                     config.make_block_builder_settings((last_mined_blocks.len() + 1) as u64, false),
@@ -2003,47 +1832,8 @@ impl StacksNode {
             attempt
         );
 
-        // let's figure out the recipient set!
-        let recipients = match get_next_recipients(
-            &burn_block,
-            chain_state,
-            burn_db,
-            burnchain,
-            &OnChainRewardSetProvider(),
-        ) {
-            Ok(x) => x,
-            Err(e) => {
-                error!("Failure fetching recipient set: {:?}", e);
-                return None;
-            }
-        };
-
-        let sunset_burn = burnchain.expected_sunset_burn(burn_block.block_height + 1, burn_fee_cap);
-        let rest_commit = burn_fee_cap - sunset_burn;
-
-        let commit_outs = if burn_block.block_height + 1 < burnchain.pox_constants.sunset_end
-            && !burnchain.is_in_prepare_phase(burn_block.block_height + 1)
-        {
-            RewardSetInfo::into_commit_outs(recipients, config.is_mainnet())
-        } else {
-            vec![StacksAddress::burn_address(config.is_mainnet())]
-        };
-
         // let's commit
-        let op = inner_generate_block_commit_op(
-            keychain.get_burnchain_signer(),
-            anchored_block.block_hash(),
-            rest_commit,
-            &registered_key,
-            parent_block_burn_height
-                .try_into()
-                .expect("Could not convert parent block height into u32"),
-            parent_winning_vtxindex,
-            VRFSeed::from_proof(&vrf_proof),
-            commit_outs,
-            sunset_burn,
-            burn_block.block_height,
-        );
+        let op = inner_generate_block_commit_op(anchored_block.block_hash());
 
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
@@ -2109,7 +1899,7 @@ impl StacksNode {
 
         Some((
             AssembledAnchorBlock {
-                parent_consensus_hash: parent_consensus_hash,
+                parent_consensus_hash,
                 my_burn_hash: burn_block.burn_header_hash,
                 anchored_block,
                 attempt,
@@ -2125,7 +1915,6 @@ impl StacksNode {
         &mut self,
         sortdb: &SortitionDB,
         sort_id: &SortitionId,
-        ibd: bool,
     ) -> Option<BlockSnapshot> {
         let mut last_sortitioned_block = None;
 
@@ -2142,58 +1931,19 @@ impl StacksNode {
 
         update_active_miners_count_gauge(block_commits.len() as i64);
 
-        let (_, network) = self.config.burnchain.get_bitcoin_network();
-
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!(
-                    "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
-                    block_height,
-                    op.apparent_sender.to_bitcoin_address(network),
-                    &op.block_header_hash
+                    "Received burnchain block #{} including block_commit_op (winning) ({})",
+                    block_height, &op.block_header_hash
                 );
-                last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
+                last_sortitioned_block = Some(block_snapshot.clone());
             } else {
                 if self.is_miner {
                     info!(
-                        "Received burnchain block #{} including block_commit_op - {} ({})",
-                        block_height,
-                        op.apparent_sender.to_bitcoin_address(network),
-                        &op.block_header_hash
+                        "Received burnchain block #{} including block_commit_op ({})",
+                        block_height, &op.block_header_hash
                     );
-                }
-            }
-        }
-
-        let key_registers =
-            SortitionDB::get_leader_keys_by_block(&ic, &block_snapshot.sortition_id)
-                .expect("Unexpected SortitionDB error fetching key registers");
-
-        let node_address = Keychain::address_from_burnchain_signer(
-            &self.burnchain_signer,
-            self.config.is_mainnet(),
-        );
-
-        for op in key_registers.into_iter() {
-            if op.address == node_address {
-                if self.is_miner {
-                    info!(
-                        "Received burnchain block #{} including key_register_op - {}",
-                        block_height, op.address
-                    );
-                }
-                if !ibd {
-                    // not in initial block download, so we're not just replaying an old key.
-                    // Registered key has been mined
-                    if let LeaderKeyRegistrationState::Pending = self.leader_key_registration_state
-                    {
-                        self.leader_key_registration_state =
-                            LeaderKeyRegistrationState::Active(RegisteredKey {
-                                vrf_public_key: op.public_key,
-                                block_height: op.block_height as u64,
-                                op_vtxindex: op.vtxindex as u32,
-                            });
-                    }
                 }
             }
         }
@@ -2201,7 +1951,7 @@ impl StacksNode {
         // no-op on UserBurnSupport ops are not supported / produced at this point.
 
         set_last_sortition(&mut self.last_sortition, block_snapshot);
-        last_sortitioned_block.map(|x| x.0)
+        last_sortitioned_block
     }
 
     pub fn join(self) {
