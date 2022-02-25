@@ -10,6 +10,7 @@ repository = "https://github.com/blockstack/stacks-blockchain"
 description = "Common modules for blockstack_lib, libclarity"
 keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
+resolver = "2"
 
 [lib]
 name = "stacks_common"
