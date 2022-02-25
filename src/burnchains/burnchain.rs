@@ -279,8 +279,12 @@ impl Burnchain {
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
-        let ret =
-            Burnchain::new(working_dir, &"mockstack".to_string(), &"hyperchain".to_string()).unwrap();
+        let ret = Burnchain::new(
+            working_dir,
+            &"mockstack".to_string(),
+            &"hyperchain".to_string(),
+        )
+        .unwrap();
         ret
     }
 
