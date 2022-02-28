@@ -9104,14 +9104,6 @@ pub mod test {
             StacksChainState::stream_one_header(blocks_conn, blocks_path, &mut bytes, stream, count)
                 .map(|nr| {
                     assert_eq!(bytes.len(), nr as usize);
-
-                    // truncate trailing ',' if it exists
-                    let len = bytes.len();
-                    if len > 0 {
-                        if bytes[len - 1] == ',' as u8 {
-                            let _ = bytes.pop();
-                        }
-                    }
                     bytes
                 })
         } else {
