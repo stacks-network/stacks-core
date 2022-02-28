@@ -2230,10 +2230,7 @@ pub mod test {
     }
 
     pub fn chainstate_path(test_name: &str) -> String {
-        format!(
-            "/tmp/stacks-node-tests/cahinstate/blockstack-test-chainstate-{}",
-            test_name
-        )
+        format!("/tmp/stacks-node-tests/chainstate/test-db-{}", test_name)
     }
 
     #[test]

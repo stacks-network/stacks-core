@@ -12,7 +12,7 @@ ENV RUSTFLAGS="-Zinstrument-coverage" \
 COPY . .
 
 RUN cargo build --workspace && \
-    cargo test --workspace
+    cargo test --workspace --bin=stacks-node -- --ignored --test-threads 1
 
 # Generate coverage report and upload it to codecov
 RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info

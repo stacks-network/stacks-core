@@ -1808,8 +1808,9 @@ pub mod test {
     }
 
     fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
+        fs::create_dir_all("/tmp/stacks-node-tests/tries/").unwrap();
         let test_name = format!(
-            "/tmp/load_store_trie_{}_{}_{}",
+            "/tmp/stacks-node-tests/tries/load_store_trie_{}_{}_{}",
             m,
             n,
             if same { "same" } else { "unique" }
