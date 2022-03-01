@@ -51,8 +51,10 @@ use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection}
 use chainstate::stacks::index::Error;
 use chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
 use util::log;
+use util_lib::db::query_row;
 use util_lib::db::sql_pragma;
 use util_lib::db::tx_begin_immediate;
+use util_lib::db::u64_to_sql;
 
 use chainstate::stacks::index::TrieLeaf;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -63,6 +65,12 @@ static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (
    block_id INTEGER PRIMARY KEY, 
    block_hash TEXT UNIQUE NOT NULL,
+   -- pointer to a .blobs file with the externally-stored blob data.
+   -- if not used, then set to 0.
+   external_offset INTEGER NOT NULL,
+   external_length INTEGER NOT NULL,
+   -- trie blob.
+   -- if not used, then set to a zero-byte entry.
    data BLOB NOT NULL,
    unconfirmed INTEGER NOT NULL
 );
@@ -157,9 +165,34 @@ pub fn write_trie_blob<T: MarfTrieId>(
     block_hash: &T,
     data: &[u8],
 ) -> Result<u32, Error> {
-    let args: &[&dyn ToSql] = &[block_hash, &data, &0];
+    let args: &[&dyn ToSql] = &[block_hash, &data, &0, &0, &0];
     let mut s =
-        conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed) VALUES (?, ?, ?)")?;
+        conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) VALUES (?, ?, ?, ?, ?)")?;
+    let block_id = s
+        .insert(args)?
+        .try_into()
+        .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+
+    debug!("Wrote block trie {} to rowid {}", block_hash, block_id);
+    Ok(block_id)
+}
+
+pub fn write_external_trie_blob<T: MarfTrieId>(
+    conn: &Connection,
+    block_hash: &T,
+    offset: u64,
+    length: u64,
+) -> Result<u32, Error> {
+    let empty_blob: &[u8] = &[];
+    let args: &[&dyn ToSql] = &[
+        block_hash,
+        &empty_blob,
+        &0,
+        &u64_to_sql(offset)?,
+        &u64_to_sql(length)?,
+    ];
+    let mut s =
+        conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) VALUES (?, ?, ?, ?, ?)")?;
     let block_id = s
         .insert(args)?
         .try_into()
@@ -216,7 +249,7 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
         // doesn't exist yet; insert
         let args: &[&dyn ToSql] = &[block_hash, &data, &1];
         let mut s =
-            conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed) VALUES (?, ?, ?)")?;
+            conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) VALUES (?, ?, ?, 0, 0)")?;
         s.execute(args)
             .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
     };
@@ -327,6 +360,26 @@ pub fn read_node_type_nohash(
         true,
     )?;
     read_nodetype_nohash(&mut blob, ptr)
+}
+
+pub fn get_external_trie_offset_length(
+    conn: &Connection,
+    block_id: u32,
+) -> Result<(u64, u64), Error> {
+    let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_id = ?1";
+    let args: &[&dyn ToSql] = &[&block_id];
+    let (offset, length) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
+    Ok((offset, length))
+}
+
+pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
+    conn: &Connection,
+    bhh: &T,
+) -> Result<(u64, u64), Error> {
+    let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_hash = ?1";
+    let args: &[&dyn ToSql] = &[bhh];
+    let (offset, length) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
+    Ok((offset, length))
 }
 
 pub fn get_node_hash_bytes(
