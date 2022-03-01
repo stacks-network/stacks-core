@@ -83,6 +83,7 @@ use chainstate::stacks::address::StacksAddressExtensions;
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblockHeader;
 use monitoring::set_last_execution_cost_observed;
+use rusqlite::types::ToSqlOutput;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use types::chainstate::BurnchainHeaderHash;
 use util_lib::boot::boot_code_id;
@@ -140,6 +141,7 @@ pub enum MemPoolRejection {
     ContractAlreadyExists(QualifiedContractIdentifier),
     PoisonMicroblocksDoNotConflict,
     NoAnchorBlockWithPubkeyHash(Hash160),
+    NoAnchorBlockWithPubkeyHashes(Vec<Hash160>),
     InvalidMicroblocks,
     BadAddressVersionByte,
     NoCoinbaseViaMempool,
@@ -248,6 +250,7 @@ impl MemPoolRejection {
             ),
             PoisonMicroblocksDoNotConflict => ("PoisonMicroblocksDoNotConflict", None),
             NoAnchorBlockWithPubkeyHash(_h) => ("PoisonMicroblockHasUnknownPubKeyHash", None),
+            NoAnchorBlockWithPubkeyHashes(_h) => ("PoisonMicroblockHasUnknownPubKeyHashes", None),
             InvalidMicroblocks => ("PoisonMicroblockIsInvalid", None),
             BadAddressVersionByte => ("BadAddressVersionByte", None),
             NoCoinbaseViaMempool => ("NoCoinbaseViaMempool", None),
@@ -1186,20 +1189,6 @@ impl StacksChainState {
             "staging_microblocks_data",
             block_hash,
         )
-    }
-
-    fn has_blocks_with_microblock_pubkh(
-        block_conn: &DBConn,
-        pubkey_hash: &Hash160,
-        minimum_block_height: i64,
-    ) -> bool {
-        let sql = "SELECT 1 FROM staging_blocks WHERE microblock_pubkey_hash = ?1 AND height >= ?2";
-        let args: &[&dyn ToSql] = &[pubkey_hash, &minimum_block_height];
-        block_conn
-            .query_row(sql, args, |_r| Ok(()))
-            .optional()
-            .expect("DB CORRUPTION: block header DB corrupted!")
-            .is_some()
     }
 
     /// Load up a preprocessed (queued) but still unprocessed block.
@@ -5822,25 +5811,10 @@ impl StacksChainState {
                 }
             };
 
-        let has_microblock_pubk = match tx.payload {
-            TransactionPayload::PoisonMicroblock(ref microblock_header_1, _) => {
-                let microblock_pkh_1 = microblock_header_1
-                    .check_recover_pubkey()
-                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
-
-                StacksChainState::has_blocks_with_microblock_pubkh(
-                    &self.db(),
-                    &microblock_pkh_1,
-                    staging_height as i64,
-                )
-            }
-            _ => false, // unused
-        };
-
         let current_tip =
             StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
         let res = match self.with_read_only_clarity_tx(&NULL_BURN_STATE_DB, &current_tip, |conn| {
-            StacksChainState::can_include_tx(conn, &conf, has_microblock_pubk, tx, tx_size)
+            StacksChainState::can_include_tx(conn, &conf, true, tx, tx_size)
         }) {
             Some(r) => r,
             None => Err(MemPoolRejection::NoSuchChainTip(
@@ -5860,13 +5834,7 @@ impl StacksChainState {
                     debug!("Transaction {} is unminable in the confirmed chain tip due to nonce {} != {}; trying the unconfirmed chain tip",
                            &tx.txid(), mismatch_error.expected, mismatch_error.actual);
                     self.with_read_only_unconfirmed_clarity_tx(&NULL_BURN_STATE_DB, |conn| {
-                        StacksChainState::can_include_tx(
-                            conn,
-                            &conf,
-                            has_microblock_pubk,
-                            tx,
-                            tx_size,
-                        )
+                        StacksChainState::can_include_tx(conn, &conf, true, tx, tx_size)
                     })
                     .map_err(|_| {
                         MemPoolRejection::NoSuchChainTip(
@@ -6074,7 +6042,7 @@ impl StacksChainState {
                 }
 
                 if !has_microblock_pubkey {
-                    return Err(MemPoolRejection::NoAnchorBlockWithPubkeyHash(
+                    return Err(MemPoolRejection::NoAnchorBlockWithPubkeyHashes(
                         microblock_pkh_1,
                     ));
                 }
@@ -6083,6 +6051,53 @@ impl StacksChainState {
         };
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// A list of signatures. Used to allow multiple miners to sign a block or micro-block. Supports
+/// various kinds of serialization.
+pub struct MessageSignatureList {
+    signatures: Vec<MessageSignature>,
+}
+
+impl MessageSignatureList {
+    pub fn empty() -> MessageSignatureList {
+        MessageSignatureList { signatures: vec![] }
+    }
+
+    pub fn from_single(signature: MessageSignature) -> MessageSignatureList {
+        MessageSignatureList {
+            signatures: vec![signature],
+        }
+    }
+
+    pub fn from_vec(signatures: Vec<MessageSignature>) -> MessageSignatureList {
+        MessageSignatureList { signatures }
+    }
+
+    pub fn add_signature(&mut self, signature: MessageSignature) {
+        self.signatures.push(signature);
+    }
+
+    pub fn signatures(&self) -> &Vec<MessageSignature> {
+        &self.signatures
+    }
+}
+
+impl ToSql for MessageSignatureList {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        let val = serde_json::to_string(self).expect("FAIL: could not serialize ExecutionCost");
+        Ok(ToSqlOutput::from(val))
+    }
+}
+
+impl FromColumn<MessageSignatureList> for MessageSignatureList {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<MessageSignatureList, db_error> {
+        let string_rep: String = row.get_unwrap(column_name);
+        let val: MessageSignatureList = serde_json::from_str(&string_rep)
+            .expect("FAIL: could not deserialize MessageSignatureList");
+        Ok(val)
     }
 }
 
@@ -6159,6 +6174,7 @@ pub mod test {
             tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
             state_index_root: TrieHash([8u8; 32]),
             microblock_pubkey_hash: Hash160([9u8; 20]),
+            miner_signatures: MessageSignatureList::empty(),
         };
 
         let parent_microblock_header = StacksMicroblockHeader {
@@ -6166,7 +6182,7 @@ pub mod test {
             sequence: 0x34,
             prev_block: BlockHeaderHash([0x0au8; 32]),
             tx_merkle_root: Sha512Trunc256Sum([0x0bu8; 32]),
-            signature: MessageSignature([0x0cu8; 65]),
+            miner_signatures: MessageSignatureList::from_single(MessageSignature([0x0cu8; 65])),
         };
 
         let mblock_pubkey_hash =
@@ -6179,6 +6195,7 @@ pub mod test {
             &proof,
             &TrieHash([2u8; 32]),
             &mblock_pubkey_hash,
+            &MessageSignatureList::empty(),
         );
         block.header.version = 0x24;
         block
@@ -6252,6 +6269,7 @@ pub mod test {
             tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
             state_index_root: TrieHash([8u8; 32]),
             microblock_pubkey_hash: Hash160([9u8; 20]),
+            miner_signatures: MessageSignatureList::empty(),
         };
 
         let parent_microblock_header = StacksMicroblockHeader {
@@ -6259,7 +6277,7 @@ pub mod test {
             sequence: 0x34,
             prev_block: BlockHeaderHash([0x0au8; 32]),
             tx_merkle_root: Sha512Trunc256Sum([0x0bu8; 32]),
-            signature: MessageSignature([0x0cu8; 65]),
+            miner_signatures: MessageSignatureList::from_single(MessageSignature([0x0cu8; 65])),
         };
 
         let mblock_pubkey_hash =
@@ -6272,6 +6290,7 @@ pub mod test {
             &proof,
             &TrieHash([2u8; 32]),
             &mblock_pubkey_hash,
+            &MessageSignatureList::empty(),
         );
         block.header.version = 0x24;
         block
@@ -6345,7 +6364,7 @@ pub mod test {
                 sequence: initial_seq + (i as u16),
                 prev_block: prev_block,
                 tx_merkle_root: tx_merkle_root,
-                signature: MessageSignature([0u8; 65]),
+                miner_signatures: MessageSignatureList::empty(),
             };
 
             let mut mblock = StacksMicroblock {
@@ -6372,7 +6391,8 @@ pub mod test {
         privk: &StacksPrivateKey,
     ) -> BlockHeaderHash {
         for i in 0..microblocks.len() {
-            microblocks[i].header.signature = MessageSignature([0u8; 65]);
+            microblocks[i].header.miner_signatures =
+                MessageSignatureList::from_single(MessageSignature([0u8; 65]));
             microblocks[i].sign(privk).unwrap();
             if i + 1 < microblocks.len() {
                 microblocks[i + 1].header.prev_block = microblocks[i].block_hash();
@@ -7710,6 +7730,7 @@ pub mod test {
             tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
             state_index_root: TrieHash([8u8; 32]),
             microblock_pubkey_hash: Hash160([9u8; 20]),
+            miner_signatures: MessageSignatureList::empty(),
         };
 
         // contiguous, non-empty stream
@@ -7888,7 +7909,7 @@ pub mod test {
             let mut new_child_block_header = child_block_header.clone();
 
             for i in 0..broken_microblocks.len() {
-                broken_microblocks[i].header.signature = MessageSignature([0u8; 65]);
+                broken_microblocks[i].header.miner_signatures = MessageSignatureList::empty();
                 broken_microblocks[i].sign(&privk).unwrap();
                 if i + 1 < broken_microblocks.len() {
                     if i != num_mblocks / 2 {
@@ -7914,7 +7935,8 @@ pub mod test {
         // nonempty string, but bad signature
         {
             let mut broken_microblocks = microblocks.clone();
-            broken_microblocks[num_mblocks / 2].header.signature = MessageSignature([1u8; 65]);
+            broken_microblocks[num_mblocks / 2].header.miner_signatures =
+                MessageSignatureList::from_single(MessageSignature([1u8; 65]));
 
             let res = StacksChainState::validate_parent_microblock_stream(
                 &block.header,
@@ -7934,7 +7956,7 @@ pub mod test {
             let mut conflicting_microblock = microblocks[0].clone();
 
             for i in 0..broken_microblocks.len() {
-                broken_microblocks[i].header.signature = MessageSignature([0u8; 65]);
+                broken_microblocks[i].header.miner_signatures = MessageSignatureList::empty();
                 broken_microblocks[i].sign(&privk).unwrap();
                 if i + 1 < broken_microblocks.len() {
                     broken_microblocks[i + 1].header.prev_block =
@@ -9082,14 +9104,6 @@ pub mod test {
             StacksChainState::stream_one_header(blocks_conn, blocks_path, &mut bytes, stream, count)
                 .map(|nr| {
                     assert_eq!(bytes.len(), nr as usize);
-
-                    // truncate trailing ',' if it exists
-                    let len = bytes.len();
-                    if len > 0 {
-                        if bytes[len - 1] == ',' as u8 {
-                            let _ = bytes.pop();
-                        }
-                    }
                     bytes
                 })
         } else {
@@ -10458,4 +10472,42 @@ pub mod test {
     // place, and different places, with/without orphans)
     // TODO(test): process_next_staging_block
     // TODO(test): test resource limits -- shouldn't be able to load microblock streams that are too big
+
+    /// Tests the basic create, read and update operations for MessageSignatureList.
+    #[test]
+    fn message_signature_list_operations() {
+        let list = MessageSignatureList::empty();
+        assert_eq!(0, list.signatures().len());
+
+        let mut list = MessageSignatureList::empty();
+        list.add_signature(MessageSignature([0u8; 65]));
+        assert_eq!(&vec![MessageSignature([0u8; 65])], list.signatures());
+        list.add_signature(MessageSignature([1u8; 65]));
+        assert_eq!(
+            &vec![MessageSignature([0u8; 65]), MessageSignature([1u8; 65])],
+            list.signatures()
+        );
+
+        let list = MessageSignatureList::from_single(MessageSignature([0u8; 65]));
+        assert_eq!(&vec![MessageSignature([0u8; 65])], list.signatures());
+
+        let list = MessageSignatureList::from_vec(vec![
+            MessageSignature([0u8; 65]),
+            MessageSignature([1u8; 65]),
+        ]);
+        assert_eq!(
+            &vec![MessageSignature([0u8; 65]), MessageSignature([1u8; 65])],
+            list.signatures()
+        );
+    }
+
+    /// Tests the SQL serialize/deserialize operations for MessageSignatureList.
+    #[test]
+    fn message_signature_list_sql_serialize() {
+        let list = MessageSignatureList::from_vec(vec![
+            MessageSignature([0u8; 65]),
+            MessageSignature([1u8; 65]),
+        ]);
+        assert_eq!(ToSqlOutput::from("{\"signatures\":[\"0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\",\"0101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101\"]}".to_string()), list.to_sql().unwrap());
+    }
 }

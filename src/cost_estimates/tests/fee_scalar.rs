@@ -27,6 +27,7 @@ use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
+use chainstate::stacks::db::blocks::MessageSignatureList;
 
 use cost_estimates::tests::common::make_block_receipt;
 

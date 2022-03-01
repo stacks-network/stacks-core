@@ -79,6 +79,7 @@ use super::MemPoolDB;
 use rand::prelude::*;
 use rand::thread_rng;
 
+use chainstate::stacks::db::blocks::MessageSignatureList;
 use codec::read_next;
 use codec::Error as codec_error;
 
@@ -117,6 +118,7 @@ fn make_block(
         tx_merkle_root: Sha512Trunc256Sum::empty(),
         state_index_root: TrieHash::from_empty_data(),
         microblock_pubkey_hash: Hash160([0; 20]),
+        miner_signatures: MessageSignatureList::empty(),
     };
 
     let block_hash = anchored_header.block_hash();

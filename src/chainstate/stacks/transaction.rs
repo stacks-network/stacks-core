@@ -1710,7 +1710,7 @@ mod test {
             sequence: 0x34,
             prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
-            signature: MessageSignature([2u8; 65]),
+            miner_signatures: MessageSignatureList::from_single(MessageSignature([2u8; 65])),
         };
 
         let header_2 = StacksMicroblockHeader {
@@ -1718,7 +1718,7 @@ mod test {
             sequence: 0x34,
             prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
-            signature: MessageSignature([3u8; 65]),
+            miner_signatures: MessageSignatureList::from_single(MessageSignature([3u8; 65])),
         };
 
         let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
@@ -1799,6 +1799,10 @@ mod test {
             0x01,
             0x01,
             // signature
+            0x00,
+            0x00,
+            0x00,
+            0x01,
             0x02,
             0x02,
             0x02,
@@ -1937,6 +1941,10 @@ mod test {
             0x02,
             0x02,
             // signature
+            0x00,
+            0x00,
+            0x00,
+            0x01,
             0x03,
             0x03,
             0x03,
@@ -2082,6 +2090,10 @@ mod test {
             0x01,
             0x01,
             // signature
+            0x00,
+            0x00,
+            0x00,
+            0x01,
             0x02,
             0x02,
             0x02,
@@ -2220,6 +2232,10 @@ mod test {
             0x02,
             0x02,
             // signature
+            0x00,
+            0x00,
+            0x00,
+            0x01,
             0x03,
             0x03,
             0x03,
@@ -2371,6 +2387,10 @@ mod test {
             0x02,
             0x02,
             // signature
+            0x00,
+            0x00,
+            0x00,
+            0x01,
             0x02,
             0x02,
             0x02,
@@ -2509,6 +2529,10 @@ mod test {
             0x02,
             0x02,
             // signature
+            0x00,
+            0x00,
+            0x00,
+            0x01,
             0x02,
             0x02,
             0x02,
@@ -3096,7 +3120,7 @@ mod test {
             sequence: 0x34,
             prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
-            signature: MessageSignature([2u8; 65]),
+            miner_signatures: MessageSignatureList::from_single(MessageSignature([2u8; 65])),
         };
 
         let header_2 = StacksMicroblockHeader {
@@ -3104,7 +3128,7 @@ mod test {
             sequence: 0x34,
             prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
-            signature: MessageSignature([3u8; 65]),
+            miner_signatures: MessageSignatureList::from_single(MessageSignature([3u8; 65])),
         };
 
         let hello_contract_name = "hello-contract-name";

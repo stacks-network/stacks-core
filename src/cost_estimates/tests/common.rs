@@ -12,6 +12,7 @@ use crate::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::StacksEpochId;
+use chainstate::stacks::db::blocks::MessageSignatureList;
 
 /// Make a block receipt from `tx_receipts` with some dummy values filled for test.
 #[cfg(test)]
@@ -28,6 +29,7 @@ pub fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksE
                 tx_merkle_root: Sha512Trunc256Sum([0; 32]),
                 state_index_root: TrieHash([0; 32]),
                 microblock_pubkey_hash: Hash160([0; 20]),
+                miner_signatures: MessageSignatureList::empty(),
             },
             microblock_tail: None,
             block_height: 1,

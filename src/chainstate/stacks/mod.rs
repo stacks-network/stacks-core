@@ -72,6 +72,7 @@ pub mod transaction;
 
 pub use types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
+use chainstate::stacks::db::blocks::MessageSignatureList;
 pub use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -810,6 +811,8 @@ pub struct StacksBlockHeader {
     pub tx_merkle_root: Sha512Trunc256Sum,
     pub state_index_root: TrieHash,
     pub microblock_pubkey_hash: Hash160, // we'll get the public key back from the first signature (note that this is the Hash160 of the _compressed_ public key)
+    /// Signatures of miners that have signed this block.
+    pub miner_signatures: MessageSignatureList,
 }
 
 /// Header structure for a microblock
@@ -819,7 +822,8 @@ pub struct StacksMicroblockHeader {
     pub sequence: u16,
     pub prev_block: BlockHeaderHash,
     pub tx_merkle_root: Sha512Trunc256Sum,
-    pub signature: MessageSignature,
+    /// Signatures of miners that have signed this block.
+    pub miner_signatures: MessageSignatureList,
 }
 
 // values a miner uses to produce the next block
@@ -896,7 +900,7 @@ pub mod test {
             sequence: 0x34,
             prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([1u8; 32]),
-            signature: MessageSignature([2u8; 65]),
+            miner_signatures: MessageSignatureList::from_single(MessageSignature([2u8; 65])),
         };
 
         let mblock_header_2 = StacksMicroblockHeader {
@@ -904,7 +908,7 @@ pub mod test {
             sequence: 0x34,
             prev_block: EMPTY_MICROBLOCK_PARENT_HASH.clone(),
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
-            signature: MessageSignature([3u8; 65]),
+            miner_signatures: MessageSignatureList::from_single(MessageSignature([3u8; 65])),
         };
 
         let spending_conditions = vec![
@@ -1257,6 +1261,7 @@ pub mod test {
             tx_merkle_root: tx_merkle_root,
             state_index_root: TrieHash([8u8; 32]),
             microblock_pubkey_hash: Hash160([9u8; 20]),
+            miner_signatures: MessageSignatureList::empty(),
         };
 
         StacksBlock {

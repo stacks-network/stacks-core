@@ -30,6 +30,7 @@ use crate::cost_estimates::FeeRateEstimate;
 use crate::cost_estimates::PessimisticEstimator;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
+use chainstate::stacks::db::blocks::MessageSignatureList;
 use core::BLOCK_LIMIT_MAINNET_20;
 use cost_estimates::tests::common::*;
 
