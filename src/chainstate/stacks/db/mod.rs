@@ -991,7 +991,8 @@ impl StacksChainState {
 
     pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
-        let open_opts = MARFOpenOpts::default();
+        let mut open_opts = MARFOpenOpts::default();
+        open_opts.external_blobs = true;
         let marf = MARF::from_path(marf_path, open_opts).map_err(|e| db_error::IndexError(e))?;
         Ok(marf)
     }

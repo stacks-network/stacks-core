@@ -47,7 +47,9 @@ impl MarfedKV {
             .ok_or_else(|| InterpreterError::BadFileName)?
             .to_string();
 
-        let marf_opts = MARFOpenOpts::default();
+        let mut marf_opts = MARFOpenOpts::default();
+        marf_opts.external_blobs = true;
+
         let mut marf: MARF<StacksBlockId> = if unconfirmed {
             MARF::from_path_unconfirmed(&marf_path, marf_opts)
                 .map_err(|err| InterpreterError::MarfFailure(err.to_string()))?
