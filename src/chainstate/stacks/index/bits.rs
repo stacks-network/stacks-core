@@ -381,7 +381,7 @@ pub fn read_nodetype_nohash<F: Read + Seek>(
 ///
 /// If `read_hash` is false, then the contents of the node hash are undefined.
 #[inline]
-fn read_nodetype_at_head<F: Read + Seek>(
+pub fn read_nodetype_at_head<F: Read + Seek>(
     f: &mut F,
     ptr_id: u8,
     read_hash: bool,
