@@ -241,7 +241,6 @@ impl<'a> SortitionHandleTx<'a> {
                 block_header,
                 &blockstack_txs,
                 next_pox_info,
-                parent_pox,
                 reward_set_info,
                 initial_mining_bonus_ustx,
             )
@@ -284,7 +283,6 @@ impl<'a> SortitionHandleTx<'a> {
             &this_block_header,
             blockstack_txs,
             next_pox_info,
-            parent_pox,
             reward_set_info,
             initial_mining_bonus_ustx,
         )?;

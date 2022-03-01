@@ -1117,7 +1117,7 @@ impl<'a> SortitionHandleConn<'a> {
 
     // TODO: delete this method once stable
     fn get_reward_set_size(&self) -> Result<u16, db_error> {
-        0u16
+        Ok(0u16)
     }
 
     /// open a reader handle

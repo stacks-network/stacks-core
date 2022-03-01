@@ -74,9 +74,8 @@ impl_byte_array_serde!(VRFSeed);
 pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
 
 impl SortitionId {
-
     pub fn new(bhh: &BurnchainHeaderHash) -> SortitionId {
-            SortitionId(bhh.0.clone())
+        SortitionId(bhh.0.clone())
     }
 }
 

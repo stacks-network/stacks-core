@@ -2437,7 +2437,7 @@ impl PeerNetwork {
                             &self.local_peer,
                             downloader.finished_scan_at + downloader.download_interval
                         );
-                        return Ok((true, true, None, vec![], vec![], vec![], vec![]));
+                        return Ok((true, true, vec![], vec![], vec![], vec![]));
                     } else {
                         // start a rescan -- we've waited long enough
                         debug!(
@@ -2490,12 +2490,8 @@ impl PeerNetwork {
                 BlockDownloaderState::Done => {
                     // did a pass.
                     // do we have more requests?
-                    let (
-                        blocks_done,
-                        full_pass,
-                        mut successful_blocks,
-                        mut successful_microblocks,
-                    ) = self.finish_downloads(sortdb, chainstate)?;
+                    let (blocks_done, full_pass, mut successful_blocks, mut successful_microblocks) =
+                        self.finish_downloads(sortdb, chainstate)?;
 
                     blocks.append(&mut successful_blocks);
                     microblocks.append(&mut successful_microblocks);

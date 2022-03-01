@@ -945,14 +945,6 @@ fn test_simple_setup() {
         coord_blind.handle_new_burnchain_block().unwrap();
 
         let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
-            //
-            let ic = sort_db.index_handle_at_tip();
-            assert!(
-                ic.get_last_anchor_block_hash().unwrap().is_none(),
-                "There should be no anchor blocks selected in stacks-subnets"
-            );
-        }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         let blinded_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db_blind.conn()).unwrap();
@@ -1004,26 +996,6 @@ fn test_simple_setup() {
         Value::UInt(50)
     );
 
-    {
-        let ic = sort_db.index_handle_at_tip();
-        let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(
-            &pox_id.to_string(),
-            "1",
-            "PoX ID remains 1 in stacks-subnets"
-        );
-    }
-
-    {
-        let ic = sort_db_blind.index_handle_at_tip();
-        let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(
-            &pox_id.to_string(),
-            "1",
-            "PoX ID remains 1 in stacks-subnets"
-        );
-    }
-
     // now let's start revealing stacks blocks to the blinded coordinator
     for (sortition_id, block) in stacks_blocks.iter() {
         reveal_block(
@@ -1033,15 +1005,6 @@ fn test_simple_setup() {
             sortition_id,
             block,
         );
-
-        let pox_id_at_tip = {
-            let ic = sort_db_blind.index_handle_at_tip();
-            ic.get_pox_id().unwrap()
-        };
-
-        let block_hash = block.header.block_hash();
-
-        assert_eq!(pox_id_at_tip.to_string(), "1");
     }
 }
 

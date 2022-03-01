@@ -62,9 +62,7 @@ use blockstack_lib::cost_estimates::metrics::UnitMetric;
 use blockstack_lib::net::relay::Relayer;
 use blockstack_lib::net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress};
 use blockstack_lib::types::chainstate::StacksAddress;
-use blockstack_lib::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksBlockId,
-};
+use blockstack_lib::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use blockstack_lib::util::get_epoch_time_ms;
 use blockstack_lib::util::hash::{hex_bytes, to_hex};
 use blockstack_lib::util::log;
