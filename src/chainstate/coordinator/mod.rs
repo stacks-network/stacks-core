@@ -53,7 +53,7 @@ use vm::{
 
 use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
 };
 use vm::database::BurnStateDB;
 
@@ -153,7 +153,6 @@ pub struct ChainsCoordinator<
 > {
     canonical_sortition_tip: Option<SortitionId>,
     canonical_chain_tip: Option<StacksBlockId>,
-    canonical_pox_id: Option<PoxId>,
     burnchain_blocks_db: BurnchainDB,
     chain_state_db: StacksChainState,
     sortition_db: SortitionDB,
@@ -257,7 +256,6 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
         let mut inst = ChainsCoordinator {
             canonical_chain_tip: None,
             canonical_sortition_tip: Some(canonical_sortition_tip),
-            canonical_pox_id: None,
             burnchain_blocks_db,
             chain_state_db,
             sortition_db,
@@ -344,7 +342,6 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
         ChainsCoordinator {
             canonical_chain_tip: None,
             canonical_sortition_tip: Some(canonical_sortition_tip),
-            canonical_pox_id: None,
             burnchain_blocks_db,
             chain_state_db,
             sortition_db,
@@ -790,8 +787,6 @@ impl<
             "Reprocessing with anchor block information, starting at block height: {}",
             prep_end.block_height
         );
-        let mut pox_id = self.sortition_db.get_pox_id(sortition_id)?;
-        pox_id.extend_with_present_block();
 
         // invalidate all the sortitions > canonical_sortition_tip, in the same burnchain fork
         self.sortition_db
@@ -803,7 +798,6 @@ impl<
             &prep_end.canonical_stacks_tip_hash,
         ));
         self.canonical_sortition_tip = Some(prep_end.sortition_id);
-        self.canonical_pox_id = Some(pox_id);
 
         // Start processing from the beginning of the new PoX reward set
         self.handle_new_burnchain_block()

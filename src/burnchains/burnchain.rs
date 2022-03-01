@@ -69,7 +69,7 @@ use util_lib::db::DBConn;
 use util_lib::db::DBTx;
 use util_lib::db::Error as db_error;
 
-use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
+use crate::types::chainstate::BurnchainHeaderHash;
 use chainstate::stacks::address::StacksAddressExtensions;
 
 impl BurnchainStateTransition {

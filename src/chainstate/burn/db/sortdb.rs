@@ -82,7 +82,7 @@ use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, VRFSeed,
 };
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
@@ -1115,29 +1115,9 @@ impl<'a> SortitionHandleConn<'a> {
         SortitionHandleConn::open_reader(connection, &sn.sortition_id)
     }
 
-    #[cfg(test)]
-    pub fn get_last_anchor_block_hash(&self) -> Result<Option<BlockHeaderHash>, db_error> {
-        let anchor_block_hash = SortitionDB::parse_last_anchor_block_hash(
-            self.get_indexed(&self.context.chain_tip, &db_keys::pox_last_anchor())?,
-        );
-        Ok(anchor_block_hash)
-    }
-
+    // TODO: delete this method once stable
     fn get_reward_set_size(&self) -> Result<u16, db_error> {
-        self.get_tip_indexed(&db_keys::pox_reward_set_size())
-            .map(|x| {
-                db_keys::reward_set_size_from_string(
-                    &x.expect("CORRUPTION: no current reward set size written"),
-                )
-            })
-    }
-
-    pub fn get_pox_id(&self) -> Result<PoxId, db_error> {
-        let pox_id = self
-            .get_tip_indexed(db_keys::pox_identifier())?
-            .map(|s| s.parse().expect("BUG: Bad PoX identifier stored in DB"))
-            .expect("BUG: No PoX identifier stored.");
-        Ok(pox_id)
+        0u16
     }
 
     /// open a reader handle
@@ -2121,12 +2101,6 @@ impl SortitionDB {
         Ok(Some(snapshot))
     }
 
-    /// Get the PoX ID at the particular sortition_tip
-    pub fn get_pox_id(&mut self, sortition_tip: &SortitionId) -> Result<PoxId, BurnchainError> {
-        let handle = self.index_handle(sortition_tip);
-        handle.get_pox_id().map_err(BurnchainError::from)
-    }
-
     pub fn get_sortition_result(
         &self,
         id: &SortitionId,
@@ -2177,8 +2151,6 @@ impl SortitionDB {
                 BurnchainError::MissingParentBlock
             })?;
 
-        let parent_pox = sortition_db_handle.get_pox_id()?;
-
         let reward_set_vrf_hash = parent_snapshot
             .sortition_hash
             .mix_burn_header(&parent_snapshot.burn_header_hash);
@@ -2204,7 +2176,6 @@ impl SortitionDB {
             burnchain,
             ops,
             next_pox_info,
-            parent_pox,
             reward_set_info.as_ref(),
             initial_mining_bonus,
         )?;
@@ -2864,15 +2835,6 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
-    fn get_pox_id(&mut self) -> Result<PoxId, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
-        let pox_id = self
-            .get_indexed(&chain_tip, db_keys::pox_identifier())?
-            .map(|s| s.parse().expect("BUG: Bad PoX identifier stored in DB"))
-            .expect("BUG: No PoX identifier stored.");
-        Ok(pox_id)
-    }
-
     /// Store a blockstack burnchain operation
     fn store_burnchain_transaction(
         &mut self,
@@ -3047,8 +3009,6 @@ impl<'a> SortitionHandleTx<'a> {
         }
 
         // storing null PoX info
-        keys.push(db_keys::pox_identifier().to_string());
-        values.push(PoxId::initial().to_string());
         keys.push(db_keys::pox_reward_set_size().to_string());
         values.push(db_keys::reward_set_size_to_string(0));
         keys.push(db_keys::pox_last_anchor().to_string());

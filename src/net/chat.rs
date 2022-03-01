@@ -63,7 +63,6 @@ use util::secp256k1::Secp256k1PublicKey;
 use util_lib::db::DBConn;
 use util_lib::db::Error as db_error;
 
-use crate::types::chainstate::PoxId;
 use crate::types::StacksPublicKeyBuffer;
 use core::StacksEpoch;
 
@@ -1664,7 +1663,6 @@ impl ConversationP2P {
         local_peer: &LocalPeer,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
-        pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
         chain_view: &BurnchainView,
@@ -2067,7 +2065,6 @@ impl ConversationP2P {
         local_peer: &LocalPeer,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
-        pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
         burnchain_view: &BurnchainView,
@@ -2209,7 +2206,6 @@ impl ConversationP2P {
                             local_peer,
                             peerdb,
                             sortdb,
-                            pox_id,
                             chainstate,
                             header_cache,
                             burnchain_view,
@@ -2290,7 +2286,7 @@ mod test {
         data_url: UrlString,
         asn4_entries: &Vec<ASEntry4>,
         initial_neighbors: &Vec<Neighbor>,
-    ) -> (PeerDB, SortitionDB, PoxId, StacksChainState) {
+    ) -> (PeerDB, SortitionDB, StacksChainState) {
         let test_path = format!("/tmp/stacks-node-tests/net/test-db-{}", testname);
         match fs::metadata(&test_path) {
             Ok(_) => {
@@ -2342,14 +2338,7 @@ mod test {
         )
         .unwrap();
 
-        let pox_id = {
-            let ic = sortdb.index_conn();
-            let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-            sortdb_reader.get_pox_id().unwrap()
-        };
-
-        (peerdb, sortdb, pox_id, chainstate)
+        (peerdb, sortdb, chainstate)
     }
 
     fn convo_send_recv(
@@ -2505,7 +2494,7 @@ mod test {
             };
             chain_view.make_test_data();
 
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
                 "convo_handshake_accept_1",
                 &burnchain,
                 0x9abcdef0,
@@ -2514,7 +2503,7 @@ mod test {
                 &vec![],
                 &vec![],
             );
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
                 "convo_handshake_accept_2",
                 &burnchain,
                 0x9abcdef0,
@@ -2575,7 +2564,6 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -2590,7 +2578,6 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -2676,7 +2663,7 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_handshake_reject_1",
             &burnchain,
             0x9abcdef0,
@@ -2685,7 +2672,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_reject_2",
             &burnchain,
             0x9abcdef0,
@@ -2746,7 +2733,6 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -2760,7 +2746,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -2812,7 +2797,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_handshake_badsignature_1",
             &burnchain,
             0x9abcdef0,
@@ -2821,7 +2806,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_badsignature_2",
             &burnchain,
             0x9abcdef0,
@@ -2886,7 +2871,6 @@ mod test {
             &local_peer_2,
             &mut peerdb_2,
             &sortdb_2,
-            &pox_id_2,
             &mut chainstate_2,
             &mut BlockHeaderCache::new(),
             &chain_view,
@@ -2899,7 +2883,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -2946,7 +2929,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_handshake_self_1",
             &burnchain,
             0x9abcdef0,
@@ -2955,7 +2938,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_self_2",
             &burnchain,
             0x9abcdef0,
@@ -3014,7 +2997,6 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3028,7 +3010,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_2,
                 &sortdb_2,
-                &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3081,7 +3062,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_ping_1",
             &burnchain,
             0x9abcdef0,
@@ -3090,7 +3071,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_ping_2",
             &burnchain,
             0x9abcdef0,
@@ -3167,7 +3148,6 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3187,7 +3167,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3248,7 +3227,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_handshake_ping_loop_1",
             &burnchain,
             0x9abcdef0,
@@ -3257,7 +3236,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_ping_loop_2",
             &burnchain,
             0x9abcdef0,
@@ -3332,7 +3311,6 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3350,7 +3328,6 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3465,7 +3442,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_nack_unsolicited_1",
             &burnchain,
             0x9abcdef0,
@@ -3474,7 +3451,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_nack_unsolicited_2",
             &burnchain,
             0x9abcdef0,
@@ -3533,7 +3510,6 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3547,7 +3523,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3603,7 +3578,7 @@ mod test {
             };
             chain_view.make_test_data();
 
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
                 "convo_handshake_getblocksinv_1",
                 &burnchain,
                 0x9abcdef0,
@@ -3612,7 +3587,7 @@ mod test {
                 &vec![],
                 &vec![],
             );
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
                 "convo_handshake_getblocksinv_2",
                 &burnchain,
                 0x9abcdef0,
@@ -3673,7 +3648,6 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3688,7 +3662,6 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3771,7 +3744,6 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3786,7 +3758,6 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3840,7 +3811,6 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3855,7 +3825,6 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3907,7 +3876,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_natpunch_1",
             &burnchain,
             0x9abcdef0,
@@ -3916,7 +3885,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_natpunch_2",
             &burnchain,
             0x9abcdef0,
@@ -3973,7 +3942,6 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3988,7 +3956,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,

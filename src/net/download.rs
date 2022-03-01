@@ -79,7 +79,7 @@ use util::secp256k1::Secp256k1PublicKey;
 use util_lib::db::DBConn;
 use util_lib::db::Error as db_error;
 
-use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
+use crate::types::chainstate::{BlockHeaderHash, SortitionId};
 
 #[cfg(not(test))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 180;
@@ -194,7 +194,6 @@ pub enum BlockDownloaderState {
 #[derive(Debug)]
 pub struct BlockDownloader {
     state: BlockDownloaderState,
-    pox_id: PoxId,
 
     /// Sortition height at which to attempt to fetch blocks
     block_sortition_height: u64,
@@ -259,7 +258,6 @@ impl BlockDownloader {
     ) -> BlockDownloader {
         BlockDownloader {
             state: BlockDownloaderState::DNSLookupBegin,
-            pox_id: PoxId::initial(),
 
             block_sortition_height: 0,
             microblock_sortition_height: 0,
@@ -331,14 +329,12 @@ impl BlockDownloader {
 
     pub fn dns_lookups_begin(
         &mut self,
-        pox_id: &PoxId,
         dns_client: &mut DNSClient,
         mut urls: Vec<UrlString>,
     ) -> Result<(), net_error> {
         assert_eq!(self.state, BlockDownloaderState::DNSLookupBegin);
 
         // optimistic concurrency control: remember the current PoX Id
-        self.pox_id = pox_id.clone();
         self.dns_lookups.clear();
         for url_str in urls.drain(..) {
             if url_str.len() == 0 {
@@ -1883,7 +1879,7 @@ impl PeerNetwork {
                 urls.push(url);
             }
 
-            downloader.dns_lookups_begin(&network.pox_id, dns_client, urls)
+            downloader.dns_lookups_begin(dns_client, urls)
         })
     }
 
@@ -2116,7 +2112,6 @@ impl PeerNetwork {
         (
             bool,
             bool,
-            Option<PoxId>,
             Vec<(ConsensusHash, StacksBlock, u64)>,
             Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
         ),
@@ -2126,7 +2121,6 @@ impl PeerNetwork {
         let mut microblocks = vec![];
         let mut done = false;
         let mut at_chain_tip = false;
-        let mut old_pox_id = None;
 
         let now = get_epoch_time_secs();
 
@@ -2309,9 +2303,6 @@ impl PeerNetwork {
 
                     at_chain_tip = true;
                 }
-
-                // propagate PoX ID as it was when we started
-                old_pox_id = Some(downloader.pox_id.clone());
             } else {
                 // still have different URLs to try for failed blocks.
                 done = false;
@@ -2354,7 +2345,7 @@ impl PeerNetwork {
                 downloader.state = BlockDownloaderState::GetBlocksBegin;
             }
 
-            Ok((done, at_chain_tip, old_pox_id, blocks, microblocks))
+            Ok((done, at_chain_tip, blocks, microblocks))
         })
     }
 
@@ -2393,7 +2384,6 @@ impl PeerNetwork {
         (
             bool,
             bool,
-            Option<PoxId>,
             Vec<(ConsensusHash, StacksBlock, u64)>,
             Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
             Vec<usize>,
@@ -2472,7 +2462,6 @@ impl PeerNetwork {
 
         let mut blocks = vec![];
         let mut microblocks = vec![];
-        let mut old_pox_id = None;
 
         let mut done_cycle = false;
         while !done_cycle {
@@ -2504,12 +2493,10 @@ impl PeerNetwork {
                     let (
                         blocks_done,
                         full_pass,
-                        downloader_pox_id,
                         mut successful_blocks,
                         mut successful_microblocks,
                     ) = self.finish_downloads(sortdb, chainstate)?;
 
-                    old_pox_id = downloader_pox_id;
                     blocks.append(&mut successful_blocks);
                     microblocks.append(&mut successful_microblocks);
                     done = blocks_done;
@@ -2542,7 +2529,6 @@ impl PeerNetwork {
         Ok((
             done,
             at_chain_tip,
-            old_pox_id,
             blocks,
             microblocks,
             broken_http_peers,
@@ -2896,21 +2882,6 @@ pub mod test {
                 peer.with_peer_state(|peer, sortdb, chainstate, mempool| {
                     for i in 0..(result.blocks.len() + result.confirmed_microblocks.len() + 1) {
                         peer.coord.handle_new_stacks_block().unwrap();
-
-                        let pox_id = {
-                            let ic = sortdb.index_conn();
-                            let tip_sort_id =
-                                SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-                            let sortdb_reader =
-                                SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-                            sortdb_reader.get_pox_id().unwrap()
-                        };
-
-                        test_debug!(
-                            "\n\n{:?}: after stacks block, new tip PoX ID is {:?}\n\n",
-                            &peer.to_neighbor().addr,
-                            &pox_id
-                        );
                     }
                     Ok(())
                 })

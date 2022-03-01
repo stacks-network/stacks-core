@@ -73,96 +73,10 @@ impl_byte_array_newtype!(VRFSeed, u8, 32);
 impl_byte_array_serde!(VRFSeed);
 pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
 
-/// PoxId represents the number of sync cycles that have passed.
-///
-/// This class exists for historical reasons, to minimize code distance from the `PoxId` in the
-/// stacks main network, while simplifying as much as possible, since Proof of Transfer is not
-/// relevant in the subnets. Thus, we require all bool's to be `true`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PoxId(Vec<bool>);
-
 impl SortitionId {
-    pub fn stubbed(from: &BurnchainHeaderHash) -> SortitionId {
-        SortitionId::new(from, &PoxId::stubbed())
-    }
 
-    pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxId) -> SortitionId {
-        if pox == &PoxId::stubbed() {
+    pub fn new(bhh: &BurnchainHeaderHash) -> SortitionId {
             SortitionId(bhh.0.clone())
-        } else {
-            let mut hasher = Sha512Trunc256::new();
-            hasher.input(bhh);
-            write!(hasher, "{}", pox).expect("Failed to deserialize PoX ID into the hasher");
-            let h = Sha512Trunc256Sum::from_hasher(hasher);
-            SortitionId(h.0)
-        }
-    }
-}
-
-impl PoxId {
-    pub fn new(contents: Vec<bool>) -> Self {
-        PoxId(contents)
-    }
-
-    pub fn initial() -> PoxId {
-        PoxId(vec![true])
-    }
-
-    pub fn from_bools(bools: Vec<bool>) -> PoxId {
-        for bool_value in &bools {
-            assert!(bool_value, "All boolean's must be true.")
-        }
-        PoxId(bools)
-    }
-
-    pub fn extend_with_present_block(&mut self) {
-        self.0.push(true);
-    }
-
-    pub fn stubbed() -> PoxId {
-        PoxId(vec![])
-    }
-
-    pub fn has_ith_anchor_block(&self, i: usize) -> bool {
-        if i >= self.0.len() {
-            false
-        } else {
-            self.0[i]
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn num_inventory_reward_cycles(&self) -> usize {
-        self.0.len().saturating_sub(1)
-    }
-}
-
-impl FromStr for PoxId {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = vec![];
-        for i in s.chars() {
-            if i == '1' {
-                result.push(true);
-            } else if i == '0' {
-                result.push(false);
-            } else {
-                return Err("Unexpected character in PoX ID serialization");
-            }
-        }
-        Ok(PoxId::new(result))
-    }
-}
-
-impl fmt::Display for PoxId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for val in self.0.iter() {
-            write!(f, "{}", if *val { 1 } else { 0 })?;
-        }
-        Ok(())
     }
 }
 

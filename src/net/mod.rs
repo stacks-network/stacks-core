@@ -85,7 +85,6 @@ use chainstate::stacks::StacksBlockHeader;
 use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::PoxId;
 use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use crate::types::StacksPublicKeyBuffer;
 use crate::util::hash::Sha256Sum;
@@ -1823,7 +1822,6 @@ pub const DENY_MIN_BAN_DURATION: u64 = 2;
 
 /// Result of doing network work
 pub struct NetworkResult {
-    pub download_pox_id: Option<PoxId>, // PoX ID as it was when we begin downloading blocks (set if we have downloaded new blocks)
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
     pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>, // blocks we downloaded, and time taken
     pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>, // confiremd microblocks we downloaded, and time taken
@@ -1848,7 +1846,6 @@ impl NetworkResult {
     ) -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
-            download_pox_id: None,
             blocks: vec![],
             confirmed_microblocks: vec![],
             pushed_transactions: HashMap::new(),
@@ -2900,20 +2897,6 @@ pub mod test {
 
             self.coord.handle_new_burnchain_block().unwrap();
 
-            let pox_id = {
-                let ic = sortdb.index_conn();
-                let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-                sortdb_reader.get_pox_id().unwrap()
-            };
-
-            test_debug!(
-                "\n\n{:?}: after burn block {:?}, tip PoX ID is {:?}\n\n",
-                &self.to_neighbor().addr,
-                &block_hash,
-                &pox_id
-            );
-
             let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
             self.sortdb = Some(sortdb);
             (block_height, block_hash, tip.consensus_hash)
@@ -2961,20 +2944,6 @@ pub mod test {
                     .map_err(|e| format!("Failed to preprocess anchored block: {:?}", &e))
             };
             if res.is_ok() {
-                let pox_id = {
-                    let ic = sortdb.index_conn();
-                    let tip_sort_id =
-                        SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-                    let sortdb_reader =
-                        SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-                    sortdb_reader.get_pox_id().unwrap()
-                };
-                test_debug!(
-                    "\n\n{:?}: after stacks block {:?}, tip PoX ID is {:?}\n\n",
-                    &self.to_neighbor().addr,
-                    &block.block_hash(),
-                    &pox_id
-                );
                 self.coord.handle_new_stacks_block().unwrap();
             }
 
@@ -3049,19 +3018,6 @@ pub mod test {
             }
             self.coord.handle_new_stacks_block().unwrap();
 
-            let pox_id = {
-                let ic = sortdb.index_conn();
-                let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-                sortdb_reader.get_pox_id().unwrap()
-            };
-            test_debug!(
-                "\n\n{:?}: after stacks block {:?}, tip PoX ID is {:?}\n\n",
-                &self.to_neighbor().addr,
-                &block.block_hash(),
-                &pox_id
-            );
-
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);
         }
@@ -3081,18 +3037,6 @@ pub mod test {
             }
             self.coord.handle_new_stacks_block()?;
 
-            let pox_id = {
-                let ic = sortdb.index_conn();
-                let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id)?;
-                sortdb_reader.get_pox_id()?;
-            };
-            test_debug!(
-                "\n\n{:?}: after stacks block {:?}, tip PoX ID is {:?}\n\n",
-                &self.to_neighbor().addr,
-                &block.block_hash(),
-                &pox_id
-            );
             Ok(())
         }
 
@@ -3137,20 +3081,6 @@ pub mod test {
                 }
             }
             self.coord.handle_new_stacks_block().unwrap();
-
-            let pox_id = {
-                let ic = sortdb.index_conn();
-                let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-                sortdb_reader.get_pox_id().unwrap()
-            };
-
-            test_debug!(
-                "\n\n{:?}: after stacks block {:?}, tip PoX ID is {:?}\n\n",
-                &self.to_neighbor().addr,
-                &block.block_hash(),
-                &pox_id
-            );
 
             self.sortdb = Some(sortdb);
             self.stacks_node = Some(node);

@@ -462,7 +462,6 @@ impl TestBurnchainBlock {
                 burnchain,
                 blockstack_txs,
                 None,
-                PoxId::stubbed(),
                 None,
                 0,
             )

@@ -56,7 +56,7 @@ use rand::RngCore;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
 };
 use util_lib::boot::boot_code_id;
 use vm::clarity::TransactionConnection;
@@ -857,14 +857,6 @@ fn missed_block_commits() {
             .unwrap(),
         Value::UInt(expected_height as u128),
     );
-
-    {
-        let ic = sort_db.index_handle_at_tip();
-        let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111",
-                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
-    }
 }
 
 #[test]

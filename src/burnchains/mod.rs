@@ -38,7 +38,6 @@ use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 use util_lib::db::Error as db_error;
 
-use stacks_common::types::chainstate::PoxId;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
@@ -357,7 +356,6 @@ pub enum Error {
     /// Try again error
     TrySyncAgain,
     UnknownBlock(BurnchainHeaderHash),
-    NonCanonicalPoxId(PoxId, PoxId),
     CoordinatorClosed,
 }
 
@@ -377,11 +375,6 @@ impl fmt::Display for Error {
             Error::OpError(ref e) => fmt::Display::fmt(e, f),
             Error::TrySyncAgain => write!(f, "Try synchronizing again"),
             Error::UnknownBlock(block) => write!(f, "Unknown burnchain block {}", block),
-            Error::NonCanonicalPoxId(parent, child) => write!(
-                f,
-                "{} is not a descendant of the canonical parent PoXId: {}",
-                parent, child
-            ),
             Error::CoordinatorClosed => write!(f, "ChainsCoordinator channel hung up"),
         }
     }
@@ -403,7 +396,6 @@ impl error::Error for Error {
             Error::OpError(ref e) => Some(e),
             Error::TrySyncAgain => None,
             Error::UnknownBlock(_) => None,
-            Error::NonCanonicalPoxId(_, _) => None,
             Error::CoordinatorClosed => None,
         }
     }
