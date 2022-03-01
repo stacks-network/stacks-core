@@ -31,7 +31,6 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use std::{cmp, error};
 
-use regex::Regex;
 use rusqlite::{
     types::{FromSql, ToSql},
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
@@ -48,7 +47,7 @@ use chainstate::stacks::index::node::{
 };
 use chainstate::stacks::index::Error;
 use chainstate::stacks::index::TrieLeaf;
-use chainstate::stacks::index::{trie_sql, BlockMap, ClarityMarfTrieId, MarfTrieId};
+use chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, MarfTrieId};
 use util_lib::db::sql_pragma;
 use util_lib::db::sqlite_open;
 use util_lib::db::tx_begin_immediate;
@@ -71,6 +70,9 @@ pub struct TrieCacheState<T: MarfTrieId> {
     /// never evicted, since the size of this map grows only at the rate of new Stacks blocks.
     block_hash_cache: HashMap<u32, T>,
 
+    /// Mapping between trie blob hashes and their IDs
+    block_id_cache: HashMap<T, u32>,
+
     /// cached nodes
     node_cache: HashMap<TrieNodeAddr, TrieNodeType>,
     /// cached trie root hashes
@@ -81,6 +83,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     pub fn new() -> TrieCacheState<T> {
         TrieCacheState {
             block_hash_cache: HashMap::new(),
+            block_id_cache: HashMap::new(),
             node_cache: HashMap::new(),
             hash_cache: HashMap::new(),
         }
@@ -127,11 +130,23 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     }
 
     pub fn store_block_hash(&mut self, block_id: u32, block_hash: T) {
+        assert!(!self.block_hash_cache.contains_key(&block_id));
+        self.block_id_cache.insert(block_hash.clone(), block_id);
         self.block_hash_cache.insert(block_id, block_hash);
     }
 
     pub fn ref_block_hash(&self, block_id: u32) -> Option<&T> {
         self.block_hash_cache.get(&block_id)
+    }
+
+    pub fn load_block_id(&self, block_hash: &T) -> Option<u32> {
+        self.block_id_cache.get(block_hash).map(|id| *id)
+    }
+
+    pub fn store_block_id(&mut self, block_hash: T, block_id: u32) {
+        assert!(!self.block_id_cache.contains_key(&block_hash));
+        self.block_id_cache.insert(block_hash.clone(), block_id);
+        self.block_hash_cache.insert(block_id, block_hash);
     }
 }
 
@@ -270,6 +285,22 @@ impl<T: MarfTrieId> TrieCache<T> {
             TrieCache::Node256(ref state) => state.ref_block_hash(block_id),
         }
     }
+
+    pub fn load_block_id(&self, block_hash: &T) -> Option<u32> {
+        match self {
+            TrieCache::Noop(ref state) => state.load_block_id(block_hash),
+            TrieCache::Everything(ref state) => state.load_block_id(block_hash),
+            TrieCache::Node256(ref state) => state.load_block_id(block_hash),
+        }
+    }
+
+    pub fn store_block_id(&mut self, block_hash: T, block_id: u32) {
+        match self {
+            TrieCache::Noop(ref mut state) => state.store_block_id(block_hash, block_id),
+            TrieCache::Everything(ref mut state) => state.store_block_id(block_hash, block_id),
+            TrieCache::Node256(ref mut state) => state.store_block_id(block_hash, block_id),
+        }
+    }
 }
 
 /// Fine-grained benchmarking data for Trie storage ops
@@ -307,10 +338,6 @@ pub struct TrieBenchmark {
     read_nodetype_start_time: SystemTime,
     read_node_hash_start_time: SystemTime,
     open_block_start_time: SystemTime,
-    write_children_hashes_start_time: SystemTime,
-    write_children_hashes_empty_start_time: SystemTime,
-    write_children_hashes_same_block_start_time: SystemTime,
-    write_children_hashes_ancestor_block_start_time: SystemTime,
     get_block_hash_caching_start_time: SystemTime,
     marf_walk_from_start_time: SystemTime,
     marf_walk_backptr_start_time: SystemTime,
@@ -354,10 +381,6 @@ impl TrieBenchmark {
             read_nodetype_start_time: SystemTime::now(),
             read_node_hash_start_time: SystemTime::now(),
             open_block_start_time: SystemTime::now(),
-            write_children_hashes_start_time: SystemTime::now(),
-            write_children_hashes_empty_start_time: SystemTime::now(),
-            write_children_hashes_same_block_start_time: SystemTime::now(),
-            write_children_hashes_ancestor_block_start_time: SystemTime::now(),
             get_block_hash_caching_start_time: SystemTime::now(),
             marf_walk_from_start_time: SystemTime::now(),
             marf_walk_backptr_start_time: SystemTime::now(),
@@ -476,12 +499,12 @@ impl TrieBenchmark {
         }
     }
 
-    pub fn write_children_hashes_start(&mut self) {
-        self.write_children_hashes_start_time = SystemTime::now();
+    pub fn write_children_hashes_start(&mut self) -> SystemTime {
+        SystemTime::now()
     }
 
-    pub fn write_children_hashes_finish(&mut self, in_ram: bool) {
-        if let Ok(elapsed) = self.write_children_hashes_start_time.elapsed() {
+    pub fn write_children_hashes_finish(&mut self, start_time: SystemTime, in_ram: bool) {
+        if let Ok(elapsed) = start_time.elapsed() {
             let total_time = elapsed.as_nanos();
 
             self.total_write_children_hashes += 1;
@@ -494,12 +517,12 @@ impl TrieBenchmark {
         }
     }
 
-    pub fn write_children_hashes_empty_start(&mut self) {
-        self.write_children_hashes_empty_start_time = SystemTime::now();
+    pub fn write_children_hashes_empty_start(&mut self) -> SystemTime {
+        SystemTime::now()
     }
 
-    pub fn write_children_hashes_empty_finish(&mut self) {
-        if let Ok(elapsed) = self.write_children_hashes_empty_start_time.elapsed() {
+    pub fn write_children_hashes_empty_finish(&mut self, start_time: SystemTime) {
+        if let Ok(elapsed) = start_time.elapsed() {
             let total_time = elapsed.as_nanos();
 
             self.total_write_children_hashes_empty += 1;
@@ -509,12 +532,16 @@ impl TrieBenchmark {
         }
     }
 
-    pub fn write_children_hashes_same_block_start(&mut self) {
-        self.write_children_hashes_same_block_start_time = SystemTime::now();
+    pub fn write_children_hashes_same_block_start(&mut self) -> SystemTime {
+        SystemTime::now()
     }
 
-    pub fn write_children_hashes_same_block_finish(&mut self, cache_hit: bool) {
-        if let Ok(elapsed) = self.write_children_hashes_same_block_start_time.elapsed() {
+    pub fn write_children_hashes_same_block_finish(
+        &mut self,
+        start_time: SystemTime,
+        cache_hit: bool,
+    ) {
+        if let Ok(elapsed) = start_time.elapsed() {
             let total_time = elapsed.as_nanos();
 
             self.total_write_children_hashes_same_block += 1;
@@ -528,15 +555,16 @@ impl TrieBenchmark {
         }
     }
 
-    pub fn write_children_hashes_ancestor_block_start(&mut self) {
-        self.write_children_hashes_ancestor_block_start_time = SystemTime::now();
+    pub fn write_children_hashes_ancestor_block_start(&mut self) -> SystemTime {
+        SystemTime::now()
     }
 
-    pub fn write_children_hashes_ancestor_block_finish(&mut self, cache_hit: bool) {
-        if let Ok(elapsed) = self
-            .write_children_hashes_ancestor_block_start_time
-            .elapsed()
-        {
+    pub fn write_children_hashes_ancestor_block_finish(
+        &mut self,
+        start_time: SystemTime,
+        cache_hit: bool,
+    ) {
+        if let Ok(elapsed) = start_time.elapsed() {
             let total_time = elapsed.as_nanos();
 
             self.total_write_children_hashes_ancestor_block += 1;
@@ -697,7 +725,7 @@ pub mod test {
             test_file
         };
 
-        let marf_opts = MARFOpenOpts::new(hash_strategy, cache_strategy);
+        let marf_opts = MARFOpenOpts::new(hash_strategy, cache_strategy, true);
         let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
         let mut marf = MARF::from_storage(f);
         let mut last_block_header = BlockHeaderHash::sentinel();
@@ -888,9 +916,21 @@ pub mod test {
 
     #[test]
     fn test_marf_node_cache_ram_noop_deferred() {
-        let test_data = make_test_insert_data(16384, 256);
+        let test_data = make_test_insert_data(16384, 32);
         test_marf_with_cache(
             ":memory:",
+            "noop",
+            TrieHashCalculationMode::Deferred,
+            &test_data,
+            None,
+        );
+    }
+
+    #[test]
+    fn test_marf_node_cache_big_noop_deferred() {
+        let test_data = make_test_insert_data(16384, 32);
+        test_marf_with_cache(
+            "test_marf_node_cache_big_noop_deferred",
             "noop",
             TrieHashCalculationMode::Deferred,
             &test_data,
