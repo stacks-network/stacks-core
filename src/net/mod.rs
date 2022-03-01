@@ -59,7 +59,7 @@ use codec::Error as codec_error;
 use codec::StacksMessageCodec;
 use codec::{read_next, write_next};
 use core::mempool::*;
-use core::POX_REWARD_CYCLE_LENGTH;
+use core::BLOCK_INVENTORY_SYNC_CYCLE_SIZE;
 use net::atlas::{Attachment, AttachmentInstance};
 use util::get_epoch_time_secs;
 use util::hash::Hash160;

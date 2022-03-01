@@ -296,12 +296,12 @@ impl PoxConstants {
     }
 
     pub fn mainnet_default() -> PoxConstants {
-        PoxConstants::new(POX_REWARD_CYCLE_LENGTH)
+        PoxConstants::new(BLOCK_INVENTORY_SYNC_CYCLE_SIZE)
     }
 
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
-            POX_REWARD_CYCLE_LENGTH / 2, // 1050
+            BLOCK_INVENTORY_SYNC_CYCLE_SIZE / 2,
         )
     }
 
