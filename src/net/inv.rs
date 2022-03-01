@@ -455,38 +455,6 @@ impl PeerBlocksInv {
         total
     }
 
-    /// Determine the lowest reward cycle that this pox inv disagrees with a given pox id
-    /// Returns (disagreed reward cycle, my-inv-bit, poxid-inv-bit)
-    /// If one is longer than the other, there will be disagreement
-    pub fn pox_inv_cmp(&self, pox_id: &PoxId) -> Option<(u64, bool, bool)> {
-        let min = cmp::min((pox_id.len() as u64) - 1, self.num_reward_cycles);
-        for i in 0..min {
-            let my_bit = self.has_ith_anchor_block(i);
-            let pox_bit = pox_id.has_ith_anchor_block(i as usize);
-            if my_bit != pox_bit {
-                return Some((i, my_bit, pox_bit));
-            }
-        }
-        if (pox_id.len() as u64) - 1 == self.num_reward_cycles {
-            // all agreed
-            None
-        } else if (pox_id.len() as u64) - 1 < self.num_reward_cycles {
-            // pox inv is longer
-            Some((
-                (pox_id.len() as u64) - 1,
-                self.has_ith_anchor_block((pox_id.len() as u64) - 1),
-                false,
-            ))
-        } else {
-            // our inv is longer
-            Some((
-                self.num_reward_cycles,
-                false,
-                pox_id.has_ith_anchor_block(self.num_reward_cycles as usize),
-            ))
-        }
-    }
-
     /// What's the block height represented here?
     pub fn get_block_height(&self) -> u64 {
         self.first_block_height + self.num_sortitions
@@ -1509,8 +1477,10 @@ impl PeerNetwork {
     }
 
     /// Determine how many blocks to ask for in a GetBlocksInv request to a given neighbor.
-    /// Possibly ask for no blocks -- for example, the neighbor may not have sync'ed the burnchain,
-    /// or may not agree on our PoX view.
+    /// Possibly ask for no blocks -- for example, the neighbor may not have sync'ed the burnchain.
+    ///
+    /// Unlike the mainchain function of the same name, here, there is no notion of "disagreeing"
+    /// about the PoX history, because there is no PoX in the subnet.
     fn get_getblocksinv_num_blocks(
         &self,
         sortdb: &SortitionDB,
@@ -1527,18 +1497,6 @@ impl PeerNetwork {
                 self.pox_id.num_inventory_reward_cycles()
             );
             return Ok(0);
-        }
-
-        // does the peer agree with our PoX view up to this reward cycle?
-        match stats.inv.pox_inv_cmp(&self.pox_id) {
-            Some((disagreed, _, _)) => {
-                if disagreed < target_block_reward_cycle {
-                    // can't proceed
-                    debug!("{:?}: remote neighbor {:?} disagrees with our PoX inventory at reward cycle {} (asked for {})", &self.local_peer, nk, disagreed, target_block_reward_cycle);
-                    return Ok(0);
-                }
-            }
-            None => {}
         }
 
         let target_block_height = self
