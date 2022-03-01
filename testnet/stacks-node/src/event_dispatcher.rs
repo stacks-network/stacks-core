@@ -146,6 +146,10 @@ impl EventObserver {
 
             if let Some(response) = response {
                 if response.status().is_success() {
+                    debug!(
+                        "Event dispatcher: Successful POST {}/{}",
+                        self.endpoint, &url
+                    );
                     break;
                 } else {
                     error!(
