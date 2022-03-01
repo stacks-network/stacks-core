@@ -20,7 +20,7 @@ use std::io::prelude::*;
 use std::io::{Read, Write};
 
 use sha2::Digest;
-use sha2::Sha512Trunc256;
+use sha2::Sha512_256;
 
 use crate::codec::MAX_MESSAGE_LEN;
 use crate::types::StacksPublicKeyBuffer;
@@ -628,10 +628,10 @@ impl StacksMicroblockHeader {
             .expect("BUG: failed to serialize to a vec");
 
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
-        sha2.input(&bytes[..]);
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        sha2.update(&bytes[..]);
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let sig = privk
             .sign(&digest_bits)
@@ -656,11 +656,11 @@ impl StacksMicroblockHeader {
 
     pub fn check_recover_pubkey(&self) -> Result<Hash160, net_error> {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
         self.serialize(&mut sha2, true)
             .expect("BUG: failed to serialize to a vec");
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let mut pubk =
             StacksPublicKey::recover_to_pubkey(&digest_bits, &self.signature).map_err(|_ve| {

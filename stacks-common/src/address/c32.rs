@@ -146,12 +146,12 @@ fn double_sha256_checksum(data: &[u8]) -> Vec<u8> {
     let mut tmp = [0u8; 32];
     let mut tmp_2 = [0u8; 32];
 
-    sha2.input(data);
-    tmp.copy_from_slice(sha2.result().as_slice());
+    sha2.update(data);
+    tmp.copy_from_slice(sha2.finalize().as_slice());
 
     let mut sha2_2 = Sha256::new();
-    sha2_2.input(&tmp);
-    tmp_2.copy_from_slice(sha2_2.result().as_slice());
+    sha2_2.update(&tmp);
+    tmp_2.copy_from_slice(sha2_2.finalize().as_slice());
 
     tmp_2[0..4].to_vec()
 }
