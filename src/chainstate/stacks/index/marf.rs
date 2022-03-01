@@ -73,6 +73,7 @@ struct WriteChainTip<T> {
 pub struct MARFOpenOpts {
     pub hash_calculation_mode: TrieHashCalculationMode,
     pub cache_strategy: String,
+    pub external_blobs: bool,
 }
 
 impl MARFOpenOpts {
@@ -80,28 +81,33 @@ impl MARFOpenOpts {
         MARFOpenOpts {
             hash_calculation_mode: TrieHashCalculationMode::Deferred,
             cache_strategy: "noop".to_string(),
+            external_blobs: false,
         }
     }
 
     pub fn new(
         hash_calculation_mode: TrieHashCalculationMode,
         cache_strategy: &str,
+        external_blobs: bool,
     ) -> MARFOpenOpts {
         MARFOpenOpts {
             hash_calculation_mode,
             cache_strategy: cache_strategy.to_string(),
+            external_blobs,
         }
     }
 
     #[cfg(test)]
     pub fn all() -> Vec<MARFOpenOpts> {
         vec![
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop"),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop"),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything"),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything"),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "node256"),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "node256"),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", true),
         ]
     }
 }
