@@ -67,6 +67,7 @@ use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::{BlockHeaderHash, SortitionId};
 use chainstate::burn::ConsensusHashExtensions;
+use core::BLOCK_INVENTORY_SYNC_CYCLE_SIZE;
 
 /// This module is responsible for synchronizing block inventories with other peers
 #[cfg(not(test))]
@@ -1220,8 +1221,10 @@ impl PeerNetwork {
         }
     }
 
+    /// Returns the number of full inventory sync cycles we know about up to this tip height.
     pub fn num_inventory_reward_cycles(&self) -> u64 {
-        panic!("implement")
+        let tip_block_height = self.burnchain_tip.block_height;
+        tip_block_height / BLOCK_INVENTORY_SYNC_CYCLE_SIZE as u64
     }
 
     /// Try to make a GetPoxInv request for the target reward cycle for this peer.

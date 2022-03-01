@@ -300,9 +300,7 @@ impl PoxConstants {
     }
 
     pub fn testnet_default() -> PoxConstants {
-        PoxConstants::new(
-            BLOCK_INVENTORY_SYNC_CYCLE_SIZE / 2,
-        )
+        PoxConstants::new(BLOCK_INVENTORY_SYNC_CYCLE_SIZE / 2)
     }
 
     pub fn regtest_default() -> PoxConstants {
