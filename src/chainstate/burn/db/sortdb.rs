@@ -2183,7 +2183,7 @@ impl SortitionDB {
             .sortition_hash
             .mix_burn_header(&parent_snapshot.burn_header_hash);
 
-        let reward_set_info = None ;
+        let reward_set_info = None;
 
         // Get any initial mining bonus which would be due to the winner of this block.
         let bonus_remaining =

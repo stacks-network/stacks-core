@@ -427,8 +427,7 @@ pub mod test {
         peer_config.epochs = epochs;
         peer_config.setup_code = format!(
             "(contract-call? .pox set-burnchain-parameters u{} u{} u{} u{})",
-            burnchain.first_block_height,
-            0,0,0
+            burnchain.first_block_height, 0, 0, 0
         );
 
         test_debug!("Setup code: '{}'", &peer_config.setup_code);

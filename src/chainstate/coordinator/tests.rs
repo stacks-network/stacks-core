@@ -339,8 +339,7 @@ fn make_reward_set_coordinator<'a>(
 
 pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain {
     let mut b = Burnchain::regtest(&format!("{}/burnchain/db/", path));
-    b.pox_constants =
-        pox_consts.unwrap_or_else(|| PoxConstants::new(5));
+    b.pox_constants = pox_consts.unwrap_or_else(|| PoxConstants::new(5));
     b
 }
 
@@ -715,11 +714,7 @@ fn missed_block_commits() {
                 last_input.as_ref().unwrap().clone(),
             );
             // NOTE: intended for block block_height - 2
-            last_input = Some((
-                bad_op.txid(),
-                    (OUTPUTS_PER_COMMIT as u32) + 1
-                ,
-            ));
+            last_input = Some((bad_op.txid(), (OUTPUTS_PER_COMMIT as u32) + 1));
             bad_op.set_block_height(next_mock_header.block_height);
             test_debug!(
                 "bad_op meant for block {}: {:?}",
@@ -775,11 +770,7 @@ fn missed_block_commits() {
             );
         } else {
             // produce a block with one good op,
-            last_input = Some((
-                    expected_winner,
-                    (OUTPUTS_PER_COMMIT as u32) + 1
-                ,
-            ));
+            last_input = Some((expected_winner, (OUTPUTS_PER_COMMIT as u32) + 1));
             produce_burn_block_do_not_set_height(
                 &mut burnchain,
                 &burnchain_tip.block_hash,

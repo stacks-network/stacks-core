@@ -395,7 +395,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     sort_db: &SortitionDB,
     provider: &U,
 ) -> Result<Option<RewardCycleInfo>, Error> {
-        Ok(None)
+    Ok(None)
 }
 
 struct PaidRewards {

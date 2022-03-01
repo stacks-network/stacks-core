@@ -205,7 +205,6 @@ impl Burnchain {
         self.network_id == NETWORK_ID_MAINNET
     }
 
-
     pub fn is_reward_cycle_start(&self, burn_height: u64) -> bool {
         let effective_height = burn_height - self.first_block_height;
         // first block of the new reward cycle

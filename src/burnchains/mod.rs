@@ -286,9 +286,7 @@ pub struct PoxConstants {
 }
 
 impl PoxConstants {
-    pub fn new(
-        reward_cycle_length: u32,
-    ) -> PoxConstants {
+    pub fn new(reward_cycle_length: u32) -> PoxConstants {
         PoxConstants {
             reward_cycle_length,
         }
@@ -299,21 +297,17 @@ impl PoxConstants {
     }
 
     pub fn mainnet_default() -> PoxConstants {
-        PoxConstants::new(
-            POX_REWARD_CYCLE_LENGTH,
-        )
+        PoxConstants::new(POX_REWARD_CYCLE_LENGTH)
     }
 
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
-            POX_REWARD_CYCLE_LENGTH / 2,   // 1050
+            POX_REWARD_CYCLE_LENGTH / 2, // 1050
         )
     }
 
     pub fn regtest_default() -> PoxConstants {
-        PoxConstants::new(
-            5,
-        )
+        PoxConstants::new(5)
     }
 }
 
