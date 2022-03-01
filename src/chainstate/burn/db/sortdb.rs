@@ -30,7 +30,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
-use sha2::{Digest, Sha512Trunc256};
+use sha2::{Digest, Sha512_256};
 use vm::costs::ExecutionCost;
 
 use address::AddressHashMode;

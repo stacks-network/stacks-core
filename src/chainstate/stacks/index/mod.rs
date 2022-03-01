@@ -22,7 +22,7 @@ use std::io::{Seek, SeekFrom};
 use std::ptr;
 
 use sha2::Digest;
-use sha2::Sha512Trunc256 as TrieHasher;
+use sha2::Sha512_256 as TrieHasher;
 
 use util::hash::to_hex;
 use util::log;
@@ -177,8 +177,8 @@ impl TrieHashExtension for TrieHash {
         let mut tmp = [0u8; 32];
 
         let mut hasher = TrieHasher::new();
-        hasher.input(data);
-        tmp.copy_from_slice(hasher.result().as_slice());
+        hasher.update(data);
+        tmp.copy_from_slice(hasher.finalize().as_slice());
 
         TrieHash(tmp)
     }
@@ -193,9 +193,9 @@ impl TrieHashExtension for TrieHash {
         let mut hasher = TrieHasher::new();
 
         for item in data.iter() {
-            hasher.input(item);
+            hasher.update(item);
         }
-        tmp.copy_from_slice(hasher.result().as_slice());
+        tmp.copy_from_slice(hasher.finalize().as_slice());
         TrieHash(tmp)
     }
 
@@ -288,8 +288,8 @@ impl MARFValue {
         let mut tmp = [0u8; 32];
 
         let mut hasher = TrieHasher::new();
-        hasher.input(s.as_bytes());
-        tmp.copy_from_slice(hasher.result().as_slice());
+        hasher.update(s.as_bytes());
+        tmp.copy_from_slice(hasher.finalize().as_slice());
 
         MARFValue::from_value_hash_bytes(&tmp)
     }

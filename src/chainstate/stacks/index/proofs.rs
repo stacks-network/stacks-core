@@ -26,7 +26,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
 use sha2::Digest;
-use sha2::Sha512Trunc256 as TrieHasher;
+use sha2::Sha512_256 as TrieHasher;
 
 use chainstate::stacks::index::bits::{
     get_leaf_hash, get_node_hash, read_root_hash, write_path_to_bytes,
