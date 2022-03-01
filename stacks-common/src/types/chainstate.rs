@@ -73,13 +73,11 @@ impl_byte_array_newtype!(VRFSeed, u8, 32);
 impl_byte_array_serde!(VRFSeed);
 pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
 
-/// Identifier used to identify Proof-of-Transfer forks
-///  (or Rewards Cycle forks). These identifiers are opaque
-///  outside of the PoX DB, however, they are sufficient
-///  to uniquely identify a "sortition" when paired with
-///  a burn header hash
-// TODO: Vec<bool> is an aggressively unoptimized implementation,
-//       replace with a real bitvec
+/// PoxId represents the number of sync cycles that have passed.
+///
+/// This class exists for historical reasons, to minimize code distance from the `PoxId` in the
+/// stacks main network, while simplifying as much as possible, since Proof of Transfer is not
+/// relevant in the subnets. Thus, we require all bool's to be `true`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PoxId(Vec<bool>);
 
@@ -111,14 +109,14 @@ impl PoxId {
     }
 
     pub fn from_bools(bools: Vec<bool>) -> PoxId {
+        for bool_value in &bools {
+            assert!(bool_value, "All boolean's must be true.")
+        }
         PoxId(bools)
     }
 
     pub fn extend_with_present_block(&mut self) {
         self.0.push(true);
-    }
-    pub fn extend_with_not_present_block(&mut self) {
-        self.0.push(false);
     }
 
     pub fn stubbed() -> PoxId {
@@ -135,27 +133,6 @@ impl PoxId {
 
     pub fn len(&self) -> usize {
         self.0.len()
-    }
-
-    pub fn bit_slice(&self, start: usize, len: usize) -> (Vec<u8>, u64) {
-        let mut ret = vec![0x00];
-        let mut count = 0;
-        for bit in start..(start + len) {
-            if bit >= self.len() {
-                break;
-            }
-            let i = bit - start;
-            if i > 0 && i % 8 == 0 {
-                ret.push(0x00);
-            }
-
-            let sz = ret.len() - 1;
-            if self.0[bit] {
-                ret[sz] |= 1 << (i % 8);
-            }
-            count += 1;
-        }
-        (ret, count)
     }
 
     pub fn num_inventory_reward_cycles(&self) -> usize {
