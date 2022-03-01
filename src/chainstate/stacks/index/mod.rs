@@ -36,6 +36,7 @@ use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 pub mod bits;
 pub mod cache;
+pub mod file;
 pub mod marf;
 pub mod node;
 pub mod proofs;
@@ -95,6 +96,9 @@ pub trait MarfTrieId:
     + rusqlite::types::FromSql
     + crate::codec::StacksMessageCodec
     + std::convert::From<MARFValue>
+    + PartialEq
+    + Eq
+    + Hash
 {
 }
 
@@ -417,6 +421,8 @@ pub trait BlockMap {
     fn get_block_hash(&self, id: u32) -> Result<Self::TrieId, Error>;
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&Self::TrieId, Error>;
     fn is_block_hash_cached(&self, id: u32) -> bool;
+    fn get_block_id(&self, bhh: &Self::TrieId) -> Result<u32, Error>;
+    fn get_block_id_caching(&mut self, bhh: &Self::TrieId) -> Result<u32, Error>;
 }
 
 #[cfg(test)]
@@ -430,6 +436,12 @@ impl BlockMap for () {
     }
     fn is_block_hash_cached(&self, _id: u32) -> bool {
         false
+    }
+    fn get_block_id(&self, _bhh: &BlockHeaderHash) -> Result<u32, Error> {
+        Err(Error::NotFoundError)
+    }
+    fn get_block_id_caching(&mut self, _bhh: &BlockHeaderHash) -> Result<u32, Error> {
+        Err(Error::NotFoundError)
     }
 }
 
