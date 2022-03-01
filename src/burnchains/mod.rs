@@ -283,102 +283,36 @@ pub struct Burnchain {
 pub struct PoxConstants {
     /// the length (in burn blocks) of the reward cycle
     pub reward_cycle_length: u32,
-    /// the length (in burn blocks) of the prepare phase
-    pub prepare_length: u32,
-    /// the number of confirmations a PoX anchor block must
-    ///  receive in order to become the anchor. must be at least > prepare_length/2
-    pub anchor_threshold: u32,
-    /// fraction of liquid STX that must vote to reject PoX for
-    /// it to revert to PoB in the next reward cycle
-    pub pox_rejection_fraction: u64,
-    /// percentage of liquid STX that must participate for PoX
-    ///  to occur
-    pub pox_participation_threshold_pct: u64,
-    /// last+1 block height of sunset phase
-    pub sunset_end: u64,
-    /// first block height of sunset phase
-    pub sunset_start: u64,
-    _shadow: PhantomData<()>,
 }
 
 impl PoxConstants {
     pub fn new(
         reward_cycle_length: u32,
-        prepare_length: u32,
-        anchor_threshold: u32,
-        pox_rejection_fraction: u64,
-        pox_participation_threshold_pct: u64,
-        sunset_start: u64,
-        sunset_end: u64,
     ) -> PoxConstants {
-        assert!(anchor_threshold > (prepare_length / 2));
-        assert!(prepare_length < reward_cycle_length);
-        assert!(sunset_start <= sunset_end);
-
         PoxConstants {
             reward_cycle_length,
-            prepare_length,
-            anchor_threshold,
-            pox_rejection_fraction,
-            pox_participation_threshold_pct,
-            sunset_start,
-            sunset_end,
-            _shadow: PhantomData,
         }
     }
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
-        // 20 reward slots; 10 prepare-phase slots
-        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000)
-    }
-
-    pub fn reward_slots(&self) -> u32 {
-        (self.reward_cycle_length - self.prepare_length) * (OUTPUTS_PER_COMMIT as u32)
-    }
-
-    /// is participating_ustx enough to engage in PoX in the next reward cycle?
-    pub fn enough_participation(&self, participating_ustx: u128, liquid_ustx: u128) -> bool {
-        participating_ustx
-            .checked_mul(100)
-            .expect("OVERFLOW: uSTX overflowed u128")
-            > liquid_ustx
-                .checked_mul(self.pox_participation_threshold_pct as u128)
-                .expect("OVERFLOW: uSTX overflowed u128")
+        PoxConstants::new(10)
     }
 
     pub fn mainnet_default() -> PoxConstants {
         PoxConstants::new(
             POX_REWARD_CYCLE_LENGTH,
-            POX_PREPARE_WINDOW_LENGTH,
-            80,
-            25,
-            5,
-            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
-            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
         )
     }
 
     pub fn testnet_default() -> PoxConstants {
         PoxConstants::new(
             POX_REWARD_CYCLE_LENGTH / 2,   // 1050
-            POX_PREPARE_WINDOW_LENGTH / 2, // 50
-            40,
-            12,
-            2,
-            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
-            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
-        ) // total liquid supply is 40000000000000000 µSTX
+        )
     }
 
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(
             5,
-            1,
-            1,
-            3333333333333333,
-            1,
-            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
-            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
         )
     }
 }
