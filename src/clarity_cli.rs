@@ -772,9 +772,9 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
 
     let params = vec![
         SymbolicExpression::atom_value(Value::UInt(0)), // first burnchain block height
-        SymbolicExpression::atom_value(Value::UInt(pox_params.prepare_length as u128)),
-        SymbolicExpression::atom_value(Value::UInt(pox_params.reward_cycle_length as u128)),
-        SymbolicExpression::atom_value(Value::UInt(pox_params.pox_rejection_fraction as u128)),
+        SymbolicExpression::atom_value(Value::UInt(0u128)),
+        SymbolicExpression::atom_value(Value::UInt(0u128)),
+        SymbolicExpression::atom_value(Value::UInt(0u128)),
     ];
 
     let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);

@@ -239,9 +239,9 @@ pub fn setup_states(
                     "set-burnchain-parameters",
                     &[
                         Value::UInt(burnchain.first_block_height as u128),
-                        Value::UInt(burnchain.pox_constants.prepare_length as u128),
-                        Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
-                        Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
+                        Value::UInt(0u128),
+                        Value::UInt(0u128),
+                        Value::UInt(0u128),
                     ],
                     |_, _| false,
                 )
@@ -340,7 +340,7 @@ fn make_reward_set_coordinator<'a>(
 pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain {
     let mut b = Burnchain::regtest(&format!("{}/burnchain/db/", path));
     b.pox_constants =
-        pox_consts.unwrap_or_else(|| PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX));
+        pox_consts.unwrap_or_else(|| PoxConstants::new(5));
     b
 }
 
@@ -441,20 +441,6 @@ fn make_genesis_block_with_recipients(
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
-
-    let commit_outs = if let Some(recipients) = recipients {
-        let mut commit_outs = recipients
-            .recipients
-            .iter()
-            .map(|(a, _)| a.clone())
-            .collect::<Vec<StacksAddress>>();
-        if commit_outs.len() == 1 {
-            commit_outs.push(StacksAddress::burn_address(false))
-        }
-        commit_outs
-    } else {
-        vec![]
-    };
 
     let commit_op = LeaderBlockCommitOp {
         block_header_hash: block.block_hash(),
@@ -631,24 +617,6 @@ fn make_stacks_block_with_input(
     let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
 
-    let commit_outs = if let Some(recipients) = recipients {
-        let mut commit_outs = recipients
-            .recipients
-            .iter()
-            .map(|(a, _)| a.clone())
-            .collect::<Vec<StacksAddress>>();
-        if commit_outs.len() == 1 {
-            // Padding with burn address if required
-            commit_outs.push(StacksAddress::burn_address(false))
-        }
-        commit_outs
-    } else if post_sunset_burn || burnchain.is_in_prepare_phase(parent_height + 1) {
-        test_debug!("block-commit in {} will burn", parent_height + 1);
-        vec![StacksAddress::burn_address(false)]
-    } else {
-        vec![]
-    };
-
     let commit_op = LeaderBlockCommitOp {
         block_header_hash: block.block_hash(),
         txid: next_txid(),
@@ -664,7 +632,7 @@ fn missed_block_commits() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, 7010, sunset_ht));
+    let pox_consts = Some(PoxConstants::new(5));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
@@ -749,11 +717,8 @@ fn missed_block_commits() {
             // NOTE: intended for block block_height - 2
             last_input = Some((
                 bad_op.txid(),
-                if b.is_in_prepare_phase(next_mock_header.block_height - 2 + 1) {
-                    2
-                } else {
                     (OUTPUTS_PER_COMMIT as u32) + 1
-                },
+                ,
             ));
             bad_op.set_block_height(next_mock_header.block_height);
             test_debug!(
@@ -811,12 +776,9 @@ fn missed_block_commits() {
         } else {
             // produce a block with one good op,
             last_input = Some((
-                expected_winner,
-                if b.is_in_prepare_phase(next_mock_header.block_height) {
-                    2
-                } else {
+                    expected_winner,
                     (OUTPUTS_PER_COMMIT as u32) + 1
-                },
+                ,
             ));
             produce_burn_block_do_not_set_height(
                 &mut burnchain,

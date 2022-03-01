@@ -2183,16 +2183,7 @@ impl SortitionDB {
             .sortition_hash
             .mix_burn_header(&parent_snapshot.burn_header_hash);
 
-        let reward_set_info = if burn_header.block_height >= burnchain.pox_constants.sunset_end {
-            None
-        } else {
-            sortition_db_handle.pick_recipients(
-                burnchain,
-                burn_header.block_height,
-                &reward_set_vrf_hash,
-                next_pox_info.as_ref(),
-            )?
-        };
+        let reward_set_info = None ;
 
         // Get any initial mining bonus which would be due to the winner of this block.
         let bonus_remaining =
@@ -2235,28 +2226,15 @@ impl SortitionDB {
         self.get_next_block_recipients(burnchain, &parent_snapshot, next_pox_info)
     }
 
+    /// There are never any block recipients. This comes from mainchain code.
+    /// TODO: Delete this function once baseline subnet system is stable.
     pub fn get_next_block_recipients(
         &mut self,
         burnchain: &Burnchain,
         parent_snapshot: &BlockSnapshot,
         next_pox_info: Option<&RewardCycleInfo>,
     ) -> Result<Option<RewardSetInfo>, BurnchainError> {
-        let reward_set_vrf_hash = parent_snapshot
-            .sortition_hash
-            .mix_burn_header(&parent_snapshot.burn_header_hash);
-
-        let mut sortition_db_handle =
-            SortitionHandleTx::begin(self, &parent_snapshot.sortition_id)?;
-        if parent_snapshot.block_height + 1 >= burnchain.pox_constants.sunset_end {
-            Ok(None)
-        } else {
-            sortition_db_handle.pick_recipients(
-                burnchain,
-                parent_snapshot.block_height + 1,
-                &reward_set_vrf_hash,
-                next_pox_info,
-            )
-        }
+        Ok(None)
     }
 
     pub fn is_stacks_block_in_sortition_set(

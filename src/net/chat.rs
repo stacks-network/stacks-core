@@ -1492,120 +1492,6 @@ impl ConversationP2P {
         self.sign_and_reply(local_peer, burnchain_view, preamble, response)
     }
 
-    /// Create a response an inbound GetPoxInv request, but unsigned.
-    /// Returns a reply handle to the generated message (possibly a nack)
-    pub fn make_getpoxinv_response(
-        local_peer: &LocalPeer,
-        burnchain: &Burnchain,
-        sortdb: &SortitionDB,
-        pox_id: &PoxId,
-        getpoxinv: &GetPoxInv,
-    ) -> Result<StacksMessageType, net_error> {
-        if pox_id.len() <= 1 {
-            // not initialized yet
-            debug!("{:?}: PoX not initialized yet", local_peer);
-            return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::InvalidPoxFork,
-            )));
-        }
-        // consensus hash in getpoxinv must exist on the canonical chain tip
-        match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &getpoxinv.consensus_hash) {
-            Ok(Some(sn)) => {
-                if !sn.pox_valid {
-                    // invalid consensus hash
-                    test_debug!(
-                        "{:?}: Snapshot {:?} is not on a valid PoX fork",
-                        local_peer,
-                        sn.burn_header_hash
-                    );
-                    return Ok(StacksMessageType::Nack(NackData::new(
-                        NackErrorCodes::InvalidPoxFork,
-                    )));
-                }
-
-                // must align to reward cycle, or this is an invalid fork
-                if (sn.block_height - burnchain.first_block_height)
-                    % (burnchain.pox_constants.reward_cycle_length as u64)
-                    != 1
-                {
-                    test_debug!(
-                        "{:?}: block height ({} - {}) % {} != 1",
-                        local_peer,
-                        sn.block_height,
-                        burnchain.first_block_height,
-                        burnchain.pox_constants.reward_cycle_length
-                    );
-                    return Ok(StacksMessageType::Nack(NackData::new(
-                        NackErrorCodes::InvalidPoxFork,
-                    )));
-                }
-
-                match burnchain.block_height_to_reward_cycle(sn.block_height) {
-                    Some(reward_cycle) => {
-                        // take a slice of the PoxId
-                        let (bitvec, bitlen) =
-                            pox_id.bit_slice(reward_cycle as usize, getpoxinv.num_cycles as usize);
-                        assert!(bitlen <= GETPOXINV_MAX_BITLEN);
-
-                        let poxinvdata = PoxInvData {
-                            pox_bitvec: bitvec,
-                            bitlen: bitlen as u16,
-                        };
-                        debug!(
-                            "{:?}: Handle GetPoxInv at reward cycle {}; Reply {:?} to request {:?}",
-                            &local_peer, reward_cycle, &poxinvdata, getpoxinv
-                        );
-                        Ok(StacksMessageType::PoxInv(poxinvdata))
-                    }
-                    None => {
-                        // if we can't turn the block height into a reward cycle, then it's before
-                        // the first-ever reward cycle and this consensus hash does not correspond
-                        // to a real reward cycle.  NACK it.
-                        debug!(
-                            "{:?}: Consensus hash {:?} does not correspond to a real reward cycle",
-                            &local_peer, &getpoxinv.consensus_hash
-                        );
-                        Ok(StacksMessageType::Nack(NackData::new(
-                            NackErrorCodes::InvalidPoxFork,
-                        )))
-                    }
-                }
-            }
-            Ok(None) | Err(db_error::NotFoundError) => {
-                test_debug!(
-                    "{:?}: snapshot for consensus hash {} not found",
-                    local_peer,
-                    getpoxinv.consensus_hash
-                );
-                Ok(StacksMessageType::Nack(NackData::new(
-                    NackErrorCodes::InvalidPoxFork,
-                )))
-            }
-            Err(e) => Err(net_error::DBError(e)),
-        }
-    }
-
-    /// Handle an inbound GetPoxInv request.
-    /// Returns a reply handle to the generated message (possibly a nack)
-    fn handle_getpoxinv(
-        &mut self,
-        local_peer: &LocalPeer,
-        sortdb: &SortitionDB,
-        pox_id: &PoxId,
-        burnchain_view: &BurnchainView,
-        preamble: &Preamble,
-        getpoxinv: &GetPoxInv,
-    ) -> Result<ReplyHandleP2P, net_error> {
-        let response = ConversationP2P::make_getpoxinv_response(
-            local_peer,
-            &self.burnchain,
-            sortdb,
-            pox_id,
-            getpoxinv,
-        )?;
-        self.sign_and_reply(local_peer, burnchain_view, preamble, response)
-    }
-
     /// Verify that there are no cycles in our relayers list.
     /// Identify relayers by public key hash
     fn check_relayer_cycles(relayers: &Vec<RelayData>) -> bool {
@@ -1788,14 +1674,6 @@ impl ConversationP2P {
             StacksMessageType::GetNeighbors => {
                 self.handle_getneighbors(peerdb.conn(), local_peer, chain_view, &msg.preamble)
             }
-            StacksMessageType::GetPoxInv(ref getpoxinv) => self.handle_getpoxinv(
-                local_peer,
-                sortdb,
-                pox_id,
-                chain_view,
-                &msg.preamble,
-                getpoxinv,
-            ),
             StacksMessageType::GetBlocksInv(ref get_blocks_inv) => self.handle_getblocksinv(
                 local_peer,
                 sortdb,

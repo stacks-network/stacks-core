@@ -1398,9 +1398,9 @@ impl StacksChainState {
             let sender = PrincipalData::from(contract.clone());
             let params = vec![
                 Value::UInt(boot_data.first_burnchain_block_height as u128),
-                Value::UInt(pox_constants.prepare_length as u128),
-                Value::UInt(pox_constants.reward_cycle_length as u128),
-                Value::UInt(pox_constants.pox_rejection_fraction as u128),
+                Value::UInt(0u128),
+                Value::UInt(0u128),
+                Value::UInt(0u128),
             ];
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(

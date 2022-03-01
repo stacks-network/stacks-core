@@ -3086,7 +3086,7 @@ mod test {
     #[test]
     fn test_inv_merge_pox_inv() {
         let mut burnchain = Burnchain::regtest("unused");
-        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX);
+        burnchain.pox_constants = PoxConstants::new(5);
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..32 {
@@ -3104,7 +3104,7 @@ mod test {
     #[test]
     fn test_inv_truncate_pox_inv() {
         let mut burnchain = Burnchain::regtest("unused");
-        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX);
+        burnchain.pox_constants = PoxConstants::new(5);
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..5 {
@@ -3378,136 +3378,6 @@ mod test {
                 Ok(())
             })
             .unwrap();
-
-        // simulate a getpoxinv / poxinv for one reward cycle
-        let getpoxinv_request = peer_1
-            .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
-                let height = network.burnchain.reward_cycle_to_block_height(1);
-                let sn = {
-                    let ic = sortdb.index_conn();
-                    let sn = SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
-                        .unwrap()
-                        .unwrap();
-                    sn
-                };
-                let getpoxinv = GetPoxInv {
-                    consensus_hash: sn.consensus_hash,
-                    num_cycles: 1,
-                };
-                Ok(getpoxinv)
-            })
-            .unwrap();
-
-        test_debug!("\n\nSend {:?}\n\n", &getpoxinv_request);
-
-        let reply = peer_1
-            .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
-                ConversationP2P::make_getpoxinv_response(
-                    &network.local_peer,
-                    &network.burnchain,
-                    sortdb,
-                    &network.pox_id,
-                    &getpoxinv_request,
-                )
-            })
-            .unwrap();
-
-        test_debug!("\n\nReply {:?}\n\n", &reply);
-
-        match reply {
-            StacksMessageType::PoxInv(poxinv) => {
-                assert_eq!(poxinv.bitlen, 1);
-                assert_eq!(poxinv.pox_bitvec, vec![0x01]);
-            }
-            x => {
-                error!("Did not get PoxInv, but got {:?}", &x);
-                assert!(false);
-            }
-        }
-
-        // simulate a getpoxinv / poxinv for several reward cycles, including more than we have
-        // (10, but only have 7)
-        let getpoxinv_request = peer_1
-            .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
-                let height = network.burnchain.reward_cycle_to_block_height(1);
-                let sn = {
-                    let ic = sortdb.index_conn();
-                    let sn = SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
-                        .unwrap()
-                        .unwrap();
-                    sn
-                };
-                let getpoxinv = GetPoxInv {
-                    consensus_hash: sn.consensus_hash,
-                    num_cycles: 10,
-                };
-                Ok(getpoxinv)
-            })
-            .unwrap();
-
-        test_debug!("\n\nSend {:?}\n\n", &getpoxinv_request);
-
-        let reply = peer_1
-            .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
-                ConversationP2P::make_getpoxinv_response(
-                    &network.local_peer,
-                    &network.burnchain,
-                    sortdb,
-                    &network.pox_id,
-                    &getpoxinv_request,
-                )
-            })
-            .unwrap();
-
-        test_debug!("\n\nReply {:?}\n\n", &reply);
-
-        match reply {
-            StacksMessageType::PoxInv(poxinv) => {
-                assert_eq!(poxinv.bitlen, 7); // 2 reward cycles we generated, plus 5 reward cycles when booted up (1 reward cycle = 5 blocks).  1st one is free
-                assert_eq!(poxinv.pox_bitvec, vec![0x7f]);
-            }
-            x => {
-                error!("Did not get PoxInv, but got {:?}", &x);
-                assert!(false);
-            }
-        }
-
-        // ask for a PoX vector off of an unknown consensus hash
-        let getpoxinv_request = peer_1
-            .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
-                let getpoxinv = GetPoxInv {
-                    consensus_hash: ConsensusHash([0xaa; 20]),
-                    num_cycles: 10,
-                };
-                Ok(getpoxinv)
-            })
-            .unwrap();
-
-        test_debug!("\n\nSend {:?}\n\n", &getpoxinv_request);
-
-        let reply = peer_1
-            .with_network_state(|sortdb, _chainstate, network, _relayer, _mempool| {
-                ConversationP2P::make_getpoxinv_response(
-                    &network.local_peer,
-                    &network.burnchain,
-                    sortdb,
-                    &network.pox_id,
-                    &getpoxinv_request,
-                )
-            })
-            .unwrap();
-
-        test_debug!("\n\nReply {:?}\n\n", &reply);
-
-        match reply {
-            StacksMessageType::Nack(nack_data) => {
-                assert_eq!(nack_data.error_code, NackErrorCodes::InvalidPoxFork);
-            }
-            x => {
-                error!("Did not get PoxInv, but got {:?}", &x);
-                assert!(false);
-            }
-        }
 
         // ask for a getblocksinv, aligned on a reward cycle.
         let getblocksinv_request = peer_1

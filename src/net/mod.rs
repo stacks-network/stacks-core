@@ -1371,7 +1371,6 @@ pub enum TipRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
-    GetPoxInfo(HttpRequestMetadata, TipRequest),
     GetNeighbors(HttpRequestMetadata),
     GetHeaders(HttpRequestMetadata, u64, TipRequest),
     GetBlock(HttpRequestMetadata, StacksBlockId),
@@ -2356,7 +2355,7 @@ pub mod test {
                 )
                 .unwrap(),
             );
-            burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX);
+            burnchain.pox_constants = PoxConstants::new(5);
 
             let mut spending_account = TestMinerFactory::new().next_miner(
                 &burnchain,

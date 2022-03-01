@@ -208,8 +208,9 @@ pub trait RewardSetProvider {
     ) -> Result<Vec<StacksAddress>, Error>;
 }
 
+/// The reward set is always empty. This is a holdover from the mainchain reward provider.
+/// TODO: Delete this class once baseline subnet system is stable.
 pub struct OnChainRewardSetProvider();
-
 impl RewardSetProvider for OnChainRewardSetProvider {
     fn get_reward_set(
         &self,
@@ -219,40 +220,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<Vec<StacksAddress>, Error> {
-        let registered_addrs =
-            chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
-
-        let liquid_ustx = chainstate.get_liquid_ustx(block_id);
-
-        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
-            &burnchain.pox_constants,
-            &registered_addrs,
-            liquid_ustx,
-        );
-
-        if !burnchain
-            .pox_constants
-            .enough_participation(participation, liquid_ustx)
-        {
-            info!("PoX reward cycle did not have enough participation. Defaulting to burn";
-                  "burn_height" => current_burn_height,
-                  "participation" => participation,
-                  "liquid_ustx" => liquid_ustx,
-                  "registered_addrs" => registered_addrs.len());
-            return Ok(vec![]);
-        } else {
-            info!("PoX reward cycle threshold computed";
-                  "burn_height" => current_burn_height,
-                  "threshold" => threshold,
-                  "participation" => participation,
-                  "liquid_ustx" => liquid_ustx,
-                  "registered_addrs" => registered_addrs.len());
-        }
-
-        Ok(StacksChainState::make_reward_set(
-            threshold,
-            registered_addrs,
-        ))
+        Ok(vec![])
     }
 }
 
@@ -427,51 +395,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     sort_db: &SortitionDB,
     provider: &U,
 ) -> Result<Option<RewardCycleInfo>, Error> {
-    if burnchain.is_reward_cycle_start(burn_height) {
-        if burn_height >= burnchain.pox_constants.sunset_end {
-            return Ok(Some(RewardCycleInfo {
-                anchor_status: PoxAnchorBlockStatus::NotSelected,
-            }));
-        }
-
-        debug!("Beginning reward cycle";
-              "burn_height" => burn_height,
-              "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
-              "prepare_phase_length" => burnchain.pox_constants.prepare_length);
-
-        let reward_cycle_info = {
-            let ic = sort_db.index_handle(sortition_tip);
-            ic.get_chosen_pox_anchor(&parent_bhh, &burnchain.pox_constants)
-        }?;
-        if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
-            info!("Anchor block selected: {}", stacks_block_hash);
-            let anchor_block_known = StacksChainState::is_stacks_block_processed(
-                &chain_state.db(),
-                &consensus_hash,
-                &stacks_block_hash,
-            )?;
-            let anchor_status = if anchor_block_known {
-                let block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
-                let reward_set = provider.get_reward_set(
-                    burn_height,
-                    chain_state,
-                    burnchain,
-                    sort_db,
-                    &block_id,
-                )?;
-                PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, reward_set)
-            } else {
-                PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash)
-            };
-            Ok(Some(RewardCycleInfo { anchor_status }))
-        } else {
-            Ok(Some(RewardCycleInfo {
-                anchor_status: PoxAnchorBlockStatus::NotSelected,
-            }))
-        }
-    } else {
         Ok(None)
-    }
 }
 
 struct PaidRewards {

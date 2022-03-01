@@ -274,39 +274,6 @@ impl StacksChainState {
         return threshold;
     }
 
-    pub fn get_reward_threshold_and_participation(
-        pox_settings: &PoxConstants,
-        addresses: &[(StacksAddress, u128)],
-        liquid_ustx: u128,
-    ) -> (u128, u128) {
-        let participation = addresses
-            .iter()
-            .fold(0, |agg, (_, stacked_amt)| agg + stacked_amt);
-
-        assert!(
-            participation <= liquid_ustx,
-            "CORRUPTION: More stacking participation than liquid STX"
-        );
-
-        // set the lower limit on reward scaling at 25% of liquid_ustx
-        //   (i.e., liquid_ustx / POX_MAXIMAL_SCALING)
-        let scale_by = cmp::max(participation, liquid_ustx / POX_MAXIMAL_SCALING as u128);
-
-        let reward_slots = pox_settings.reward_slots() as u128;
-        let threshold_precise = scale_by / reward_slots;
-        // compute the threshold as nearest 10k > threshold_precise
-        let ceil_amount = match threshold_precise % POX_THRESHOLD_STEPS_USTX {
-            0 => 0,
-            remainder => POX_THRESHOLD_STEPS_USTX - remainder,
-        };
-        let threshold = threshold_precise + ceil_amount;
-        info!(
-            "PoX participation threshold is {}, from {} + {} ({})",
-            threshold, threshold_precise, ceil_amount, scale_by,
-        );
-        (threshold, participation)
-    }
-
     /// Each address will have at least (get-stacking-minimum) tokens.
     pub fn get_reward_addresses(
         &mut self,
@@ -426,92 +393,6 @@ pub mod test {
 
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
 
-    #[test]
-    fn get_reward_threshold_units() {
-        let test_pox_constants = PoxConstants::new(501, 1, 1, 1, 5, 5000, 10000);
-        // when the liquid amount = the threshold step,
-        //   the threshold should always be the step size.
-        let liquid = POX_THRESHOLD_STEPS_USTX;
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[],
-                liquid
-            )
-            .0,
-            POX_THRESHOLD_STEPS_USTX
-        );
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[(rand_addr(), liquid)],
-                liquid
-            )
-            .0,
-            POX_THRESHOLD_STEPS_USTX
-        );
-
-        let liquid = 200_000_000 * MICROSTACKS_PER_STACKS as u128;
-        // with zero participation, should scale to 25% of liquid
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[],
-                liquid
-            )
-            .0,
-            50_000 * MICROSTACKS_PER_STACKS as u128
-        );
-        // should be the same at 25% participation
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[(rand_addr(), liquid / 4)],
-                liquid
-            )
-            .0,
-            50_000 * MICROSTACKS_PER_STACKS as u128
-        );
-        // but not at 30% participation
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[
-                    (rand_addr(), liquid / 4),
-                    (rand_addr(), 10_000_000 * (MICROSTACKS_PER_STACKS as u128))
-                ],
-                liquid
-            )
-            .0,
-            60_000 * MICROSTACKS_PER_STACKS as u128
-        );
-
-        // bump by just a little bit, should go to the next threshold step
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[
-                    (rand_addr(), liquid / 4),
-                    (rand_addr(), (MICROSTACKS_PER_STACKS as u128))
-                ],
-                liquid
-            )
-            .0,
-            60_000 * MICROSTACKS_PER_STACKS as u128
-        );
-
-        // bump by just a little bit, should go to the next threshold step
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[(rand_addr(), liquid)],
-                liquid
-            )
-            .0,
-            200_000 * MICROSTACKS_PER_STACKS as u128
-        );
-    }
-
     fn rand_addr() -> StacksAddress {
         key_to_stacks_addr(&StacksPrivateKey::new())
     }
@@ -547,9 +428,7 @@ pub mod test {
         peer_config.setup_code = format!(
             "(contract-call? .pox set-burnchain-parameters u{} u{} u{} u{})",
             burnchain.first_block_height,
-            burnchain.pox_constants.prepare_length,
-            burnchain.pox_constants.reward_cycle_length,
-            burnchain.pox_constants.pox_rejection_fraction
+            0,0,0
         );
 
         test_debug!("Setup code: '{}'", &peer_config.setup_code);
@@ -1020,8 +899,6 @@ pub mod test {
     fn test_liquid_ustx() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
         burnchain.pox_constants.reward_cycle_length = 5;
-        burnchain.pox_constants.prepare_length = 2;
-        burnchain.pox_constants.anchor_threshold = 1;
 
         let (mut peer, keys) = instantiate_pox_peer(&burnchain, "test-liquid-ustx", 6000);
 
@@ -1205,8 +1082,6 @@ pub mod test {
     fn test_hook_special_contract_call() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
         burnchain.pox_constants.reward_cycle_length = 3;
-        burnchain.pox_constants.prepare_length = 1;
-        burnchain.pox_constants.anchor_threshold = 1;
 
         let (mut peer, mut keys) =
             instantiate_pox_peer(&burnchain, "test-hook-special-contract-call", 6007);
@@ -1318,8 +1193,6 @@ pub mod test {
     fn test_liquid_ustx_burns() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
         burnchain.pox_constants.reward_cycle_length = 5;
-        burnchain.pox_constants.prepare_length = 2;
-        burnchain.pox_constants.anchor_threshold = 1;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-liquid-ustx", 6026);
 
