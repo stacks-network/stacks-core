@@ -1220,7 +1220,7 @@ impl PeerNetwork {
         }
     }
 
-    fn num_inventory_reward_cycles(&self) -> u64 {
+    pub fn num_inventory_reward_cycles(&self) -> u64 {
         panic!("implement")
     }
 

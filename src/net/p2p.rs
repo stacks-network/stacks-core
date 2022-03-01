@@ -2829,13 +2829,12 @@ impl PeerNetwork {
             .unwrap_or(vec![]);
 
         if self.antientropy_start_reward_cycle == 0 {
-            // DO NOT SUBMIT
-            //            debug!(
-            //                "AntiEntropy: wrap around back to reward cycle {}",
-            //                self.pox_id.num_inventory_reward_cycles().saturating_sub(1)
-            //            );
-            //            self.antientropy_start_reward_cycle =
-            //                self.pox_id.num_inventory_reward_cycles().saturating_sub(1) as u64;
+            debug!(
+                "AntiEntropy: wrap around back to reward cycle {}",
+                self.num_inventory_reward_cycles().saturating_sub(1)
+            );
+            self.antientropy_start_reward_cycle =
+                self.num_inventory_reward_cycles().saturating_sub(1) as u64;
         }
 
         let reward_cycle_start = self.antientropy_start_reward_cycle;
@@ -3661,25 +3660,24 @@ impl PeerNetwork {
                                             continue;
                                         }
 
-                                        // DO NOT SUBMIT
-                                        //                                        if stats.inv.num_reward_cycles
-                                        //                                            >= self.pox_id.num_inventory_reward_cycles() as u64
-                                        //                                        {
-                                        //                                            // we have fully sync'ed with an always-allowed peer
-                                        //                                            debug!(
-                                        //                                                "{:?}: Fully-sync'ed PoX inventory from {}",
-                                        //                                                &self.local_peer, nk
-                                        //                                            );
-                                        //                                            finished_always_allowed_inv_sync = true;
-                                        //                                        } else {
-                                        //                                            // there exists an always-allowed peer that we have not
-                                        //                                            // fully sync'ed with
-                                        //                                            debug!(
-                                        //                                                "{:?}: Have not fully sync'ed with {}",
-                                        //                                                &self.local_peer, &nk
-                                        //                                            );
-                                        //                                            have_unsynced = true;
-                                        //                                        }
+                                        if stats.inv.num_reward_cycles
+                                            >= self.num_inventory_reward_cycles() as u64
+                                        {
+                                            // we have fully sync'ed with an always-allowed peer
+                                            debug!(
+                                                "{:?}: Fully-sync'ed PoX inventory from {}",
+                                                &self.local_peer, nk
+                                            );
+                                            finished_always_allowed_inv_sync = true;
+                                        } else {
+                                            // there exists an always-allowed peer that we have not
+                                            // fully sync'ed with
+                                            debug!(
+                                                "{:?}: Have not fully sync'ed with {}",
+                                                &self.local_peer, &nk
+                                            );
+                                            have_unsynced = true;
+                                        }
                                     }
                                 }
 
@@ -4931,9 +4929,8 @@ impl PeerNetwork {
             // set up the antientropy protocol to try pushing the latest block
             // (helps if you're a miner who gets temporarily disconnected)
             self.antientropy_last_push_ts = get_epoch_time_secs();
-            // DO NOT SUBMIT
-            //            self.antientropy_start_reward_cycle =
-            //                self.pox_id.num_inventory_reward_cycles().saturating_sub(1) as u64;
+            self.antientropy_start_reward_cycle =
+                self.num_inventory_reward_cycles().saturating_sub(1) as u64;
 
             // update cached burnchain view for /v2/info
             self.chain_view = new_chain_view;
