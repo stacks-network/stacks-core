@@ -25,7 +25,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 
 use rusqlite::Error as RusqliteError;
-use sha2::{Digest, Sha512Trunc256};
+use sha2::{Digest, Sha512_256};
 
 use crate::codec::MAX_MESSAGE_LEN;
 use address::AddressHashMode;
