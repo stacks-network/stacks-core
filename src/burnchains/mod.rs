@@ -38,6 +38,7 @@ use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
 use util_lib::db::Error as db_error;
 
+use core::BLOCK_INVENTORY_SYNC_CYCLE_SIZE;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
@@ -306,6 +307,18 @@ impl PoxConstants {
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(5)
     }
+
+    /// Return the number of cycles, up to and including the current cycle.
+    pub fn num_sync_cycles_to_height(&self, target_height: u64) -> u64 {
+        PoxConstants::num_sync_cycles_to_height_internal(
+            target_height,
+            self.reward_cycle_length as u64,
+        )
+    }
+    /// Implements `num_sync_cycles_to_height`.
+    fn num_sync_cycles_to_height_internal(target_height: u64, cycle_length: u64) -> u64 {
+        (target_height / cycle_length) + 1
+    }
 }
 
 /// Structure for encoding our view of the network
@@ -444,4 +457,9 @@ impl BurnchainView {
 }
 
 #[cfg(test)]
-pub mod test;
+pub mod test {
+    #[test]
+    fn test_num_sync_cycles_to_height() {
+        assert_eq!(5, num_sync_cycles_to_height_internal(10, 2));
+    }
+}
