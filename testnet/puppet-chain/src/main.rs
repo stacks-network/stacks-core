@@ -33,6 +33,11 @@ async fn main() -> http_types::Result<()> {
         panic!("Config argument missing");
     }
 
+    let automining = match env::var("STACKS_BITCOIN_AUTOMINING_DISABLED") {
+        Ok(ref val) if val == "1" => false,
+        _ => true,
+    };
+
     // Generating block
     // Baseline: 150 for miner, 150 for faucet
     let config = ConfigFile::from_path(&argv[1]);
@@ -76,36 +81,38 @@ async fn main() -> http_types::Result<()> {
     // on a given frequence (coming from config).
     let boot_height = num_blocks;
     let block_height_reader = Arc::new(Mutex::new(num_blocks));
-    let block_height_writer = block_height_reader.clone();
-    let conf = config.clone();
-    thread::spawn(move || {
-        let miner_address = conf.network.miner_address.clone();
+    if automining {
+        let block_height_writer = block_height_reader.clone();
+        let conf = config.clone();
+        thread::spawn(move || {
+            let miner_address = conf.network.miner_address.clone();
 
-        loop {
-            let delay = {
-                let mut block_height = block_height_writer.lock().unwrap();
-                let effective_height = *block_height - num_blocks;
-                *block_height += 1;
-                let block_time = conf.get_block_time_at_height(effective_height);
-                let will_ignore = conf.should_ignore_transactions(effective_height);
-                let behavior = if will_ignore {
-                    "buffering"
-                } else {
-                    "accepting"
+            loop {
+                let delay = {
+                    let mut block_height = block_height_writer.lock().unwrap();
+                    let effective_height = *block_height - num_blocks;
+                    *block_height += 1;
+                    let block_time = conf.get_block_time_at_height(effective_height);
+                    let will_ignore = conf.should_ignore_transactions(effective_height);
+                    let behavior = if will_ignore {
+                        "buffering"
+                    } else {
+                        "accepting"
+                    };
+                    println!(
+                        "Assembled block {}. Will be {} incoming transactions for the next {}ms, then assemble block {}.",
+                        *block_height, behavior, block_time, *block_height + 1
+                    );
+                    block_time
                 };
-                println!(
-                    "Assembled block {}. Will be {} incoming transactions for the next {}ms, then assemble block {}.",
-                    *block_height, behavior, block_time, *block_height + 1
-                );
-                block_time
-            };
-            async_std::task::block_on(async {
-                generate_blocks(1, miner_address.clone(), &conf).await;
-            });
+                async_std::task::block_on(async {
+                    generate_blocks(1, miner_address.clone(), &conf).await;
+                });
 
-            thread::sleep(Duration::from_millis(delay));
-        }
-    });
+                thread::sleep(Duration::from_millis(delay));
+            }
+        });
+    }
 
     // Open up a TCP connection and create a URL.
     let bind_addr = config.network.rpc_bind.clone();
@@ -119,7 +126,8 @@ async fn main() -> http_types::Result<()> {
     while let Some(stream) = incoming.next().await {
         let block_height = block_height_reader.lock().unwrap();
         let effective_block_height = *block_height - boot_height;
-        let should_ignore_txs = config.should_ignore_transactions(effective_block_height - 1);
+        let should_ignore_txs =
+            automining && config.should_ignore_transactions(effective_block_height - 1);
 
         let stream = stream?;
 
@@ -215,6 +223,13 @@ async fn accept(stream: TcpStream, config: &ConfigFile) -> http_types::Result<()
                     }
                 };
                 Ok(response)
+            }
+            (Method::Put, "/mine", Some(_content_type)) => {
+                let miner_address = config.network.miner_address.clone();
+                async_std::task::block_on(async {
+                    generate_blocks(1, miner_address.clone(), &config).await;
+                });
+                Ok(Response::new(StatusCode::Ok))
             }
             _ => Ok(Response::new(StatusCode::MethodNotAllowed)),
         }
