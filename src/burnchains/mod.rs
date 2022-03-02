@@ -457,9 +457,4 @@ impl BurnchainView {
 }
 
 #[cfg(test)]
-pub mod test {
-    #[test]
-    fn test_num_sync_cycles_to_height() {
-        assert_eq!(5, num_sync_cycles_to_height_internal(10, 2));
-    }
-}
+pub mod test;
