@@ -6328,6 +6328,8 @@ pub mod test {
 
     use super::*;
 
+    use clarity::vm::types::StacksAddressExtensions;
+
     use serde_json;
 
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
