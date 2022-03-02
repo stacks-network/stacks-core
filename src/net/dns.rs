@@ -37,8 +37,8 @@ use net::PeerAddress;
 use net::codec::*;
 use net::*;
 
-use util::db::Error as db_error;
 use util::sleep_ms;
+use util_lib::db::Error as db_error;
 
 use std::net::SocketAddr;
 
@@ -111,6 +111,8 @@ impl DNSResponse {
     }
 }
 
+/// The DNSResolver runs as a background thread in the node. In a loop, it collects inbound requests,
+/// then tries to resolve the valid requests.
 #[derive(Debug)]
 pub struct DNSResolver {
     queries: VecDeque<DNSRequest>,
@@ -122,6 +124,8 @@ pub struct DNSResolver {
     hardcoded: HashMap<(String, u16), Vec<SocketAddr>>,
 }
 
+/// The DNSClient provides an API to send DNS requests and poll DNS results. The client forwards
+/// requests and receives results through "channels" to the DNSResolver.  
 #[derive(Debug)]
 pub struct DNSClient {
     requests: HashMap<DNSRequest, Option<DNSResponse>>,
@@ -177,8 +181,9 @@ impl DNSResolver {
         DNSResponse::new(req, Ok(addrs))
     }
 
+    /// Drain inbound DNS requests.
+    /// Handles overflows (too many requests) and timeouts.
     fn drain_inbox(&mut self) -> Result<usize, net_error> {
-        // drain inbound and handle overflows and timeouts
         let mut received = 0;
         for _ in 0..self.max_inflight {
             match self.inbound.try_recv() {

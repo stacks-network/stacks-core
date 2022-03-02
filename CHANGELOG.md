@@ -13,8 +13,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   forget past estimates instead of exponential averaging, 2) use weighted
   percentiles, so that bigger transactions influence the estimates more, 3)
   assess empty space in blocks as having paid the "minimum fee", so that empty
-  space is accounted for, 4) use random "fuzz" so that in busy times we will
-  not have ties. (#2972)
+  space is accounted for, 4) use random "fuzz" so that in busy times the fees can
+  change dynamically. (#2972)
 - Implements anti-entropy protocol for querying transactions from other 
   nodes' mempools. Before, nodes wouldn't sync mempool contents with one another.
   (#2884)

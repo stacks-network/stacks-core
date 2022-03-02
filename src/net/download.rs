@@ -38,7 +38,6 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::RngCore;
 
-use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
@@ -46,6 +45,7 @@ use chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBCon
 use chainstate::burn::BlockSnapshot;
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::Error as chainstate_error;
+use chainstate::stacks::StacksBlockHeader;
 use core::EMPTY_MICROBLOCK_PARENT_HASH;
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
@@ -70,14 +70,14 @@ use net::PeerAddress;
 use net::StacksMessage;
 use net::StacksP2P;
 use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
@@ -120,6 +120,7 @@ pub struct BlockRequestKey {
     pub sortition_height: u64,
     pub download_start: u64,
     pub kind: BlockRequestKeyKind,
+    pub canonical_stacks_tip_height: u64,
 }
 
 impl BlockRequestKey {
@@ -133,6 +134,7 @@ impl BlockRequestKey {
         parent_consensus_hash: Option<ConsensusHash>,
         sortition_height: u64,
         kind: BlockRequestKeyKind,
+        canonical_stacks_tip_height: u64,
     ) -> BlockRequestKey {
         BlockRequestKey {
             neighbor: neighbor,
@@ -145,6 +147,7 @@ impl BlockRequestKey {
             sortition_height: sortition_height,
             download_start: get_epoch_time_secs(),
             kind,
+            canonical_stacks_tip_height,
         }
     }
 }
@@ -157,12 +160,15 @@ impl Requestable for BlockRequestKey {
     fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
         match self.kind {
             BlockRequestKeyKind::Block => HttpRequestType::GetBlock(
-                HttpRequestMetadata::from_host(peer_host),
+                HttpRequestMetadata::from_host(peer_host, Some(self.canonical_stacks_tip_height)),
                 self.index_block_hash,
             ),
             BlockRequestKeyKind::ConfirmedMicroblockStream => {
                 HttpRequestType::GetMicroblocksConfirmed(
-                    HttpRequestMetadata::from_host(peer_host),
+                    HttpRequestMetadata::from_host(
+                        peer_host,
+                        Some(self.canonical_stacks_tip_height),
+                    ),
                     self.index_block_hash,
                 )
             }
@@ -1510,6 +1516,7 @@ impl PeerNetwork {
                     } else {
                         BlockRequestKeyKind::Block
                     },
+                    self.burnchain_tip.canonical_stacks_tip_height,
                 );
                 requests.push_back(request);
             }
@@ -2570,8 +2577,8 @@ pub mod test {
     use net::*;
     use util::hash::*;
     use util::sleep_ms;
-    use util::strings::*;
-    use util::test::*;
+    use util_lib::strings::*;
+    use util_lib::test::*;
     use vm::costs::ExecutionCost;
     use vm::representations::*;
 

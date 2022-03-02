@@ -49,26 +49,26 @@ use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use monitoring::increment_stx_mempool_gc;
 use std::time::Instant;
-use util::db::query_int;
-use util::db::query_row_columns;
-use util::db::query_rows;
-use util::db::sqlite_open;
-use util::db::tx_begin_immediate;
-use util::db::tx_busy_handler;
-use util::db::u64_to_sql;
-use util::db::Error as db_error;
-use util::db::FromColumn;
-use util::db::{query_row, Error};
-use util::db::{sql_pragma, DBConn, DBTx, FromRow};
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::hash::Sha512Trunc256Sum;
+use util_lib::db::query_int;
+use util_lib::db::query_row_columns;
+use util_lib::db::query_rows;
+use util_lib::db::sqlite_open;
+use util_lib::db::tx_begin_immediate;
+use util_lib::db::tx_busy_handler;
+use util_lib::db::u64_to_sql;
+use util_lib::db::Error as db_error;
+use util_lib::db::FromColumn;
+use util_lib::db::{query_row, Error};
+use util_lib::db::{sql_pragma, DBConn, DBTx, FromRow};
 use vm::types::PrincipalData;
 
 use net::MemPoolSyncData;
 
-use util::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
+use util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
 
 use clarity_vm::clarity::ClarityConnection;
 
@@ -83,8 +83,8 @@ use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::EstimatorError;
 use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader};
-use crate::util::db::table_exists;
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use crate::util_lib::db::table_exists;
 use chainstate::stacks::miner::TransactionEvent;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
@@ -1229,10 +1229,8 @@ impl MemPoolDB {
         second_consensus_hash: &ConsensusHash,
         second_stacks_block: &BlockHeaderHash,
     ) -> Result<bool, db_error> {
-        let first_block =
-            StacksBlockHeader::make_index_block_hash(first_consensus_hash, first_stacks_block);
-        let second_block =
-            StacksBlockHeader::make_index_block_hash(second_consensus_hash, second_stacks_block);
+        let first_block = StacksBlockId::new(first_consensus_hash, first_stacks_block);
+        let second_block = StacksBlockId::new(second_consensus_hash, second_stacks_block);
         // short circuit equality
         if second_block == first_block {
             return Ok(true);

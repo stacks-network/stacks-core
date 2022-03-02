@@ -36,9 +36,12 @@ use util::hash::to_hex;
 use util::log;
 use util::macros::is_trace;
 
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use crate::types::proof::{TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
+use chainstate::stacks::index::TrieHashExtension;
+use chainstate::stacks::index::TrieLeaf;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use stacks_common::types::chainstate::TRIEHASH_ENCODED_SIZE;
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
 /// storage implementation.
@@ -57,7 +60,7 @@ fn get_nodetype_hash<T: MarfTrieId>(
     storage.write_children_hashes(node, &mut hasher)?;
 
     let mut res = [0u8; 32];
-    res.copy_from_slice(hasher.result().as_slice());
+    res.copy_from_slice(hasher.finalize().as_slice());
 
     let ret = TrieHash(res);
 
@@ -905,8 +908,7 @@ mod test {
     use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::test::*;
     use chainstate::stacks::index::trie::*;
-
-    use crate::types::proof::ClarityMarfTrieId;
+    use chainstate::stacks::index::ClarityMarfTrieId;
 
     use super::*;
 

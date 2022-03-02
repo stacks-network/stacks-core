@@ -381,7 +381,7 @@ fn bitcoind_integration_test() {
                 0 => {
                     // Inspecting the chain at round 0.
                     // - Chain length should be 1.
-                    assert!(chain_tip.metadata.block_height == 1);
+                    assert!(chain_tip.metadata.stacks_block_height == 1);
 
                     // Block #1 should only have 0 txs
                     assert!(chain_tip.block.txs.len() == 1);
@@ -394,7 +394,7 @@ fn bitcoind_integration_test() {
                 1 => {
                     // Inspecting the chain at round 1.
                     // - Chain length should be 2.
-                    assert!(chain_tip.metadata.block_height == 2);
+                    assert!(chain_tip.metadata.stacks_block_height == 2);
 
                     // Block #2 should only have 2 txs
                     assert!(chain_tip.block.txs.len() == 2);
@@ -407,7 +407,7 @@ fn bitcoind_integration_test() {
                 2 => {
                     // Inspecting the chain at round 2.
                     // - Chain length should be 3.
-                    assert!(chain_tip.metadata.block_height == 3);
+                    assert!(chain_tip.metadata.stacks_block_height == 3);
 
                     // Block #3 should only have 2 txs
                     assert!(chain_tip.block.txs.len() == 2);
@@ -420,7 +420,7 @@ fn bitcoind_integration_test() {
                 3 => {
                     // Inspecting the chain at round 3.
                     // - Chain length should be 4.
-                    assert!(chain_tip.metadata.block_height == 4);
+                    assert!(chain_tip.metadata.stacks_block_height == 4);
 
                     // Block #4 should only have 2 txs
                     assert!(chain_tip.block.txs.len() == 2);
@@ -433,7 +433,7 @@ fn bitcoind_integration_test() {
                 4 => {
                     // Inspecting the chain at round 4.
                     // - Chain length should be 5.
-                    assert!(chain_tip.metadata.block_height == 5);
+                    assert!(chain_tip.metadata.stacks_block_height == 5);
 
                     // Block #5 should only have 2 txs
                     assert!(chain_tip.block.txs.len() == 2);
@@ -446,7 +446,7 @@ fn bitcoind_integration_test() {
                 5 => {
                     // Inspecting the chain at round 5.
                     // - Chain length should be 6.
-                    assert!(chain_tip.metadata.block_height == 6);
+                    assert!(chain_tip.metadata.stacks_block_height == 6);
 
                     // Block #6 should only have 2 txs
                     assert!(chain_tip.block.txs.len() == 2);

@@ -1,14 +1,14 @@
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
 use chainstate::stacks::events::StacksTransactionReceipt;
-use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockHeader, StacksWorkScore};
-use types::proof::TrieHash;
+use types::chainstate::TrieHash;
+use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
 use util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use util::vrf::VRFProof;
 use vm::costs::ExecutionCost;
 
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,
+    CoinbasePayload, StacksBlockHeader, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::StacksEpochId;
@@ -30,7 +30,7 @@ pub fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksE
                 microblock_pubkey_hash: Hash160([0; 20]),
             },
             microblock_tail: None,
-            block_height: 1,
+            stacks_block_height: 1,
             index_root: TrieHash([0; 32]),
             consensus_hash: ConsensusHash([2; 20]),
             burn_header_hash: BurnchainHeaderHash([1; 32]),

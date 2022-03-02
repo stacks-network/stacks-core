@@ -34,7 +34,7 @@ extern crate integer_sqrt;
 extern crate mio;
 extern crate percent_encoding;
 extern crate regex;
-extern crate ripemd160;
+extern crate ripemd;
 extern crate sha2;
 extern crate sha3;
 extern crate siphasher;
@@ -71,17 +71,23 @@ extern crate assert_json_diff;
 pub extern crate prometheus;
 
 #[macro_use]
-pub mod codec;
+extern crate stacks_common;
+
+pub use stacks_common::address;
+pub use stacks_common::codec;
+pub use stacks_common::types;
+pub use stacks_common::util;
 
 #[macro_use]
-pub mod util;
+pub mod util_lib;
 
 #[macro_use]
 pub mod net;
 
 #[macro_use]
-/// The Clarity virtual machine
-pub mod vm;
+pub extern crate clarity;
+
+pub use clarity::vm;
 
 #[macro_use]
 pub mod chainstate;
@@ -89,7 +95,6 @@ pub mod chainstate;
 #[cfg(test)]
 extern crate stx_genesis;
 
-pub mod address;
 pub mod burnchains;
 
 /// A high level library for interacting with the Clarity vm
@@ -97,12 +102,11 @@ pub mod clarity_vm;
 pub mod core;
 pub mod deps;
 
-pub mod clarity;
-
 pub mod monitoring;
-pub mod types;
 
 pub mod cost_estimates;
+
+pub mod clarity_cli;
 
 // set via _compile-time_ envars
 const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");

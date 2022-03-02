@@ -27,7 +27,6 @@ use rand::prelude::*;
 use rand::thread_rng;
 use rand::Rng;
 
-use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
@@ -36,6 +35,7 @@ use chainstate::burn::ConsensusHash;
 use chainstate::coordinator::comm::CoordinatorChannels;
 use chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use chainstate::stacks::events::StacksTransactionReceipt;
+use chainstate::stacks::StacksBlockHeader;
 use core::mempool::MemPoolDB;
 use core::mempool::*;
 use net::chat::*;
@@ -452,7 +452,7 @@ impl Relayer {
         conn: &SortitionDBConn,
         blocks_data: &BlocksData,
     ) -> Result<(), net_error> {
-        for (consensus_hash, block) in blocks_data.blocks.iter() {
+        for BlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
             let block_hash = block.block_hash();
 
             // is this the right Stacks block for this sortition?
@@ -686,7 +686,7 @@ impl Relayer {
                     }
                 }
 
-                for (consensus_hash, block) in blocks_data.blocks.iter() {
+                for BlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
                     match SortitionDB::get_block_snapshot_consensus(
                         sort_ic.conn(),
                         &consensus_hash,
@@ -965,7 +965,7 @@ impl Relayer {
 
             // process blocks uploaded to us.  They've already been stored
             for block_data in network_result.uploaded_blocks.drain(..) {
-                for (consensus_hash, block) in block_data.blocks.into_iter() {
+                for BlocksDatum(consensus_hash, block) in block_data.blocks.into_iter() {
                     debug!(
                         "Received http-uploaded block for {}/{}",
                         &consensus_hash,
@@ -1103,7 +1103,7 @@ impl Relayer {
         block: StacksBlock,
     ) -> Result<(), net_error> {
         let blocks_data = BlocksData {
-            blocks: vec![(consensus_hash, block)],
+            blocks: vec![BlocksDatum(consensus_hash, block)],
         };
         self.p2p
             .broadcast_message(vec![], StacksMessageType::Blocks(blocks_data))
@@ -1463,7 +1463,7 @@ impl PeerNetwork {
         let blk_hash = block.block_hash();
         let ch = consensus_hash.clone();
         let payload = BlocksData {
-            blocks: vec![(consensus_hash, block)],
+            blocks: vec![BlocksDatum(consensus_hash, block)],
         };
         let message = match self.sign_for_peer(recipient, StacksMessageType::Blocks(payload)) {
             Ok(m) => m,
@@ -1745,7 +1745,7 @@ impl PeerNetwork {
 
         for (nk, blocks_data) in network_result.pushed_blocks.iter() {
             for block_msg in blocks_data.iter() {
-                for (_, block) in block_msg.blocks.iter() {
+                for BlocksDatum(_, block) in block_msg.blocks.iter() {
                     self.relayer_stats.add_relayed_message((*nk).clone(), block);
                 }
             }
@@ -1788,12 +1788,13 @@ mod test {
     use net::test::*;
     use net::*;
     use util::sleep_ms;
-    use util::test::*;
+    use util_lib::test::*;
     use vm::costs::LimitedCostTracker;
     use vm::database::ClarityDatabase;
 
     use super::*;
     use clarity_vm::clarity::ClarityConnection;
+    use core::StacksEpochExtension;
     use types::chainstate::BlockHeaderHash;
 
     #[test]
@@ -2515,7 +2516,7 @@ mod test {
         let consensus_hash = sn.consensus_hash;
 
         let msg = StacksMessageType::Blocks(BlocksData {
-            blocks: vec![(consensus_hash, block)],
+            blocks: vec![BlocksDatum(consensus_hash, block)],
         });
         push_message(peer, dest, relay_hints, msg)
     }
@@ -2542,7 +2543,7 @@ mod test {
         let consensus_hash = sn.consensus_hash;
 
         let msg = StacksMessageType::Blocks(BlocksData {
-            blocks: vec![(consensus_hash, block)],
+            blocks: vec![BlocksDatum(consensus_hash, block)],
         });
         broadcast_message(peer, relay_hints, msg)
     }
@@ -2624,7 +2625,7 @@ mod test {
     }
 
     fn http_get_info(http_port: u16) -> RPCPeerInfoData {
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
         request.keep_alive = false;
         let getinfo = HttpRequestType::GetInfo(request);
         let response = http_rpc(http_port, getinfo).unwrap();
@@ -2646,7 +2647,7 @@ mod test {
             block.block_hash(),
             http_port
         );
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
         request.keep_alive = false;
         let post_block = HttpRequestType::PostBlock(request, consensus_hash.clone(), block.clone());
         let response = http_rpc(http_port, post_block).unwrap();
@@ -2670,7 +2671,7 @@ mod test {
             mblock.block_hash(),
             http_port
         );
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
         request.keep_alive = false;
         let tip = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         let post_microblock =
