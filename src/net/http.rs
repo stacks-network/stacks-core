@@ -1464,7 +1464,6 @@ impl HttpRequestType {
             ) -> Result<HttpRequestType, net_error>,
         )] = &[
             ("GET", &PATH_GETINFO, &HttpRequestType::parse_getinfo),
-            ("GET", &PATH_GETPOXINFO, &HttpRequestType::parse_getpoxinfo),
             (
                 "GET",
                 &PATH_GETNEIGHBORS,
@@ -1630,27 +1629,6 @@ impl HttpRequestType {
         }
         Ok(HttpRequestType::GetInfo(
             HttpRequestMetadata::from_preamble(preamble),
-        ))
-    }
-
-    fn parse_getpoxinfo<R: Read>(
-        _protocol: &mut StacksHttp,
-        preamble: &HttpRequestPreamble,
-        _regex: &Captures,
-        query: Option<&str>,
-        _fd: &mut R,
-    ) -> Result<HttpRequestType, net_error> {
-        if preamble.get_content_length() != 0 {
-            return Err(net_error::DeserializeError(
-                "Invalid Http request: expected 0-length body for GetPoxInfo".to_string(),
-            ));
-        }
-
-        let tip = HttpRequestType::get_chain_tip_query(query);
-
-        Ok(HttpRequestType::GetPoxInfo(
-            HttpRequestMetadata::from_preamble(preamble),
-            tip,
         ))
     }
 
@@ -2637,7 +2615,6 @@ impl HttpRequestType {
     pub fn metadata(&self) -> &HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref md) => md,
-            HttpRequestType::GetPoxInfo(ref md, ..) => md,
             HttpRequestType::GetNeighbors(ref md) => md,
             HttpRequestType::GetHeaders(ref md, ..) => md,
             HttpRequestType::GetBlock(ref md, _) => md,
@@ -2668,7 +2645,6 @@ impl HttpRequestType {
     pub fn metadata_mut(&mut self) -> &mut HttpRequestMetadata {
         match *self {
             HttpRequestType::GetInfo(ref mut md) => md,
-            HttpRequestType::GetPoxInfo(ref mut md, ..) => md,
             HttpRequestType::GetNeighbors(ref mut md) => md,
             HttpRequestType::GetHeaders(ref mut md, ..) => md,
             HttpRequestType::GetBlock(ref mut md, _) => md,
@@ -2717,10 +2693,6 @@ impl HttpRequestType {
     pub fn request_path(&self) -> String {
         match self {
             HttpRequestType::GetInfo(_md) => "/v2/info".to_string(),
-            HttpRequestType::GetPoxInfo(_md, tip_req) => format!(
-                "/v2/pox{}",
-                HttpRequestType::make_tip_query_string(tip_req, true)
-            ),
             HttpRequestType::GetNeighbors(_md) => "/v2/neighbors".to_string(),
             HttpRequestType::GetHeaders(_md, quantity, tip_req) => format!(
                 "/v2/headers/{}{}",
@@ -2871,7 +2843,6 @@ impl HttpRequestType {
     pub fn get_path(&self) -> &'static str {
         match self {
             HttpRequestType::GetInfo(..) => "/v2/info",
-            HttpRequestType::GetPoxInfo(..) => "/v2/pox",
             HttpRequestType::GetNeighbors(..) => "/v2/neighbors",
             HttpRequestType::GetHeaders(..) => "/v2/headers/:height",
             HttpRequestType::GetBlock(..) => "/v2/blocks/:hash",
@@ -4363,7 +4334,6 @@ impl MessageSequence for StacksHttpMessage {
         match *self {
             StacksHttpMessage::Request(ref req) => match req {
                 HttpRequestType::GetInfo(_) => "HTTP(GetInfo)",
-                HttpRequestType::GetPoxInfo(_, _) => "HTTP(GetPoxInfo)",
                 HttpRequestType::GetNeighbors(_) => "HTTP(GetNeighbors)",
                 HttpRequestType::GetHeaders(..) => "HTTP(GetHeaders)",
                 HttpRequestType::GetBlock(_, _) => "HTTP(GetBlock)",

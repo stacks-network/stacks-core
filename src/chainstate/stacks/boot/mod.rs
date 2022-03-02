@@ -274,39 +274,6 @@ impl StacksChainState {
         return threshold;
     }
 
-    pub fn get_reward_threshold_and_participation(
-        pox_settings: &PoxConstants,
-        addresses: &[(StacksAddress, u128)],
-        liquid_ustx: u128,
-    ) -> (u128, u128) {
-        let participation = addresses
-            .iter()
-            .fold(0, |agg, (_, stacked_amt)| agg + stacked_amt);
-
-        assert!(
-            participation <= liquid_ustx,
-            "CORRUPTION: More stacking participation than liquid STX"
-        );
-
-        // set the lower limit on reward scaling at 25% of liquid_ustx
-        //   (i.e., liquid_ustx / POX_MAXIMAL_SCALING)
-        let scale_by = cmp::max(participation, liquid_ustx / POX_MAXIMAL_SCALING as u128);
-
-        let reward_slots = pox_settings.reward_slots() as u128;
-        let threshold_precise = scale_by / reward_slots;
-        // compute the threshold as nearest 10k > threshold_precise
-        let ceil_amount = match threshold_precise % POX_THRESHOLD_STEPS_USTX {
-            0 => 0,
-            remainder => POX_THRESHOLD_STEPS_USTX - remainder,
-        };
-        let threshold = threshold_precise + ceil_amount;
-        info!(
-            "PoX participation threshold is {}, from {} + {} ({})",
-            threshold, threshold_precise, ceil_amount, scale_by,
-        );
-        (threshold, participation)
-    }
-
     /// Each address will have at least (get-stacking-minimum) tokens.
     pub fn get_reward_addresses(
         &mut self,
@@ -426,92 +393,6 @@ pub mod test {
 
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
 
-    #[test]
-    fn get_reward_threshold_units() {
-        let test_pox_constants = PoxConstants::new(501, 1, 1, 1, 5, 5000, 10000);
-        // when the liquid amount = the threshold step,
-        //   the threshold should always be the step size.
-        let liquid = POX_THRESHOLD_STEPS_USTX;
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[],
-                liquid
-            )
-            .0,
-            POX_THRESHOLD_STEPS_USTX
-        );
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[(rand_addr(), liquid)],
-                liquid
-            )
-            .0,
-            POX_THRESHOLD_STEPS_USTX
-        );
-
-        let liquid = 200_000_000 * MICROSTACKS_PER_STACKS as u128;
-        // with zero participation, should scale to 25% of liquid
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[],
-                liquid
-            )
-            .0,
-            50_000 * MICROSTACKS_PER_STACKS as u128
-        );
-        // should be the same at 25% participation
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[(rand_addr(), liquid / 4)],
-                liquid
-            )
-            .0,
-            50_000 * MICROSTACKS_PER_STACKS as u128
-        );
-        // but not at 30% participation
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[
-                    (rand_addr(), liquid / 4),
-                    (rand_addr(), 10_000_000 * (MICROSTACKS_PER_STACKS as u128))
-                ],
-                liquid
-            )
-            .0,
-            60_000 * MICROSTACKS_PER_STACKS as u128
-        );
-
-        // bump by just a little bit, should go to the next threshold step
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[
-                    (rand_addr(), liquid / 4),
-                    (rand_addr(), (MICROSTACKS_PER_STACKS as u128))
-                ],
-                liquid
-            )
-            .0,
-            60_000 * MICROSTACKS_PER_STACKS as u128
-        );
-
-        // bump by just a little bit, should go to the next threshold step
-        assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
-                &test_pox_constants,
-                &[(rand_addr(), liquid)],
-                liquid
-            )
-            .0,
-            200_000 * MICROSTACKS_PER_STACKS as u128
-        );
-    }
-
     fn rand_addr() -> StacksAddress {
         key_to_stacks_addr(&StacksPrivateKey::new())
     }
@@ -546,10 +427,7 @@ pub mod test {
         peer_config.epochs = epochs;
         peer_config.setup_code = format!(
             "(contract-call? .pox set-burnchain-parameters u{} u{} u{} u{})",
-            burnchain.first_block_height,
-            burnchain.pox_constants.prepare_length,
-            burnchain.pox_constants.reward_cycle_length,
-            burnchain.pox_constants.pox_rejection_fraction
+            burnchain.first_block_height, 0, 0, 0
         );
 
         test_debug!("Setup code: '{}'", &peer_config.setup_code);
@@ -1020,8 +898,6 @@ pub mod test {
     fn test_liquid_ustx() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
         burnchain.pox_constants.reward_cycle_length = 5;
-        burnchain.pox_constants.prepare_length = 2;
-        burnchain.pox_constants.anchor_threshold = 1;
 
         let (mut peer, keys) = instantiate_pox_peer(&burnchain, "test-liquid-ustx", 6000);
 
@@ -1202,124 +1078,9 @@ pub mod test {
     }
 
     #[test]
-    fn test_hook_special_contract_call() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
-        burnchain.pox_constants.reward_cycle_length = 3;
-        burnchain.pox_constants.prepare_length = 1;
-        burnchain.pox_constants.anchor_threshold = 1;
-
-        let (mut peer, mut keys) =
-            instantiate_pox_peer(&burnchain, "test-hook-special-contract-call", 6007);
-
-        let num_blocks = 15;
-
-        let alice = keys.pop().unwrap();
-
-        for tenure_id in 0..num_blocks {
-            let microblock_privkey = StacksPrivateKey::new();
-            let microblock_pubkeyhash =
-                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-
-            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
-                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
-                let coinbase_tx = make_coinbase(miner, tenure_id);
-
-                let mut block_txs = vec![
-                    coinbase_tx
-                ];
-
-                if tenure_id == 1 {
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).bytes, 1, tip.block_height);
-                    block_txs.push(alice_lockup_1);
-                }
-                if tenure_id == 2 {
-                    let alice_test_tx = make_bare_contract(&alice, 1, 0, "nested-stacker", &format!(
-                        "(define-public (nested-stack-stx)
-                            (contract-call? '{}.pox stack-stx u5120000000000 (tuple (version 0x00) (hashbytes 0xffffffffffffffffffffffffffffffffffffffff)) burn-block-height u1))", boot_code_test_addr()));
-
-                    block_txs.push(alice_test_tx);
-                }
-                if tenure_id == 8 {
-                    // alice locks 512 * 10_000 * POX_THRESHOLD_STEPS_USTX uSTX through her contract
-                    let cc_payload = TransactionPayload::new_contract_call(key_to_stacks_addr(&alice),
-                                                                           "nested-stacker",
-                                                                           "nested-stack-stx",
-                                                                           vec![]).unwrap();
-                    let tx = make_tx(&alice, 2, 0, cc_payload.clone());
-
-                    block_txs.push(tx);
-
-                    // the above tx _should_ error, because alice hasn't authorized that contract to stack
-                    //   try again with auth -> deauth -> auth
-                    let alice_contract: Value = contract_id(&key_to_stacks_addr(&alice), "nested-stacker").into();
-
-                    let alice_allowance = make_pox_contract_call(&alice, 3, "allow-contract-caller", vec![alice_contract.clone(), Value::none()]);
-                    let alice_disallowance = make_pox_contract_call(&alice, 4, "disallow-contract-caller", vec![alice_contract.clone()]);
-                    block_txs.push(alice_allowance);
-                    block_txs.push(alice_disallowance);
-
-                    let tx = make_tx(&alice, 5, 0, cc_payload.clone());
-                    block_txs.push(tx);
-
-                    let alice_allowance = make_pox_contract_call(&alice, 6, "allow-contract-caller", vec![alice_contract.clone(), Value::none()]);
-                    let tx = make_tx(&alice, 7, 0, cc_payload.clone()); // should be allowed!
-                    block_txs.push(alice_allowance);
-                    block_txs.push(tx);
-
-                }
-
-                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
-                let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_conn(), block_txs).unwrap();
-                (anchored_block, vec![])
-            });
-
-            peer.next_burnchain_block(burn_ops.clone());
-            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-            // before/after alice's tokens lock
-            if tenure_id == 0 {
-                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-                assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
-            } else if tenure_id == 1 {
-                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-                assert_eq!(alice_balance, 512 * POX_THRESHOLD_STEPS_USTX);
-            }
-            // before/after alice's tokens unlock
-            else if tenure_id == 4 {
-                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-                assert_eq!(alice_balance, 512 * POX_THRESHOLD_STEPS_USTX);
-            } else if tenure_id == 5 {
-                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-                assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
-            }
-            // before/after contract lockup
-            else if tenure_id == 7 {
-                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-                assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
-            } else if tenure_id == 8 {
-                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-                assert_eq!(alice_balance, 512 * POX_THRESHOLD_STEPS_USTX);
-            }
-            // before/after contract-locked tokens unlock
-            else if tenure_id == 13 {
-                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-                assert_eq!(alice_balance, 512 * POX_THRESHOLD_STEPS_USTX);
-            } else if tenure_id == 14 {
-                let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
-                assert_eq!(alice_balance, 1024 * POX_THRESHOLD_STEPS_USTX);
-            }
-        }
-    }
-
-    #[test]
     fn test_liquid_ustx_burns() {
         let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
         burnchain.pox_constants.reward_cycle_length = 5;
-        burnchain.pox_constants.prepare_length = 2;
-        burnchain.pox_constants.anchor_threshold = 1;
 
         let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, "test-liquid-ustx", 6026);
 

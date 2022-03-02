@@ -2496,7 +2496,7 @@ pub mod test {
             for bc in miner.block_commits.iter().rev() {
                 let consensus_hash = match SortitionDB::get_block_snapshot(
                     sortdb.conn(),
-                    &SortitionId::stubbed(&bc.burn_header_hash),
+                    &SortitionId::new(&bc.burn_header_hash),
                 )
                 .unwrap()
                 {
@@ -4195,7 +4195,7 @@ pub mod test {
                 // NOTE: this only works because there are no PoX forks in this test
                 let sn = SortitionDB::get_block_snapshot(
                     miner_trace.burn_node.sortdb.conn(),
-                    &SortitionId::stubbed(&bc.burn_header_hash),
+                    &SortitionId::new(&bc.burn_header_hash),
                 )
                 .unwrap()
                 .unwrap();

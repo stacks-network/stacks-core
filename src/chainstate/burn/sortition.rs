@@ -40,7 +40,7 @@ use util::uint::Uint512;
 use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
+use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 use chainstate::burn::ConsensusHashExtensions;
 use chainstate::stacks::index::ClarityMarfTrieId;
 use chainstate::stacks::index::TrieHashExtension;
@@ -73,11 +73,8 @@ impl BlockSnapshot {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            // Initial snapshot sets sortition_id = burn_header_hash,
-            //  we shouldn't need to update this to use PoxId::initial(),
-            //  but if we do, we need to update a lot of test cases.
-            sortition_id: SortitionId::stubbed(first_burn_header_hash),
-            parent_sortition_id: SortitionId::stubbed(first_burn_header_hash),
+            sortition_id: SortitionId::new(first_burn_header_hash),
+            parent_sortition_id: SortitionId::new(first_burn_header_hash),
             pox_valid: true,
             accumulated_coinbase_ustx: 0,
         }

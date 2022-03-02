@@ -52,7 +52,7 @@ use util::hash::Sha512Trunc256Sum;
 use vm::costs::ExecutionCost;
 
 use crate::chainstate::coordinator::BlockEventDispatcher;
-use crate::types::chainstate::{PoxId, SortitionId};
+use crate::types::chainstate::SortitionId;
 use chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use codec::MAX_PAYLOAD_LEN;
 use monitoring::update_stacks_tip_height;

@@ -42,7 +42,7 @@ use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, VRFSeed};
 
 pub use types::chainstate::ConsensusHash;
 

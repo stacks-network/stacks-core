@@ -36,7 +36,7 @@ use core::INITIAL_MINING_BONUS_WINDOW;
 use util_lib::db::Error as DBError;
 
 use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, SortitionId};
 
 impl<'a> SortitionHandleTx<'a> {
     /// Run a blockstack operation's "check()" method and return the result.
@@ -74,7 +74,6 @@ impl<'a> SortitionHandleTx<'a> {
         block_header: &BurnchainBlockHeader,
         this_block_ops: &Vec<BlockstackOperationType>,
         _next_pox_info: Option<RewardCycleInfo>,
-        _parent_pox: PoxId,
         reward_info: Option<&RewardSetInfo>,
         initial_mining_bonus_ustx: u128,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
@@ -200,7 +199,6 @@ impl<'a> SortitionHandleTx<'a> {
         block_header: &BurnchainBlockHeader,
         mut blockstack_txs: Vec<BlockstackOperationType>,
         next_pox_info: Option<RewardCycleInfo>,
-        parent_pox: PoxId,
         reward_set_info: Option<&RewardSetInfo>,
         initial_mining_bonus_ustx: u128,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
@@ -243,7 +241,6 @@ impl<'a> SortitionHandleTx<'a> {
                 block_header,
                 &blockstack_txs,
                 next_pox_info,
-                parent_pox,
                 reward_set_info,
                 initial_mining_bonus_ustx,
             )
@@ -268,7 +265,6 @@ impl<'a> SortitionHandleTx<'a> {
         burnchain: &Burnchain,
         blockstack_txs: Vec<BlockstackOperationType>,
         next_pox_info: Option<RewardCycleInfo>,
-        parent_pox: PoxId,
         reward_set_info: Option<&RewardSetInfo>,
         initial_mining_bonus_ustx: u128,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
@@ -287,7 +283,6 @@ impl<'a> SortitionHandleTx<'a> {
             &this_block_header,
             blockstack_txs,
             next_pox_info,
-            parent_pox,
             reward_set_info,
             initial_mining_bonus_ustx,
         )?;
@@ -352,7 +347,6 @@ mod tests {
                     &next_block_header,
                     vec![BlockstackOperationType::LeaderBlockCommit(block_commit)],
                     None,
-                    PoxId::initial(),
                     None,
                     0,
                 )

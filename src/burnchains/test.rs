@@ -445,7 +445,7 @@ impl TestBurnchainBlock {
         );
 
         let header = block.header();
-        let sort_id = SortitionId::stubbed(&header.parent_block_hash);
+        let sort_id = SortitionId::new(&header.parent_block_hash);
         let mut sortition_db_handle = SortitionHandleTx::begin(db, &sort_id).unwrap();
 
         let parent_snapshot = sortition_db_handle
@@ -462,7 +462,6 @@ impl TestBurnchainBlock {
                 burnchain,
                 blockstack_txs,
                 None,
-                PoxId::stubbed(),
                 None,
                 0,
             )
@@ -1038,4 +1037,27 @@ fn create_stacks_event_block() {
         1,
         "Only one event from the watched contract committed"
     );
+}
+
+#[test]
+fn test_num_sync_cycles_to_height() {
+    // target_height == 0
+    assert_eq!(1, PoxConstants::num_sync_cycles_to_height_internal(0, 1));
+    assert_eq!(1, PoxConstants::num_sync_cycles_to_height_internal(0, 2));
+
+    // target height < cycle_length
+    assert_eq!(1, PoxConstants::num_sync_cycles_to_height_internal(1, 2));
+    assert_eq!(1, PoxConstants::num_sync_cycles_to_height_internal(1, 3));
+
+    // target_height == cycle_length
+    assert_eq!(2, PoxConstants::num_sync_cycles_to_height_internal(1, 1));
+    assert_eq!(2, PoxConstants::num_sync_cycles_to_height_internal(2, 2));
+
+    // target_height is even multiples of cycle_length
+    assert_eq!(3, PoxConstants::num_sync_cycles_to_height_internal(4, 2));
+    assert_eq!(4, PoxConstants::num_sync_cycles_to_height_internal(6, 2));
+
+    // target_height is not even multiples of cycle_length
+    assert_eq!(3, PoxConstants::num_sync_cycles_to_height_internal(5, 2));
+    assert_eq!(4, PoxConstants::num_sync_cycles_to_height_internal(7, 2));
 }

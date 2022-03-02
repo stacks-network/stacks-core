@@ -63,7 +63,6 @@ use util::secp256k1::Secp256k1PublicKey;
 use util_lib::db::DBConn;
 use util_lib::db::Error as db_error;
 
-use crate::types::chainstate::PoxId;
 use crate::types::StacksPublicKeyBuffer;
 use core::StacksEpoch;
 
@@ -1492,120 +1491,6 @@ impl ConversationP2P {
         self.sign_and_reply(local_peer, burnchain_view, preamble, response)
     }
 
-    /// Create a response an inbound GetPoxInv request, but unsigned.
-    /// Returns a reply handle to the generated message (possibly a nack)
-    pub fn make_getpoxinv_response(
-        local_peer: &LocalPeer,
-        burnchain: &Burnchain,
-        sortdb: &SortitionDB,
-        pox_id: &PoxId,
-        getpoxinv: &GetPoxInv,
-    ) -> Result<StacksMessageType, net_error> {
-        if pox_id.len() <= 1 {
-            // not initialized yet
-            debug!("{:?}: PoX not initialized yet", local_peer);
-            return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::InvalidPoxFork,
-            )));
-        }
-        // consensus hash in getpoxinv must exist on the canonical chain tip
-        match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &getpoxinv.consensus_hash) {
-            Ok(Some(sn)) => {
-                if !sn.pox_valid {
-                    // invalid consensus hash
-                    test_debug!(
-                        "{:?}: Snapshot {:?} is not on a valid PoX fork",
-                        local_peer,
-                        sn.burn_header_hash
-                    );
-                    return Ok(StacksMessageType::Nack(NackData::new(
-                        NackErrorCodes::InvalidPoxFork,
-                    )));
-                }
-
-                // must align to reward cycle, or this is an invalid fork
-                if (sn.block_height - burnchain.first_block_height)
-                    % (burnchain.pox_constants.reward_cycle_length as u64)
-                    != 1
-                {
-                    test_debug!(
-                        "{:?}: block height ({} - {}) % {} != 1",
-                        local_peer,
-                        sn.block_height,
-                        burnchain.first_block_height,
-                        burnchain.pox_constants.reward_cycle_length
-                    );
-                    return Ok(StacksMessageType::Nack(NackData::new(
-                        NackErrorCodes::InvalidPoxFork,
-                    )));
-                }
-
-                match burnchain.block_height_to_reward_cycle(sn.block_height) {
-                    Some(reward_cycle) => {
-                        // take a slice of the PoxId
-                        let (bitvec, bitlen) =
-                            pox_id.bit_slice(reward_cycle as usize, getpoxinv.num_cycles as usize);
-                        assert!(bitlen <= GETPOXINV_MAX_BITLEN);
-
-                        let poxinvdata = PoxInvData {
-                            pox_bitvec: bitvec,
-                            bitlen: bitlen as u16,
-                        };
-                        debug!(
-                            "{:?}: Handle GetPoxInv at reward cycle {}; Reply {:?} to request {:?}",
-                            &local_peer, reward_cycle, &poxinvdata, getpoxinv
-                        );
-                        Ok(StacksMessageType::PoxInv(poxinvdata))
-                    }
-                    None => {
-                        // if we can't turn the block height into a reward cycle, then it's before
-                        // the first-ever reward cycle and this consensus hash does not correspond
-                        // to a real reward cycle.  NACK it.
-                        debug!(
-                            "{:?}: Consensus hash {:?} does not correspond to a real reward cycle",
-                            &local_peer, &getpoxinv.consensus_hash
-                        );
-                        Ok(StacksMessageType::Nack(NackData::new(
-                            NackErrorCodes::InvalidPoxFork,
-                        )))
-                    }
-                }
-            }
-            Ok(None) | Err(db_error::NotFoundError) => {
-                test_debug!(
-                    "{:?}: snapshot for consensus hash {} not found",
-                    local_peer,
-                    getpoxinv.consensus_hash
-                );
-                Ok(StacksMessageType::Nack(NackData::new(
-                    NackErrorCodes::InvalidPoxFork,
-                )))
-            }
-            Err(e) => Err(net_error::DBError(e)),
-        }
-    }
-
-    /// Handle an inbound GetPoxInv request.
-    /// Returns a reply handle to the generated message (possibly a nack)
-    fn handle_getpoxinv(
-        &mut self,
-        local_peer: &LocalPeer,
-        sortdb: &SortitionDB,
-        pox_id: &PoxId,
-        burnchain_view: &BurnchainView,
-        preamble: &Preamble,
-        getpoxinv: &GetPoxInv,
-    ) -> Result<ReplyHandleP2P, net_error> {
-        let response = ConversationP2P::make_getpoxinv_response(
-            local_peer,
-            &self.burnchain,
-            sortdb,
-            pox_id,
-            getpoxinv,
-        )?;
-        self.sign_and_reply(local_peer, burnchain_view, preamble, response)
-    }
-
     /// Verify that there are no cycles in our relayers list.
     /// Identify relayers by public key hash
     fn check_relayer_cycles(relayers: &Vec<RelayData>) -> bool {
@@ -1778,7 +1663,6 @@ impl ConversationP2P {
         local_peer: &LocalPeer,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
-        pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
         chain_view: &BurnchainView,
@@ -1788,14 +1672,6 @@ impl ConversationP2P {
             StacksMessageType::GetNeighbors => {
                 self.handle_getneighbors(peerdb.conn(), local_peer, chain_view, &msg.preamble)
             }
-            StacksMessageType::GetPoxInv(ref getpoxinv) => self.handle_getpoxinv(
-                local_peer,
-                sortdb,
-                pox_id,
-                chain_view,
-                &msg.preamble,
-                getpoxinv,
-            ),
             StacksMessageType::GetBlocksInv(ref get_blocks_inv) => self.handle_getblocksinv(
                 local_peer,
                 sortdb,
@@ -2189,7 +2065,6 @@ impl ConversationP2P {
         local_peer: &LocalPeer,
         peerdb: &mut PeerDB,
         sortdb: &SortitionDB,
-        pox_id: &PoxId,
         chainstate: &mut StacksChainState,
         header_cache: &mut BlockHeaderCache,
         burnchain_view: &BurnchainView,
@@ -2331,7 +2206,6 @@ impl ConversationP2P {
                             local_peer,
                             peerdb,
                             sortdb,
-                            pox_id,
                             chainstate,
                             header_cache,
                             burnchain_view,
@@ -2412,7 +2286,7 @@ mod test {
         data_url: UrlString,
         asn4_entries: &Vec<ASEntry4>,
         initial_neighbors: &Vec<Neighbor>,
-    ) -> (PeerDB, SortitionDB, PoxId, StacksChainState) {
+    ) -> (PeerDB, SortitionDB, StacksChainState) {
         let test_path = format!("/tmp/stacks-node-tests/net/test-db-{}", testname);
         match fs::metadata(&test_path) {
             Ok(_) => {
@@ -2464,14 +2338,7 @@ mod test {
         )
         .unwrap();
 
-        let pox_id = {
-            let ic = sortdb.index_conn();
-            let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-            sortdb_reader.get_pox_id().unwrap()
-        };
-
-        (peerdb, sortdb, pox_id, chainstate)
+        (peerdb, sortdb, chainstate)
     }
 
     fn convo_send_recv(
@@ -2627,7 +2494,7 @@ mod test {
             };
             chain_view.make_test_data();
 
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
                 "convo_handshake_accept_1",
                 &burnchain,
                 0x9abcdef0,
@@ -2636,7 +2503,7 @@ mod test {
                 &vec![],
                 &vec![],
             );
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
                 "convo_handshake_accept_2",
                 &burnchain,
                 0x9abcdef0,
@@ -2697,7 +2564,6 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -2712,7 +2578,6 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -2798,7 +2663,7 @@ mod test {
         };
         chain_view.make_test_data();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_handshake_reject_1",
             &burnchain,
             0x9abcdef0,
@@ -2807,7 +2672,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_reject_2",
             &burnchain,
             0x9abcdef0,
@@ -2868,7 +2733,6 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -2882,7 +2746,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -2934,7 +2797,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_handshake_badsignature_1",
             &burnchain,
             0x9abcdef0,
@@ -2943,7 +2806,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_badsignature_2",
             &burnchain,
             0x9abcdef0,
@@ -3008,7 +2871,6 @@ mod test {
             &local_peer_2,
             &mut peerdb_2,
             &sortdb_2,
-            &pox_id_2,
             &mut chainstate_2,
             &mut BlockHeaderCache::new(),
             &chain_view,
@@ -3021,7 +2883,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3068,7 +2929,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_handshake_self_1",
             &burnchain,
             0x9abcdef0,
@@ -3077,7 +2938,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_self_2",
             &burnchain,
             0x9abcdef0,
@@ -3136,7 +2997,6 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3150,7 +3010,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_2,
                 &sortdb_2,
-                &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3203,7 +3062,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_ping_1",
             &burnchain,
             0x9abcdef0,
@@ -3212,7 +3071,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_ping_2",
             &burnchain,
             0x9abcdef0,
@@ -3289,7 +3148,6 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3309,7 +3167,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3370,7 +3227,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_handshake_ping_loop_1",
             &burnchain,
             0x9abcdef0,
@@ -3379,7 +3236,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_handshake_ping_loop_2",
             &burnchain,
             0x9abcdef0,
@@ -3454,7 +3311,6 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3472,7 +3328,6 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3587,7 +3442,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_nack_unsolicited_1",
             &burnchain,
             0x9abcdef0,
@@ -3596,7 +3451,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_nack_unsolicited_2",
             &burnchain,
             0x9abcdef0,
@@ -3655,7 +3510,6 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3669,7 +3523,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -3725,7 +3578,7 @@ mod test {
             };
             chain_view.make_test_data();
 
-            let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+            let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
                 "convo_handshake_getblocksinv_1",
                 &burnchain,
                 0x9abcdef0,
@@ -3734,7 +3587,7 @@ mod test {
                 &vec![],
                 &vec![],
             );
-            let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+            let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
                 "convo_handshake_getblocksinv_2",
                 &burnchain,
                 0x9abcdef0,
@@ -3795,7 +3648,6 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3810,7 +3662,6 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3893,7 +3744,6 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3908,7 +3758,6 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3962,7 +3811,6 @@ mod test {
                     &local_peer_2,
                     &mut peerdb_2,
                     &sortdb_2,
-                    &pox_id_2,
                     &mut chainstate_2,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -3977,7 +3825,6 @@ mod test {
                     &local_peer_1,
                     &mut peerdb_1,
                     &sortdb_1,
-                    &pox_id_1,
                     &mut chainstate_1,
                     &mut BlockHeaderCache::new(),
                     &chain_view,
@@ -4029,7 +3876,7 @@ mod test {
         )
         .unwrap();
 
-        let (mut peerdb_1, mut sortdb_1, pox_id_1, mut chainstate_1) = make_test_chain_dbs(
+        let (mut peerdb_1, mut sortdb_1, mut chainstate_1) = make_test_chain_dbs(
             "convo_natpunch_1",
             &burnchain,
             0x9abcdef0,
@@ -4038,7 +3885,7 @@ mod test {
             &vec![],
             &vec![],
         );
-        let (mut peerdb_2, mut sortdb_2, pox_id_2, mut chainstate_2) = make_test_chain_dbs(
+        let (mut peerdb_2, mut sortdb_2, mut chainstate_2) = make_test_chain_dbs(
             "convo_natpunch_2",
             &burnchain,
             0x9abcdef0,
@@ -4095,7 +3942,6 @@ mod test {
                 &local_peer_2,
                 &mut peerdb_2,
                 &sortdb_2,
-                &pox_id_2,
                 &mut chainstate_2,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
@@ -4110,7 +3956,6 @@ mod test {
                 &local_peer_1,
                 &mut peerdb_1,
                 &sortdb_1,
-                &pox_id_1,
                 &mut chainstate_1,
                 &mut BlockHeaderCache::new(),
                 &chain_view,
