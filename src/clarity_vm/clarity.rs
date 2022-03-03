@@ -105,13 +105,18 @@ pub struct ClarityInstance {
     mainnet: bool,
 }
 
+pub struct PreCommitClarityBlock<'a> {
+    datastore: WritableMarfStore<'a>,
+    commit_to: StacksBlockId,
+}
+
 ///
 /// A high-level interface for Clarity VM interactions within a single block.
 ///
-pub struct ClarityBlockConnection<'a> {
+pub struct ClarityBlockConnection<'a, 'b> {
     datastore: WritableMarfStore<'a>,
-    header_db: &'a dyn HeadersDB,
-    burn_state_db: &'a dyn BurnStateDB,
+    header_db: &'b dyn HeadersDB,
+    burn_state_db: &'b dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
     mainnet: bool,
     epoch: StacksEpochId,
@@ -166,7 +171,7 @@ macro_rules! using {
     }};
 }
 
-impl ClarityBlockConnection<'_> {
+impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
     /// Used by the miner to "undo" applying a transaction that exceeded the budget.
     pub fn reset_block_cost(&mut self, cost: ExecutionCost) -> () {
@@ -243,13 +248,13 @@ impl ClarityInstance {
         ))
     }
 
-    pub fn begin_block<'a>(
+    pub fn begin_block<'a, 'b>(
         &'a mut self,
         current: &StacksBlockId,
         next: &StacksBlockId,
-        header_db: &'a dyn HeadersDB,
-        burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityBlockConnection<'a> {
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
         let mut datastore = self.datastore.begin(current, next);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
@@ -276,13 +281,13 @@ impl ClarityInstance {
         }
     }
 
-    pub fn begin_genesis_block<'a>(
+    pub fn begin_genesis_block<'a, 'b>(
         &'a mut self,
         current: &StacksBlockId,
         next: &StacksBlockId,
-        header_db: &'a dyn HeadersDB,
-        burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityBlockConnection<'a> {
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
         let datastore = self.datastore.begin(current, next);
 
         let epoch = GENESIS_EPOCH;
@@ -301,13 +306,13 @@ impl ClarityInstance {
 
     /// begin a genesis block with the default cost contract
     ///  used in testing + benchmarking
-    pub fn begin_test_genesis_block<'a>(
+    pub fn begin_test_genesis_block<'a, 'b>(
         &'a mut self,
         current: &StacksBlockId,
         next: &StacksBlockId,
-        header_db: &'a dyn HeadersDB,
-        burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityBlockConnection<'a> {
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
         let writable = self.datastore.begin(current, next);
 
         let epoch = GENESIS_EPOCH;
@@ -381,12 +386,12 @@ impl ClarityInstance {
         datastore.rollback_unconfirmed()
     }
 
-    pub fn begin_unconfirmed<'a>(
+    pub fn begin_unconfirmed<'a, 'b>(
         &'a mut self,
         current: &StacksBlockId,
-        header_db: &'a dyn HeadersDB,
-        burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityBlockConnection<'a> {
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
         let mut datastore = self.datastore.begin_unconfirmed(current);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
@@ -486,7 +491,7 @@ impl ClarityInstance {
     }
 }
 
-impl ClarityConnection for ClarityBlockConnection<'_> {
+impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
@@ -547,7 +552,14 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     }
 }
 
-impl<'a> ClarityBlockConnection<'a> {
+impl<'a> PreCommitClarityBlock<'a> {
+    pub fn commit(self) {
+        debug!("Committing Clarity block connection"; "index_block" => %self.commit_to);
+        self.datastore.commit_to(&self.commit_to);
+    }
+}
+
+impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     /// Rolls back all changes in the current block by
     /// (1) dropping all writes from the current MARF tip,
     /// (2) rolling back side-storage
@@ -577,6 +589,15 @@ impl<'a> ClarityBlockConnection<'a> {
         self.datastore.test_commit();
 
         self.cost_track.unwrap()
+    }
+
+    pub fn precommit_to_block(self, final_bhh: StacksBlockId) -> PreCommitClarityBlock<'a> {
+        self.cost_track
+            .expect("Clarity block connection lost cost tracker before commitment");
+        PreCommitClarityBlock {
+            datastore: self.datastore,
+            commit_to: final_bhh,
+        }
     }
 
     /// Commits all changes in the current block by
@@ -694,7 +715,7 @@ impl<'a> ClarityBlockConnection<'a> {
         })
     }
 
-    pub fn start_transaction_processing<'b>(&'b mut self) -> ClarityTransactionConnection<'b, 'a> {
+    pub fn start_transaction_processing<'c>(&'c mut self) -> ClarityTransactionConnection<'c, 'a> {
         let store = &mut self.datastore;
         let cost_track = &mut self.cost_track;
         let header_db = &self.header_db;

@@ -80,6 +80,7 @@ use vm::representations::ContractName;
 use vm::types::TupleData;
 use {monitoring, util};
 
+use crate::clarity_vm::clarity::PreCommitClarityBlock;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
@@ -289,12 +290,12 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
 pub type StacksDBTx<'a> = IndexDBTx<'a, (), StacksBlockId>;
 pub type StacksDBConn<'a> = IndexDBConn<'a, (), StacksBlockId>;
 
-pub struct ClarityTx<'a> {
-    block: ClarityBlockConnection<'a>,
+pub struct ClarityTx<'a, 'b> {
+    block: ClarityBlockConnection<'a, 'b>,
     pub config: DBConfig,
 }
 
-impl ClarityConnection for ClarityTx<'_> {
+impl<'a, 'b> ClarityConnection for ClarityTx<'a, 'b> {
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
@@ -314,7 +315,7 @@ impl ClarityConnection for ClarityTx<'_> {
     }
 }
 
-impl<'a> ClarityTx<'a> {
+impl<'a, 'b> ClarityTx<'a, 'b> {
     pub fn get_root_hash(&mut self) -> TrieHash {
         self.block.get_root_hash()
     }
@@ -372,6 +373,15 @@ impl<'a> ClarityTx<'a> {
         self.block.commit_to_block(&index_block_hash);
     }
 
+    pub fn precommit_to_block(
+        self,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
+    ) -> PreCommitClarityBlock<'a> {
+        let index_block_hash = StacksBlockId::new(consensus_hash, block_hash);
+        self.block.precommit_to_block(index_block_hash)
+    }
+
     pub fn commit_unconfirmed(self) -> () {
         self.block.commit_unconfirmed();
     }
@@ -388,7 +398,7 @@ impl<'a> ClarityTx<'a> {
         self.block.reset_block_cost(cost);
     }
 
-    pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a> {
+    pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a, 'b> {
         &mut self.block
     }
 
@@ -1724,15 +1734,15 @@ impl StacksChainState {
     }
 
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
-    pub fn chainstate_block_begin<'a>(
-        chainstate_tx: &'a ChainstateTx<'a>,
+    pub fn chainstate_block_begin<'a, 'b>(
+        chainstate_tx: &'b ChainstateTx<'b>,
         clarity_instance: &'a mut ClarityInstance,
-        burn_dbconn: &'a dyn BurnStateDB,
+        burn_dbconn: &'b dyn BurnStateDB,
         parent_consensus_hash: &ConsensusHash,
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-    ) -> ClarityTx<'a> {
+    ) -> ClarityTx<'a, 'b> {
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(
             conf,
@@ -1755,7 +1765,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-    ) -> ClarityTx<'a> {
+    ) -> ClarityTx<'a, 'a> {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
             conf,
@@ -1779,7 +1789,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-    ) -> ClarityTx<'a> {
+    ) -> ClarityTx<'a, 'a> {
         let conf = self.config();
         let db = &self.state_index;
         let clarity_instance = &mut self.clarity_state;
@@ -1946,13 +1956,13 @@ impl StacksChainState {
     }
 
     /// Begin an unconfirmed VM transaction, if there's no other open transaction for it.
-    pub fn chainstate_begin_unconfirmed<'a>(
+    pub fn chainstate_begin_unconfirmed<'a, 'b>(
         conf: DBConfig,
-        headers_db: &'a dyn HeadersDB,
+        headers_db: &'b dyn HeadersDB,
         clarity_instance: &'a mut ClarityInstance,
-        burn_dbconn: &'a dyn BurnStateDB,
+        burn_dbconn: &'b dyn BurnStateDB,
         tip: &StacksBlockId,
-    ) -> ClarityTx<'a> {
+    ) -> ClarityTx<'a, 'b> {
         let inner_clarity_tx = clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn);
         ClarityTx {
             block: inner_clarity_tx,
@@ -1964,7 +1974,7 @@ impl StacksChainState {
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
-    ) -> Option<ClarityTx<'a>> {
+    ) -> Option<ClarityTx<'a, 'a>> {
         let conf = self.config();
         if let Some(ref mut unconfirmed) = self.unconfirmed_state {
             if !unconfirmed.is_writable() {
@@ -1986,16 +1996,16 @@ impl StacksChainState {
     }
 
     /// Create a Clarity VM database transaction
-    fn inner_clarity_tx_begin<'a>(
+    fn inner_clarity_tx_begin<'a, 'b>(
         conf: DBConfig,
-        headers_db: &'a dyn HeadersDB,
+        headers_db: &'b dyn HeadersDB,
         clarity_instance: &'a mut ClarityInstance,
-        burn_dbconn: &'a dyn BurnStateDB,
+        burn_dbconn: &'b dyn BurnStateDB,
         parent_consensus_hash: &ConsensusHash,
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-    ) -> ClarityTx<'a> {
+    ) -> ClarityTx<'a, 'b> {
         // mix consensus hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the pair is)
         let parent_index_block =

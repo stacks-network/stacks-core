@@ -160,8 +160,8 @@ pub enum MemPoolRejection {
     Other(String),
 }
 
-pub struct SetupBlockResult<'a> {
-    pub clarity_tx: ClarityTx<'a>,
+pub struct SetupBlockResult<'a, 'b> {
+    pub clarity_tx: ClarityTx<'a, 'b>,
     pub tx_receipts: Vec<StacksTransactionReceipt>,
     pub microblock_execution_cost: ExecutionCost,
     pub microblock_fees: u128,
@@ -4554,8 +4554,8 @@ impl StacksChainState {
 
     /// Process a single matured miner reward.
     /// Grant it STX tokens.
-    fn process_matured_miner_reward<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    fn process_matured_miner_reward(
+        clarity_tx: &mut ClarityTx,
         miner_reward: &MinerReward,
     ) -> Result<(), Error> {
         let miner_reward_total = miner_reward.total();
@@ -4585,8 +4585,8 @@ impl StacksChainState {
 
     /// Process matured miner rewards for this block.
     /// Returns the number of liquid uSTX created -- i.e. the coinbase
-    pub fn process_matured_miner_rewards<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn process_matured_miner_rewards<'a, 'b>(
+        clarity_tx: &mut ClarityTx<'a, 'b>,
         miner_share: &MinerReward,
         users_share: &Vec<MinerReward>,
         parent_share: &MinerReward,
@@ -4606,8 +4606,8 @@ impl StacksChainState {
 
     /// Process all STX that unlock at this block height.
     /// Return the total number of uSTX unlocked in this block
-    pub fn process_stx_unlocks<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn process_stx_unlocks<'a, 'b>(
+        clarity_tx: &mut ClarityTx<'a, 'b>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
         let mainnet = clarity_tx.config.mainnet;
         let lockup_contract_id = boot_code_id("lockup", mainnet);
@@ -4699,10 +4699,10 @@ impl StacksChainState {
     /// microblock fees, microblock burns, list of microblock tx receipts,
     /// miner rewards tuples, the stacks epoch id, and a boolean that
     /// represents whether the epoch transition has been applied.
-    pub fn setup_block<'a>(
-        chainstate_tx: &'a mut ChainstateTx,
+    pub fn setup_block<'a, 'b>(
+        chainstate_tx: &'b mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
-        burn_dbconn: &'a dyn BurnStateDB,
+        burn_dbconn: &'b dyn BurnStateDB,
         conn: &Connection,
         chain_tip: &StacksHeaderInfo,
         burn_tip: BurnchainHeaderHash,
@@ -4712,7 +4712,7 @@ impl StacksChainState {
         parent_microblocks: &Vec<StacksMicroblock>,
         mainnet: bool,
         miner_id_opt: Option<usize>,
-    ) -> Result<SetupBlockResult<'a>, Error> {
+    ) -> Result<SetupBlockResult<'a, 'b>, Error> {
         let parent_index_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
 
@@ -4935,9 +4935,9 @@ impl StacksChainState {
     /// block's transactions.  Finally, it returns the execution costs for the microblock stream
     /// and for the anchored block (separately).
     /// Returns None if we're out of blocks to process.
-    fn append_block(
+    fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
-        clarity_instance: &mut ClarityInstance,
+        clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleTx,
         parent_chain_tip: &StacksHeaderInfo,
         chain_tip_consensus_hash: &ConsensusHash,
@@ -4950,7 +4950,7 @@ impl StacksChainState {
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
         user_burns: &Vec<StagingUserBurnSupport>,
-    ) -> Result<StacksEpochReceipt, Error> {
+    ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
         debug!(
             "Process block {:?} with {} transactions",
             &block.block_hash().to_hex(),
@@ -5071,6 +5071,7 @@ impl StacksChainState {
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
+            clarity_commit,
         ) = {
             // get previous burn block stats
             let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
@@ -5232,7 +5233,8 @@ impl StacksChainState {
                    "block cost" => %block_cost);
 
             // good to go!
-            clarity_tx.commit_to_block(chain_tip_consensus_hash, &block.block_hash());
+            let clarity_commit =
+                clarity_tx.precommit_to_block(chain_tip_consensus_hash, &block.block_hash());
 
             // figure out if there any accumulated rewards by
             //   getting the snapshot that elected this block.
@@ -5277,6 +5279,7 @@ impl StacksChainState {
                 parent_burn_block_hash,
                 parent_burn_block_height,
                 parent_burn_block_timestamp,
+                clarity_commit,
             )
         };
 
@@ -5320,7 +5323,7 @@ impl StacksChainState {
             evaluated_epoch,
         };
 
-        Ok(epoch_receipt)
+        Ok((epoch_receipt, clarity_commit))
     }
 
     /// Verify that a Stacks anchored block attaches to its parent anchored block.
@@ -5616,7 +5619,7 @@ impl StacksChainState {
         // attach the block to the chain state and calculate the next chain tip.
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
-        let epoch_receipt = match StacksChainState::append_block(
+        let (epoch_receipt, clarity_commit) = match StacksChainState::append_block(
             &mut chainstate_tx,
             clarity_instance,
             sort_tx,
@@ -5758,7 +5761,14 @@ impl StacksChainState {
             true,
         )?;
 
-        chainstate_tx.commit().map_err(Error::DBError)?;
+        // this will panic if the Clarity commit fails.
+        clarity_commit.commit();
+        chainstate_tx.commit()
+            .unwrap_or_else(|e| {
+                error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
+                       "error" => ?e);
+                panic!()
+            });
 
         Ok((Some(epoch_receipt), None))
     }
