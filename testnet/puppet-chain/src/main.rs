@@ -51,12 +51,12 @@ async fn main() -> http_types::Result<()> {
         let num_blocks_for_faucet = 101;
         let num_blocks_for_miner = 6;
 
+        println!("Creating default wallet");
+        create_wallet(&config).await;
+
         // Generate blocks for the network faucet
         import_faucet_secret_key(&config).await;
         generate_blocks(num_blocks_for_faucet, FAUCET_ADDRESS.into(), &config).await;
-
-        println!("Creating default wallet");
-        create_wallet(&config).await;
 
         // Send 50 BTC from the faucet to the miner
         let miner_address = config.network.miner_address.clone();
@@ -338,7 +338,10 @@ async fn import_miner_address(config: &ConfigFile) {
     };
     let req = build_request(&config, body);
     match client::connect(stream.clone(), req).await {
-        Ok(_) => {}
+        Ok(ref mut response) => {
+            let content = response.body_string().await.unwrap();
+            println!("Importing faucet secret key: {}", content)
+        }
         Err(err) => {
             println!("ERROR: rpc invokation failed  - {:?}", err);
             return;
@@ -397,7 +400,10 @@ async fn import_faucet_secret_key(config: &ConfigFile) {
     };
     let req = build_request(&config, body);
     match client::connect(stream.clone(), req).await {
-        Ok(_) => {}
+        Ok(ref mut response) => {
+            let content = response.body_string().await.unwrap();
+            println!("Importing faucet secret key: {}", content)
+        }
         Err(err) => {
             println!("ERROR: rpc invokation failed  - {:?}", err);
             return;
