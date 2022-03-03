@@ -48,25 +48,26 @@ async fn main() -> http_types::Result<()> {
 
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
-        let num_blocks_for_faucet = 101;
-        let num_blocks_for_miner = 6;
+        let num_blocks_for_miner = 10;
+        let num_blocks_for_faucet = 90;
 
         println!("Creating default wallet");
         create_wallet(&config).await;
 
-        // Generate blocks for the network faucet
-        import_faucet_secret_key(&config).await;
-        generate_blocks(num_blocks_for_faucet, FAUCET_ADDRESS.into(), &config).await;
-
-        // Send 50 BTC from the faucet to the miner
         let miner_address = config.network.miner_address.clone();
-        transfer_from_faucet_to(miner_address.clone(), "50.0".into(), &config).await;
 
         // Generate blocks for the network miner
         generate_blocks(num_blocks_for_miner, miner_address.clone(), &config).await;
-        transfer_from_faucet_to(miner_address.clone(), "200.0".into(), &config).await;
+
+        // Generate blocks for the network faucet
+        generate_blocks(num_blocks_for_faucet, FAUCET_ADDRESS.into(), &config).await;
+
+        generate_blocks(1, miner_address.clone(), &config).await;
 
         println!("Importing miner address {}", config.network.miner_address);
+        import_faucet_secret_key(&config).await;
+
+        println!("Importing faucet key {}", config.network.miner_address);
         import_miner_address(&config).await;
 
         num_blocks = num_blocks_for_miner + num_blocks_for_faucet;
@@ -540,7 +541,7 @@ impl RPCRequest {
     pub fn is_chain_bootstrapped() -> RPCRequest {
         RPCRequest {
             method: "getblockhash".to_string(),
-            params: serde_json::Value::Array(vec![107.into()]),
+            params: serde_json::Value::Array(vec![100.into()]),
             id: 0.into(),
             jsonrpc: "2.0".to_string().into(),
         }
