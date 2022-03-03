@@ -2384,7 +2384,8 @@ impl SortitionDB {
         query_row(conn, qry, &args)
     }
 
-    /// Get a block commit's parent commit's block's sortition ID
+    /// Get the Sortition ID for the burnchain block containing `txid`'s parent.
+    /// `txid` is the burnchain txid of a block-commit
     pub fn get_block_commit_parent_sortition_id(
         conn: &Connection,
         txid: &Txid,
@@ -2465,7 +2466,7 @@ impl SortitionDB {
 
     fn apply_schema_3(tx: &mut SortitionHandleTx) -> Result<(), db_error> {
         // fill in block_commit_parents table
-        info!("Populating block-commit parent table (this might take a while)");
+        info!("Migrating sortition database schema from v2 to v3: populating block-commit parents (this might take a while)");
 
         let tip_sn = SortitionDB::get_canonical_burn_chain_tip(tx.deref())?;
         let max_height = tip_sn.block_height;
