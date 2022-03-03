@@ -2492,21 +2492,7 @@ impl SortitionDB {
                     &u64_to_sql(ancestor_sn.block_height)?,
                     &ancestor_sn.sortition_id,
                 ];
-                let mut stmt = tx.prepare(qry)?;
-                let query_values = stmt
-                    .query_and_then(args, |row| {
-                        let commit = LeaderBlockCommitOp::from_row(&row)
-                            .expect("FATAL: failed to load block-commit");
-                        let res: Result<_, rusqlite::Error> = Ok(commit);
-                        res
-                    })
-                    .expect("FATAL: failed to query block_commits table");
-                // .collect() is not implemented for AndThenRows
-                let mut ret = vec![];
-                for value in query_values {
-                    ret.push(value?);
-                }
-                ret
+                query_rows(tx, qry, args)?
             };
 
             test_debug!(
