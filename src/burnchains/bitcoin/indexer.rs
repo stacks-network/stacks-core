@@ -683,14 +683,10 @@ impl BurnchainIndexer for BitcoinIndexer {
             false,
             false,
         )?;
-
         let first_block_height = self.get_first_block_height();
-        let first_header = loop {
-            if let Ok(Some(first_header)) = spv_client.read_block_header(first_block_height) {
-                break first_header;
-            }
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            info!("Waiting for first block");
+        let first_header = match spv_client.read_block_header(first_block_height) {
+            Ok(Some(res)) => res,
+            _ => return Err(burnchain_error::MissingHeaders)
         };
 
         let first_block_header_hash =
