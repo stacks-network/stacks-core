@@ -2435,7 +2435,7 @@ impl SortitionDB {
         match epoch {
             StacksEpochId::Epoch10 => false,
             StacksEpochId::Epoch20 => (version == "1" || version == "2" || version == "3"),
-            StacksEpochId::Epoch2_05 => (version == "2" || version == "3")
+            StacksEpochId::Epoch2_05 => (version == "2" || version == "3"),
         }
     }
 
@@ -2667,7 +2667,12 @@ impl SortitionDB {
         // do we need to instantiate indexes?
         // only do a transaction if we need to, since this gets called each time the sortition DB
         // is opened.
-        let exists : i64 = query_row(self.conn(), "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1", &[LAST_SORTITION_DB_INDEX])?.unwrap_or(0);
+        let exists: i64 = query_row(
+            self.conn(),
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            &[LAST_SORTITION_DB_INDEX],
+        )?
+        .unwrap_or(0);
         if exists == 0 {
             let tx = self.tx_begin()?;
             for row_text in SORTITION_DB_INDEXES {
