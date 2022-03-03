@@ -46,9 +46,6 @@ async fn main() -> http_types::Result<()> {
     if is_chain_bootstrap_required(&config).await? {
         println!("Bootstrapping chain");
 
-        println!("Creating default wallet");
-        create_wallet(&config).await;
-
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
         let num_blocks_for_faucet = 101;
@@ -58,6 +55,9 @@ async fn main() -> http_types::Result<()> {
         import_faucet_secret_key(&config).await;
         generate_blocks(num_blocks_for_faucet, FAUCET_ADDRESS.into(), &config).await;
 
+        println!("Creating default wallet");
+        create_wallet(&config).await;
+
         // Send 50 BTC from the faucet to the miner
         let miner_address = config.network.miner_address.clone();
         transfer_from_faucet_to(miner_address.clone(), "50.0".into(), &config).await;
@@ -65,6 +65,9 @@ async fn main() -> http_types::Result<()> {
         // Generate blocks for the network miner
         generate_blocks(num_blocks_for_miner, miner_address.clone(), &config).await;
         transfer_from_faucet_to(miner_address.clone(), "200.0".into(), &config).await;
+
+        println!("Importing miner address {}", config.network.miner_address);
+        import_miner_address(&config).await;
 
         num_blocks = num_blocks_for_miner + num_blocks_for_faucet;
 
@@ -314,6 +317,36 @@ async fn is_chain_bootstrap_required(config: &ConfigFile) -> http_types::Result<
     Ok(true)
 }
 
+async fn import_miner_address(config: &ConfigFile) {
+    let rpc_addr = config.network.bitcoind_rpc_host.clone();
+
+    let rpc_req = RPCRequest::importaddress(&config.network.miner_address);
+
+    let stream = match TcpStream::connect(rpc_addr).await {
+        Ok(stream) => stream,
+        Err(err) => {
+            println!("ERROR: connection failed  - {:?}", err);
+            return;
+        }
+    };
+    let body = match serde_json::to_vec(&rpc_req) {
+        Ok(body) => body,
+        Err(err) => {
+            println!("ERROR: serialization failed  - {:?}", err);
+            return;
+        }
+    };
+    let req = build_request(&config, body);
+    match client::connect(stream.clone(), req).await {
+        Ok(_) => {}
+        Err(err) => {
+            println!("ERROR: rpc invokation failed  - {:?}", err);
+            return;
+        }
+    };
+}
+
+
 async fn create_wallet(config: &ConfigFile) {
     let rpc_addr = config.network.bitcoind_rpc_host.clone();
 
@@ -480,6 +513,15 @@ impl RPCRequest {
         }
     }
 
+    pub fn importaddress(address: &str) -> RPCRequest {
+        RPCRequest {
+            method: "importaddress".to_string(),
+            params: serde_json::Value::Array(vec![address.into(), "".into(), true.into()]),
+            id: 0.into(),
+            jsonrpc: "2.0".to_string().into(),
+        }
+    }
+
     pub fn transfer(recipient: String, amount: String) -> RPCRequest {
         RPCRequest {
             method: "sendtoaddress".to_string(),
@@ -501,7 +543,7 @@ impl RPCRequest {
     pub fn create_wallet() -> RPCRequest {
         RPCRequest {
             method: "createwallet".to_string(),
-            params: serde_json::Value::String("".into()),
+            params: serde_json::Value::Array(vec!["".into()]),
             id: 0.into(),
             jsonrpc: "2.0".to_string().into(),
         }
