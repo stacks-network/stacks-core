@@ -158,7 +158,7 @@ impl RunLoop {
 
         let mut event_dispatcher = EventDispatcher::new();
         for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer, should_keep_running.clone());
+            event_dispatcher.register_observer(observer);
         }
 
         Self {

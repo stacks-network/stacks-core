@@ -348,7 +348,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
+            event_dispatcher.register_observer(observer);
         }
 
         event_dispatcher.process_boot_receipts(receipts);
@@ -379,7 +379,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
+            event_dispatcher.register_observer(observer);
         }
 
         let chainstate_path = config.get_chainstate_path_str();
