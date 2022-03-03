@@ -48,8 +48,8 @@ async fn main() -> http_types::Result<()> {
 
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
-        let num_blocks_for_miner = 10;
-        let num_blocks_for_faucet = 90;
+        let num_blocks_for_miner = 3;
+        let num_blocks_for_faucet = 97;
 
         println!("Creating default wallet");
         create_wallet(&config).await;
