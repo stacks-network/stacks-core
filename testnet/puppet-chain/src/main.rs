@@ -46,6 +46,9 @@ async fn main() -> http_types::Result<()> {
     if is_chain_bootstrap_required(&config).await? {
         println!("Bootstrapping chain");
 
+        println!("Creating default wallet");
+        create_wallet(&config).await;
+
         // If the testnet crashed, we need to generate a chain that would be
         // longer that the previous chain.
         let num_blocks_for_faucet = 101;
@@ -72,9 +75,6 @@ async fn main() -> http_types::Result<()> {
             let backoff = Duration::from_millis(1_000);
             sleep(backoff)
         }
-
-        println!("Creating default wallet");
-        create_wallet(&config).await;
     }
 
     // Start a loop in a separate thread, generating new blocks
