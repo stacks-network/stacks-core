@@ -797,7 +797,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             .expect("No block limit found for clarity_tx.");
         mem_pool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
-        debug!(
+        info!(
             "Microblock transaction selection begins (child of {}), bytes so far: {}",
             &self.anchor_block, bytes_so_far
         );
@@ -1822,7 +1822,7 @@ impl StacksBlockBuilder {
             parent_stacks_header.block_height,
         );
 
-        debug!(
+        info!(
             "Build anchored block off of {}/{} height {}",
             &tip_consensus_hash, &tip_block_hash, tip_height
         );
