@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS marf_data (
 
 CREATE INDEX IF NOT EXISTS block_hash_marf_data ON marf_data(block_hash);
 CREATE INDEX IF NOT EXISTS unconfirmed_marf_data ON marf_data(unconfirmed);
+CREATE INDEX IF NOT EXISTS index_external_offset ON marf_data(external_offset);
 ";
 static SQL_MARF_MINED_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS mined_blocks (
@@ -160,6 +161,7 @@ pub fn get_block_hash<T: MarfTrieId>(conn: &Connection, local_id: u32) -> Result
     })
 }
 
+/// Write a serialized trie to sqlite
 pub fn write_trie_blob<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,
@@ -177,6 +179,9 @@ pub fn write_trie_blob<T: MarfTrieId>(
     Ok(block_id)
 }
 
+/// Write the offset/length of a trie blob that was stored to an external file.
+/// Do this only once the trie is actually stored, since only the presence of this information is
+/// what guarantees that the blob is persisted.
 pub fn write_external_trie_blob<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,
@@ -202,6 +207,7 @@ pub fn write_external_trie_blob<T: MarfTrieId>(
     Ok(block_id)
 }
 
+/// Write a serialized trie blob for a trie that was mined
 pub fn write_trie_blob_to_mined<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,
@@ -230,6 +236,7 @@ pub fn write_trie_blob_to_mined<T: MarfTrieId>(
     Ok(block_id)
 }
 
+/// Write a serialized unconfirmed trie blob
 pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,
@@ -264,6 +271,7 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
     Ok(block_id)
 }
 
+/// Open a trie blob. Returns a Blob<'a> writeable handle to it.
 pub fn open_trie_blob<'a>(conn: &'a Connection, block_id: u32) -> Result<Blob<'a>, Error> {
     let blob = conn.blob_open(
         rusqlite::DatabaseName::Main,
@@ -293,6 +301,7 @@ pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(
     rows.collect()
 }
 
+/// Read a node's hash from a sqlite-stored blob, given the block ID
 pub fn read_node_hash_bytes<W: Write>(
     conn: &Connection,
     w: &mut W,
@@ -310,6 +319,7 @@ pub fn read_node_hash_bytes<W: Write>(
     w.write_all(&hash_buff).map_err(|e| e.into())
 }
 
+/// Read a node's hash from a sqlite-stored blob, given its block header hash
 pub fn read_node_hash_bytes_by_bhh<W: Write, T: MarfTrieId>(
     conn: &Connection,
     w: &mut W,
@@ -332,6 +342,7 @@ pub fn read_node_hash_bytes_by_bhh<W: Write, T: MarfTrieId>(
     w.write_all(&hash_buff).map_err(|e| e.into())
 }
 
+/// Read a node and its hash from a sqlite-stored trie blob
 pub fn read_node_type(
     conn: &Connection,
     block_id: u32,
@@ -347,6 +358,7 @@ pub fn read_node_type(
     read_nodetype(&mut blob, ptr)
 }
 
+/// Read a node from a sqlite-stored trie blob, excluding its hash.
 pub fn read_node_type_nohash(
     conn: &Connection,
     block_id: u32,
@@ -362,6 +374,7 @@ pub fn read_node_type_nohash(
     read_nodetype_nohash(&mut blob, ptr)
 }
 
+/// Get the offset and length of a trie blob in the trie blobs file.
 pub fn get_external_trie_offset_length(
     conn: &Connection,
     block_id: u32,
@@ -372,6 +385,7 @@ pub fn get_external_trie_offset_length(
     Ok((offset, length))
 }
 
+/// Get the offset of a trie blob in the blobs file, given its block header hash.
 pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
     conn: &Connection,
     bhh: &T,
@@ -380,6 +394,14 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
     let args: &[&dyn ToSql] = &[bhh];
     let (offset, length) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
+}
+
+/// Determine the offset in the blobs file at which the last trie ends.  This is also the offset at
+/// which the next trie will be appended.
+pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
+    let qry = "SELECT (external_offset + external_length) AS blobs_length FROM marf_data ORDER BY external_offset DESC LIMIT 1";
+    let max_len = query_row(conn, qry, NO_PARAMS)?.unwrap_or(0);
+    Ok(max_len)
 }
 
 pub fn get_node_hash_bytes(
