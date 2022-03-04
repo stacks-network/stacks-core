@@ -545,6 +545,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
     pub fn drop_unconfirmed(mut self) {
         if !self.storage.readonly() && self.storage.unconfirmed() {
             if let Some(tip) = self.open_chain_tip.take() {
+                trace!("Dropping unconfirmed trie {}", &tip.block_hash);
                 self.storage.drop_unconfirmed_trie(&tip.block_hash);
                 self.storage
                     .open_block(&T::sentinel())
@@ -553,6 +554,8 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
                 //   because the unconfirmed state may already have been written
                 //   to the sqlite table before this transaction began
                 self.storage.commit_tx()
+            } else {
+                trace!("drop_unconfirmed() noop");
             }
         }
     }
@@ -890,7 +893,10 @@ impl<T: MarfTrieId> MARF<T> {
         let mut cursor = TrieCursor::new(path, storage.root_trieptr());
 
         // walk to insertion point
-        let mut node = Trie::read_root_nohash(storage)?;
+        let mut node = Trie::read_root_nohash(storage).map_err(|e| {
+            test_debug!("Failed to read root of {:?}: {:?}", block_hash, &e);
+            e
+        })?;
 
         for _ in 0..(cursor.path.len() + 1) {
             storage.bench_mut().marf_walk_from_start();
@@ -1409,17 +1415,6 @@ impl<T: MarfTrieId> MARF<T> {
             }
         }
     }
-
-    /*
-    pub fn seal(&mut self) -> Result<TrieHash, Error> {
-        if self.storage.readonly() {
-            return Err(Error::ReadOnlyError);
-        }
-        let mut tx = self.storage.transaction()?;
-        let root_hash = tx.seal()?;
-        Ok(root_hash)
-    }
-    */
 
     /// Finish writing the next trie in the MARF.  This persists all changes.
     /// Works for both confirmed and unconfirmed tries
@@ -3737,6 +3732,7 @@ mod test {
         .unwrap_err();
         if let Error::NotFoundError = e {
         } else {
+            eprintln!("whoops: {:?}", &e);
             assert!(false);
         }
 
