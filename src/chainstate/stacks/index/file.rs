@@ -264,9 +264,10 @@ impl TrieFile {
 
     /// Append a serialized trie to the TrieFile.
     /// Returns the offset at which it was appended.
-    pub fn append_trie_blob(&mut self, buf: &[u8]) -> Result<u64, Error> {
-        self.seek(SeekFrom::End(0))?;
-        let offset = self.stream_position()?;
+    pub fn append_trie_blob(&mut self, db: &Connection, buf: &[u8]) -> Result<u64, Error> {
+        let offset = trie_sql::get_external_blobs_length(db)?;
+        test_debug!("Write trie of {} bytes at {}", buf.len(), offset);
+        self.seek(SeekFrom::Start(offset))?;
         self.write_all(buf)?;
         self.flush()?;
 
