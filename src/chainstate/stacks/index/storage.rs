@@ -111,12 +111,17 @@ impl<T: MarfTrieId> BlockMap for TrieFileStorage<T> {
     }
 
     fn get_block_id_caching(&mut self, block_hash: &T) -> Result<u32, Error> {
-        if let Some(block_id) = self.cache.load_block_id(block_hash) {
-            Ok(block_id)
+        // don't use the cache if we're unconfirmed
+        if self.data.unconfirmed {
+            self.get_block_id(block_hash)
         } else {
-            let block_id = self.get_block_id(block_hash)?;
-            self.cache.store_block_id(block_hash.clone(), block_id);
-            Ok(block_id)
+            if let Some(block_id) = self.cache.load_block_id(block_hash) {
+                Ok(block_id)
+            } else {
+                let block_id = self.get_block_id(block_hash)?;
+                self.cache.store_block_id(block_hash.clone(), block_id);
+                Ok(block_id)
+            }
         }
     }
 }
@@ -145,12 +150,17 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
     }
 
     fn get_block_id_caching(&mut self, block_hash: &T) -> Result<u32, Error> {
-        if let Some(block_id) = self.cache.load_block_id(block_hash) {
-            Ok(block_id)
+        // don't use the cache if we're unconfirmed
+        if self.data.unconfirmed {
+            self.get_block_id(block_hash)
         } else {
-            let block_id = self.get_block_id(block_hash)?;
-            self.cache.store_block_id(block_hash.clone(), block_id);
-            Ok(block_id)
+            if let Some(block_id) = self.cache.load_block_id(block_hash) {
+                Ok(block_id)
+            } else {
+                let block_id = self.get_block_id(block_hash)?;
+                self.cache.store_block_id(block_hash.clone(), block_id);
+                Ok(block_id)
+            }
         }
     }
 }
@@ -203,12 +213,17 @@ impl<T: MarfTrieId> BlockMap for TrieSqlHashMapCursor<'_, T> {
     }
 
     fn get_block_id_caching(&mut self, block_hash: &T) -> Result<u32, Error> {
-        if let Some(block_id) = self.cache.load_block_id(block_hash) {
-            Ok(block_id)
+        // don't use the cache if we're unconfirmed
+        if self.unconfirmed {
+            self.get_block_id(block_hash)
         } else {
-            let block_id = self.get_block_id(block_hash)?;
-            self.cache.store_block_id(block_hash.clone(), block_id);
-            Ok(block_id)
+            if let Some(block_id) = self.cache.load_block_id(block_hash) {
+                Ok(block_id)
+            } else {
+                let block_id = self.get_block_id(block_hash)?;
+                self.cache.store_block_id(block_hash.clone(), block_id);
+                Ok(block_id)
+            }
         }
     }
 }
@@ -600,7 +615,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let marf_root_hash = Trie::get_trie_root_hash(storage, root_hash)
             .expect("FATAL: unable to calculate MARF root hash from moved TrieRAM");
 
-        debug!("cur_block_hash = {}, cur_block_id = {:?}, self.block_header = {}, have last extended? {}, root_hash: {}, trie_root_hash = {}", &cur_block_hash, &cur_block_id, &self.block_header, storage.data.uncommitted_writes.is_some(), root_hash, &marf_root_hash);
+        test_debug!("cur_block_hash = {}, cur_block_id = {:?}, self.block_header = {}, have last extended? {}, root_hash: {}, trie_root_hash = {}", &cur_block_hash, &cur_block_id, &self.block_header, storage.data.uncommitted_writes.is_some(), root_hash, &marf_root_hash);
 
         storage.data.set_block(cur_block_hash, cur_block_id);
 
@@ -1100,6 +1115,7 @@ pub struct TrieSqlCursor<'a> {
 pub struct TrieSqlHashMapCursor<'a, T: MarfTrieId> {
     db: &'a Connection,
     cache: &'a mut TrieCache<T>,
+    unconfirmed: bool,
 }
 
 impl NodeHashReader for TrieSqlCursor<'_> {
@@ -1170,6 +1186,7 @@ pub struct TrieStorageConnection<'a, T: MarfTrieId> {
     cache: &'a mut TrieCache<T>,
     bench: &'a mut TrieBenchmark,
     pub hash_calculation_mode: TrieHashCalculationMode,
+    unconfirmed_block_id: Option<u32>,
 
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
@@ -1248,6 +1265,7 @@ fn marf_sqlite_open<P: AsRef<Path>>(
 impl<T: MarfTrieId> TrieStorageTransientData<T> {
     /// Target the transient data to a particular block, and optionally its block ID
     fn set_block(&mut self, bhh: T, id: Option<u32>) {
+        trace!("set_block({},{:?})", &bhh, &id);
         self.cur_block_id = id;
         self.cur_block = bhh;
     }
@@ -1271,6 +1289,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             cache: &mut self.cache,
             bench: &mut self.bench,
             hash_calculation_mode: self.hash_calculation_mode,
+            unconfirmed_block_id: None,
 
             #[cfg(test)]
             test_genesis_block: &mut self.test_genesis_block,
@@ -1291,6 +1310,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             cache: &mut self.cache,
             bench: &mut self.bench,
             hash_calculation_mode: self.hash_calculation_mode,
+            unconfirmed_block_id: None,
 
             #[cfg(test)]
             test_genesis_block: &mut self.test_genesis_block,
@@ -1427,8 +1447,10 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
     pub fn open_unconfirmed(
         db_path: &str,
-        marf_opts: MARFOpenOpts,
+        mut marf_opts: MARFOpenOpts,
     ) -> Result<TrieFileStorage<T>, Error> {
+        // no caching allowed for unconfirmed tries, since they can disappear
+        marf_opts.cache_strategy = "noop".to_string();
         TrieFileStorage::open_opts(db_path, false, true, marf_opts)
     }
 
@@ -1477,7 +1499,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
                 trie_ancestor_hash_bytes_cache: None,
 
                 readonly: true,
-                unconfirmed: true,
+                unconfirmed: self.unconfirmed(),
             },
 
             // used in testing in order to short-circuit block-height lookups
@@ -1546,7 +1568,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                 trie_ancestor_hash_bytes_cache: None,
 
                 readonly: true,
-                unconfirmed: true,
+                unconfirmed: self.unconfirmed(),
             },
 
             // used in testing in order to short-circuit block-height lookups
@@ -1558,33 +1580,68 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         Ok(ret)
     }
 
+    fn with_trie_blobs<F, R>(&mut self, cls: F) -> R
+    where
+        F: FnOnce(&Connection, &mut Option<&mut TrieFile>) -> R,
+    {
+        let mut blobs = self.blobs.take();
+        let res = cls(&self.db, &mut blobs);
+        self.blobs = blobs;
+        res
+    }
+
     fn inner_store_trie_blob(
         &mut self,
         flush_options: FlushOptions<'_, T>,
         bhh: &T,
         buffer: &[u8],
     ) -> Result<u32, Error> {
+        let unconfirmed = self.unconfirmed();
         match flush_options {
-            FlushOptions::CurrentHeader => match self.blobs {
-                Some(ref mut blobs) => {
-                    let offset = blobs.append_trie_blob(buffer)?;
-                    trie_sql::write_external_trie_blob(&self.db, bhh, offset, buffer.len() as u64)
-                }
+            FlushOptions::CurrentHeader => {
+                if unconfirmed {
+                    // unconfirmed tries are always stored to sqlite
+                    test_debug!("Store unconfirmed trie blob {} to db", &bhh);
+                    trie_sql::write_trie_blob(&self.db, bhh, buffer)
+                } else {
+                    self.with_trie_blobs(|db, blobs| match blobs {
+                        Some(blobs) => {
+                            let offset = blobs.append_trie_blob(db, buffer)?;
+                            test_debug!("Stored trie blob {} to offset {}", &bhh, offset);
+                            trie_sql::write_external_trie_blob(db, bhh, offset, buffer.len() as u64)
+                        }
 
-                None => trie_sql::write_trie_blob(&self.db, bhh, buffer),
-            },
-            FlushOptions::NewHeader(real_bhh) => match self.blobs {
-                Some(ref mut blobs) => {
-                    let offset = blobs.append_trie_blob(buffer)?;
-                    trie_sql::write_external_trie_blob(
-                        &self.db,
-                        real_bhh,
-                        offset,
-                        buffer.len() as u64,
-                    )
+                        None => {
+                            test_debug!("Stored trie blob {} to db", &bhh);
+                            trie_sql::write_trie_blob(db, bhh, buffer)
+                        }
+                    })
                 }
-                None => trie_sql::write_trie_blob(&self.db, real_bhh, buffer),
-            },
+            }
+            FlushOptions::NewHeader(real_bhh) => {
+                if unconfirmed {
+                    // unconfirmed tries are always stored to sqlite
+                    test_debug!("Store unconfirmed trie blob {} to db", &real_bhh);
+                    trie_sql::write_trie_blob(&self.db, real_bhh, buffer)
+                } else {
+                    self.with_trie_blobs(|db, blobs| match blobs {
+                        Some(blobs) => {
+                            let offset = blobs.append_trie_blob(db, buffer)?;
+                            test_debug!("Stored trie blob {} to offset {}", &real_bhh, offset);
+                            trie_sql::write_external_trie_blob(
+                                db,
+                                real_bhh,
+                                offset,
+                                buffer.len() as u64,
+                            )
+                        }
+                        None => {
+                            test_debug!("Stored trie blob {} to db", &real_bhh);
+                            trie_sql::write_trie_blob(db, real_bhh, buffer)
+                        }
+                    })
+                }
+            }
             FlushOptions::MinedTable(real_bhh) => {
                 trie_sql::write_trie_blob_to_mined(&self.db, real_bhh, buffer)
             }
@@ -1771,13 +1828,15 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         self.flush()?;
 
         // try to load up the trie
-        let (trie_buf, created) =
+        let (trie_buf, created, unconfirmed_block_id) =
             if let Some(block_id) = trie_sql::get_unconfirmed_block_identifier(&self.db, bhh)? {
                 debug!("Reload unconfirmed trie {} ({})", bhh, block_id);
 
                 // restore trie
                 let mut fd = trie_sql::open_trie_blob(&self.db, block_id)?;
-                (TrieRAM::load(&mut fd, bhh)?, false)
+
+                test_debug!("Unconfirmed trie block ID for {} is {}", bhh, block_id);
+                (TrieRAM::load(&mut fd, bhh)?, false, Some(block_id))
             } else {
                 debug!("Instantiate unconfirmed trie {}", bhh);
 
@@ -1787,7 +1846,11 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     None => (1024), // don't try to guess _byte_ allocation here.
                 };
 
-                (TrieRAM::new(bhh, size_hint, &self.data.cur_block), true)
+                (
+                    TrieRAM::new(bhh, size_hint, &self.data.cur_block),
+                    true,
+                    None,
+                )
             };
 
         // place a lock on this block, so we can't extend to it again
@@ -1796,6 +1859,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             return Err(Error::ExistsError);
         }
 
+        self.unconfirmed_block_id = unconfirmed_block_id;
         self.switch_trie(bhh, UncommittedState::RW(trie_buf));
         Ok(created)
     }
@@ -2044,6 +2108,13 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     // used for providing a block identifier when opening a block -- usually used
     //   when following a backptr, which stores the block identifier directly.
     pub fn open_block_known_id(&mut self, bhh: &T, id: u32) -> Result<(), Error> {
+        trace!(
+            "open_block_known_id({},{}) (unconfirmed={:?},{})",
+            bhh,
+            id,
+            &self.unconfirmed_block_id,
+            self.unconfirmed()
+        );
         if *bhh == self.data.cur_block && self.data.cur_block_id.is_some() {
             // no-op
             return Ok(());
@@ -2061,9 +2132,29 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     }
 
     pub fn open_block(&mut self, bhh: &T) -> Result<(), Error> {
+        trace!(
+            "open_block({}) (unconfirmed={:?},{})",
+            bhh,
+            &self.unconfirmed_block_id,
+            self.unconfirmed()
+        );
         self.bench.open_block_start();
+
         if *bhh == self.data.cur_block && self.data.cur_block_id.is_some() {
             // no-op
+            if self.unconfirmed() {
+                if self.data.cur_block_id
+                    == trie_sql::get_unconfirmed_block_identifier(&self.db, bhh)?
+                {
+                    test_debug!(
+                        "{} unconfirmed trie block ID is {:?}",
+                        bhh,
+                        &self.data.cur_block_id
+                    );
+                    self.unconfirmed_block_id = self.data.cur_block_id.clone();
+                }
+            }
+
             self.bench.open_block_finish(true);
             return Ok(());
         }
@@ -2082,14 +2173,43 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             if uncommitted_bhh == bhh {
                 // nothing to do -- we're already ready.
                 // just clear out.
+                if self.unconfirmed() {
+                    if self.data.cur_block_id
+                        == trie_sql::get_unconfirmed_block_identifier(&self.db, bhh)?
+                    {
+                        test_debug!(
+                            "{} unconfirmed trie block ID is {:?}",
+                            bhh,
+                            &self.data.cur_block_id
+                        );
+                        self.unconfirmed_block_id = self.data.cur_block_id.clone();
+                    }
+                }
                 self.data.set_block(bhh.clone(), None);
                 self.bench.open_block_finish(true);
                 return Ok(());
             }
         }
 
+        if self.unconfirmed() {
+            if let Some(block_id) = trie_sql::get_unconfirmed_block_identifier(&self.db, bhh)? {
+                // this is an unconfirmed trie being opened
+                self.data.set_block(bhh.clone(), Some(block_id));
+                self.bench.open_block_finish(false);
+
+                // reads to this block will hit sqlite
+                test_debug!("{} unconfirmed trie block ID is {}", bhh, block_id);
+                self.unconfirmed_block_id = Some(block_id);
+                return Ok(());
+            }
+        }
+
         // opening a different Trie than the one we're extending
-        let block_id = self.get_block_id_caching(bhh)?;
+        let block_id = self.get_block_id_caching(bhh).map_err(|e| {
+            test_debug!("Failed to open {:?}: {:?}", bhh, e);
+            e
+        })?;
+
         self.data.set_block(bhh.clone(), Some(block_id));
         self.bench.open_block_finish(false);
         Ok(())
@@ -2184,6 +2304,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         let mut map = TrieSqlHashMapCursor {
             db: &self.db,
             cache: &mut self.cache,
+            unconfirmed: self.data.unconfirmed,
         };
 
         if let Some((ref uncommitted_bhh, ref mut uncommitted_trie)) = self.data.uncommitted_writes
@@ -2310,6 +2431,14 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         block_id: u32,
         ptr: &TriePtr,
     ) -> Result<TrieHash, Error> {
+        if self.unconfirmed_block_id == Some(block_id) {
+            // read from unconfirmed trie
+            test_debug!(
+                "Read persisted node hash from unconfirmed block id {}",
+                block_id
+            );
+            return trie_sql::get_node_hash_bytes(&self.db, block_id, ptr);
+        }
         let node_hash = match self.blobs.as_mut() {
             Some(blobs) => blobs.get_node_hash_bytes(&self.db, block_id, ptr),
             None => trie_sql::get_node_hash_bytes(&self.db, block_id, ptr),
@@ -2363,6 +2492,24 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         ptr: &TriePtr,
         read_hash: bool,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
+        trace!(
+            "inner_read_persisted_nodetype({}): {:?} (unconfirmed={:?},{})",
+            block_id,
+            ptr,
+            &self.unconfirmed_block_id,
+            self.unconfirmed()
+        );
+        if self.unconfirmed_block_id == Some(block_id) {
+            trace!("Read persisted node from unconfirmed block id {}", block_id);
+
+            // read from unconfirmed trie
+            if read_hash {
+                return trie_sql::read_node_type(&self.db, block_id, &ptr);
+            } else {
+                return trie_sql::read_node_type_nohash(&self.db, block_id, &ptr)
+                    .map(|node| (node, TrieHash([0u8; TRIEHASH_ENCODED_SIZE])));
+            }
+        }
         let (node_inst, node_hash) = match self.blobs.as_mut() {
             Some(blobs) => {
                 if read_hash {
@@ -2418,7 +2565,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
         match self.data.cur_block_id {
             Some(id) => {
                 self.bench.read_nodetype_start();
-                if let Some((node_inst, node_hash)) = self.cache.load_node(id, ptr) {
+                if let Some((node_inst, node_hash)) = self.cache.load_node(id, &clear_ptr) {
                     // if this is a cache hit, then just return the node_hash -- it costs us
                     // nothing
                     let res = (node_inst, node_hash);
@@ -2431,7 +2578,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                     if read_hash {
                         self.cache.store_node(
                             id,
-                            ptr.clone(),
+                            clear_ptr.clone(),
                             node_inst.clone(),
                             node_hash.clone(),
                         );
