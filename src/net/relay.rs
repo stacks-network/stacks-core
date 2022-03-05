@@ -1227,33 +1227,26 @@ impl Relayer {
                     }
                 }
 
-                // have the p2p thread tell our neighbors about newly-discovered blocks
-                let new_block_chs = new_blocks.iter().map(|(ch, _)| ch.clone()).collect();
-                let available = Relayer::load_blocks_available_data(sortdb, new_block_chs)?;
-                if available.len() > 0 {
-                    if !ibd {
+                // only relay if not ibd
+                if !ibd {
+                    // have the p2p thread tell our neighbors about newly-discovered blocks
+                    let new_block_chs = new_blocks.iter().map(|(ch, _)| ch.clone()).collect();
+                    let available = Relayer::load_blocks_available_data(sortdb, new_block_chs)?;
+                    if available.len() > 0 {
                         debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
                         if let Err(e) = self.p2p.advertize_blocks(available, new_blocks) {
                             warn!("Failed to advertize new blocks: {:?}", &e);
                         }
-                    } else {
-                        debug!(
-                            "{:?}: Blocks available, but will not advertize since in IBD: {}",
-                            &_local_peer,
-                            available.len()
-                        );
                     }
-                }
 
-                // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
-                let new_mblock_chs = new_confirmed_microblocks
-                    .iter()
-                    .map(|(ch, _)| ch.clone())
-                    .collect();
-                let mblocks_available =
-                    Relayer::load_blocks_available_data(sortdb, new_mblock_chs)?;
-                if mblocks_available.len() > 0 {
-                    if !ibd {
+                    // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
+                    let new_mblock_chs = new_confirmed_microblocks
+                        .iter()
+                        .map(|(ch, _)| ch.clone())
+                        .collect();
+                    let mblocks_available =
+                        Relayer::load_blocks_available_data(sortdb, new_mblock_chs)?;
+                    if mblocks_available.len() > 0 {
                         debug!(
                             "{:?}: Confirmed microblock streams available: {}",
                             &_local_peer,
@@ -1265,32 +1258,26 @@ impl Relayer {
                         {
                             warn!("Failed to advertize new confirmed microblocks: {:?}", &e);
                         }
-                    } else {
-                        debug!(
-                            "{:?}: Confirmed microblock streams available, but will not advertize since in IBD: {}",
-                            &_local_peer,
-                            mblocks_available.len()
-                        );
                     }
-                }
 
-                // have the p2p thread forward all new unconfirmed microblocks
-                if new_microblocks.len() > 0 {
-                    debug!(
-                        "{:?}: Unconfirmed microblocks: {}",
-                        &_local_peer,
-                        new_microblocks.len()
-                    );
-                    for (relayers, mblocks_msg) in new_microblocks.into_iter() {
+                    // have the p2p thread forward all new unconfirmed microblocks
+                    if new_microblocks.len() > 0 {
                         debug!(
-                            "{:?}: Send {} microblocks for {}",
+                            "{:?}: Unconfirmed microblocks: {}",
                             &_local_peer,
-                            mblocks_msg.microblocks.len(),
-                            &mblocks_msg.index_anchor_block
+                            new_microblocks.len()
                         );
-                        let msg = StacksMessageType::Microblocks(mblocks_msg);
-                        if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
-                            warn!("Failed to broadcast microblock: {:?}", &e);
+                        for (relayers, mblocks_msg) in new_microblocks.into_iter() {
+                            debug!(
+                                "{:?}: Send {} microblocks for {}",
+                                &_local_peer,
+                                mblocks_msg.microblocks.len(),
+                                &mblocks_msg.index_anchor_block
+                            );
+                            let msg = StacksMessageType::Microblocks(mblocks_msg);
+                            if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
+                                warn!("Failed to broadcast microblock: {:?}", &e);
+                            }
                         }
                     }
                 }
@@ -1300,42 +1287,47 @@ impl Relayer {
             }
         };
 
-        // store all transactions, and forward the novel ones to neighbors
-        test_debug!(
-            "{:?}: Process {} transaction(s)",
-            &_local_peer,
-            network_result.pushed_transactions.len()
-        );
-        let new_txs = Relayer::process_transactions(
-            network_result,
-            sortdb,
-            chainstate,
-            mempool,
-            event_observer,
-        )?;
-
-        if new_txs.len() > 0 {
-            debug!(
-                "{:?}: Send {} transactions to neighbors",
-                &_local_peer,
-                new_txs.len()
-            );
-        }
-
         let mut mempool_txs_added = vec![];
-        for (relayers, tx) in new_txs.into_iter() {
-            debug!("{:?}: Broadcast tx {}", &_local_peer, &tx.txid());
-            mempool_txs_added.push(tx.clone());
-            let msg = StacksMessageType::Transaction(tx);
-            if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
-                warn!("Failed to broadcast transaction: {:?}", &e);
+
+        // only care about transaction forwarding if not IBD
+        if !ibd {
+            // store all transactions, and forward the novel ones to neighbors
+            test_debug!(
+                "{:?}: Process {} transaction(s)",
+                &_local_peer,
+                network_result.pushed_transactions.len()
+            );
+            let new_txs = Relayer::process_transactions(
+                network_result,
+                sortdb,
+                chainstate,
+                mempool,
+                event_observer,
+            )?;
+
+            if new_txs.len() > 0 {
+                debug!(
+                    "{:?}: Send {} transactions to neighbors",
+                    &_local_peer,
+                    new_txs.len()
+                );
+            }
+
+            for (relayers, tx) in new_txs.into_iter() {
+                debug!("{:?}: Broadcast tx {}", &_local_peer, &tx.txid());
+                mempool_txs_added.push(tx.clone());
+                let msg = StacksMessageType::Transaction(tx);
+                if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
+                    warn!("Failed to broadcast transaction: {:?}", &e);
+                }
             }
         }
 
         let mut processed_unconfirmed_state = Default::default();
 
-        // finally, refresh the unconfirmed chainstate, if need be
-        if network_result.has_microblocks() {
+        // finally, refresh the unconfirmed chainstate, if need be.
+        // only bother if we're not in IBD; otherwise this is a waste of time
+        if network_result.has_microblocks() && !ibd {
             processed_unconfirmed_state = Relayer::refresh_unconfirmed(chainstate, sortdb);
         }
 

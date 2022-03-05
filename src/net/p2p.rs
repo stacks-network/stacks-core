@@ -5122,6 +5122,7 @@ impl PeerNetwork {
         mempool: &mut MemPoolDB,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
+        burnchain_tip: &BlockSnapshot,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
@@ -5132,16 +5133,15 @@ impl PeerNetwork {
             debug!("Already have tx {}", txid);
             return false;
         }
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let stacks_epoch = match sortdb
             .index_conn()
-            .get_stacks_epoch(tip.block_height as u32)
+            .get_stacks_epoch(burnchain_tip.block_height as u32)
         {
             Some(epoch) => epoch,
             None => {
                 warn!(
                         "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
-                        tip.block_height
+                        burnchain_tip.block_height
                     );
                 return false;
             }
@@ -5176,6 +5176,8 @@ impl PeerNetwork {
         let (canonical_consensus_hash, canonical_block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
 
+        let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
+
         let mut ret: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>> =
             HashMap::new();
 
@@ -5186,6 +5188,7 @@ impl PeerNetwork {
                     mempool,
                     sortdb,
                     chainstate,
+                    &sn,
                     &canonical_consensus_hash,
                     &canonical_block_hash,
                     tx.clone(),
@@ -5207,6 +5210,7 @@ impl PeerNetwork {
                 mempool,
                 sortdb,
                 chainstate,
+                &sn,
                 &canonical_consensus_hash,
                 &canonical_block_hash,
                 tx,

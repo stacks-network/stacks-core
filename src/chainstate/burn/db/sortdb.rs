@@ -608,6 +608,9 @@ const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
         FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
     );"#];
 
+// update this to add new indexes
+const LAST_SORTITION_DB_INDEX: &'static str = "index_parent_sortition_id";
+
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
@@ -626,7 +629,7 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);",
     "CREATE INDEX IF NOT EXISTS canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
-    "CREATE INDEX IF NOT EXISTS index_parent_sortition_id ON block_commit_parents(parent_sortition_id);"
+    "CREATE INDEX IF NOT EXISTS index_parent_sortition_id ON block_commit_parents(parent_sortition_id);",
 ];
 
 pub struct SortitionDB {
@@ -2432,8 +2435,8 @@ impl SortitionDB {
     pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: &str) -> bool {
         match epoch {
             StacksEpochId::Epoch10 => false,
-            StacksEpochId::Epoch20 => (version == "1" || version == "2"),
-            StacksEpochId::Epoch2_05 => version == "2",
+            StacksEpochId::Epoch20 => (version == "1" || version == "2" || version == "3"),
+            StacksEpochId::Epoch2_05 => (version == "2" || version == "3"),
         }
     }
 
@@ -2648,11 +2651,22 @@ impl SortitionDB {
     }
 
     fn add_indexes(&mut self) -> Result<(), db_error> {
-        let tx = self.tx_begin()?;
-        for row_text in SORTITION_DB_INDEXES {
-            tx.execute_batch(row_text)?;
+        // do we need to instantiate indexes?
+        // only do a transaction if we need to, since this gets called each time the sortition DB
+        // is opened.
+        let exists: i64 = query_row(
+            self.conn(),
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            &[LAST_SORTITION_DB_INDEX],
+        )?
+        .unwrap_or(0);
+        if exists == 0 {
+            let tx = self.tx_begin()?;
+            for row_text in SORTITION_DB_INDEXES {
+                tx.execute_batch(row_text)?;
+            }
+            tx.commit()?;
         }
-        tx.commit()?;
         Ok(())
     }
 }
