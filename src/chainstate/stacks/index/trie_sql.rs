@@ -43,6 +43,7 @@ use chainstate::stacks::index::bits::{
     read_node_hash_bytes as bits_read_node_hash_bytes, read_nodetype, read_nodetype_nohash,
     write_nodetype_bytes,
 };
+use chainstate::stacks::index::file::TrieFile;
 use chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
@@ -65,11 +66,7 @@ static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (
    block_id INTEGER PRIMARY KEY, 
    block_hash TEXT UNIQUE NOT NULL,
-   -- pointer to a .blobs file with the externally-stored blob data.
-   -- if not used, then set to 0.
-   external_offset INTEGER NOT NULL,
-   external_length INTEGER NOT NULL,
-   -- trie blob.
+   -- the trie itself.
    -- if not used, then set to a zero-byte entry.
    data BLOB NOT NULL,
    unconfirmed INTEGER NOT NULL
@@ -77,7 +74,6 @@ CREATE TABLE IF NOT EXISTS marf_data (
 
 CREATE INDEX IF NOT EXISTS block_hash_marf_data ON marf_data(block_hash);
 CREATE INDEX IF NOT EXISTS unconfirmed_marf_data ON marf_data(unconfirmed);
-CREATE INDEX IF NOT EXISTS index_external_offset ON marf_data(external_offset);
 ";
 static SQL_MARF_MINED_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS mined_blocks (
@@ -93,6 +89,21 @@ static SQL_EXTENSION_LOCKS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS block_extension_locks (block_hash TEXT PRIMARY KEY);
 ";
 
+static SQL_MARF_DATA_TABLE_SCHEMA_2: &str = "
+-- pointer to a .blobs file with the externally-stored blob data.
+-- if not used, then set to 1.
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER DEFAULT 1 NOT NULL
+);
+ALTER TABLE marf_data ADD COLUMN external_offset INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE marf_data ADD COLUMN external_length INTEGER DEFAULT 0 NOT NULL;
+CREATE INDEX IF NOT EXISTS index_external_offset ON marf_data(external_offset);
+
+INSERT OR REPLACE INTO schema_version (version) VALUES (2);
+";
+
+pub static SQL_MARF_SCHEMA_VERSION: u64 = 2;
+
 pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     let tx = tx_begin_immediate(conn)?;
 
@@ -101,6 +112,63 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
     tx.execute_batch(SQL_EXTENSION_LOCKS_TABLE)?;
 
     tx.commit().map_err(|e| e.into())
+}
+
+fn get_schema_version(conn: &Connection) -> u64 {
+    // if the table doesn't exist, then the version is 1.
+    let sql = "SELECT version FROM schema_version";
+    match conn.query_row(sql, NO_PARAMS, |row| row.get::<_, i64>("version")) {
+        Ok(x) => x as u64,
+        Err(e) => {
+            debug!("Failed to get schema version: {:?}", &e);
+            1u64
+        }
+    }
+}
+
+/// Migrate the MARF database to the currently-supported schema.
+/// Returns the version of the DB prior to the migration.
+pub fn migrate_tables_if_needed<T: MarfTrieId>(
+    conn: &mut Connection,
+    mut blobs: Option<&mut TrieFile>,
+) -> Result<u64, Error> {
+    let first_version = get_schema_version(conn);
+    loop {
+        let version = get_schema_version(conn);
+        match version {
+            1 => {
+                debug!("Migrate MARF data from schema 1 to schema 2");
+
+                // add external_* fields
+                let tx = tx_begin_immediate(conn)?;
+                tx.execute_batch(SQL_MARF_DATA_TABLE_SCHEMA_2)?;
+                tx.commit()?;
+
+                // move blobs to external file
+                if let Some(ref mut file) = blobs.as_mut() {
+                    file.export_trie_blobs::<T>(conn)?;
+
+                    debug!("Deleting old trie blobs from MARF");
+                    let tx = tx_begin_immediate(conn)?;
+                    tx.execute("UPDATE marf_data SET data = ''", NO_PARAMS)?;
+                    tx.commit()?;
+                }
+            }
+            x if x == SQL_MARF_SCHEMA_VERSION => {
+                // done
+                break;
+            }
+            x => {
+                let msg = format!(
+                    "Unable to migrate MARF data table: unrecognized schema {}",
+                    x
+                );
+                error!("{}", &msg);
+                panic!("{}", &msg);
+            }
+        }
+    }
+    Ok(first_version)
 }
 
 pub fn get_block_identifier<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<u32, Error> {
@@ -187,6 +255,7 @@ pub fn write_external_trie_blob<T: MarfTrieId>(
     block_hash: &T,
     offset: u64,
     length: u64,
+    replace: bool,
 ) -> Result<u32, Error> {
     let empty_blob: &[u8] = &[];
     let args: &[&dyn ToSql] = &[
@@ -196,8 +265,14 @@ pub fn write_external_trie_blob<T: MarfTrieId>(
         &u64_to_sql(offset)?,
         &u64_to_sql(length)?,
     ];
+    let directive = if replace {
+        "INSERT OR REPLACE"
+    } else {
+        "INSERT"
+    };
+
     let mut s =
-        conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) VALUES (?, ?, ?, ?, ?)")?;
+        conn.prepare(&format!("{} INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) VALUES (?, ?, ?, ?, ?)", directive))?;
     let block_id = s
         .insert(args)?
         .try_into()
@@ -271,7 +346,7 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
     Ok(block_id)
 }
 
-/// Open a trie blob. Returns a Blob<'a> writeable handle to it.
+/// Open a trie blob. Returns a Blob<'a> readable/writeable handle to it.
 pub fn open_trie_blob<'a>(conn: &'a Connection, block_id: u32) -> Result<Blob<'a>, Error> {
     let blob = conn.blob_open(
         rusqlite::DatabaseName::Main,
@@ -279,6 +354,18 @@ pub fn open_trie_blob<'a>(conn: &'a Connection, block_id: u32) -> Result<Blob<'a
         "data",
         block_id.into(),
         true,
+    )?;
+    Ok(blob)
+}
+
+/// Open a trie blob. Returns a Blob<'a> readable handle to it.
+pub fn open_trie_blob_readonly<'a>(conn: &'a Connection, block_id: u32) -> Result<Blob<'a>, Error> {
+    let blob = conn.blob_open(
+        rusqlite::DatabaseName::Main,
+        "marf_data",
+        "data",
+        block_id.into(),
+        false,
     )?;
     Ok(blob)
 }
@@ -497,6 +584,15 @@ pub fn count_blocks(conn: &Connection) -> Result<u32, Error> {
         |row| row.get("count"),
     )?;
     Ok(result)
+}
+
+pub fn is_unconfirmed_block(conn: &Connection, block_id: u32) -> Result<bool, Error> {
+    let res: i64 = conn.query_row(
+        "SELECT unconfirmed FROM marf_data WHERE block_id = ?1",
+        &[&block_id],
+        |row| row.get("unconfirmed"),
+    )?;
+    Ok(res != 0)
 }
 
 pub fn drop_lock<T: MarfTrieId>(conn: &Connection, bhh: &T) -> Result<(), Error> {
