@@ -1372,7 +1372,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             trie_sql::create_tables_if_needed(&mut db)?;
         }
 
-        let blobs = if marf_opts.external_blobs {
+        let mut blobs = if marf_opts.external_blobs {
             if create_flag {
                 Some(TrieFile::from_db_path(&db_path, readonly)?)
             } else if TrieFile::exists(&db_path)? {
@@ -1383,6 +1383,14 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         } else {
             None
         };
+
+        let prev_schema_version = trie_sql::migrate_tables_if_needed::<T>(&mut db, blobs.as_mut())?;
+        if prev_schema_version != trie_sql::SQL_MARF_SCHEMA_VERSION {
+            if let Some(blobs) = blobs.as_mut() {
+                // migrate blobs out of the old DB
+                blobs.export_trie_blobs::<T>(&db)?;
+            }
+        }
 
         debug!(
             "Opened TrieFileStorage {}; external blobs: {}",
@@ -1605,12 +1613,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     trie_sql::write_trie_blob(&self.db, bhh, buffer)
                 } else {
                     self.with_trie_blobs(|db, blobs| match blobs {
-                        Some(blobs) => {
-                            let offset = blobs.append_trie_blob(db, buffer)?;
-                            test_debug!("Stored trie blob {} to offset {}", &bhh, offset);
-                            trie_sql::write_external_trie_blob(db, bhh, offset, buffer.len() as u64)
-                        }
-
+                        Some(blobs) => blobs.store_trie_blob(db, bhh, buffer, false),
                         None => {
                             test_debug!("Stored trie blob {} to db", &bhh);
                             trie_sql::write_trie_blob(db, bhh, buffer)
@@ -1625,16 +1628,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     trie_sql::write_trie_blob(&self.db, real_bhh, buffer)
                 } else {
                     self.with_trie_blobs(|db, blobs| match blobs {
-                        Some(blobs) => {
-                            let offset = blobs.append_trie_blob(db, buffer)?;
-                            test_debug!("Stored trie blob {} to offset {}", &real_bhh, offset);
-                            trie_sql::write_external_trie_blob(
-                                db,
-                                real_bhh,
-                                offset,
-                                buffer.len() as u64,
-                            )
-                        }
+                        Some(blobs) => blobs.store_trie_blob(db, real_bhh, buffer, false),
                         None => {
                             test_debug!("Stored trie blob {} to db", &real_bhh);
                             trie_sql::write_trie_blob(db, real_bhh, buffer)
