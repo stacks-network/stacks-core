@@ -91,7 +91,7 @@ impl TrieFile {
         let fd = OpenOptions::new()
             .read(true)
             .write(!readonly)
-            .create(true)
+            .create(!readonly)
             .open(path)?;
         Ok(TrieFile::Disk(TrieFileDisk {
             fd,
@@ -138,6 +138,67 @@ impl TrieFile {
             let blob_path = format!("{}.blobs", path);
             TrieFile::new_disk(&blob_path, readonly)
         }
+    }
+
+    /// Write a trie blob to external storage, and add the offset and length to the trie DB.
+    /// Return the trie ID
+    pub fn store_trie_blob<T: MarfTrieId>(
+        &mut self,
+        db: &Connection,
+        bhh: &T,
+        buffer: &[u8],
+        replace: bool,
+    ) -> Result<u32, Error> {
+        let offset = self.append_trie_blob(db, buffer)?;
+        test_debug!("Stored trie blob {} to offset {}", bhh, offset);
+        trie_sql::write_external_trie_blob(db, bhh, offset, buffer.len() as u64, replace)
+    }
+
+    /// Read a trie blob in its entirety from the DB
+    fn read_trie_blob_from_db(db: &Connection, block_id: u32) -> Result<Vec<u8>, Error> {
+        let trie_blob = {
+            let mut fd = trie_sql::open_trie_blob_readonly(db, block_id)?;
+            let mut trie_blob = vec![];
+            fd.read_to_end(&mut trie_blob)?;
+            trie_blob
+        };
+        Ok(trie_blob)
+    }
+
+    /// Read a trie blob in its entirety from the blobs file
+    #[cfg(test)]
+    fn read_trie_blob(&mut self, db: &Connection, block_id: u32) -> Result<Vec<u8>, Error> {
+        let (offset, length) = trie_sql::get_external_trie_offset_length(db, block_id)?;
+        self.seek(SeekFrom::Start(offset))?;
+
+        let mut buf = vec![0u8; length as usize];
+        self.read_exact(&mut buf)?;
+        Ok(buf)
+    }
+
+    /// Copy the trie blobs out of a sqlite3 DB into their own file
+    pub fn export_trie_blobs<T: MarfTrieId>(&mut self, db: &Connection) -> Result<(), Error> {
+        let max_block = trie_sql::count_blocks(db)?;
+        info!("Migrate {} blocks to external blob storage", max_block);
+        for block_id in 0..max_block {
+            if !trie_sql::is_unconfirmed_block(db, block_id)? {
+                // get the blob
+                let trie_blob = TrieFile::read_trie_blob_from_db(db, block_id)?;
+
+                // get the block ID
+                let bhh: T = trie_sql::get_block_hash(db, block_id)?;
+
+                // append the blob, replacing the current trie blob
+                info!(
+                    "Migrate block {} ({} of {}) to external blob storage",
+                    &bhh,
+                    block_id,
+                    max_block + 1
+                );
+                self.store_trie_blob(db, &bhh, &trie_blob, true)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -365,4 +426,75 @@ impl Seek for TrieFile {
             TrieFile::Disk(ref mut disk) => disk.seek(pos),
         }
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use chainstate::stacks::index::*;
+    use rusqlite::Connection;
+    use rusqlite::OpenFlags;
+    use std::fs;
+    use util_lib::db::*;
+
+    fn db_path(test_name: &str) -> String {
+        let path = format!("/tmp/{}.sqlite", test_name);
+        path
+    }
+
+    fn setup_db(test_name: &str) -> Connection {
+        let path = db_path(test_name);
+        if fs::metadata(&path).is_ok() {
+            fs::remove_file(&path).unwrap();
+        }
+
+        let mut db = sqlite_open(
+            &path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+            true,
+        )
+        .unwrap();
+        trie_sql::create_tables_if_needed(&mut db).unwrap();
+        db
+    }
+
+    #[test]
+    fn test_load_store_trie_blob() {
+        let mut db = setup_db("test_load_store_trie_blob");
+        let mut blobs =
+            TrieFile::from_db_path(&db_path("test_load_store_trie_blob"), false).unwrap();
+        trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db, Some(&mut blobs)).unwrap();
+
+        blobs
+            .store_trie_blob::<BlockHeaderHash>(
+                &db,
+                &BlockHeaderHash([0x01; 32]),
+                &[1, 2, 3, 4, 5],
+                false,
+            )
+            .unwrap();
+        blobs
+            .store_trie_blob::<BlockHeaderHash>(
+                &db,
+                &BlockHeaderHash([0x02; 32]),
+                &[10, 20, 30, 40, 50],
+                false,
+            )
+            .unwrap();
+
+        let block_id = trie_sql::get_block_identifier(&db, &BlockHeaderHash([0x01; 32])).unwrap();
+        assert_eq!(blobs.get_trie_offset(&db, block_id).unwrap(), 0);
+
+        let buf = blobs.read_trie_blob(&db, block_id).unwrap();
+        assert_eq!(buf, vec![1, 2, 3, 4, 5]);
+
+        let block_id = trie_sql::get_block_identifier(&db, &BlockHeaderHash([0x02; 32])).unwrap();
+        assert_eq!(blobs.get_trie_offset(&db, block_id).unwrap(), 5);
+
+        let buf = blobs.read_trie_blob(&db, block_id).unwrap();
+        assert_eq!(buf, vec![10, 20, 30, 40, 50]);
+    }
+
+    #[test]
+    fn test_migrate_existing_trie_blobs() {}
 }
