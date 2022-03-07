@@ -2,7 +2,6 @@ use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::sync::{atomic::AtomicBool, Arc};
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
