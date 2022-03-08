@@ -605,6 +605,7 @@ impl Config {
             Ok(val) => events_observers.push(EventObserverConfig {
                 endpoint: val,
                 events_keys: vec![EventKeyType::AnyEvent],
+                include_data_events: false,
             }),
             _ => (),
         };
