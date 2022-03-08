@@ -3732,7 +3732,9 @@ impl StacksChainState {
             &user_burns,
         )?;
 
+        debug!("pre-commit");
         block_tx.commit()?;
+        debug!("post-commit");
 
         // ready to go
         Ok(true)
