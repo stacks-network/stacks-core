@@ -46,6 +46,7 @@ use stacks::chainstate::stacks::miner::TransactionEvent;
 struct EventObserver {
     endpoint: String,
     should_keep_running: Arc<AtomicBool>,
+    include_data_events: bool,
 }
 
 struct ReceiptPayloadInfo<'a> {
@@ -589,7 +590,9 @@ impl EventDispatcher {
                             self.contract_events_observers_lookup.get(&event_data.key)
                         {
                             for o_i in observer_indexes {
-                                dispatch_matrix[*o_i as usize].insert(i);
+                                if self.registered_observers[*o_i as usize].include_data_events {
+                                    dispatch_matrix[*o_i as usize].insert(i);
+                                }
                             }
                         }
                     }
@@ -599,7 +602,9 @@ impl EventDispatcher {
                             .get(&(event_data.contract_identifier.clone(), "var".into()))
                         {
                             for o_i in observer_indexes {
-                                dispatch_matrix[*o_i as usize].insert(i);
+                                if self.registered_observers[*o_i as usize].include_data_events {
+                                    dispatch_matrix[*o_i as usize].insert(i);
+                                }
                             }
                         }
                     }
@@ -611,7 +616,9 @@ impl EventDispatcher {
                             .get(&(event_data.contract_identifier.clone(), "map".into()))
                         {
                             for o_i in observer_indexes {
-                                dispatch_matrix[*o_i as usize].insert(i);
+                                if self.registered_observers[*o_i as usize].include_data_events {
+                                    dispatch_matrix[*o_i as usize].insert(i);
+                                }
                             }
                         }
                     }
@@ -623,7 +630,9 @@ impl EventDispatcher {
                             .get(&(event_data.contract_identifier.clone(), "map".into()))
                         {
                             for o_i in observer_indexes {
-                                dispatch_matrix[*o_i as usize].insert(i);
+                                if self.registered_observers[*o_i as usize].include_data_events {
+                                    dispatch_matrix[*o_i as usize].insert(i);
+                                }
                             }
                         }
                     }
@@ -635,7 +644,9 @@ impl EventDispatcher {
                             .get(&(event_data.contract_identifier.clone(), "map".into()))
                         {
                             for o_i in observer_indexes {
-                                dispatch_matrix[*o_i as usize].insert(i);
+                                if self.registered_observers[*o_i as usize].include_data_events {
+                                    dispatch_matrix[*o_i as usize].insert(i);
+                                }
                             }
                         }
                     }
@@ -1008,6 +1019,7 @@ impl EventDispatcher {
         let event_observer = EventObserver {
             endpoint: conf.endpoint.clone(),
             should_keep_running,
+            include_data_events: conf.include_data_events,
         };
 
         let observer_index = self.registered_observers.len() as u16;

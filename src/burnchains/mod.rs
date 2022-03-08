@@ -391,7 +391,7 @@ impl PoxConstants {
 
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(
-            15,
+            12,
             3,
             2,
             3333333333333333,
