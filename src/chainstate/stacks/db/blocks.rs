@@ -2234,22 +2234,14 @@ impl StacksChainState {
             &u64_to_sql(burn_height_end)?,
         ];
 
-        let mut stmt = self
-            .db()
-            .prepare(sql)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        let mut rows = stmt
-            .query(args)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-
-        while let Some(row) = rows.next()? {
-            let start_height_i64: i64 = row.get_unwrap(0);
-            let end_height_i64: i64 = row.get_unwrap(1);
-            return Ok((start_height_i64 as u64, end_height_i64 as u64));
-        }
-
-        return Err(Error::DBError(db_error::NotFoundError));
+        self.db()
+            .query_row(sql, args, |row| {
+                let start_height_i64: i64 = row.get_unwrap(0);
+                let end_height_i64: i64 = row.get_unwrap(1);
+                return Ok((start_height_i64 as u64, end_height_i64 as u64));
+            })
+            .optional()?
+            .ok_or_else(|| Error::DBError(db_error::NotFoundError))
     }
 
     /// Generate a blocks inventory message for a range of Stacks block heights.
@@ -2287,14 +2279,9 @@ impl StacksChainState {
                    WHERE staging_blocks.height >= ?1 AND staging_blocks.height <= ?2";
         let args: &[&dyn ToSql] = &[&u64_to_sql(start_height)?, &u64_to_sql(end_height)?];
 
-        let mut stmt = self
-            .db()
-            .prepare(sql)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        let mut stmt = self.db().prepare(sql)?;
 
-        let mut rows = stmt
-            .query(args)
-            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+        let mut rows = stmt.query(args)?;
 
         while let Some(row) = rows.next()? {
             num_rows += 1;
