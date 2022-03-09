@@ -1448,9 +1448,8 @@ impl ConversationP2P {
 
         if cfg!(test) {
             // make *sure* the behavior stays the same
-            let original_blocks_inv_data: BlocksInvData = chainstate
-                .get_blocks_inventory(&block_hashes)
-                .map_err(|e| net_error::from(e))?;
+            let original_blocks_inv_data: BlocksInvData =
+                chainstate.get_blocks_inventory(&block_hashes)?;
 
             if original_blocks_inv_data != blocks_inv_data {
                 warn!(
