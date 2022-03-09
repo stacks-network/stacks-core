@@ -1568,6 +1568,7 @@ mod test {
 
     #[test]
     fn marf_insert_different_leaf_same_block_100() {
+        let mut last_root_hashes = None;
         for marf_opts in MARFOpenOpts::all().into_iter() {
             test_debug!("With {:?}", &marf_opts);
             let f = TrieFileStorage::new_memory(marf_opts).unwrap();
@@ -1613,11 +1614,21 @@ mod test {
                 &[99; 40].to_vec(),
                 None,
             );
+
+            if let Some(root_hashes) = last_root_hashes.take() {
+                let next_root_hashes = marf
+                    .borrow_storage_backend()
+                    .read_root_to_block_table()
+                    .unwrap();
+                assert_eq!(root_hashes, next_root_hashes);
+                last_root_hashes = Some(next_root_hashes);
+            }
         }
     }
 
     #[test]
     fn marf_insert_different_leaf_different_path_different_block_100() {
+        let mut last_root_hashes = None;
         for marf_opts in MARFOpenOpts::all().into_iter() {
             test_debug!("With {:?}", &marf_opts);
             let f = TrieFileStorage::new_memory(marf_opts).unwrap();
@@ -1641,11 +1652,14 @@ mod test {
                 let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
                 marf.insert_raw(path, value).unwrap();
             }
+
+            let mut committed = false;
             if marf.borrow_storage_backend().hash_calculation_mode
                 == TrieHashCalculationMode::Deferred
             {
                 // materialize all hashes
                 marf.commit().unwrap();
+                committed = true;
             }
 
             debug!("---------");
@@ -1676,11 +1690,25 @@ mod test {
                     None,
                 );
             }
+
+            if !committed {
+                marf.commit().unwrap();
+            }
+
+            if let Some(root_hashes) = last_root_hashes.take() {
+                let next_root_hashes = marf
+                    .borrow_storage_backend()
+                    .read_root_to_block_table()
+                    .unwrap();
+                assert_eq!(root_hashes, next_root_hashes);
+                last_root_hashes = Some(next_root_hashes);
+            }
         }
     }
 
     #[test]
     fn marf_insert_same_leaf_different_block_100() {
+        let mut last_root_hashes = None;
         for marf_opts in MARFOpenOpts::all().into_iter() {
             test_debug!("With {:?}", &marf_opts);
             let f = TrieFileStorage::new_memory(marf_opts).unwrap();
@@ -1705,11 +1733,14 @@ mod test {
                 let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
                 marf.insert_raw(path, value).unwrap();
             }
+
+            let mut committed = false;
             if marf.borrow_storage_backend().hash_calculation_mode
                 == TrieHashCalculationMode::Deferred
             {
                 // materialize all hashes
                 marf.commit().unwrap();
+                committed = true;
             }
 
             debug!("---------");
@@ -1741,11 +1772,25 @@ mod test {
                     None,
                 );
             }
+
+            if !committed {
+                marf.commit().unwrap();
+            }
+
+            if let Some(root_hashes) = last_root_hashes.take() {
+                let next_root_hashes = marf
+                    .borrow_storage_backend()
+                    .read_root_to_block_table()
+                    .unwrap();
+                assert_eq!(root_hashes, next_root_hashes);
+                last_root_hashes = Some(next_root_hashes);
+            }
         }
     }
 
     #[test]
     fn marf_insert_leaf_sequence_2() {
+        let mut last_root_hashes = None;
         for marf_opts in MARFOpenOpts::all().into_iter() {
             test_debug!("With {:?}", &marf_opts);
             let f = TrieFileStorage::new_memory(marf_opts).unwrap();
@@ -1807,11 +1852,20 @@ mod test {
                     None,
                 );
             }
+            if let Some(root_hashes) = last_root_hashes.take() {
+                let next_root_hashes = marf
+                    .borrow_storage_backend()
+                    .read_root_to_block_table()
+                    .unwrap();
+                assert_eq!(root_hashes, next_root_hashes);
+                last_root_hashes = Some(next_root_hashes);
+            }
         }
     }
 
     #[test]
     fn marf_insert_leaf_sequence_100() {
+        let mut last_root_hashes = None;
         for marf_opts in MARFOpenOpts::all().into_iter() {
             test_debug!("With {:?}", &marf_opts);
             let f = TrieFileStorage::new_memory(marf_opts).unwrap();
@@ -1868,6 +1922,11 @@ mod test {
                     &[i as u8; 40].to_vec(),
                     None,
                 );
+            }
+            if let Some(root_hashes) = last_root_hashes.take() {
+                let next_root_hashes = f.read_root_to_block_table().unwrap();
+                assert_eq!(root_hashes, next_root_hashes);
+                last_root_hashes = Some(next_root_hashes);
             }
         }
     }
@@ -2006,6 +2065,7 @@ mod test {
             &mut TrieStorageConnection<BlockHeaderHash>,
         ) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>),
     {
+        let mut last_root_hashes = None;
         for marf_opts in MARFOpenOpts::all().into_iter() {
             let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
             let path = [
@@ -2179,6 +2239,16 @@ mod test {
                     None,
                 );
             }
+
+            // root hashes are all the same
+            if let Some(root_hashes) = last_root_hashes.take() {
+                let next_root_hashes = marf
+                    .borrow_storage_backend()
+                    .read_root_to_block_table()
+                    .unwrap();
+                assert_eq!(root_hashes, next_root_hashes);
+                last_root_hashes = Some(next_root_hashes);
+            }
         }
     }
 
@@ -2252,6 +2322,7 @@ mod test {
 
     #[test]
     fn marf_merkle_verify_backptrs() {
+        let mut last_root_hashes = None;
         for marf_opts in MARFOpenOpts::all().into_iter() {
             for node_id in [
                 TrieNodeID::Node4,
@@ -2353,6 +2424,14 @@ mod test {
                     &[21 as u8; 40].to_vec(),
                     None,
                 );
+                if let Some(root_hashes) = last_root_hashes.take() {
+                    let next_root_hashes = marf
+                        .borrow_storage_backend()
+                        .read_root_to_block_table()
+                        .unwrap();
+                    assert_eq!(root_hashes, next_root_hashes);
+                    last_root_hashes = Some(next_root_hashes);
+                }
             }
         }
     }
@@ -2361,6 +2440,7 @@ mod test {
     where
         F: FnMut(u32) -> ([u8; 32], Option<BlockHeaderHash>),
     {
+        let mut last_root_hashes = None;
         for marf_opts in MARFOpenOpts::all().into_iter() {
             test_debug!("With {:?}", &marf_opts);
             let f = TrieFileStorage::new_memory(marf_opts).unwrap();
@@ -2445,12 +2525,14 @@ mod test {
             }
 
             root_table_cache = None;
+            let mut committed = false;
 
             if marf.borrow_storage_backend().hash_calculation_mode
                 == TrieHashCalculationMode::Deferred
             {
                 // materialize the hashes
                 marf.commit().unwrap();
+                committed = true;
             }
 
             for i in 0..count {
@@ -2487,6 +2569,18 @@ mod test {
                         root_table_cache,
                     ));
                 }
+            }
+
+            if !committed {
+                marf.commit().unwrap();
+            }
+            if let Some(root_hashes) = last_root_hashes.take() {
+                let next_root_hashes = marf
+                    .borrow_storage_backend()
+                    .read_root_to_block_table()
+                    .unwrap();
+                assert_eq!(root_hashes, next_root_hashes);
+                last_root_hashes = Some(next_root_hashes);
             }
         }
     }
@@ -2878,6 +2972,7 @@ mod test {
     #[test]
     #[ignore]
     fn marf_insert_random_4096_128_merkle_proof() {
+        let mut last_root_hashes = None;
         for marf_opts in MARFOpenOpts::all().into_iter() {
             let f = TrieFileStorage::new_memory(marf_opts).unwrap();
 
@@ -2992,6 +3087,15 @@ mod test {
                         block_table_cache,
                     ));
                 }
+            }
+
+            if let Some(root_hashes) = last_root_hashes.take() {
+                let next_root_hashes = m
+                    .borrow_storage_backend()
+                    .read_root_to_block_table()
+                    .unwrap();
+                assert_eq!(root_hashes, next_root_hashes);
+                last_root_hashes = Some(next_root_hashes);
             }
         }
     }
