@@ -71,9 +71,14 @@ struct WriteChainTip<T> {
 /// Options for opening a MARF
 #[derive(Clone, Debug)]
 pub struct MARFOpenOpts {
+    /// Hash calculation mode for calculating a trie root hash
     pub hash_calculation_mode: TrieHashCalculationMode,
+    /// Cache strategy to use
     pub cache_strategy: String,
+    /// store trie blobs externally from the DB, in a flat file
     pub external_blobs: bool,
+    /// unconditionally do a DB migration (used for testing)
+    pub force_db_migrate: bool,
 }
 
 impl MARFOpenOpts {
@@ -82,6 +87,7 @@ impl MARFOpenOpts {
             hash_calculation_mode: TrieHashCalculationMode::Deferred,
             cache_strategy: "noop".to_string(),
             external_blobs: false,
+            force_db_migrate: false,
         }
     }
 
@@ -94,6 +100,7 @@ impl MARFOpenOpts {
             hash_calculation_mode,
             cache_strategy: cache_strategy.to_string(),
             external_blobs,
+            force_db_migrate: false,
         }
     }
 
@@ -918,7 +925,7 @@ impl<T: MarfTrieId> MARF<T> {
                             }
 
                             trace!("Cursor reached leaf {:?}", &node);
-                            storage.bench_mut().marf_walk_from_finish(true);
+                            storage.bench_mut().marf_walk_from_finish();
                             return Ok((cursor, node));
                         }
                     }
@@ -930,14 +937,14 @@ impl<T: MarfTrieId> MARF<T> {
                                 CursorError::PathDiverged => {
                                     // we're done -- path diverged.  No backptr-walking can help us.
                                     trace!("Path diverged -- we're done.");
-                                    storage.bench_mut().marf_walk_from_finish(false);
+                                    storage.bench_mut().marf_walk_from_finish();
                                     return Err(Error::NotFoundError);
                                 }
                                 CursorError::ChrNotFound => {
                                     // we're done -- end-of-node-path, but no child node.
                                     // Not even a backptr.
                                     trace!("ChrNotFound encountered -- node does not exist");
-                                    storage.bench_mut().marf_walk_from_finish(false);
+                                    storage.bench_mut().marf_walk_from_finish();
                                     return Err(Error::NotFoundError);
                                 }
                                 CursorError::BackptrEncountered(ptr) => {
@@ -962,7 +969,7 @@ impl<T: MarfTrieId> MARF<T> {
                         }
                         _ => {
                             // some other error (e.g. I/O error)
-                            storage.bench_mut().marf_walk_from_finish(false);
+                            storage.bench_mut().marf_walk_from_finish();
                             return Err(e);
                         }
                     }
