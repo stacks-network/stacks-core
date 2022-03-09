@@ -255,30 +255,52 @@ pub fn write_external_trie_blob<T: MarfTrieId>(
     block_hash: &T,
     offset: u64,
     length: u64,
-    replace: bool,
+    block_id: Option<u32>,
 ) -> Result<u32, Error> {
-    let empty_blob: &[u8] = &[];
-    let args: &[&dyn ToSql] = &[
-        block_hash,
-        &empty_blob,
-        &0,
-        &u64_to_sql(offset)?,
-        &u64_to_sql(length)?,
-    ];
-    let directive = if replace {
-        "INSERT OR REPLACE"
+    let block_id = if let Some(block_id) = block_id {
+        // existing entry (i.e. a migration)
+        let empty_blob: &[u8] = &[];
+        let args: &[&dyn ToSql] = &[
+            block_hash,
+            &empty_blob,
+            &0,
+            &u64_to_sql(offset)?,
+            &u64_to_sql(length)?,
+            &block_id,
+        ];
+        let mut s =
+            conn.prepare("UPDATE marf_data SET block_hash = ?1, data = ?2, unconfirmed = ?3, external_offset = ?4, external_length = ?5 WHERE block_id = ?6")?;
+        s.execute(args)?;
+
+        debug!(
+            "Replaced block trie {} at rowid {} offset {}",
+            block_hash, block_id, offset
+        );
+        block_id
     } else {
-        "INSERT"
+        // new entry
+        let empty_blob: &[u8] = &[];
+        let args: &[&dyn ToSql] = &[
+            block_hash,
+            &empty_blob,
+            &0,
+            &u64_to_sql(offset)?,
+            &u64_to_sql(length)?,
+        ];
+        let mut s =
+            conn.prepare("INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) VALUES (?, ?, ?, ?, ?)")?;
+        let block_id = s
+            .insert(args)?
+            .try_into()
+            .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
+
+        debug!(
+            "Wrote block trie {} to rowid {} offset {}",
+            block_hash, block_id, offset
+        );
+        block_id
     };
 
-    let mut s =
-        conn.prepare(&format!("{} INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) VALUES (?, ?, ?, ?, ?)", directive))?;
-    let block_id = s
-        .insert(args)?
-        .try_into()
-        .expect("EXHAUSTION: MARF cannot track more than 2**31 - 1 blocks");
-
-    debug!("Wrote block trie {} to rowid {}", block_hash, block_id);
     Ok(block_id)
 }
 
@@ -374,7 +396,9 @@ pub fn open_trie_blob_readonly<'a>(conn: &'a Connection, block_id: u32) -> Resul
 pub fn read_all_block_hashes_and_roots<T: MarfTrieId>(
     conn: &Connection,
 ) -> Result<Vec<(TrieHash, T)>, Error> {
-    let mut s = conn.prepare("SELECT block_hash, data FROM marf_data WHERE unconfirmed = 0")?;
+    let mut s = conn.prepare(
+        "SELECT block_hash, data FROM marf_data WHERE unconfirmed = 0 ORDER BY block_hash",
+    )?;
     let rows = s.query_and_then(NO_PARAMS, |row| {
         let block_hash: T = row.get_unwrap("block_hash");
         let data = row
