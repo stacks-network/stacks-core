@@ -147,11 +147,11 @@ impl TrieFile {
         db: &Connection,
         bhh: &T,
         buffer: &[u8],
-        replace: bool,
+        block_id: Option<u32>,
     ) -> Result<u32, Error> {
         let offset = self.append_trie_blob(db, buffer)?;
         test_debug!("Stored trie blob {} to offset {}", bhh, offset);
-        trie_sql::write_external_trie_blob(db, bhh, offset, buffer.len() as u64, replace)
+        trie_sql::write_external_trie_blob(db, bhh, offset, buffer.len() as u64, block_id)
     }
 
     /// Read a trie blob in its entirety from the DB
@@ -180,22 +180,52 @@ impl TrieFile {
     pub fn export_trie_blobs<T: MarfTrieId>(&mut self, db: &Connection) -> Result<(), Error> {
         let max_block = trie_sql::count_blocks(db)?;
         info!("Migrate {} blocks to external blob storage", max_block);
-        for block_id in 0..max_block {
-            if !trie_sql::is_unconfirmed_block(db, block_id)? {
-                // get the blob
-                let trie_blob = TrieFile::read_trie_blob_from_db(db, block_id)?;
+        for block_id in 0..(max_block + 1) {
+            match trie_sql::is_unconfirmed_block(db, block_id) {
+                Ok(true) => {
+                    test_debug!("Skip block_id {} since it's unconfirmed", block_id);
+                    continue;
+                }
+                Err(Error::NotFoundError) => {
+                    test_debug!("Skip block_id {} since it's not a block", block_id);
+                    continue;
+                }
+                Ok(false) => {
+                    // get the blob
+                    let trie_blob = TrieFile::read_trie_blob_from_db(db, block_id)?;
 
-                // get the block ID
-                let bhh: T = trie_sql::get_block_hash(db, block_id)?;
+                    // get the block ID
+                    let bhh: T = trie_sql::get_block_hash(db, block_id)?;
 
-                // append the blob, replacing the current trie blob
-                info!(
-                    "Migrate block {} ({} of {}) to external blob storage",
-                    &bhh,
-                    block_id,
-                    max_block + 1
-                );
-                self.store_trie_blob(db, &bhh, &trie_blob, true)?;
+                    // append the blob, replacing the current trie blob
+                    info!(
+                        "Migrate block {} ({} of {}) to external blob storage",
+                        &bhh, block_id, max_block
+                    );
+
+                    // append directly to file, so we can get the true offset
+                    self.seek(SeekFrom::End(0))?;
+                    let offset = self.stream_position()?;
+                    self.write_all(&trie_blob)?;
+                    self.flush()?;
+
+                    test_debug!("Stored trie blob {} to offset {}", bhh, offset);
+                    trie_sql::write_external_trie_blob(
+                        db,
+                        &bhh,
+                        offset,
+                        trie_blob.len() as u64,
+                        Some(block_id),
+                    )?;
+                }
+                Err(e) => {
+                    test_debug!(
+                        "Failed to determine if {} is unconfirmed: {:?}",
+                        block_id,
+                        &e
+                    );
+                    return Err(e);
+                }
             }
         }
         Ok(())
@@ -309,7 +339,7 @@ impl TrieFile {
         db: &Connection,
     ) -> Result<Vec<(TrieHash, T)>, Error> {
         let mut s =
-            db.prepare("SELECT block_hash, external_offset FROM marf_data WHERE unconfirmed = 0")?;
+            db.prepare("SELECT block_hash, external_offset FROM marf_data WHERE unconfirmed = 0 ORDER BY block_hash")?;
         let rows = s.query_and_then(NO_PARAMS, |row| {
             let block_hash: T = row.get_unwrap("block_hash");
             let offset_i64: i64 = row.get_unwrap("external_offset");
@@ -318,7 +348,15 @@ impl TrieFile {
 
             self.seek(SeekFrom::Start(offset + start))?;
             let hash_buff = read_hash_bytes(self)?;
-            Ok((TrieHash(hash_buff), block_hash))
+            let root_hash = TrieHash(hash_buff);
+
+            trace!(
+                "Root hash for block {} at offset {} is {}",
+                &block_hash,
+                offset + start,
+                &root_hash
+            );
+            Ok((root_hash, block_hash))
         })?;
         rows.collect()
     }
@@ -431,6 +469,10 @@ impl Seek for TrieFile {
 #[cfg(test)]
 mod test {
     use super::*;
+    use chainstate::stacks::index::cache::test::make_test_insert_data;
+    use chainstate::stacks::index::cache::*;
+    use chainstate::stacks::index::marf::*;
+    use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::*;
     use rusqlite::Connection;
     use rusqlite::OpenFlags;
@@ -470,7 +512,7 @@ mod test {
                 &db,
                 &BlockHeaderHash([0x01; 32]),
                 &[1, 2, 3, 4, 5],
-                false,
+                None,
             )
             .unwrap();
         blobs
@@ -478,7 +520,7 @@ mod test {
                 &db,
                 &BlockHeaderHash([0x02; 32]),
                 &[10, 20, 30, 40, 50],
-                false,
+                None,
             )
             .unwrap();
 
@@ -496,5 +538,87 @@ mod test {
     }
 
     #[test]
-    fn test_migrate_existing_trie_blobs() {}
+    fn test_migrate_existing_trie_blobs() {
+        let test_file = "/tmp/test_migrate_existing_trie_blobs.sqlite";
+        let test_blobs_file = "/tmp/test_migrate_existing_trie_blobs.sqlite.blobs";
+        if fs::metadata(&test_file).is_ok() {
+            fs::remove_file(&test_file).unwrap();
+        }
+        if fs::metadata(&test_blobs_file).is_ok() {
+            fs::remove_file(&test_blobs_file).unwrap();
+        }
+
+        let (data, last_block_header, root_header_map) = {
+            let marf_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false);
+
+            let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
+            let mut marf = MARF::from_storage(f);
+
+            // make data to insert
+            let data = make_test_insert_data(128, 128);
+            let mut last_block_header = BlockHeaderHash::sentinel();
+            for (i, block_data) in data.iter().enumerate() {
+                let mut block_hash_bytes = [0u8; 32];
+                block_hash_bytes[0..8].copy_from_slice(&(i as u64).to_be_bytes());
+
+                let block_header = BlockHeaderHash(block_hash_bytes);
+                marf.begin(&last_block_header, &block_header).unwrap();
+
+                for (key, value) in block_data.iter() {
+                    let path = TriePath::from_key(key);
+                    let leaf = TrieLeaf::from_value(&vec![], value.clone());
+                    marf.insert_raw(path, leaf).unwrap();
+                }
+                marf.commit().unwrap();
+                last_block_header = block_header;
+            }
+
+            let root_header_map =
+                trie_sql::read_all_block_hashes_and_roots::<BlockHeaderHash>(marf.sqlite_conn())
+                    .unwrap();
+            (data, last_block_header, root_header_map)
+        };
+
+        // migrate
+        let mut marf_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+        marf_opts.force_db_migrate = true;
+
+        let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
+        let mut marf = MARF::from_storage(f);
+
+        // blobs file exists
+        assert!(fs::metadata(&test_blobs_file).is_ok());
+
+        // verify that the new blob structure is well-formed
+        let blob_root_header_map = {
+            let mut blobs = TrieFile::from_db_path(&test_file, false).unwrap();
+            let blob_root_header_map = blobs
+                .read_all_block_hashes_and_roots::<BlockHeaderHash>(marf.sqlite_conn())
+                .unwrap();
+            blob_root_header_map
+        };
+
+        assert_eq!(blob_root_header_map.len(), root_header_map.len());
+        for (e1, e2) in blob_root_header_map.iter().zip(root_header_map.iter()) {
+            assert_eq!(e1, e2);
+        }
+
+        // verify that we can read everything from the blobs
+        for (i, block_data) in data.iter().enumerate() {
+            for (key, value) in block_data.iter() {
+                let path = TriePath::from_key(key);
+                let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
+
+                let leaf = MARF::get_path(
+                    &mut marf.borrow_storage_backend(),
+                    &last_block_header,
+                    &path,
+                )
+                .unwrap()
+                .unwrap();
+
+                assert_eq!(leaf.data.to_vec(), marf_leaf.data.to_vec());
+            }
+        }
+    }
 }
