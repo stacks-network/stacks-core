@@ -669,7 +669,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
                                 parent_anchored_block_hash TEXT NOT NULL,
                                 consensus_hash TEXT NOT NULL,
-                                -- parent_consensus_hash is the consensus hash of the parent sortition that chose this block
+                                -- parent_consensus_hash is the consensus hash of the sortition that chose the parent Stacks block.
                                 parent_consensus_hash TEXT NOT NULL,
                                 parent_microblock_hash TEXT NOT NULL,
                                 parent_microblock_seq INT NOT NULL,
