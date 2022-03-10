@@ -60,7 +60,7 @@ fn get_nodetype_hash<T: MarfTrieId>(
     storage.write_children_hashes(node, &mut hasher)?;
 
     let mut res = [0u8; 32];
-    res.copy_from_slice(hasher.result().as_slice());
+    res.copy_from_slice(hasher.finalize().as_slice());
 
     let ret = TrieHash(res);
 

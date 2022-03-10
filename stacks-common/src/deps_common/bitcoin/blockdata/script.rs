@@ -324,8 +324,8 @@ impl Script {
     pub fn to_v0_p2wsh(&self) -> Script {
         let mut tmp = [0; 32];
         let mut sha2 = Sha256::new();
-        sha2.input(&self.0);
-        tmp.copy_from_slice(&sha2.result().as_slice());
+        sha2.update(&self.0);
+        tmp.copy_from_slice(&sha2.finalize().as_slice());
         Builder::new().push_int(0).push_slice(&tmp).into_script()
     }
 

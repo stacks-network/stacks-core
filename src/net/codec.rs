@@ -24,7 +24,7 @@ use std::mem;
 use rand;
 use rand::Rng;
 use sha2::Digest;
-use sha2::Sha512Trunc256;
+use sha2::Sha512_256;
 
 use burnchains::BurnchainView;
 use burnchains::PrivateKey;
@@ -91,7 +91,7 @@ impl Preamble {
         privkey: &Secp256k1PrivateKey,
     ) -> Result<(), net_error> {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
         // serialize the premable with a blank signature
         let old_signature = self.signature.clone();
@@ -101,10 +101,10 @@ impl Preamble {
         self.consensus_serialize(&mut preamble_bits)?;
         self.signature = old_signature;
 
-        sha2.input(&preamble_bits[..]);
-        sha2.input(message_bits);
+        sha2.update(&preamble_bits[..]);
+        sha2.update(message_bits);
 
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let sig = privkey
             .sign(&digest_bits)
@@ -122,7 +122,7 @@ impl Preamble {
         pubkey: &Secp256k1PublicKey,
     ) -> Result<(), net_error> {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
         // serialize the preamble with a blank signature
         let sig_bits = self.signature.clone();
@@ -132,10 +132,10 @@ impl Preamble {
         self.consensus_serialize(&mut preamble_bits)?;
         self.signature = sig_bits;
 
-        sha2.input(&preamble_bits[..]);
-        sha2.input(message_bits);
+        sha2.update(&preamble_bits[..]);
+        sha2.update(message_bits);
 
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let res = pubkey
             .verify(&digest_bits, &self.signature)
