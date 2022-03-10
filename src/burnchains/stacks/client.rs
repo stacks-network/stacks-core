@@ -302,7 +302,7 @@ impl AppChainClient {
 
     /// Synchronous HTTP request.
     /// Returns the HttpResponseType on success.
-    fn request(socket: &mut TcpStream, req: HttpRequestType) -> Result<HttpResponseType, Error> {
+    pub fn request(socket: &mut TcpStream, req: HttpRequestType) -> Result<HttpResponseType, Error> {
         let peer = socket.peer_addr().map_err(Error::RequestError)?;
         let mut http = StacksHttp::new(peer);
         req.send(&mut http, socket)?;
@@ -369,7 +369,7 @@ impl AppChainClient {
 
     /// Helper method to convert an HttpResponseType for a 4xx or 5xx error into a burnchain_error.
     /// Returns the HttpResponseType itself it it's *not* an error.
-    fn handle_http_error(resp: HttpResponseType) -> Result<HttpResponseType, burnchain_error> {
+    pub fn handle_http_error(resp: HttpResponseType) -> Result<HttpResponseType, burnchain_error> {
         match resp {
             HttpResponseType::BadRequest(_md, msg) => Err(burnchain_error::Indexer(
                 indexer_error::Stacks(Error::HttpError(400, msg)),
