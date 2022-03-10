@@ -228,6 +228,8 @@ impl RPCPeerInfoData {
             None => (None, None),
         };
 
+        let public_key = StacksPublicKey::from_private(&network.local_peer.private_key);
+
         RPCPeerInfoData {
             peer_version: network.burnchain.peer_version,
             pox_consensus: network.burnchain_tip.consensus_hash.clone(),
@@ -247,6 +249,7 @@ impl RPCPeerInfoData {
             unanchored_seq: unconfirmed_seq,
             exit_at_block_height: exit_at_block_height.cloned(),
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
+            node_public_key: Some(public_key),
         }
     }
 }
@@ -3021,6 +3024,10 @@ impl ConversationHttp {
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
                     if req.metadata().canonical_stacks_tip_height.is_some() {
+                        test_debug!(
+                            "Request metadata: canonical stacks tip height is {:?}",
+                            &req.metadata().canonical_stacks_tip_height
+                        );
                         self.canonical_stacks_tip_height =
                             req.metadata().canonical_stacks_tip_height;
                     }
@@ -3040,6 +3047,10 @@ impl ConversationHttp {
                     // Is there someone else waiting for this message?  If so, pass it along.
                     // (this _should_ be our pending_request handle)
                     if resp.metadata().canonical_stacks_tip_height.is_some() {
+                        test_debug!(
+                            "Response metadata: canonical stacks tip height is {:?}",
+                            &resp.metadata().canonical_stacks_tip_height
+                        );
                         self.canonical_stacks_tip_height =
                             resp.metadata().canonical_stacks_tip_height;
                     }
@@ -3814,6 +3825,24 @@ mod test {
         mempool_tx.commit().unwrap();
         peer_2.mempool.replace(mempool);
 
+        let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
+        let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+        let _ = peer_1
+            .network
+            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .unwrap();
+        peer_1.sortdb = Some(peer_1_sortdb);
+        peer_1.stacks_node = Some(peer_1_stacks_node);
+
+        let mut peer_2_sortdb = peer_2.sortdb.take().unwrap();
+        let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
+        let _ = peer_2
+            .network
+            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .unwrap();
+        peer_2.sortdb = Some(peer_2_sortdb);
+        peer_2.stacks_node = Some(peer_2_stacks_node);
+
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
 
@@ -3882,6 +3911,11 @@ mod test {
         let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let mut peer_2_mempool = peer_2.mempool.take().unwrap();
 
+        let _ = peer_2
+            .network
+            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .unwrap();
+
         Relayer::setup_unconfirmed_state(&mut peer_2_stacks_node.chainstate, &peer_2_sortdb)
             .unwrap();
 
@@ -3924,6 +3958,11 @@ mod test {
 
         let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+
+        let _ = peer_1
+            .network
+            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
             .unwrap();
@@ -4007,6 +4046,7 @@ mod test {
                 match http_response {
                     HttpResponseType::PeerInfo(response_md, peer_data) => {
                         assert_eq!(Some((*peer_data).clone()), *peer_server_info.borrow());
+                        assert!(peer_data.node_public_key.is_some());
                         true
                     }
                     _ => {
