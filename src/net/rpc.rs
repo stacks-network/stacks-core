@@ -229,6 +229,7 @@ impl RPCPeerInfoData {
         };
 
         let public_key = StacksPublicKey::from_private(&network.local_peer.private_key);
+        let public_key_hash = Hash160::from_node_public_key(&public_key);
 
         RPCPeerInfoData {
             peer_version: network.burnchain.peer_version,
@@ -250,6 +251,7 @@ impl RPCPeerInfoData {
             exit_at_block_height: exit_at_block_height.cloned(),
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
             node_public_key: Some(public_key),
+            node_public_key_hash: Some(public_key_hash),
         }
     }
 }
@@ -4047,6 +4049,13 @@ mod test {
                     HttpResponseType::PeerInfo(response_md, peer_data) => {
                         assert_eq!(Some((*peer_data).clone()), *peer_server_info.borrow());
                         assert!(peer_data.node_public_key.is_some());
+                        assert!(peer_data.node_public_key_hash.is_some());
+                        assert_eq!(
+                            peer_data.node_public_key_hash,
+                            Some(Hash160::from_node_public_key(
+                                &peer_data.node_public_key.clone().unwrap()
+                            ))
+                        );
                         true
                     }
                     _ => {
