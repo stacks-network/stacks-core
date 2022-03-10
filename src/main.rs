@@ -715,6 +715,34 @@ simulating a miner.
         return;
     }
 
+    if argv[1] == "mempool-query" {
+        use std::net::TcpStream;
+        use std::net::{SocketAddr, ToSocketAddrs};
+        use net::{HttpRequestType, HttpRequestMetadata, PeerHost, HttpResponseType};
+        use burnchains::stacks::AppChainClient;
+        use core::mempool::MemPoolDB;
+        use cost_estimates::UnitEstimator;
+        use cost_estimates::metrics::UnitMetric;
+
+        let mempool_path = &argv[1];
+        let peer_host = &argv[2];
+
+        let mempool = MemPoolDB::open(true, 0x00000001, mempool_path, Box::new(UnitEstimator), Box::new(UnitMetric)).unwrap();
+        let sync_data = mempool.make_mempool_sync_data().unwrap();
+
+        let sockaddr = peer_host.to_socket_addrs().unwrap().next().unwrap();
+        let mut socket = TcpStream::connect(sockaddr.clone()).unwrap();
+        let request = HttpRequestType::MemPoolQuery(
+            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&sockaddr)),
+            sync_data,
+        );
+
+        let resp = AppChainClient::request(&mut socket, request).unwrap();
+        let resp = AppChainClient::handle_http_error(resp).unwrap();
+        eprintln!("{:?}", &resp);
+        return;
+    }
+
     if argv[1] == "process-block" {
         use chainstate::burn::db::sortdb::SortitionDB;
         use chainstate::stacks::db::StacksChainState;
