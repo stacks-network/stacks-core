@@ -512,6 +512,7 @@ impl BlockDownloader {
                                         info!("Invalid block from {:?} ({:?}): did not ask for block {}/{}", &block_key.neighbor, &block_key.data_url, block_key.consensus_hash, block.block_hash());
                                         self.broken_peers.push(event_id);
                                         self.broken_neighbors.push(block_key.neighbor.clone());
+                                        self.requested_blocks.remove(&block_key.index_block_hash);
                                     } else {
                                         // got the block
                                         debug!(
@@ -532,6 +533,7 @@ impl BlockDownloader {
                                     // it was present, so the absence is the mark of a broken peer
                                     self.broken_peers.push(event_id);
                                     self.broken_neighbors.push(block_key.neighbor.clone());
+                                    self.requested_blocks.remove(&block_key.index_block_hash);
                                 }
                                 _ => {
                                     // wrong message response
@@ -541,6 +543,7 @@ impl BlockDownloader {
                                     );
                                     self.broken_peers.push(event_id);
                                     self.broken_neighbors.push(block_key.neighbor.clone());
+                                    self.requested_blocks.remove(&block_key.index_block_hash);
                                 }
                             },
                         }
@@ -635,6 +638,8 @@ impl BlockDownloader {
                                         info!("Got unexpected zero-length microblock stream from {:?} ({:?})", &block_key.neighbor, &block_key.data_url);
                                         self.broken_peers.push(event_id);
                                         self.broken_neighbors.push(block_key.neighbor.clone());
+                                        self.requested_microblocks
+                                            .remove(&block_key.index_block_hash);
                                     } else {
                                         // have microblocks (but we don't know yet if they're well-formed)
                                         debug!(
@@ -653,18 +658,20 @@ impl BlockDownloader {
                                     // they did.
                                     info!("Remote neighbor {:?} ({:?}) does not have microblock stream indexed at {}", &block_key.neighbor, &block_key.data_url, &block_key.index_block_hash);
 
-                                    // the fact that we asked this peer means that it's block inv indicated
-                                    // it was present, so the absence is the mark of a broken peer.
-                                    // HOWEVER, there has been some bugs recently about nodes reporting
-                                    // invalid microblock streams as present, even though they are
-                                    // truly absent.  Don't punish these peers with a ban; just don't
-                                    // talk to them for a while.
+                                    // the fact that we asked this peer means that it's microblock inv indicated
+                                    // it was present, so the absence is the mark of a broken peer
+                                    self.broken_peers.push(event_id);
+                                    self.broken_neighbors.push(block_key.neighbor.clone());
+                                    self.requested_microblocks
+                                        .remove(&block_key.index_block_hash);
                                 }
                                 _ => {
                                     // wrong message response
                                     info!("Got bad HTTP response from {:?}", &block_key.data_url);
                                     self.broken_peers.push(event_id);
                                     self.broken_neighbors.push(block_key.neighbor.clone());
+                                    self.requested_microblocks
+                                        .remove(&block_key.index_block_hash);
                                 }
                             },
                         }
