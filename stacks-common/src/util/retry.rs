@@ -59,6 +59,10 @@ impl<'a, R: Read> RetryReader<'a, R> {
         self.i += nr;
         Ok(nr)
     }
+
+    pub fn info(&self) -> (&Vec<u8>, usize) {
+        (&self.buf, self.i)
+    }
 }
 
 impl<'a, R: Read> Read for RetryReader<'a, R> {
