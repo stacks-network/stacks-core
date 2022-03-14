@@ -603,6 +603,11 @@ impl BurnchainController for StacksController {
         self.client.get_stacks_epochs()
     }
 
+    fn get_headers_height(&self) -> u64 {
+        self.client.get_highest_header_height()
+            .unwrap_or(0)
+    }
+
     /// wait until the ChainsCoordinator has processed sortitions up to the
     ///   canonical chain tip, or has processed up to height_to_wait
     fn wait_for_sortitions(&self, height_to_wait: Option<u64>) -> Result<BurnchainTip, Error> {
@@ -620,7 +625,7 @@ impl BurnchainController for StacksController {
                 .unwrap();
             let canonical_sortition_tip =
                 SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn()).unwrap();
-            if canonical_burnchain_tip.block_height == canonical_sortition_tip.block_height {
+            if canonical_burnchain_tip.block_height >= canonical_sortition_tip.block_height {
                 let (_, state_transition) = self
                     .sortdb_ref()
                     .get_sortition_result(&canonical_sortition_tip.sortition_id)
