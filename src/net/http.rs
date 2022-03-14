@@ -4367,14 +4367,18 @@ impl StacksMessageCodec for StacksHttpPreamble {
                         match (e_request, e) {
                             (codec_error::ReadError(ref ioe1), codec_error::ReadError(ref ioe2)) => {
                                 if ioe1.kind() == io::ErrorKind::UnexpectedEof && ioe2.kind() == io::ErrorKind::UnexpectedEof {
-                                    // out of bytes
+                                    // out of bytes (will try again later)
                                     Err(codec_error::UnderflowError("Not enough bytes to form a HTTP request or response".to_string()))
                                 }
                                 else {
+                                    error!("Neither a HTTP request ({:?}) or HTTP response ({:?}): {:?}", &ioe1, &ioe2, &retry_fd.info());
                                     Err(codec_error::DeserializeError(format!("Neither a HTTP request ({:?}) or HTTP response ({:?})", ioe1, ioe2)))
                                 }
                             },
-                            (e_req, e_res) => Err(codec_error::DeserializeError(format!("Failed to decode HTTP request or HTTP response (request error: {:?}; response error: {:?})", &e_req, &e_res)))
+                            (e_req, e_res) => {
+                                error!("Failed to decode HTTP request or HTTP response (request error: {:?}; response error: {:?}): {:?}", &e_req, &e_res, &retry_fd.info());
+                                Err(codec_error::DeserializeError(format!("Failed to decode HTTP request or HTTP response (request error: {:?}; response error: {:?})", &e_req, &e_res)))
+                            }
                         }
                     }
                 }
@@ -6984,6 +6988,19 @@ mod test {
                 "headers: {}\nshould not have parsed",
                 bad_live_header
             );
+        }
+
+        let response_headers = &[
+            "HTTP/1.1 200 OK\r\nDate: Mon, 27 Jul 2009 12:28:53 GMT\r\nServer: Apache/2.2.14 (Win32)Last-Modified: Wed, 22 Jul 2009 19:15:56 GMT\r\nContent-Length: 88\r\nContent-Type: text/html\r\nConnection: Closed\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nServer: stacks/2.0\r\nDate: Fri, Mar 11 2022 21:04:06 GMT\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: origin, content-type\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nX-Request-Id: 504716777\r\nX-Canonical-Stacks-Tip-Height: 4\r\n\r\n"
+        ];
+
+        for response_header in response_headers {
+            let mut headers = [httparse::EMPTY_HEADER; HTTP_PREAMBLE_MAX_NUM_HEADERS];
+            let mut req = httparse::Response::new(&mut headers);
+            let res = req.parse(&response_header.as_bytes());
+
+            assert!(res.is_ok(), "headers: '{}'\nerror: {:?}", response_header, &res);
         }
     }
 
