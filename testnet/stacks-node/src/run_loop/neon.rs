@@ -129,6 +129,7 @@ pub struct RunLoop {
     pox_watchdog: Option<PoxSyncWatchdog>, // can't be instantiated until .start() is called
     is_miner: Option<bool>,                // not known until .start() is called
     burnchain: Option<Burnchain>,          // not known until .start() is called
+    events_observer_handle: JoinHandle<()>,
 }
 
 /// Write to stderr in an async-safe manner.
@@ -191,26 +192,26 @@ pub async fn start_events_observer(
     };
 
     let _ = std::thread::spawn(move || {
-//        let future = rocket::custom(rocket_config)
+        let future = rocket::custom(rocket_config)
 //            .manage(indexer_rw_lock)
 //            .manage(devnet_event_tx_mutex)
 //            .manage(config_mutex)
 //            .manage(moved_init_status_rw_lock)
 //            .manage(background_job_tx_mutex)
-//            .mount(
-//                "/",
-//                routes![
+            .mount(
+                "/",
+                routes![
 //                    handle_ping,
 //                    handle_new_burn_block,
 //                    handle_new_block,
 //                    handle_new_microblocks,
 //                    handle_new_mempool_tx,
 //                    handle_drop_mempool_tx,
-//                ],
-//            )
-//            .launch();
-//        let rt = utils::create_basic_runtime();
-//        rt.block_on(future).expect("Unable to spawn event observer");
+                ],
+            )
+            .launch();
+        let rt = create_basic_runtime();
+        rt.block_on(future).expect("Unable to spawn event observer");
     });
     Ok(())
 }
@@ -245,6 +246,7 @@ impl RunLoop {
             pox_watchdog: None,
             is_miner: None,
             burnchain: None,
+            events_observer_handle,
         }
     }
 
