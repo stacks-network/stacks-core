@@ -48,9 +48,9 @@ pub use self::tenure::Tenure;
 
 use self::stacks::burnchains::Burnchain;
 use self::stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
-use self::stacks::util::boot::boot_code_addr;
+use self::stacks::util_lib::boot::boot_code_addr;
 use self::stacks::util::get_epoch_time_secs;
-use self::stacks::util::strings::StacksString;
+use self::stacks::util_lib::strings::StacksString;
 use self::stacks::vm::ContractName;
 
 use pico_args::Arguments;
