@@ -149,9 +149,84 @@ fn async_safe_write_stderr(msg: &str) {
     }
 }
 
+use tokio;
+
+pub fn create_basic_runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .max_blocking_threads(32)
+        .build()
+        .unwrap()
+}
+
+
+use std::net::{IpAddr, Ipv4Addr};
+use rocket::routes;
+use rocket::config::{Config as RocketConfig, LogLevel};
+use std::error::Error;
+
+#[derive(Clone, Debug)]
+pub struct EventObserverConfig {
+//    pub devnet_config: DevnetConfig,
+//    pub accounts: Vec<Account>,
+//    pub contracts_to_deploy: VecDeque<InitialContract>,
+//    pub manifest_path: PathBuf,
+//    pub session: Session,
+//    pub deployment_fee_rate: u64,
+}
+
+pub async fn start_events_observer(
+) -> Result<(), Box<dyn Error>> {
+//    let _ = config.execute_scripts().await;
+
+    let rocket_config = RocketConfig {
+        port: 10000,
+        workers: 4,
+        address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+        keep_alive: 5,
+        temp_dir: std::env::temp_dir(),
+        log_level: LogLevel::Debug,
+        ..RocketConfig::default()
+    };
+
+    let _ = std::thread::spawn(move || {
+//        let future = rocket::custom(rocket_config)
+//            .manage(indexer_rw_lock)
+//            .manage(devnet_event_tx_mutex)
+//            .manage(config_mutex)
+//            .manage(moved_init_status_rw_lock)
+//            .manage(background_job_tx_mutex)
+//            .mount(
+//                "/",
+//                routes![
+//                    handle_ping,
+//                    handle_new_burn_block,
+//                    handle_new_block,
+//                    handle_new_microblocks,
+//                    handle_new_mempool_tx,
+//                    handle_drop_mempool_tx,
+//                ],
+//            )
+//            .launch();
+//        let rt = utils::create_basic_runtime();
+//        rt.block_on(future).expect("Unable to spawn event observer");
+    });
+    Ok(())
+}
+
 impl RunLoop {
     /// Sets up a runloop and node, given a config.
     pub fn new(config: Config) -> Self {
+        info!("start spawning");
+        let events_observer_handle = std::thread::spawn(move || {
+            info!("inside spawning");
+            let future = start_events_observer(
+            );
+            let rt = create_basic_runtime();
+            let _ = rt.block_on(future);
+        });
+
         let channels = CoordinatorCommunication::instantiate();
         let should_keep_running = Arc::new(AtomicBool::new(true));
 

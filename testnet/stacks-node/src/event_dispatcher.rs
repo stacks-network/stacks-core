@@ -14,6 +14,8 @@ use async_std::net::TcpStream;
 use http_types::{Method, Request, Url};
 use serde_json::json;
 
+use rocket;
+
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
