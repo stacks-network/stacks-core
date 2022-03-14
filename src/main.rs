@@ -734,11 +734,11 @@ simulating a miner.
     if argv[1] == "mempool-query" {
         use std::net::TcpStream;
         use std::net::{SocketAddr, ToSocketAddrs};
-        use net::{HttpRequestType, HttpRequestMetadata, PeerHost, HttpResponseType};
-        use burnchains::stacks::AppChainClient;
-        use core::mempool::MemPoolDB;
-        use cost_estimates::UnitEstimator;
-        use cost_estimates::metrics::UnitMetric;
+        use blockstack_lib::burnchains::stacks::AppChainClient;
+        use blockstack_lib::net::{HttpRequestType, HttpRequestMetadata, PeerHost, HttpResponseType};
+        use blockstack_lib::core::mempool::MemPoolDB;
+        use blockstack_lib::cost_estimates::UnitEstimator;
+        use blockstack_lib::cost_estimates::metrics::UnitMetric;
 
         let mempool_path = &argv[1];
         let peer_host = &argv[2];
@@ -749,8 +749,9 @@ simulating a miner.
         let sockaddr = peer_host.to_socket_addrs().unwrap().next().unwrap();
         let mut socket = TcpStream::connect(sockaddr.clone()).unwrap();
         let request = HttpRequestType::MemPoolQuery(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&sockaddr)),
+            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&sockaddr), None),
             sync_data,
+            None
         );
 
         let resp = AppChainClient::request(&mut socket, request).unwrap();
