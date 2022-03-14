@@ -43,12 +43,12 @@ use core::*;
 use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
 use net::MemPoolSyncData;
-use util::db::Error as db_error;
-use util::db::{
+use util_lib::db::Error as db_error;
+use util_lib::db::{
     query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, FromColumn, FromRow,
     IndexDBConn, IndexDBTx,
 };
-use util::hash::to_hex;
+use stacks_common::util::hash::to_hex;
 use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
@@ -63,15 +63,21 @@ use vm::types::TupleData;
 use {monitoring, util};
 
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::{
-    MARFValue, StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
+use stacks_common::types::chainstate::{
+    StacksAddress, StacksBlockId,
 };
-use crate::types::proof::{ClarityMarfTrieId, TrieHash};
-use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
+use chainstate::stacks::index::MARFValue;
+use chainstate::stacks::index::ClarityMarfTrieId;
+use stacks_common::types::chainstate::TrieHash;
+use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use chainstate::stacks::db::ChainStateBootData;
 use chainstate::stacks::db::ClarityTx;
 use chainstate::stacks::db::StacksChainState;
 use vm::Value;
+
+use clarity::vm::types::StacksAddressExtensions;
 
 impl StacksChainState {
     /// Get the genesis state root hash, once the burnchain block has been calculated
