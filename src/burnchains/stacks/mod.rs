@@ -52,9 +52,10 @@ use burnchains::Error as burnchain_error;
 use codec::StacksMessageCodec;
 
 use crate::types::chainstate::{
-    BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
+    BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
-use crate::types::proof::TrieHash;
+use chainstate::stacks::StacksBlockHeader;
+use stacks_common::types::chainstate::TrieHash;
 use chainstate::burn::operations::*;
 use chainstate::stacks::StacksBlock;
 use chainstate::stacks::StacksPrivateKey;
@@ -65,12 +66,12 @@ use core::{
     StacksEpoch, StacksEpochId, GENESIS_EPOCH, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     STACKS_EPOCH_MAX,
 };
-use util::db::Error as db_error;
+use util_lib::db::Error as db_error;
 use util::hash::to_hex;
 use util::hash::Sha512Trunc256Sum;
-use util::strings::StacksString;
+use util_lib::strings::StacksString;
+use util_lib::strings::UrlString;
 use vm::costs::ExecutionCost;
-use vm::representations::UrlString;
 use vm::types::ASCIIData;
 use vm::types::CharType;
 use vm::types::PrincipalData;
@@ -148,8 +149,25 @@ impl From<net_error> for Error {
 }
 
 /// Checked operations for Clarity value conversions
-impl Value {
-    pub fn checked_ascii(self) -> Option<String> {
+pub trait ValueChecked {
+    fn checked_ascii(self) -> Option<String>;
+    fn checked_u128(self) -> Option<u128>;
+    fn checked_i128(self) -> Option<i128>;
+    fn checked_buff(self, sz: usize) -> Option<Vec<u8>>;
+    fn checked_buff_exact(self, sz: usize) -> Option<Vec<u8>>;
+    fn checked_list(self) -> Option<Vec<Value>>;
+    fn checked_buff_padded(self, sz: usize, pad: u8) -> Option<Vec<u8>>;
+    fn checked_bool(self) -> Option<bool>;
+    fn checked_tuple(self) -> Option<TupleData>;
+    fn checked_optional(self) -> Option<Option<Value>>;
+    fn checked_principal(self) -> Option<PrincipalData>;
+    fn checked_result(self) -> Option<std::result::Result<Value, Value>>;
+    fn checked_result_ok(self) -> Option<Value>;
+    fn checked_result_err(self) -> Option<Value>;
+}
+
+impl ValueChecked for Value {
+    fn checked_ascii(self) -> Option<String> {
         if let Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) = self {
             match String::from_utf8(data) {
                 Ok(s) => Some(s),
@@ -160,7 +178,7 @@ impl Value {
         }
     }
 
-    pub fn checked_u128(self) -> Option<u128> {
+    fn checked_u128(self) -> Option<u128> {
         if let Value::UInt(inner) = self {
             Some(inner)
         } else {
@@ -168,7 +186,7 @@ impl Value {
         }
     }
 
-    pub fn checked_i128(self) -> Option<i128> {
+    fn checked_i128(self) -> Option<i128> {
         if let Value::Int(inner) = self {
             Some(inner)
         } else {
@@ -176,7 +194,7 @@ impl Value {
         }
     }
 
-    pub fn checked_buff(self, sz: usize) -> Option<Vec<u8>> {
+    fn checked_buff(self, sz: usize) -> Option<Vec<u8>> {
         if let Value::Sequence(SequenceData::Buffer(buffdata)) = self {
             if buffdata.data.len() <= sz {
                 Some(buffdata.data)
@@ -188,7 +206,7 @@ impl Value {
         }
     }
 
-    pub fn checked_buff_exact(self, sz: usize) -> Option<Vec<u8>> {
+    fn checked_buff_exact(self, sz: usize) -> Option<Vec<u8>> {
         if let Value::Sequence(SequenceData::Buffer(buffdata)) = self {
             if buffdata.data.len() == sz {
                 Some(buffdata.data)
@@ -200,7 +218,7 @@ impl Value {
         }
     }
 
-    pub fn checked_list(self) -> Option<Vec<Value>> {
+    fn checked_list(self) -> Option<Vec<Value>> {
         if let Value::Sequence(SequenceData::List(listdata)) = self {
             Some(listdata.data)
         } else {
@@ -208,7 +226,7 @@ impl Value {
         }
     }
 
-    pub fn checked_buff_padded(self, sz: usize, pad: u8) -> Option<Vec<u8>> {
+    fn checked_buff_padded(self, sz: usize, pad: u8) -> Option<Vec<u8>> {
         let mut data = self.checked_buff(sz)?;
         if sz > data.len() {
             for _ in data.len()..sz {
@@ -218,7 +236,7 @@ impl Value {
         Some(data)
     }
 
-    pub fn checked_bool(self) -> Option<bool> {
+    fn checked_bool(self) -> Option<bool> {
         if let Value::Bool(b) = self {
             Some(b)
         } else {
@@ -226,7 +244,7 @@ impl Value {
         }
     }
 
-    pub fn checked_tuple(self) -> Option<TupleData> {
+    fn checked_tuple(self) -> Option<TupleData> {
         if let Value::Tuple(data) = self {
             Some(data)
         } else {
@@ -234,7 +252,7 @@ impl Value {
         }
     }
 
-    pub fn checked_optional(self) -> Option<Option<Value>> {
+    fn checked_optional(self) -> Option<Option<Value>> {
         if let Value::Optional(opt) = self {
             Some(match opt.data {
                 Some(boxed_value) => Some(*boxed_value),
@@ -245,7 +263,7 @@ impl Value {
         }
     }
 
-    pub fn checked_principal(self) -> Option<PrincipalData> {
+    fn checked_principal(self) -> Option<PrincipalData> {
         if let Value::Principal(p) = self {
             Some(p)
         } else {
@@ -253,7 +271,7 @@ impl Value {
         }
     }
 
-    pub fn checked_result(self) -> Option<std::result::Result<Value, Value>> {
+    fn checked_result(self) -> Option<std::result::Result<Value, Value>> {
         if let Value::Response(res_data) = self {
             Some(if res_data.committed {
                 Ok(*res_data.data)
@@ -265,7 +283,7 @@ impl Value {
         }
     }
 
-    pub fn checked_result_ok(self) -> Option<Value> {
+    fn checked_result_ok(self) -> Option<Value> {
         if let Value::Response(res_data) = self {
             if res_data.committed {
                 Some(*res_data.data)
@@ -277,7 +295,7 @@ impl Value {
         }
     }
 
-    pub fn checked_result_err(self) -> Option<Value> {
+    fn checked_result_err(self) -> Option<Value> {
         if let Value::Response(res_data) = self {
             if !res_data.committed {
                 Some(*res_data.data)
