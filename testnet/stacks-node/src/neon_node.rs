@@ -23,12 +23,17 @@ use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
 use stacks::chainstate::stacks::{
-    events::StacksTransactionReceipt, CoinbasePayload, StacksBlock, StacksMicroblock,
+    CoinbasePayload, StacksBlock, StacksMicroblock,
     StacksBlockHeader,
 };
 use stacks::chainstate::stacks::{
     miner::BlockBuilderSettings, miner::StacksMicroblockBuilder, StacksBlockBuilder,
 };
+use stacks::chainstate::stacks::TransactionVersion;
+use stacks::chainstate::stacks::StacksTransaction;
+use stacks::chainstate::stacks::TransactionPayload;
+use stacks::chainstate::stacks::StacksTransactionSigner;
+use stacks::chainstate::stacks::TransactionAnchorMode;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -57,7 +62,6 @@ use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 use stacks::{burnchains::BurnchainSigner, chainstate::stacks::db::StacksHeaderInfo};
 
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
@@ -1086,6 +1090,7 @@ fn spawn_miner_relayer(
                         .burn_header_hash
                         .clone();
 
+                    let mut burn_tenure_snapshot = last_burn_block.clone();
                     if burn_chain_tip == burn_header_hash {
                         // no burnchain change, so only re-run block tenure every so often in order
                         // to give microblocks a chance to collect
@@ -1096,6 +1101,7 @@ fn spawn_miner_relayer(
                     }
                     else {
                         // burnchain has changed since this directive was sent, so mine immediately
+                        burn_tenure_snapshot = burn_chain_sn;
                         if issue_timestamp_ms + (config.node.wait_time_for_microblocks as u128) < get_epoch_time_ms() {
                             // still waiting for microblocks to arrive
                             debug!("Relayer: will NOT run tenure since still waiting for microblocks to arrive ({} <= {})", (issue_timestamp_ms + (config.node.wait_time_for_microblocks as u128)) / 1000, get_epoch_time_secs());
@@ -1106,7 +1112,7 @@ fn spawn_miner_relayer(
 
                     debug!(
                         "Relayer: Run tenure";
-                        "height" => burn_chain_sn.block_height,
+                        "height" => last_burn_block.block_height,
                         "burn_header_hash" => %burn_chain_tip,
                         "last_burn_header_hash" => %burn_header_hash
                     );
@@ -1115,7 +1121,7 @@ fn spawn_miner_relayer(
                     fault_injection_long_tenure();
 
                     let mut last_mined_blocks_vec = last_mined_blocks
-                        .remove(&burn_chain_sn.burn_header_hash)
+                        .remove(&burn_header_hash)
                         .unwrap_or_default();
 
                     let last_mined_block_opt = StacksNode::relayer_run_tenure(
@@ -1124,7 +1130,7 @@ fn spawn_miner_relayer(
                         &mut chainstate,
                         &mut sortdb,
                         &burnchain,
-                        burn_chain_sn.clone(),
+                        burn_tenure_snapshot,
                         &mut keychain,
                         &mut mem_pool,
                         burn_fee_cap,
@@ -1140,7 +1146,7 @@ fn spawn_miner_relayer(
                         }
                         last_mined_blocks_vec.push((last_mined_block, microblock_privkey));
                     }
-                    last_mined_blocks.insert(burn_chain_sn.burn_header_hash, last_mined_blocks_vec);
+                    last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
 
                     last_tenure_issue_time = get_epoch_time_ms();
                     debug!("Relayer: RunTenure finished at {} (in {}ms)", last_tenure_issue_time, last_tenure_issue_time.saturating_sub(tenure_begin));
@@ -1224,9 +1230,14 @@ enum LeaderKeyRegistrationState {
 /// Get the chain tip the miner should mine off of from the environment.
 /// The environs to look for are STX_MINER_CONSENSUS_HASH_xxx and STX_MINER_BLOCK_HASH_xxx, where
 /// xxx is the burn block height at which these environs are valid.
-fn get_miner_tip_from_environment(burn_height: u64) -> Option<(ConsensusHash, BlockHeaderHash)> {
-    let envar_consensus_hash = format!("STX_MINER_CONSENSUS_HASH_{}", burn_height);
-    let envar_block_hash = format!("STX_MINER_BLOCK_HASH_{}", burn_height);
+fn get_miner_tip_from_environment(burn_height: u64, is_appchain: bool) -> Option<(ConsensusHash, BlockHeaderHash)> {
+    let (envar_consensus_hash, envar_block_hash) = if is_appchain {
+        (format!("STX_MINER_APPCHAIN_CONSENSUS_HASH_{}", burn_height), format!("STX_MINER_APPCHAIN_BLOCK_HASH_{}", burn_height))
+    }
+    else {
+        (format!("STX_MINER_CONSENSUS_HASH_{}", burn_height), format!("STX_MINER_BLOCK_HASH_{}", burn_height))
+    };
+
     debug!(
         "Check environment for {}/{}",
         &envar_consensus_hash, &envar_block_hash
@@ -1681,6 +1692,11 @@ impl StacksNode {
         event_dispatcher: &EventDispatcher,
     ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey)> {
         let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn()).ok()?;
+        let is_appchain = config.describes_appchain();
+
+        // set to true if the environment overrides the tip on which we mine
+        let mut tip_override = false;
+
         let MiningTenureInformation {
             mut stacks_parent_header,
             parent_consensus_hash,
@@ -1689,7 +1705,7 @@ impl StacksNode {
             parent_winning_vtxindex,
             coinbase_nonce,
         } = if let Some((env_stacks_tip_consensus_hash, env_stacks_tip_anchored_block_hash)) =
-            get_miner_tip_from_environment(burn_chain_tip.block_height)
+            get_miner_tip_from_environment(burn_chain_tip.block_height, is_appchain)
         {
             info!(
                 "Miner will build on {}/{} ({}), as dictated by the environment variables",
@@ -1700,6 +1716,8 @@ impl StacksNode {
                     &env_stacks_tip_anchored_block_hash
                 )
             );
+
+            tip_override = true;
 
             // environ says to mine off of a particular chain tip
             let miner_address = keychain.origin_address(config.is_mainnet()).unwrap();
@@ -1744,9 +1762,6 @@ impl StacksNode {
             }
         };
 
-        // going to try and replace the empty block we immediately mined?
-        let mut replace_first_empty_block = false;
-
         // has the tip changed from our previously-mined block for this epoch?
         let attempt = {
             let mut best_attempt = 0;
@@ -1764,16 +1779,12 @@ impl StacksNode {
                     &prev_block.anchored_block.txs.len()
                 );
                 if prev_block.anchored_block.txs.len() == 1 {
-                    if prev_block.parent_consensus_hash == parent_consensus_hash
-                        && prev_block.my_burn_hash == burn_block.burn_header_hash
-                        && last_mined_blocks.len() == 1
-                    {
+                    if last_mined_blocks.len() == 1 {
                         // this is an empty block, and we've only tried once before at this burn chain tip.
                         // We should always try again, with the `subsequent_miner_time_ms` allotment, in order to see if
                         // we can make a bigger block
                         debug!("Have only mined one empty block off of {}/{} height {}; unconditionally trying again", &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work);
                         best_attempt = 1;
-                        replace_first_empty_block = true;
                         break;
                     } else if prev_block.attempt == 1 {
                         // Don't let the fact that we've built an empty block during this sortition
@@ -2056,16 +2067,6 @@ impl StacksNode {
             }
         };
 
-        // so do we actually need to commit?
-        if replace_first_empty_block
-            && anchored_block.txs.len() == 1
-            && anchored_block.header.parent_microblock == BlockHeaderHash([0x00; 32])
-        {
-            // not actually replacing anything
-            debug!("No new transactions or microblocks processed since initial empty block, so not submitting a new block-commit");
-            return None;
-        }
-
         let block_height = anchored_block.header.total_work.work;
         info!(
             "Succeeded assembling {} block #{}: {}, with {} txs, parent {}, attempt {}",
@@ -2132,9 +2133,9 @@ impl StacksNode {
             .get_stacks_chain_tip(burn_db)
             .expect("FATAL: could not query chain tip")
         {
-            if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
+            if (stacks_tip.anchored_block_hash != anchored_block.header.parent_block
                 || parent_consensus_hash != stacks_tip.consensus_hash
-                || cur_burn_chain_tip.sortition_id != burn_block.sortition_id
+                || cur_burn_chain_tip.sortition_id != burn_block.sortition_id) && !tip_override
             {
                 debug!(
                     "Cancel block-commit; chain tip(s) have changed";
