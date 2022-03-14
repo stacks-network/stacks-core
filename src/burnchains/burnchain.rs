@@ -76,7 +76,8 @@ use util_lib::db::DBConn;
 use util_lib::db::DBTx;
 use util_lib::db::Error as db_error;
 
-use crate::types::chainstate::{BurnchainHeaderHash, PoxId, StacksBlockHeader};
+use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
+use chainstate::stacks::StacksBlockHeader;
 use burnchains::bitcoin::indexer::BitcoinIndexer;
 
 use chainstate::stacks::address::StacksAddressExtensions;
@@ -1496,8 +1497,16 @@ impl Burnchain {
         }
 
         // join up
-        let _ = download_thread.join().unwrap();
-        let _ = parse_thread.join().unwrap();
+        let downloader_res = download_thread.join().unwrap();
+        if let Err(e) = downloader_res {
+            warn!("Downloader thread failed with {:?}", &e);
+        }
+
+        let parser_res = parse_thread.join().unwrap();
+        if let Err(e) = parser_res {
+            warn!("Parser thread failed with {:?}", &e);
+        }
+
         let block_header = match db_thread.join().unwrap() {
             Ok(x) => x,
             Err(e) => {
