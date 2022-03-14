@@ -11,12 +11,6 @@
 			<string>--config=/etc/stacks-blockchain/Config.toml</string>
 	</array>
 
-	<key>Nice</key>
-	<integer>1</integer>
-
-	<key>StartInterval</key>
-	<integer>60</integer>
-
 	<key>ProcessType</key>
 	<integer>Standard</integer>
 
@@ -27,6 +21,13 @@
 	<string>/tmp/stacks-blockchain.log</string>
 
 	<key>RunAtLoad</key>
-	<true/>
+	<false/>
+
+	<key>ExitTimeOut</key>
+	<integer>60</integer>
+
+	<key>KeepAlive</key>
+	<false/>
+
 </dict>
 </plist>

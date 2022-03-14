@@ -55,15 +55,14 @@ stacks_log=${STACKS_BLOCKCHAIN_LOG-/stacks-blockchain/output.log}
 
 
 start() {
-    if [ ! -f $stacks_config ];then
+    if [ ! -f "$stacks_config" ];then
         echo -n "Missing config file: $stacks_config "
         return 1
     fi
-    [ -x $exec ] || exit 5
     echo -n $"Starting $prog: "
-    $stacks_bin start --config=$stacks_config > $stacks_log 2>&1 &
+    $stacks_bin start --config="$stacks_config" > "$stacks_log" 2>&1 &
     RETVAL=$?
-    [ $RETVAL -eq 0 ] && touch $lockfile
+    [ $RETVAL -eq 0 ] && touch "$lockfile"
     echo
     return $RETVAL
 }
@@ -73,7 +72,7 @@ stop() {
     killproc $prog -INT
     RETVAL=$?
     echo
-    [ $RETVAL -eq 0 ] && rm -f $lockfile
+    [ $RETVAL -eq 0 ] && rm -f "$lockfile"
     return $RETVAL
 }
 

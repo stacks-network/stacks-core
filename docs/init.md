@@ -82,7 +82,9 @@ setting the STACKS_BLOCKCHAIN_CONFIG and STACKS_BLOCKCHAIN_LOG environment varia
 Copy org.stacks.stacks-blockchain.plist into ~/Library/LaunchAgents. Load the launch agent by
 running `launchctl load ~/Library/LaunchAgents/org.stacks.stacks-blockchain.plist`.
 
-This Launch Agent will cause the stacks-blockchain to start whenever the user logs in.
+This Launch Agent will **not** start the stacks-blockchain whenever the user logs in.
+
+To start the service, you'll need to manually run the start command: `launchctl start org.stacks.stacks-blockchain`
 
 NOTE: This approach is intended for those wanting to run stacks-blockchain as the current user.
 You will need to modify org.stacks.stacks-blockchain.plist if you intend to use it as a
@@ -90,4 +92,4 @@ Launch Daemon with a dedicated stacks user.
 
 ## Auto-respawn
 
-Auto respawning is currently only configured for systemd.
+Auto respawning is currently disabled.

@@ -24,7 +24,7 @@ PermissionsStartOnly=true
 ####################
 Type=simple
 PIDFile=/run/stacks-blockchain/stacks-blockchain.pid
-Restart=on-failure
+Restart=no
 TimeoutStopSec=600
 KillSignal=SIGTERM
 
