@@ -33,16 +33,19 @@ use chainstate::burn::{BurnchainHeaderHash, ConsensusHash, OpsHash, SortitionHas
 use chainstate::stacks::db::StacksChainState;
 use chainstate::stacks::index::MarfTrieId;
 use core::*;
-use util::db::Error as db_error;
 use util::hash::Hash160;
 use util::log;
 use util::uint::BitArray;
 use util::uint::Uint256;
 use util::uint::Uint512;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
-use crate::types::proof::{ClarityMarfTrieId, TrieHash};
+use chainstate::burn::ConsensusHashExtensions;
+use chainstate::stacks::index::ClarityMarfTrieId;
+use chainstate::stacks::index::TrieHashExtension;
+use stacks_common::types::chainstate::TrieHash;
 
 impl BlockSnapshot {
     /// Create the sentinel block snapshot -- the first one

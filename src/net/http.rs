@@ -90,7 +90,8 @@ use crate::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
 };
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId};
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use chainstate::stacks::StacksBlockHeader;
 
 use super::FeeRateEstimateRequestBody;
 
@@ -158,11 +159,12 @@ lazy_static! {
 
 /// HTTP headers that we really care about
 #[derive(Debug, Clone, PartialEq)]
-enum HttpReservedHeader {
+pub(crate) enum HttpReservedHeader {
     ContentLength(u32),
     ContentType(HttpContentType),
     XRequestID(u32),
     Host(PeerHost),
+    CanonicalStacksTipHeight(u64),
 }
 
 /// Stacks block accepted struct
@@ -251,7 +253,11 @@ impl HttpReservedHeader {
     pub fn is_reserved(header: &str) -> bool {
         let hdr = header.to_string();
         match hdr.as_str() {
-            "content-length" | "content-type" | "x-request-id" | "host" => true,
+            "content-length"
+            | "content-type"
+            | "x-request-id"
+            | "host"
+            | "x-canonical-stacks-tip-height" => true,
             _ => false,
         }
     }
@@ -273,6 +279,10 @@ impl HttpReservedHeader {
             },
             "host" => match value.parse::<PeerHost>() {
                 Ok(ph) => Some(HttpReservedHeader::Host(ph)),
+                Err(_) => None,
+            },
+            "x-canonical-stacks-tip-height" => match value.parse::<u64>() {
+                Ok(h) => Some(HttpReservedHeader::CanonicalStacksTipHeight(h)),
                 Err(_) => None,
             },
             _ => None,
@@ -863,6 +873,20 @@ fn empty_headers<W: Write>(_fd: &mut W) -> Result<(), codec_error> {
     Ok(())
 }
 
+fn stacks_height_headers<W: Write>(
+    fd: &mut W,
+    md: &HttpRequestMetadata,
+) -> Result<(), codec_error> {
+    match md.canonical_stacks_tip_height {
+        Some(height) => {
+            fd.write_all(format!("X-Canonical-Stacks-Tip-Height: {}\r\n", height).as_bytes())
+                .map_err(codec_error::WriteError)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result<(), codec_error> {
     match md.client_version {
         HttpVersion::Http10 => {
@@ -882,6 +906,13 @@ fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result
                     .map_err(codec_error::WriteError)?;
             }
         }
+    }
+    match md.canonical_stacks_tip_height {
+        Some(height) => {
+            fd.write_all(format!("X-Canonical-Stacks-Tip-Height: {}\r\n", height).as_bytes())
+                .map_err(codec_error::WriteError)?;
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -1729,6 +1760,27 @@ impl HttpRequestType {
         }
     }
 
+    /// get the mempool page ID optional query argument (`page_id`)
+    /// Take the first value we can parse.
+    fn get_mempool_page_id_query(query: Option<&str>) -> Option<Txid> {
+        match query {
+            Some(query_string) => {
+                for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
+                    if key != "page_id" {
+                        continue;
+                    }
+                    if let Ok(page_id) = Txid::from_hex(&value) {
+                        return Some(page_id);
+                    }
+                }
+                return None;
+            }
+            None => {
+                return None;
+            }
+        }
+    }
+
     fn parse_get_account<R: Read>(
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
@@ -2556,7 +2608,7 @@ impl HttpRequestType {
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         _regex: &Captures,
-        _query: Option<&str>,
+        query: Option<&str>,
         fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() == 0 {
@@ -2590,10 +2642,12 @@ impl HttpRequestType {
 
         let mut bound_fd = BoundReader::from_reader(fd, preamble.get_content_length() as u64);
         let mempool_query = MemPoolSyncData::consensus_deserialize(&mut bound_fd)?;
+        let page_id_opt = HttpRequestType::get_mempool_page_id_query(query);
 
         Ok(HttpRequestType::MemPoolQuery(
             HttpRequestMetadata::from_preamble(preamble),
             mempool_query,
+            page_id_opt,
         ))
     }
 
@@ -2672,7 +2726,7 @@ impl HttpRequestType {
         }
     }
 
-    fn make_query_string(tip_req: &TipRequest, with_proof: bool) -> String {
+    fn make_tip_query_string(tip_req: &TipRequest, with_proof: bool) -> String {
         match tip_req {
             TipRequest::UseLatestUnconfirmedTip => {
                 format!("?tip=latest{}", if with_proof { "" } else { "&proof=0" })
@@ -2695,13 +2749,13 @@ impl HttpRequestType {
             HttpRequestType::GetInfo(_md) => "/v2/info".to_string(),
             HttpRequestType::GetPoxInfo(_md, tip_req) => format!(
                 "/v2/pox{}",
-                HttpRequestType::make_query_string(tip_req, true)
+                HttpRequestType::make_tip_query_string(tip_req, true)
             ),
             HttpRequestType::GetNeighbors(_md) => "/v2/neighbors".to_string(),
             HttpRequestType::GetHeaders(_md, quantity, tip_req) => format!(
                 "/v2/headers/{}{}",
                 quantity,
-                HttpRequestType::make_query_string(tip_req, true)
+                HttpRequestType::make_tip_query_string(tip_req, true)
             ),
             HttpRequestType::GetBlock(_md, block_hash) => {
                 format!("/v2/blocks/{}", block_hash.to_hex())
@@ -2724,13 +2778,13 @@ impl HttpRequestType {
             HttpRequestType::PostBlock(_md, ch, ..) => format!("/v2/blocks/upload/{}", &ch),
             HttpRequestType::PostMicroblock(_md, _, tip_req) => format!(
                 "/v2/microblocks{}",
-                HttpRequestType::make_query_string(tip_req, true)
+                HttpRequestType::make_tip_query_string(tip_req, true)
             ),
             HttpRequestType::GetAccount(_md, principal, tip_req, with_proof) => {
                 format!(
                     "/v2/accounts/{}{}",
                     &principal.to_string(),
-                    HttpRequestType::make_query_string(tip_req, *with_proof,)
+                    HttpRequestType::make_tip_query_string(tip_req, *with_proof,)
                 )
             }
             HttpRequestType::GetDataVar(
@@ -2745,7 +2799,7 @@ impl HttpRequestType {
                 &contract_addr.to_string(),
                 contract_name.as_str(),
                 var_name.as_str(),
-                HttpRequestType::make_query_string(tip_req, *with_proof)
+                HttpRequestType::make_tip_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetMapEntry(
                 _md,
@@ -2760,14 +2814,14 @@ impl HttpRequestType {
                 &contract_addr.to_string(),
                 contract_name.as_str(),
                 map_name.as_str(),
-                HttpRequestType::make_query_string(tip_req, *with_proof)
+                HttpRequestType::make_tip_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetTransferCost(_md) => "/v2/fees/transfer".into(),
             HttpRequestType::GetContractABI(_, contract_addr, contract_name, tip_req) => format!(
                 "/v2/contracts/interface/{}/{}{}",
                 contract_addr,
                 contract_name.as_str(),
-                HttpRequestType::make_query_string(tip_req, true,)
+                HttpRequestType::make_tip_query_string(tip_req, true,)
             ),
             HttpRequestType::GetContractSrc(
                 _,
@@ -2779,7 +2833,7 @@ impl HttpRequestType {
                 "/v2/contracts/source/{}/{}{}",
                 contract_addr,
                 contract_name.as_str(),
-                HttpRequestType::make_query_string(tip_req, *with_proof)
+                HttpRequestType::make_tip_query_string(tip_req, *with_proof)
             ),
             HttpRequestType::GetIsTraitImplemented(
                 _,
@@ -2794,7 +2848,7 @@ impl HttpRequestType {
                 trait_id.name.to_string(),
                 StacksAddress::from(trait_id.clone().contract_identifier.issuer),
                 trait_id.contract_identifier.name.as_str(),
-                HttpRequestType::make_query_string(tip_req, true)
+                HttpRequestType::make_tip_query_string(tip_req, true)
             ),
             HttpRequestType::CallReadOnlyFunction(
                 _,
@@ -2809,7 +2863,7 @@ impl HttpRequestType {
                 contract_addr,
                 contract_name.as_str(),
                 func_name.as_str(),
-                HttpRequestType::make_query_string(tip_req, true)
+                HttpRequestType::make_tip_query_string(tip_req, true)
             ),
             HttpRequestType::OptionsPreflight(_md, path) => path.to_string(),
             HttpRequestType::GetAttachmentsInv(_md, index_block_hash, pages_indexes) => {
@@ -2830,7 +2884,12 @@ impl HttpRequestType {
             HttpRequestType::GetAttachment(_, content_hash) => {
                 format!("/v2/attachments/{}", to_hex(&content_hash.0[..]))
             }
-            HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query".to_string(),
+            HttpRequestType::MemPoolQuery(_, _, page_id_opt) => match page_id_opt {
+                Some(page_id) => {
+                    format!("/v2/mempool/query?page_id={}", page_id)
+                }
+                None => "/v2/mempool/query".to_string(),
+            },
             HttpRequestType::FeeRateEstimate(_, _, _) => self.get_path().to_string(),
             HttpRequestType::ClientError(_md, e) => match e {
                 ClientError::NotFound(path) => path.to_string(),
@@ -2916,7 +2975,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(request_body_bytes.len() as u32),
                     content_type,
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&request_body_bytes)
                     .map_err(net_error::WriteError)?;
@@ -2934,7 +2993,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(block_bytes.len() as u32),
                     Some(&HttpContentType::Bytes),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&block_bytes).map_err(net_error::WriteError)?;
             }
@@ -2951,7 +3010,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(mb_bytes.len() as u32),
                     Some(&HttpContentType::Bytes),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&mb_bytes).map_err(net_error::WriteError)?;
             }
@@ -2977,7 +3036,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(request_json.as_bytes().len() as u32),
                     Some(&HttpContentType::JSON),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&request_json.as_bytes())
                     .map_err(net_error::WriteError)?;
@@ -3021,12 +3080,12 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(request_body_bytes.len() as u32),
                     Some(&HttpContentType::JSON),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&request_body_bytes)
                     .map_err(net_error::WriteError)?;
             }
-            HttpRequestType::MemPoolQuery(md, query) => {
+            HttpRequestType::MemPoolQuery(md, query, ..) => {
                 let request_body_bytes = query.serialize_to_vec();
                 HttpRequestPreamble::new_serialized(
                     fd,
@@ -3054,7 +3113,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     None,
                     None,
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
             }
         }
@@ -3747,6 +3806,127 @@ impl HttpResponseType {
         ))
     }
 
+    /// Read the trailing page ID from a transaction stream
+    fn parse_mempool_query_page_id<R: Read>(
+        pos: usize,
+        retry_reader: &mut RetryReader<'_, R>,
+    ) -> Result<Option<Txid>, net_error> {
+        // possibly end-of-transactions, in which case, the last 32 bytes should be
+        // a page ID.  Expect end-of-stream after this.
+        retry_reader.set_position(pos);
+        let next_page: Txid = match read_next(retry_reader) {
+            Ok(txid) => txid,
+            Err(e) => match e {
+                codec_error::ReadError(ref ioe) => match ioe.kind() {
+                    io::ErrorKind::UnexpectedEof => {
+                        if pos == retry_reader.position() {
+                            // this is fine -- the node didn't get another page
+                            return Ok(None);
+                        } else {
+                            // partial data -- corrupt stream
+                            test_debug!("Unexpected EOF: {} != {}", pos, retry_reader.position());
+                            return Err(e.into());
+                        }
+                    }
+                    _ => {
+                        return Err(e.into());
+                    }
+                },
+                e => {
+                    return Err(e.into());
+                }
+            },
+        };
+
+        test_debug!("Read page_id {:?}", &next_page);
+        Ok(Some(next_page))
+    }
+
+    /// Decode a transaction stream, returned from /v2/mempool/query.
+    /// The wire format is a list of transactions (no SIP-003 length prefix), followed by an
+    /// optional 32-byte page ID.  Obtain both the transactions and page ID, if it exists.
+    pub fn decode_tx_stream<R: Read>(
+        fd: &mut R,
+        len_hint: Option<usize>,
+    ) -> Result<(Vec<StacksTransaction>, Option<Txid>), net_error> {
+        // The wire format is `tx, tx, tx, tx, .., tx, txid`.
+        // The last 32 bytes are the page ID for the next mempool query.
+        // NOTE: there will be no length prefix on this.
+        let mut txs: Vec<StacksTransaction> = vec![];
+        let max_len = len_hint.unwrap_or(MAX_MESSAGE_LEN as usize) as u64;
+        let mut bound_reader = BoundReader::from_reader(fd, max_len);
+        let mut retry_reader = RetryReader::new(&mut bound_reader);
+        let mut page_id = None;
+        let mut expect_eof = false;
+
+        loop {
+            let pos = retry_reader.position();
+            let next_msg: Result<StacksTransaction, _> = read_next(&mut retry_reader);
+            match next_msg {
+                Ok(tx) => {
+                    if expect_eof {
+                        // this should have failed
+                        test_debug!("Expected EOF; got transaction {}", tx.txid());
+                        return Err(net_error::ExpectedEndOfStream);
+                    }
+
+                    test_debug!("Read transaction {}", tx.txid());
+                    txs.push(tx);
+                    Ok(())
+                }
+                Err(e) => match e {
+                    codec_error::ReadError(ref ioe) => match ioe.kind() {
+                        io::ErrorKind::UnexpectedEof => {
+                            if expect_eof {
+                                if pos != retry_reader.position() {
+                                    // read partial data. The stream is corrupt.
+                                    test_debug!(
+                                        "Expected EOF; stream advanced from {} to {}",
+                                        pos,
+                                        retry_reader.position()
+                                    );
+                                    return Err(net_error::ExpectedEndOfStream);
+                                }
+                            } else {
+                                // couldn't read a full transaction.  This is possibly a page ID, whose
+                                // 32 bytes decode to the prefix of a well-formed transaction.
+                                test_debug!("Try to read page ID trailer after ReadError");
+                                page_id = HttpResponseType::parse_mempool_query_page_id(
+                                    pos,
+                                    &mut retry_reader,
+                                )?;
+                            }
+                            break;
+                        }
+                        _ => Err(e),
+                    },
+                    codec_error::DeserializeError(_msg) => {
+                        if expect_eof {
+                            // this should have failed due to EOF
+                            test_debug!("Expected EOF; got DeserializeError '{}'", &_msg);
+                            return Err(net_error::ExpectedEndOfStream);
+                        }
+
+                        // failed to parse a transaction.  This is possibly a page ID.
+                        test_debug!("Try to read page ID trailer after ReadError");
+                        page_id =
+                            HttpResponseType::parse_mempool_query_page_id(pos, &mut retry_reader)?;
+
+                        // do one more pass to make sure we're actually end-of-stream.
+                        // otherwise, the stream itself was corrupt, since any 32 bytes is a valid
+                        // txid and the presence of more bytes means that we simply got a bad tx
+                        // that we couldn't decode.
+                        expect_eof = true;
+                        Ok(())
+                    }
+                    _ => Err(e),
+                },
+            }?;
+        }
+
+        Ok((txs, page_id))
+    }
+
     fn parse_post_mempool_query<R: Read>(
         _protocol: &mut StacksHttp,
         request_version: HttpVersion,
@@ -3754,29 +3934,10 @@ impl HttpResponseType {
         fd: &mut R,
         len_hint: Option<usize>,
     ) -> Result<HttpResponseType, net_error> {
-        // NOTE: there will be no length prefix on this
-        let mut txs = vec![];
-        let max_len = len_hint.unwrap_or(MAX_MESSAGE_LEN as usize) as u64;
-        let mut bound_reader = BoundReader::from_reader(fd, max_len);
-        loop {
-            let tx: StacksTransaction = match read_next(&mut bound_reader) {
-                Ok(tx) => Ok(tx),
-                Err(e) => match e {
-                    codec_error::ReadError(ref ioe) => match ioe.kind() {
-                        io::ErrorKind::UnexpectedEof => {
-                            // end of stream -- this is fine
-                            break;
-                        }
-                        _ => Err(e),
-                    },
-                    _ => Err(e),
-                },
-            }?;
-
-            txs.push(tx);
-        }
+        let (txs, page_id) = HttpResponseType::decode_tx_stream(fd, len_hint)?;
         Ok(HttpResponseType::MemPoolTxs(
             HttpResponseMetadata::from_preamble(request_version, preamble),
+            page_id,
             txs,
         ))
     }
@@ -4109,7 +4270,7 @@ impl HttpResponseType {
                     |ref mut fd| keep_alive_headers(fd, md),
                 )?;
             }
-            HttpResponseType::MemPoolTxs(ref md, ref txs) => {
+            HttpResponseType::MemPoolTxs(ref md, ref page_id, ref txs) => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     200,
@@ -4119,7 +4280,27 @@ impl HttpResponseType {
                     md.request_id,
                     |ref mut fd| keep_alive_headers(fd, md),
                 )?;
-                HttpResponseType::send_bytestream(protocol, md, fd, txs)?;
+                match page_id {
+                    Some(txid) => {
+                        if md.content_length.is_some() {
+                            // have explicit content-length, so we can send as-is
+                            write_next(fd, txs)?;
+                            write_next(fd, txid)?;
+                            Ok(())
+                        } else {
+                            // no content-length, so send as chunk-encoded
+                            let mut write_state =
+                                HttpChunkedTransferWriterState::new(protocol.chunk_size as usize);
+                            let mut encoder =
+                                HttpChunkedTransferWriter::from_writer_state(fd, &mut write_state);
+                            write_next(&mut encoder, txs)?;
+                            write_next(&mut encoder, txid)?;
+                            encoder.flush().map_err(codec_error::WriteError)?;
+                            Ok(())
+                        }
+                    }
+                    None => HttpResponseType::send_bytestream(protocol, md, fd, txs),
+                }?;
             }
             HttpResponseType::OptionsPreflight(ref md) => {
                 HttpResponsePreamble::new_serialized(
@@ -4820,8 +5001,7 @@ mod test {
     use util::hash::MerkleTree;
     use util::hash::Sha512Trunc256Sum;
 
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::StacksBlockHeader;
+    use stacks_common::types::chainstate::StacksAddress;
 
     use super::*;
 
@@ -5759,11 +5939,13 @@ mod test {
                 12345,
             ),
             keep_alive: true,
+            canonical_stacks_tip_height: None,
         };
         let http_request_metadata_dns = HttpRequestMetadata {
             version: HttpVersion::Http11,
             peer: PeerHost::DNS("www.foo.com".to_string(), 80),
             keep_alive: true,
+            canonical_stacks_tip_height: None,
         };
 
         let tests = vec![
@@ -5974,6 +6156,7 @@ mod test {
                         123,
                         Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32),
                         true,
+                        None,
                     ),
                     test_neighbors_info.clone(),
                 ),
@@ -5986,6 +6169,7 @@ mod test {
                         123,
                         Some(test_block_info_bytes.len() as u32),
                         true,
+                        None,
                     ),
                     test_block_info.clone(),
                 ),
@@ -5998,6 +6182,7 @@ mod test {
                         123,
                         Some(test_microblock_info_bytes.len() as u32),
                         true,
+                        None,
                     ),
                     test_microblock_info.clone(),
                 ),
@@ -6013,6 +6198,7 @@ mod test {
                         123,
                         Some((Txid([0x1; 32]).to_hex().len() + 2) as u32),
                         true,
+                        None,
                     ),
                     Txid([0x1; 32]),
                 ),
@@ -6021,21 +6207,21 @@ mod test {
             // length is unknown
             (
                 HttpResponseType::Neighbors(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     test_neighbors_info.clone(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Block(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     test_block_info.clone(),
                 ),
                 format!("/v2/blocks/{}", test_block_info.block_hash().to_hex()),
             ),
             (
                 HttpResponseType::Microblocks(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     test_microblock_info.clone(),
                 ),
                 format!(
@@ -6045,7 +6231,7 @@ mod test {
             ),
             (
                 HttpResponseType::TransactionID(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     Txid([0x1; 32]),
                 ),
                 "/v2/transactions".to_string(),
@@ -6053,56 +6239,56 @@ mod test {
             // errors without error messages
             (
                 HttpResponseType::BadRequest(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Unauthorized(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::PaymentRequired(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Forbidden(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::NotFound(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServerError(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServiceUnavailable(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Error(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     502,
                     "".to_string(),
                 ),
@@ -6111,56 +6297,56 @@ mod test {
             // errors with specific messages
             (
                 HttpResponseType::BadRequest(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Unauthorized(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::PaymentRequired(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Forbidden(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::NotFound(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServerError(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServiceUnavailable(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Error(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     502,
                     "foo".to_string(),
                 ),
@@ -6674,7 +6860,7 @@ mod test {
         let mut responses = vec![];
         for res in responses_args.iter() {
             let mut bytes = vec![];
-            let md = HttpResponseMetadata::new(res.0.clone(), 123, None, res.1);
+            let md = HttpResponseMetadata::new(res.0.clone(), 123, None, res.1, None);
             HttpResponsePreamble::new_serialized(
                 &mut bytes,
                 200,

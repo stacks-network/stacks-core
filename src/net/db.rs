@@ -25,11 +25,11 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::fs;
 
-use util::db::sqlite_open;
-use util::db::tx_begin_immediate;
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::db::{query_count, query_row, query_rows, u64_to_sql, FromColumn, FromRow};
+use util_lib::db::sqlite_open;
+use util_lib::db::tx_begin_immediate;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
+use util_lib::db::{query_count, query_row, query_rows, u64_to_sql, FromColumn, FromRow};
 
 use util;
 use util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
@@ -38,7 +38,7 @@ use util::macros::is_big_endian;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
 
-use util::db::tx_busy_handler;
+use util_lib::db::tx_busy_handler;
 
 use chainstate::stacks::StacksPrivateKey;
 use chainstate::stacks::StacksPublicKey;
@@ -60,7 +60,7 @@ use burnchains::PublicKey;
 
 use core::NETWORK_P2P_PORT;
 
-use util::strings::UrlString;
+use util_lib::strings::UrlString;
 
 pub const PEERDB_VERSION: &'static str = "1";
 
@@ -323,7 +323,6 @@ const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(slot)
     );"#,
-    "CREATE INDEX peer_address_index ON frontier(network_id,addrbytes,port);",
     r#"
     CREATE TABLE asn4(
         prefix INTEGER NOT NULL,
@@ -358,6 +357,9 @@ const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
         mask INTEGER NOT NULL
     );"#,
 ];
+
+const PEERDB_INDEXES: &'static [&'static str] =
+    &["CREATE INDEX IF NOT EXISTS peer_address_index ON frontier(network_id,addrbytes,port);"];
 
 #[derive(Debug)]
 pub struct PeerDB {
@@ -439,6 +441,16 @@ impl PeerDB {
 
         tx.commit().map_err(db_error::SqliteError)?;
 
+        self.add_indexes()?;
+        Ok(())
+    }
+
+    fn add_indexes(&mut self) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        for row_text in PEERDB_INDEXES {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -470,7 +482,7 @@ impl PeerDB {
     }
 
     fn reset_allows<'a>(tx: &mut Transaction<'a>) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET allowed = -1", NO_PARAMS)
+        tx.execute("UPDATE frontier SET allowed = 0", NO_PARAMS)
             .map_err(db_error::SqliteError)?;
         Ok(())
     }
@@ -587,6 +599,9 @@ impl PeerDB {
 
                 tx.commit()?;
             }
+        }
+        if readwrite {
+            db.add_indexes()?;
         }
         Ok(db)
     }
@@ -2305,7 +2320,7 @@ mod test {
         assert_eq!(n1.denied, i64::MAX);
         assert_eq!(n2.denied, 0); // refreshed; no longer denied
 
-        assert_eq!(n1.allowed, -1);
-        assert_eq!(n2.allowed, -1);
+        assert_eq!(n1.allowed, 0);
+        assert_eq!(n2.allowed, 0);
     }
 }

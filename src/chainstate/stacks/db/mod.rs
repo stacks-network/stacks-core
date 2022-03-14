@@ -51,6 +51,7 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use clarity::vm::events::*;
 use clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
     Error as clarity_error,
@@ -59,15 +60,16 @@ use core::*;
 use net::atlas::BNS_CHARS_REGEX;
 use net::Error as net_error;
 use net::MemPoolSyncData;
-use util::db::Error as db_error;
-use util::db::{
+use util::hash::to_hex;
+use util_lib::db::Error as db_error;
+use util_lib::db::{
     query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, FromColumn, FromRow,
     IndexDBConn, IndexDBTx,
 };
-use util::hash::to_hex;
 use vm::analysis::analysis_db::AnalysisDatabase;
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
+use vm::clarity::TransactionConnection;
 use vm::contexts::OwnedEnvironment;
 use vm::costs::{ExecutionCost, LimitedCostTracker};
 use vm::database::{
@@ -79,13 +81,15 @@ use vm::types::TupleData;
 use {monitoring, util};
 
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::{
-    MARFValue, StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
-};
-use crate::types::proof::{ClarityMarfTrieId, TrieHash};
-use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::clarity_vm::database::HeadersDBConn;
+use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use chainstate::burn::ConsensusHashExtensions;
+use chainstate::stacks::address::StacksAddressExtensions;
+use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 use vm::Value;
-
 pub mod accounts;
 pub mod appchain;
 pub mod blocks;
@@ -140,7 +144,7 @@ pub struct MinerPaymentSchedule {
 pub struct StacksHeaderInfo {
     pub anchored_header: StacksBlockHeader,
     pub microblock_tail: Option<StacksMicroblockHeader>,
-    pub block_height: u64,
+    pub stacks_block_height: u64,
     pub index_root: TrieHash,
     pub consensus_hash: ConsensusHash,
     pub burn_header_hash: BurnchainHeaderHash,
@@ -200,7 +204,7 @@ impl StacksHeaderInfo {
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
-            block_height: 0,
+            stacks_block_height: 0,
             index_root: TrieHash([0u8; 32]),
             burn_header_hash: burnchain_params.first_block_hash.clone(),
             burn_header_height: burnchain_params.first_block_height as u32,
@@ -219,7 +223,7 @@ impl StacksHeaderInfo {
         StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header(),
             microblock_tail: None,
-            block_height: 0,
+            stacks_block_height: 0,
             index_root: root_hash,
             burn_header_hash: first_burnchain_block_hash.clone(),
             burn_header_height: first_burnchain_block_height,
@@ -272,7 +276,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header,
             microblock_tail: None,
-            block_height,
+            stacks_block_height: block_height,
             index_root,
             consensus_hash,
             burn_header_hash,
@@ -550,12 +554,15 @@ pub struct TxStreamData {
     /// serialized transaction buffer that's being sent
     pub tx_buf: Vec<u8>,
     pub tx_buf_ptr: usize,
-    /// number of transactions sent so far
+    /// number of transactions visited in the DB so far
     pub num_txs: u64,
-    /// maximum we can send
+    /// maximum we can visit in the query
     pub max_txs: u64,
     /// height of the chain at time of query
     pub height: u64,
+    /// Are we done sending transactions, and are now in the process of sending the trailing page
+    /// ID?
+    pub corked: bool,
 }
 
 pub const CHAINSTATE_VERSION: &'static str = "2";
@@ -595,9 +602,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(consensus_hash,block_hash)
     );"#,
-    "CREATE INDEX index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
-    "CREATE INDEX block_headers_hash_index ON block_headers(block_hash,block_height);",
-    "CREATE INDEX block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
     r#"
     -- scheduled payments
     -- no designated primary key since there can be duplicate entries
@@ -649,7 +653,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                      orphaned INT NOT NULL,
                                      PRIMARY KEY(anchored_block_hash,consensus_hash,microblock_hash)
     );"#,
-    "CREATE INDEX staging_microblocks_index_hash ON staging_microblocks(index_block_hash);",
     r#"
     -- Staging microblocks data
     CREATE TABLE staging_microblocks_data(block_hash TEXT NOT NULL,
@@ -684,11 +687,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                 processed_time INT NOT NULL,              -- when this block was processed
                                 PRIMARY KEY(anchored_block_hash,consensus_hash)
     );"#,
-    "CREATE INDEX processed_stacks_blocks ON staging_blocks(processed,anchored_block_hash,consensus_hash);",
-    "CREATE INDEX orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);",
-    "CREATE INDEX parent_blocks ON staging_blocks(parent_anchored_block_hash);",
-    "CREATE INDEX parent_consensus_hashes ON staging_blocks(parent_consensus_hash);",
-    "CREATE INDEX index_block_hashes ON staging_blocks(index_block_hash);",
     r#"
     -- users who burned in support of a block
     CREATE TABLE staging_user_burn_support(anchored_block_hash TEXT NOT NULL,
@@ -706,8 +704,6 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
         result TEXT NOT NULL,
         UNIQUE (txid,index_block_hash)
     );"#,
-    "CREATE INDEX txid_tx_index ON transactions(txid);",
-    "CREATE INDEX index_block_hash_tx_index ON transactions(index_block_hash);",
 ];
 
 const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
@@ -720,6 +716,29 @@ const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
     r#"
     UPDATE db_config SET version = "2";
     "#,
+];
+
+const CHAINSTATE_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
+    "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
+    "CREATE INDEX IF NOT EXISTS block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
+    "CREATE INDEX IF NOT EXISTS block_headers_burn_header_height ON block_headers(burn_header_height);",
+    "CREATE INDEX IF NOT EXISTS index_payments_block_hash_consensus_hash_vtxindex ON payments(block_hash,consensus_hash,vtxindex ASC);",
+    "CREATE INDEX IF NOT EXISTS index_payments_index_block_hash_vtxindex ON payments(index_block_hash,vtxindex ASC);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_processed ON staging_microblocks(processed);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_orphaned ON staging_microblocks(orphaned);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash ON staging_microblocks(index_block_hash);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash_processed ON staging_microblocks(index_block_hash,processed);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash_orphaned ON staging_microblocks(index_block_hash,orphaned);",
+    "CREATE INDEX IF NOT EXISTS processed_stacks_blocks ON staging_blocks(processed,anchored_block_hash,consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS parent_blocks ON staging_blocks(parent_anchored_block_hash);",
+    "CREATE INDEX IF NOT EXISTS parent_consensus_hashes ON staging_blocks(parent_consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS index_block_hashes ON staging_blocks(index_block_hash);",
+    "CREATE INDEX IF NOT EXISTS height_stacks_blocks ON staging_blocks(height);",
+    "CREATE INDEX IF NOT EXISTS index_staging_user_burn_support ON staging_user_burn_support(anchored_block_hash,consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS txid_tx_index ON transactions(txid);",
+    "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
 ];
 
 #[cfg(test)]
@@ -851,6 +870,8 @@ impl StacksChainState {
             if migrate {
                 StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
             }
+
+            StacksChainState::add_indexes(&tx)?;
         }
 
         dbtx.instantiate_index()?;
@@ -929,6 +950,13 @@ impl StacksChainState {
         Ok(())
     }
 
+    fn add_indexes<'a>(tx: &DBTx<'a>) -> Result<(), Error> {
+        for cmd in CHAINSTATE_INDEXES {
+            tx.execute_batch(cmd)?;
+        }
+        Ok(())
+    }
+
     fn open_db(
         mainnet: bool,
         chain_id: u32,
@@ -943,6 +971,7 @@ impl StacksChainState {
             let mut marf = StacksChainState::open_index(index_path)?;
             let tx = marf.storage_tx()?;
             StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
+            StacksChainState::add_indexes(&tx)?;
             tx.commit()?;
             Ok(marf)
         }
@@ -962,6 +991,7 @@ impl StacksChainState {
         } else {
             let mut marf = StacksChainState::open_index(index_path)?;
             let tx = marf.storage_tx()?;
+            StacksChainState::add_indexes(&tx)?;
             tx.commit()?;
             Ok(marf)
         }
@@ -1379,7 +1409,7 @@ impl StacksChainState {
 
             // Setup burnchain parameters for pox contract
             let pox_constants = &boot_data.pox_constants;
-            let contract = util::boot::boot_code_id("pox", mainnet);
+            let contract = boot_code_id("pox", mainnet);
             let sender = PrincipalData::from(contract.clone());
             let params = vec![
                 Value::UInt(boot_data.first_burnchain_block_height as u128),
@@ -1683,7 +1713,7 @@ impl StacksChainState {
     ) -> Value {
         let result = self.clarity_state.eval_read_only(
             parent_id_bhh,
-            self.state_index.sqlite_conn(),
+            &HeadersDBConn(self.state_index.sqlite_conn()),
             burn_dbconn,
             contract,
             code,
@@ -1701,7 +1731,7 @@ impl StacksChainState {
         self.clarity_state
             .eval_read_only(
                 parent_id_bhh,
-                self.state_index.sqlite_conn(),
+                &HeadersDBConn(self.state_index.sqlite_conn()),
                 burn_dbconn,
                 contract,
                 code,
@@ -1726,7 +1756,7 @@ impl StacksChainState {
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(
             conf,
-            chainstate_tx.deref().deref(),
+            chainstate_tx,
             clarity_instance,
             burn_dbconn,
             parent_consensus_hash,
@@ -1749,7 +1779,7 @@ impl StacksChainState {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
             conf,
-            self.state_index.sqlite_conn(),
+            &self.state_index,
             &mut self.clarity_state,
             burn_dbconn,
             parent_consensus_hash,
@@ -1771,7 +1801,7 @@ impl StacksChainState {
         new_block: &BlockHeaderHash,
     ) -> ClarityTx<'a> {
         let conf = self.config();
-        let db = self.state_index.sqlite_conn();
+        let db = &self.state_index;
         let clarity_instance = &mut self.clarity_state;
 
         // mix burn header hash and stacks block header hash together, since the stacks block hash
@@ -1826,11 +1856,8 @@ impl StacksChainState {
         burn_dbconn: &'a dyn BurnStateDB,
         index_block: &StacksBlockId,
     ) -> ClarityReadOnlyConnection<'a> {
-        self.clarity_state.read_only_connection(
-            &index_block,
-            self.state_index.sqlite_conn(),
-            burn_dbconn,
-        )
+        self.clarity_state
+            .read_only_connection(&index_block, &self.state_index, burn_dbconn)
     }
 
     /// Run to_do on the state of the Clarity VM at the given chain tip.
@@ -1881,7 +1908,7 @@ impl StacksChainState {
                 .clarity_inst
                 .read_only_connection_checked(
                     &unconfirmed_state.unconfirmed_chain_tip,
-                    self.db(),
+                    &self.state_index,
                     burn_dbconn,
                 )?;
             let result = to_do(&mut conn);
@@ -1967,7 +1994,7 @@ impl StacksChainState {
 
             Some(StacksChainState::chainstate_begin_unconfirmed(
                 conf,
-                self.state_index.sqlite_conn(),
+                &self.state_index,
                 &mut unconfirmed.clarity_inst,
                 burn_dbconn,
                 &unconfirmed.confirmed_chain_tip,
@@ -1981,7 +2008,7 @@ impl StacksChainState {
     /// Create a Clarity VM database transaction
     fn inner_clarity_tx_begin<'a>(
         conf: DBConfig,
-        headers_db: &'a Connection,
+        headers_db: &'a dyn HeadersDB,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'a dyn BurnStateDB,
         parent_consensus_hash: &ConsensusHash,
@@ -2132,7 +2159,7 @@ impl StacksChainState {
             anchored_header: new_tip.clone(),
             microblock_tail: microblock_tail_opt,
             index_root: root_hash,
-            block_height: new_tip.total_work.work,
+            stacks_block_height: new_tip.total_work.work,
             consensus_hash: new_consensus_hash.clone(),
             burn_header_hash: new_burn_header_hash.clone(),
             burn_header_height: new_burnchain_height,
@@ -2171,9 +2198,9 @@ pub mod test {
     use chainstate::stacks::db::*;
     use chainstate::stacks::*;
     use stx_genesis::GenesisData;
-    use vm::tests::TEST_BURN_STATE_DB;
+    use vm::test_util::TEST_BURN_STATE_DB;
 
-    use crate::util::boot::boot_code_test_addr;
+    use util_lib::boot::boot_code_test_addr;
 
     use super::*;
 

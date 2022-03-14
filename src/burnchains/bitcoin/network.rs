@@ -24,16 +24,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rand::{thread_rng, Rng};
 
-use deps::bitcoin::network::address as btc_network_address;
-use deps::bitcoin::network::constants as btc_constants;
-use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps::bitcoin::network::message as btc_message;
-use deps::bitcoin::network::message_blockdata as btc_message_blockdata;
-use deps::bitcoin::network::message_network as btc_message_network;
-use deps::bitcoin::network::serialize as btc_serialize;
-use deps::bitcoin::network::serialize::{RawDecoder, RawEncoder};
+use stacks_common::deps_common::bitcoin::network::address as btc_network_address;
+use stacks_common::deps_common::bitcoin::network::constants as btc_constants;
+use stacks_common::deps_common::bitcoin::network::encodable::{
+    ConsensusDecodable, ConsensusEncodable,
+};
+use stacks_common::deps_common::bitcoin::network::message as btc_message;
+use stacks_common::deps_common::bitcoin::network::message_blockdata as btc_message_blockdata;
+use stacks_common::deps_common::bitcoin::network::message_network as btc_message_network;
+use stacks_common::deps_common::bitcoin::network::serialize as btc_serialize;
+use stacks_common::deps_common::bitcoin::network::serialize::{RawDecoder, RawEncoder};
 
-use deps::bitcoin::util::hash::Sha256dHash;
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
 use burnchains::bitcoin::indexer::{network_id_to_bytes, BitcoinIndexer};
 use burnchains::bitcoin::messages::BitcoinMessageHandler;

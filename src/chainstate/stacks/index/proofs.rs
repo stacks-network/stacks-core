@@ -26,7 +26,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
 use sha2::Digest;
-use sha2::Sha512Trunc256 as TrieHasher;
+use sha2::Sha512_256 as TrieHasher;
 
 use chainstate::stacks::index::bits::{
     get_leaf_hash, get_node_hash, read_root_hash, write_path_to_bytes,
@@ -40,16 +40,20 @@ use chainstate::stacks::index::node::{
 use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use chainstate::stacks::index::trie::Trie;
 use chainstate::stacks::index::Error;
-use chainstate::stacks::index::{slice_partialeq, BlockMap, MarfTrieId};
-use util::{hash::to_hex, log};
+use chainstate::stacks::index::{BlockMap, MarfTrieId};
+use util::hash::to_hex;
+use util::slice_partialeq;
 
 use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use crate::types::chainstate::{BlockHeaderHash, MARFValue};
-use crate::types::proof::{
-    ClarityMarfTrieId, ProofTrieNode, ProofTriePtr, TrieHash, TrieLeaf, TrieMerkleProof,
-    TrieMerkleProofType, TRIEHASH_ENCODED_SIZE,
+use chainstate::stacks::index::TrieHashExtension;
+use chainstate::stacks::index::{
+    ClarityMarfTrieId, MARFValue, ProofTrieNode, ProofTriePtr, TrieLeaf, TrieMerkleProof,
+    TrieMerkleProofType,
 };
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 impl<T: MarfTrieId> ConsensusSerializable<()> for ProofTrieNode<T> {
     fn write_consensus_bytes<W: Write>(
@@ -117,7 +121,7 @@ define_u8_enum!( TrieMerkleProofTypeIndicator {
     Node4 = 0, Node16 = 1, Node48 = 2, Node256 = 3, Leaf = 4, Shunt = 5
 });
 
-impl<T: MarfTrieId> PartialEq for TrieMerkleProofType<T> {
+impl<T: ClarityMarfTrieId> PartialEq for TrieMerkleProofType<T> {
     fn eq(&self, other: &TrieMerkleProofType<T>) -> bool {
         match (self, other) {
             (
@@ -145,6 +149,72 @@ impl<T: MarfTrieId> PartialEq for TrieMerkleProofType<T> {
                 TrieMerkleProofType::Shunt((ref idx_2, ref hashes_2)),
             ) => idx_1 == idx_2 && hashes_1 == hashes_2,
             (_, _) => false,
+        }
+    }
+}
+
+pub fn hashes_fmt(hashes: &[TrieHash]) -> String {
+    let mut strs = vec![];
+    if hashes.len() < 48 {
+        for i in 0..hashes.len() {
+            strs.push(format!("{:?}", hashes[i]));
+        }
+        strs.join(",")
+    } else {
+        for i in 0..hashes.len() / 4 {
+            strs.push(format!(
+                "{:?},{:?},{:?},{:?}",
+                hashes[4 * i],
+                hashes[4 * i + 1],
+                hashes[4 * i + 2],
+                hashes[4 * i + 3]
+            ));
+        }
+        format!("\n{}", strs.join("\n"))
+    }
+}
+
+impl<T: MarfTrieId> fmt::Debug for TrieMerkleProofType<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TrieMerkleProofType::Node4((ref chr, ref node, ref hashes)) => write!(
+                f,
+                "TrieMerkleProofType::Node4(0x{:02x}, node={:?}, hashes={})",
+                chr,
+                node,
+                hashes_fmt(hashes)
+            ),
+            TrieMerkleProofType::Node16((ref chr, ref node, ref hashes)) => write!(
+                f,
+                "TrieMerkleProofType::Node16(0x{:02x}, node={:?}, hashes={})",
+                chr,
+                node,
+                hashes_fmt(hashes)
+            ),
+            TrieMerkleProofType::Node48((ref chr, ref node, ref hashes)) => write!(
+                f,
+                "TrieMerkleProofType::Node48(0x{:02x}, node={:?}, hashes={})",
+                chr,
+                node,
+                hashes_fmt(hashes)
+            ),
+            TrieMerkleProofType::Node256((ref chr, ref node, ref hashes)) => write!(
+                f,
+                "TrieMerkleProofType::Node256(0x{:02x}, node={:?}, hashes={})",
+                chr,
+                node,
+                hashes_fmt(hashes)
+            ),
+            TrieMerkleProofType::Leaf((ref chr, ref node)) => write!(
+                f,
+                "TrieMerkleProofType::Leaf(0x{:02x}, node={:?})",
+                chr, node
+            ),
+            TrieMerkleProofType::Shunt((ref idx, ref hashes)) => write!(
+                f,
+                "TrieMerkleProofType::Shunt(idx={}, hashes={:?})",
+                idx, hashes
+            ),
         }
     }
 }

@@ -21,7 +21,7 @@ use std::io;
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 
 use sha2::Digest;
-use sha2::Sha512Trunc256 as TrieHasher;
+use sha2::Sha512_256 as TrieHasher;
 
 use chainstate::stacks::index::node::{
     clear_backptr, ConsensusSerializable, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
@@ -30,13 +30,14 @@ use chainstate::stacks::index::node::{
 use chainstate::stacks::index::node::{TrieNode, TRIEPATH_MAX_LEN};
 use chainstate::stacks::index::storage::{fseek, ftell, TrieFileStorage, TrieStorageConnection};
 use chainstate::stacks::index::Error;
+use chainstate::stacks::index::TrieLeaf;
 use chainstate::stacks::index::{BlockMap, MarfTrieId};
 use util::hash::to_hex;
 use util::log;
 use util::macros::is_trace;
 
-use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use crate::types::proof::{TrieHash, TrieLeaf, TRIEHASH_ENCODED_SIZE};
+use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 /// Get the size of a Trie path (note that a Trie path is 32 bytes long, and can definitely _not_
 /// be over 255 bytes).
@@ -183,11 +184,11 @@ pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(
         .expect("IO Failure pushing to hasher.");
 
     for child_hash in child_hashes {
-        hasher.input(child_hash.as_ref());
+        hasher.update(child_hash.as_ref());
     }
 
     let mut res = [0u8; 32];
-    res.copy_from_slice(hasher.result().as_slice());
+    res.copy_from_slice(hasher.finalize().as_slice());
 
     let ret = TrieHash(res);
 
@@ -203,11 +204,11 @@ pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(
 /// Calculate the hash of a TrieNode, given its childrens' hashes.
 pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     let mut hasher = TrieHasher::new();
-    node.write_consensus_bytes_leaf(&mut hasher)
+    node.write_bytes(&mut hasher)
         .expect("IO Failure pushing to hasher.");
 
     let mut res = [0u8; 32];
-    res.copy_from_slice(hasher.result().as_slice());
+    res.copy_from_slice(hasher.finalize().as_slice());
 
     let ret = TrieHash(res);
 

@@ -44,33 +44,35 @@ use core::mempool::{BLOOM_COUNTER_DEPTH, BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COU
 use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use core::FIRST_STACKS_BLOCK_HASH;
 use net::Error as NetError;
+use net::HttpResponseType;
 use net::MemPoolSyncData;
-use util::bloom::test::setup_bloom_counter;
-use util::bloom::*;
-use util::db::{tx_begin_immediate, DBConn, FromRow};
+use stacks_common::types::chainstate::TrieHash;
 use util::get_epoch_time_ms;
 use util::hash::Hash160;
 use util::secp256k1::MessageSignature;
-use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*, strings::StacksString};
+use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*};
+use util_lib::bloom::test::setup_bloom_counter;
+use util_lib::bloom::*;
+use util_lib::db::{tx_begin_immediate, DBConn, FromRow};
+use util_lib::strings::StacksString;
 use vm::{
     database::HeadersDB,
     errors::Error as ClarityError,
     errors::RuntimeErrorType,
-    tests::TEST_BURN_STATE_DB,
+    test_util::TEST_BURN_STATE_DB,
     types::{PrincipalData, QualifiedContractIdentifier},
     ClarityName, ContractName, Value,
 };
 
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-use crate::types::chainstate::{
-    StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
-    VRFSeed,
-};
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::{StacksAddress, StacksBlockId, StacksWorkScore, VRFSeed};
 use crate::{
     chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
 };
+use chainstate::stacks::index::TrieHashExtension;
+use chainstate::stacks::{StacksBlockHeader, StacksMicroblockHeader};
+use clarity::vm::types::StacksAddressExtensions;
 
 use super::MemPoolDB;
 
@@ -133,7 +135,7 @@ fn make_block(
         anchored_header,
         microblock_tail: None,
         index_root: TrieHash::from_empty_data(),
-        block_height,
+        stacks_block_height: block_height,
         consensus_hash: block_consensus.clone(),
         burn_header_hash: BurnchainHeaderHash([0; 32]),
         burn_header_height: burn_height as u32,
@@ -1476,7 +1478,8 @@ fn test_find_next_missing_transactions() {
     let txtags = mempool.get_txtags(&[0u8; 32]).unwrap();
 
     // no txs returned for a full txtag set
-    let (txs, next_page_opt) = mempool
+    let ts_before = get_epoch_time_ms();
+    let (txs, next_page_opt, _) = mempool
         .find_next_missing_transactions(
             &MemPoolSyncData::TxTags([0u8; 32], txtags.clone()),
             block_height,
@@ -1485,11 +1488,18 @@ fn test_find_next_missing_transactions() {
             MAX_BLOOM_COUNTER_TXS as u64,
         )
         .unwrap();
+    let ts_after = get_epoch_time_ms();
+    eprintln!(
+        "find_next_missing_transactions with full txtag set took {} ms",
+        ts_after.saturating_sub(ts_before)
+    );
+
     assert_eq!(txs.len(), 0);
-    assert!(next_page_opt.is_none());
+    assert!(next_page_opt.is_some());
 
     // all txs returned for an empty txtag set
-    let (txs, next_page_opt) = mempool
+    let ts_before = get_epoch_time_ms();
+    let (txs, next_page_opt, _) = mempool
         .find_next_missing_transactions(
             &MemPoolSyncData::TxTags([0u8; 32], vec![]),
             block_height,
@@ -1498,14 +1508,21 @@ fn test_find_next_missing_transactions() {
             MAX_BLOOM_COUNTER_TXS as u64,
         )
         .unwrap();
+    let ts_after = get_epoch_time_ms();
+    eprintln!(
+        "find_next_missing_transactions with empty txtag set took {} ms",
+        ts_after.saturating_sub(ts_before)
+    );
+
     for tx in txs {
         assert!(txid_set.contains(&tx.txid()));
     }
     assert!(next_page_opt.is_some());
 
     // all bloom-filter-absent txids should be returned
+    let ts_before = get_epoch_time_ms();
     let txid_bloom = mempool.get_txid_bloom_filter().unwrap();
-    let (txs, next_page_opt) = mempool
+    let (txs, next_page_opt, _) = mempool
         .find_next_missing_transactions(
             &MemPoolSyncData::BloomFilter(txid_bloom),
             block_height,
@@ -1514,8 +1531,14 @@ fn test_find_next_missing_transactions() {
             (2 * MAX_BLOOM_COUNTER_TXS) as u64,
         )
         .unwrap();
+    let ts_after = get_epoch_time_ms();
+    eprintln!(
+        "find_next_missing_transactions with full bloom filter set took {} ms",
+        ts_after.saturating_sub(ts_before)
+    );
+
     assert_eq!(txs.len(), 0);
-    assert!(next_page_opt.is_none());
+    assert!(next_page_opt.is_some());
 
     let mut empty_bloom_conn = setup_bloom_counter("find_next_missing_txs_empty");
     let mut empty_tx = tx_begin_immediate(&mut empty_bloom_conn).unwrap();
@@ -1530,7 +1553,8 @@ fn test_find_next_missing_transactions() {
     .unwrap();
     empty_tx.commit().unwrap();
 
-    let (txs, next_page_opt) = mempool
+    let ts_before = get_epoch_time_ms();
+    let (txs, next_page_opt, _) = mempool
         .find_next_missing_transactions(
             &MemPoolSyncData::BloomFilter(empty_bloom.to_bloom_filter(&empty_bloom_conn).unwrap()),
             block_height,
@@ -1539,6 +1563,12 @@ fn test_find_next_missing_transactions() {
             (2 * MAX_BLOOM_COUNTER_TXS) as u64,
         )
         .unwrap();
+    let ts_after = get_epoch_time_ms();
+    eprintln!(
+        "find_next_missing_transactions with empty bloom filter set took {} ms",
+        ts_after.saturating_sub(ts_before)
+    );
+
     for tx in txs {
         assert!(txid_set.contains(&tx.txid()));
     }
@@ -1546,10 +1576,10 @@ fn test_find_next_missing_transactions() {
 
     // paginated access works too
     let mut last_txid = Txid([0u8; 32]);
-    let page_size = 10;
+    let page_size = 128;
     let mut all_txs = vec![];
     for i in 0..(txtags.len() / (page_size as usize)) + 1 {
-        let (mut txs, next_page_opt) = mempool
+        let (mut txs, next_page_opt, num_visited) = mempool
             .find_next_missing_transactions(
                 &MemPoolSyncData::TxTags([0u8; 32], vec![]),
                 block_height,
@@ -1559,6 +1589,7 @@ fn test_find_next_missing_transactions() {
             )
             .unwrap();
         assert!(txs.len() <= page_size as usize);
+        assert!(num_visited <= page_size as u64);
 
         if txs.len() == 0 {
             assert!(next_page_opt.is_none());
@@ -1581,7 +1612,8 @@ fn test_find_next_missing_transactions() {
     last_txid = Txid([0u8; 32]);
     all_txs = vec![];
     for i in 0..(txtags.len() / (page_size as usize)) + 1 {
-        let (mut txs, next_page_opt) = mempool
+        let ts_before = get_epoch_time_ms();
+        let (mut txs, next_page_opt, num_visited) = mempool
             .find_next_missing_transactions(
                 &MemPoolSyncData::BloomFilter(
                     empty_bloom.to_bloom_filter(&empty_bloom_conn).unwrap(),
@@ -1592,7 +1624,11 @@ fn test_find_next_missing_transactions() {
                 page_size,
             )
             .unwrap();
+        let ts_after = get_epoch_time_ms();
+        eprintln!("find_next_missing_transactions with empty bloom filter took {} ms to serve {} transactions", ts_after.saturating_sub(ts_before), page_size);
+
         assert!(txs.len() <= page_size as usize);
+        assert!(num_visited <= page_size as u64);
 
         if txs.len() == 0 {
             assert!(next_page_opt.is_none());
@@ -1613,25 +1649,25 @@ fn test_find_next_missing_transactions() {
     }
 
     // old transactions are ignored
-    let (old_txs, next_page_opt) = mempool
+    let (old_txs, next_page_opt, num_visited) = mempool
         .find_next_missing_transactions(
             &MemPoolSyncData::TxTags([0u8; 32], vec![]),
             block_height + (BLOOM_COUNTER_DEPTH as u64) + 1,
             &last_txid,
             (2 * MAX_BLOOM_COUNTER_TXS) as u64,
-            page_size,
+            (2 * MAX_BLOOM_COUNTER_TXS) as u64,
         )
         .unwrap();
     assert_eq!(old_txs.len(), 0);
     assert!(next_page_opt.is_none());
 
-    let (old_txs, next_page_opt) = mempool
+    let (old_txs, next_page_opt, num_visited) = mempool
         .find_next_missing_transactions(
             &MemPoolSyncData::BloomFilter(empty_bloom.to_bloom_filter(&empty_bloom_conn).unwrap()),
             block_height + (BLOOM_COUNTER_DEPTH as u64) + 1,
             &last_txid,
             (2 * MAX_BLOOM_COUNTER_TXS) as u64,
-            page_size,
+            (2 * MAX_BLOOM_COUNTER_TXS) as u64,
         )
         .unwrap();
     assert_eq!(old_txs.len(), 0);
@@ -1709,6 +1745,7 @@ fn test_stream_txs() {
         MemPoolSyncData::TxTags([0u8; 32], vec![]),
         MAX_BLOOM_COUNTER_TXS.into(),
         block_height,
+        Some(Txid([0u8; 32])),
     );
     let mut tx_stream_data = if let StreamCursor::MempoolTxs(stream_data) = stream {
         stream_data
@@ -1717,9 +1754,13 @@ fn test_stream_txs() {
     };
 
     loop {
-        let nw = mempool
-            .stream_txs(&mut buf, &mut tx_stream_data, 10)
-            .unwrap();
+        let nw = match mempool.stream_txs(&mut buf, &mut tx_stream_data, 10) {
+            Ok(nw) => nw,
+            Err(e) => {
+                error!("Failed to stream_to: {:?}", &e);
+                panic!();
+            }
+        };
         if nw == 0 {
             break;
         }
@@ -1760,5 +1801,221 @@ fn test_stream_txs() {
     assert_eq!(tx_set.len(), decoded_txs.len());
     for tx in decoded_txs {
         assert!(tx_set.contains(&tx.txid()));
+    }
+
+    // verify that we can stream through pagination, with an empty tx tags
+    let mut page_id = Txid([0u8; 32]);
+    let mut decoded_txs = vec![];
+    loop {
+        let stream = StreamCursor::new_tx_stream(
+            MemPoolSyncData::TxTags([0u8; 32], vec![]),
+            1,
+            block_height,
+            Some(page_id),
+        );
+
+        let mut tx_stream_data = if let StreamCursor::MempoolTxs(stream_data) = stream {
+            stream_data
+        } else {
+            unreachable!();
+        };
+
+        let mut buf = vec![];
+        loop {
+            let nw = match mempool.stream_txs(&mut buf, &mut tx_stream_data, 10) {
+                Ok(nw) => nw,
+                Err(e) => {
+                    error!("Failed to stream_to: {:?}", &e);
+                    panic!();
+                }
+            };
+            if nw == 0 {
+                break;
+            }
+        }
+
+        // buf decodes to the list of txs we have, plus page ids
+        let mut ptr = &buf[..];
+        test_debug!("Decode {}", to_hex(ptr));
+        let (mut next_txs, next_page) = HttpResponseType::decode_tx_stream(&mut ptr, None).unwrap();
+
+        decoded_txs.append(&mut next_txs);
+
+        // for fun, use a page ID that is actually a well-formed prefix of a transaction
+        if let Some(ref tx) = decoded_txs.last() {
+            let mut evil_buf = tx.serialize_to_vec();
+            let mut evil_page_id = [0u8; 32];
+            evil_page_id.copy_from_slice(&evil_buf[0..32]);
+            evil_buf.extend_from_slice(&evil_page_id);
+
+            test_debug!("Decode evil buf {}", &to_hex(&evil_buf));
+
+            let (evil_next_txs, evil_next_page) =
+                HttpResponseType::decode_tx_stream(&mut &evil_buf[..], None).unwrap();
+
+            // should still work
+            assert_eq!(evil_next_txs.len(), 1);
+            assert_eq!(evil_next_txs[0].txid(), tx.txid());
+            assert_eq!(evil_next_page.unwrap().0[0..32], evil_buf[0..32]);
+        }
+
+        if let Some(next_page) = next_page {
+            page_id = next_page;
+        } else {
+            break;
+        }
+    }
+
+    // make sure we got them all
+    let mut tx_set = HashSet::new();
+    for tx in txs.iter() {
+        tx_set.insert(tx.txid());
+    }
+
+    // the order won't be preserved
+    assert_eq!(tx_set.len(), decoded_txs.len());
+    for tx in decoded_txs {
+        assert!(tx_set.contains(&tx.txid()));
+    }
+
+    // verify that we can stream through pagination, with a full bloom filter
+    let mut page_id = Txid([0u8; 32]);
+    let all_txs_tags: Vec<_> = txs
+        .iter()
+        .map(|tx| TxTag::from(&[0u8; 32], &tx.txid()))
+        .collect();
+    loop {
+        let stream = StreamCursor::new_tx_stream(
+            MemPoolSyncData::TxTags([0u8; 32], all_txs_tags.clone()),
+            1,
+            block_height,
+            Some(page_id),
+        );
+
+        let mut tx_stream_data = if let StreamCursor::MempoolTxs(stream_data) = stream {
+            stream_data
+        } else {
+            unreachable!();
+        };
+
+        let mut buf = vec![];
+        loop {
+            let nw = match mempool.stream_txs(&mut buf, &mut tx_stream_data, 10) {
+                Ok(nw) => nw,
+                Err(e) => {
+                    error!("Failed to stream_to: {:?}", &e);
+                    panic!();
+                }
+            };
+            if nw == 0 {
+                break;
+            }
+        }
+
+        // buf decodes to an empty list of txs, plus page ID
+        let mut ptr = &buf[..];
+        test_debug!("Decode {}", to_hex(ptr));
+        let (next_txs, next_page) = HttpResponseType::decode_tx_stream(&mut ptr, None).unwrap();
+
+        assert_eq!(next_txs.len(), 0);
+
+        if let Some(next_page) = next_page {
+            page_id = next_page;
+        } else {
+            break;
+        }
+    }
+}
+
+#[test]
+fn test_decode_tx_stream() {
+    let addr = StacksAddress {
+        version: 1,
+        bytes: Hash160([0xff; 20]),
+    };
+    let mut txs = vec![];
+    for _i in 0..10 {
+        let pk = StacksPrivateKey::new();
+        let mut tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0x80000000,
+            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TokenTransfer(
+                addr.to_account_principal(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        };
+        tx.set_tx_fee(1000);
+        tx.set_origin_nonce(0);
+        txs.push(tx);
+    }
+
+    // valid empty tx stream
+    let empty_stream = [0x11u8; 32];
+    let (next_txs, next_page) =
+        HttpResponseType::decode_tx_stream(&mut empty_stream.as_ref(), None).unwrap();
+    assert_eq!(next_txs.len(), 0);
+    assert_eq!(next_page, Some(Txid([0x11; 32])));
+
+    // valid tx stream with a page id at the end
+    let mut tx_stream: Vec<u8> = vec![];
+    for tx in txs.iter() {
+        tx.consensus_serialize(&mut tx_stream).unwrap();
+    }
+    tx_stream.extend_from_slice(&[0x22; 32]);
+
+    let (next_txs, next_page) =
+        HttpResponseType::decode_tx_stream(&mut &tx_stream[..], None).unwrap();
+    assert_eq!(next_txs, txs);
+    assert_eq!(next_page, Some(Txid([0x22; 32])));
+
+    // valid tx stream with _no_ page id at the end
+    let mut partial_stream: Vec<u8> = vec![];
+    txs[0].consensus_serialize(&mut partial_stream).unwrap();
+    let (next_txs, next_page) =
+        HttpResponseType::decode_tx_stream(&mut &partial_stream[..], None).unwrap();
+    assert_eq!(next_txs.len(), 1);
+    assert_eq!(next_txs[0], txs[0]);
+    assert!(next_page.is_none());
+
+    // garbage tx stream
+    let garbage_stream = [0xff; 256];
+    let err = HttpResponseType::decode_tx_stream(&mut garbage_stream.as_ref(), None);
+    match err {
+        Err(NetError::ExpectedEndOfStream) => {}
+        x => {
+            error!("did not fail: {:?}", &x);
+            panic!();
+        }
+    }
+
+    // tx stream that is too short
+    let short_stream = [0x33u8; 33];
+    let err = HttpResponseType::decode_tx_stream(&mut short_stream.as_ref(), None);
+    match err {
+        Err(NetError::ExpectedEndOfStream) => {}
+        x => {
+            error!("did not fail: {:?}", &x);
+            panic!();
+        }
+    }
+
+    // tx stream has a tx, a page ID, and then another tx
+    let mut interrupted_stream = vec![];
+    txs[0].consensus_serialize(&mut interrupted_stream).unwrap();
+    interrupted_stream.extend_from_slice(&[0x00u8; 32]);
+    txs[1].consensus_serialize(&mut interrupted_stream).unwrap();
+
+    let err = HttpResponseType::decode_tx_stream(&mut &interrupted_stream[..], None);
+    match err {
+        Err(NetError::ExpectedEndOfStream) => {}
+        x => {
+            error!("did not fail: {:?}", &x);
+            panic!();
+        }
     }
 }

@@ -28,7 +28,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::types::chainstate::StacksAddress;
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::TrieHash;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
 use burnchains::bitcoin::address::address_type_to_version_byte;
@@ -65,19 +65,21 @@ use core::NETWORK_ID_TESTNET;
 use core::PEER_VERSION_MAINNET;
 use core::PEER_VERSION_TESTNET;
 use deps;
-use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use monitoring::update_burnchain_height;
-use util::db::DBConn;
-use util::db::DBTx;
-use util::db::Error as db_error;
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
 use util::vrf::VRFPublicKey;
+use util_lib::db::DBConn;
+use util_lib::db::DBTx;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId, StacksBlockHeader};
 use burnchains::bitcoin::indexer::BitcoinIndexer;
+
+use chainstate::stacks::address::StacksAddressExtensions;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -659,6 +661,7 @@ impl Burnchain {
         db_path
     }
 
+    /// Connect to the burnchain databases.  They may or may not already exist.
     pub fn connect_db<I: BurnchainIndexer>(
         &self,
         indexer: &I,
@@ -695,7 +698,7 @@ impl Burnchain {
         Ok((sortitiondb, burnchaindb))
     }
 
-    /// Open the burn database.  It must already exist.
+    /// Open the burn databases.  They must already exist.
     pub fn open_db(&self, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
@@ -1190,6 +1193,37 @@ impl Burnchain {
         Ok((block_snapshot, state_transition_opt))
     }
 
+    /// Get the highest burnchain block processed, if we have processed any.
+    /// Return Some(..) if we have processed at least one processed burnchain block; return None
+    /// otherwise.
+    pub fn get_highest_burnchain_block(
+        &self,
+    ) -> Result<Option<BurnchainBlockHeader>, burnchain_error> {
+        let burndb = match self.open_db(true) {
+            Ok((_sortdb, burndb)) => burndb,
+            Err(burnchain_error::DBError(db_error::NoDBError)) => {
+                // databases not yet initialized, so no blocks processed
+                return Ok(None);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        let burn_chain_tip = match burndb.get_canonical_chain_tip() {
+            Ok(tip) => tip,
+            Err(burnchain_error::MissingParentBlock) => {
+                // database is empty
+                return Ok(None);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        Ok(Some(burn_chain_tip))
+    }
+
     /// Top-level burnchain sync.
     /// Returns the burnchain block header for the new burnchain tip, which will be _at least_ as
     /// high as target_block_height_opt (if given), or whatever is currently at the tip of the
@@ -1494,6 +1528,9 @@ impl Burnchain {
 
 #[cfg(test)]
 pub mod tests {
+    use chainstate::burn::ConsensusHashExtensions;
+    use chainstate::stacks::address::StacksAddressExtensions;
+    use chainstate::stacks::index::TrieHashExtension;
     use ed25519_dalek::Keypair as VRFKeypair;
     use rand::rngs::ThreadRng;
     use rand::thread_rng;
@@ -1501,7 +1538,7 @@ pub mod tests {
     use sha2::Sha512;
 
     use crate::types::chainstate::StacksAddress;
-    use crate::types::proof::TrieHash;
+    use crate::types::chainstate::TrieHash;
     use address::AddressHashMode;
     use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -1516,7 +1553,6 @@ pub mod tests {
     };
     use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
     use chainstate::stacks::StacksPublicKey;
-    use util::db::Error as db_error;
     use util::get_epoch_time_secs;
     use util::hash::hex_bytes;
     use util::hash::to_hex;
@@ -1528,6 +1564,7 @@ pub mod tests {
     use util::uint::Uint512;
     use util::vrf::VRFPrivateKey;
     use util::vrf::VRFPublicKey;
+    use util_lib::db::Error as db_error;
 
     use crate::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,

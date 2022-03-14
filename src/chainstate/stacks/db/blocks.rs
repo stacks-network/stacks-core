@@ -54,21 +54,21 @@ use cost_estimates::EstimatorError;
 use net::BlocksInvData;
 use net::Error as net_error;
 use net::ExtendedStacksHeader;
-use net::MemPoolSyncData;
-use util::db::u64_to_sql;
-use util::db::Error as db_error;
-use util::db::{
-    query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
-    tx_busy_handler, DBConn, FromColumn, FromRow,
-};
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::retry::BoundReader;
-use util::strings::StacksString;
+use util_lib::db::u64_to_sql;
+use util_lib::db::Error as db_error;
+use util_lib::db::{
+    query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
+    tx_busy_handler, DBConn, FromColumn, FromRow,
+};
+use util_lib::strings::StacksString;
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
+use vm::clarity::TransactionConnection;
 use vm::contexts::AssetMap;
 use vm::contracts::Contract;
 use vm::costs::LimitedCostTracker;
@@ -78,11 +78,14 @@ use vm::types::{
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
-use crate::types::chainstate::{
-    StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
-};
 use crate::{types, util};
+use chainstate::stacks::address::StacksAddressExtensions;
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
+use monitoring::set_last_execution_cost_observed;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use types::chainstate::BurnchainHeaderHash;
+use util_lib::boot::boot_code_id;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -530,15 +533,26 @@ impl StreamCursor {
         }))
     }
 
-    pub fn new_tx_stream(tx_query: MemPoolSyncData, max_txs: u64, height: u64) -> StreamCursor {
+    pub fn new_tx_stream(
+        tx_query: MemPoolSyncData,
+        max_txs: u64,
+        height: u64,
+        page_id_opt: Option<Txid>,
+    ) -> StreamCursor {
+        let last_randomized_txid = page_id_opt.unwrap_or_else(|| {
+            let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+            Txid(random_bytes)
+        });
+
         StreamCursor::MempoolTxs(TxStreamData {
             tx_query,
-            last_randomized_txid: Txid([0u8; 32]),
+            last_randomized_txid: last_randomized_txid,
             tx_buf: vec![],
             tx_buf_ptr: 0,
             num_txs: 0,
             max_txs: max_txs,
             height: height,
+            corked: false,
         })
     }
 
@@ -2123,6 +2137,7 @@ impl StacksChainState {
                     let block_bench_start = get_epoch_time_ms();
                     let mut parent_microblock_hash = None;
 
+                    // TODO: just do a stat? cache this?
                     match StacksChainState::load_block_header(
                         &self.blocks_path,
                         &consensus_hash,
@@ -2150,6 +2165,7 @@ impl StacksChainState {
 
                     let mblock_bench_begin = get_epoch_time_ms();
                     if let Some(parent_microblock) = parent_microblock_hash {
+                        // TODO: can we cache this?
                         if self.has_processed_microblocks_at_tail(
                             &index_block_hash,
                             &parent_microblock,
@@ -4270,12 +4286,13 @@ impl StacksChainState {
         let mut receipts = vec![];
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
-            for tx in microblock.txs.iter() {
+            for (tx_index, tx) in microblock.txs.iter().enumerate() {
                 let (tx_fee, mut tx_receipt) =
                     StacksChainState::process_transaction(clarity_tx, tx, false)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
+                tx_receipt.tx_index = tx_index as u32;
                 fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
                 burns = burns
                     .checked_add(tx_receipt.stx_burned as u128)
@@ -4392,6 +4409,7 @@ impl StacksChainState {
                             contract_analysis: None,
                             execution_cost,
                             microblock_header: None,
+                            tx_index: 0,
                         };
 
                         all_receipts.push(receipt);
@@ -4446,6 +4464,7 @@ impl StacksChainState {
                                 contract_analysis: None,
                                 execution_cost: ExecutionCost::zero(),
                                 microblock_header: None,
+                                tx_index: 0,
                             }),
                             Err(e) => {
                                 info!("TransferStx burn op processing error.";
@@ -4467,18 +4486,21 @@ impl StacksChainState {
     fn process_block_transactions(
         clarity_tx: &mut ClarityTx,
         block: &StacksBlock,
+        mut tx_index: u32,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         for tx in block.txs.iter() {
-            let (tx_fee, tx_receipt) =
+            let (tx_fee, mut tx_receipt) =
                 StacksChainState::process_transaction(clarity_tx, tx, false)?;
             fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
+            tx_receipt.tx_index = tx_index;
             burns = burns
                 .checked_add(tx_receipt.stx_burned as u128)
                 .expect("Burns overflow");
             receipts.push(tx_receipt);
+            tx_index += 1;
         }
         Ok((fees, burns, receipts))
     }
@@ -4541,7 +4563,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx<'a>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
         let mainnet = clarity_tx.config.mainnet;
-        let lockup_contract_id = util::boot::boot_code_id("lockup", mainnet);
+        let lockup_contract_id = boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {
@@ -4989,6 +5011,11 @@ impl StacksChainState {
             None,
         )?;
 
+        let block_limit = clarity_tx.block_limit().unwrap_or_else(|| {
+            warn!("Failed to read transaction block limit");
+            ExecutionCost::max_value()
+        });
+
         let (
             scheduled_miner_reward,
             block_execution_cost,
@@ -5068,7 +5095,11 @@ impl StacksChainState {
 
             // process anchored block
             let (block_fees, block_burns, txs_receipts) =
-                match StacksChainState::process_block_transactions(&mut clarity_tx, &block) {
+                match StacksChainState::process_block_transactions(
+                    &mut clarity_tx,
+                    &block,
+                    microblock_txs_receipts.len() as u32,
+                ) {
                     Err(e) => {
                         let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
                         warn!("{}", &msg);
@@ -5226,6 +5257,8 @@ impl StacksChainState {
         .expect("FATAL: failed to advance chain tip");
 
         chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
+
+        set_last_execution_cost_observed(&block_execution_cost, &block_limit);
 
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip,
@@ -6129,10 +6162,10 @@ pub mod test {
     use core::mempool::*;
     use net::test::*;
     use net::ExtendedStacksHeader;
-    use util::db::Error as db_error;
-    use util::db::*;
     use util::hash::*;
     use util::retry::*;
+    use util_lib::db::Error as db_error;
+    use util_lib::db::*;
 
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;

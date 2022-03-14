@@ -24,11 +24,13 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::fs;
 
-use util::db::sqlite_open;
-use util::db::tx_begin_immediate;
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::db::{query_count, query_int, query_row, query_rows, u64_to_sql, FromColumn, FromRow};
+use util_lib::db::sqlite_open;
+use util_lib::db::tx_begin_immediate;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
+use util_lib::db::{
+    query_count, query_int, query_row, query_rows, u64_to_sql, FromColumn, FromRow,
+};
 
 use util;
 use util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160};
@@ -55,7 +57,6 @@ const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
         was_instantiated INTEGER NOT NULL,
         created_at INTEGER NOT NULL
     );"#,
-    "CREATE INDEX index_was_instantiated ON attachments(was_instantiated);",
     r#"
     CREATE TABLE attachment_instances(
         content_hash TEXT,
@@ -71,6 +72,9 @@ const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
     "CREATE TABLE db_config(version TEXT NOT NULL);",
 ];
+
+const ATLASDB_INDEXES: &'static [&'static str] =
+    &["CREATE INDEX IF NOT EXISTS index_was_instantiated ON attachments(was_instantiated);"];
 
 impl FromRow<Attachment> for Attachment {
     fn from_row<'a>(row: &'a Row) -> Result<Attachment, db_error> {
@@ -96,10 +100,11 @@ impl FromRow<AttachmentInstance> for AttachmentInstance {
             content_hash,
             attachment_index,
             index_block_hash,
-            block_height,
+            stacks_block_height: block_height,
             metadata,
             contract_id,
             tx_id,
+            canonical_stacks_tip_height: None,
         })
     }
 }
@@ -120,6 +125,15 @@ pub struct AtlasDB {
 }
 
 impl AtlasDB {
+    fn add_indexes(&mut self) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        for row_text in ATLASDB_INDEXES {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     fn instantiate(&mut self) -> Result<(), db_error> {
         let genesis_attachments = self.atlas_config.genesis_attachments.take();
 
@@ -152,6 +166,7 @@ impl AtlasDB {
 
         tx.commit().map_err(db_error::SqliteError)?;
 
+        self.add_indexes()?;
         Ok(())
     }
 
@@ -207,6 +222,9 @@ impl AtlasDB {
         };
         if create_flag {
             db.instantiate()?;
+        }
+        if readwrite {
+            db.add_indexes()?;
         }
         Ok(db)
     }
@@ -460,7 +478,7 @@ impl AtlasDB {
                 &now as &dyn ToSql,
                 &attachment.index_block_hash as &dyn ToSql,
                 &attachment.attachment_index as &dyn ToSql,
-                &u64_to_sql(attachment.block_height)?,
+                &u64_to_sql(attachment.stacks_block_height)?,
                 &is_available as &dyn ToSql,
                 &attachment.metadata as &dyn ToSql,
                 &attachment.contract_id.to_string() as &dyn ToSql,
