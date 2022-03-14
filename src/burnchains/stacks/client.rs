@@ -41,7 +41,6 @@ use vm::database::ClaritySerializable;
 use vm::database::STXBalance;
 use vm::database::StoreType;
 use vm::representations::ContractName;
-use vm::representations::UrlString;
 use vm::types::signatures::TypeSignature;
 use vm::types::QualifiedContractIdentifier;
 use vm::types::Value;
@@ -72,12 +71,13 @@ use net::StacksHttpPreamble;
 use net::TipRequest;
 use net::MAX_HEADERS;
 
-use util::boot::boot_code_addr;
+use util_lib::boot::boot_code_addr;
 use util::get_epoch_time_secs;
 use util::hash::hex_bytes;
 use util::hash::Sha512Trunc256Sum;
 use util::sleep_ms;
-use util::strings::StacksString;
+use util_lib::strings::StacksString;
+use util_lib::strings::UrlString;
 
 use burnchains::stacks::AppChainClient;
 use burnchains::stacks::Error;
@@ -91,17 +91,23 @@ use burnchains::BurnchainRecipient;
 use burnchains::IndexerError as indexer_error;
 use burnchains::Txid;
 
+use burnchains::stacks::ValueChecked;
 use burnchains::stacks::db::LightClientDB;
 use burnchains::stacks::AppChainConfig;
 
 use chainstate::stacks::index::node::TriePath;
 use chainstate::stacks::StacksTransaction;
 
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, MARFValue, StacksAddress, StacksBlockHeader,
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress,
     StacksBlockId, StacksWorkScore,
 };
-use crate::types::proof::{TrieHash, TrieMerkleProof};
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::index::MARFValue;
+use chainstate::stacks::index::TrieMerkleProof;
+use stacks_common::types::chainstate::TrieHash;
+
+use clarity::vm::types::StacksAddressExtensions;
 
 use std::time::Duration;
 
@@ -288,6 +294,7 @@ impl AppChainClient {
                 .map_err(Error::ConnectError)?;
 
             stream.set_nodelay(true).map_err(Error::ConnectError)?;
+            stream.set_nonblocking(false).map_err(Error::ConnectError)?;
 
             test_debug!(
                 "New socket connected to {}:{}: {:?}",
@@ -307,10 +314,12 @@ impl AppChainClient {
         let mut http = StacksHttp::new(peer);
         req.send(&mut http, socket)?;
 
+        debug!("Begin receiving response to request to {}", req.request_path());
         http.reset();
         http.begin_request(HttpVersion::Http11, req.request_path());
 
         let preamble = StacksHttpPreamble::consensus_deserialize(socket).map_err(|_| {
+            error!("Failed to parse HTTP premable for response to request to {:?}", req.request_path());
             Error::NetError(net_error::DeserializeError(
                 "Failed to parse HTTP preamble".to_string(),
             ))
@@ -328,9 +337,13 @@ impl AppChainClient {
         http.set_preamble(&preamble)?;
 
         if is_chunked {
+            debug!("Begin receiving chunked response from {}", req.request_path());
             match http.stream_payload(&preamble, socket) {
                 Ok((Some((message, _)), _)) => match message {
-                    StacksHttpMessage::Response(resp) => Ok(resp),
+                    StacksHttpMessage::Response(resp) => {
+                        debug!("Received chunked message from {}", req.request_path());
+                        Ok(resp)
+                    },
                     _ => Err(Error::NetError(net_error::InvalidMessage)),
                 },
                 Ok((None, _)) => Err(Error::NetError(net_error::UnderflowError(
@@ -351,7 +364,9 @@ impl AppChainClient {
                 )));
             }
 
-            let mut message_bytes = Vec::with_capacity(msg_len as usize);
+            debug!("Begin receiving fixed-length response of {} bytes from {}", msg_len, req.request_path());
+
+            let mut message_bytes = vec![0u8; msg_len as usize];
             socket
                 .read_exact(&mut message_bytes)
                 .map_err(Error::ConnectError)?;
@@ -361,7 +376,10 @@ impl AppChainClient {
                 .map_err(Error::NetError)?;
 
             match message {
-                StacksHttpMessage::Response(resp) => Ok(resp),
+                StacksHttpMessage::Response(resp) => {
+                    debug!("Received fixed-length message from {}", req.request_path());
+                    Ok(resp)
+                },
                 _ => Err(Error::NetError(net_error::InvalidMessage)),
             }
         }
@@ -417,7 +435,7 @@ impl AppChainClient {
     ) -> Result<Vec<ExtendedStacksHeader>, burnchain_error> {
         let peer = socket.peer_addr().map_err(Error::RequestError)?;
         let req = HttpRequestType::GetHeaders(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer)),
+            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer), None),
             num_headers,
             tip.map(|tip| TipRequest::SpecificTip(tip))
                 .unwrap_or(TipRequest::UseLatestAnchoredTip),
@@ -504,6 +522,7 @@ impl AppChainClient {
         let peer = socket.peer_addr().map_err(Error::RequestError)?;
         let req = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
             PeerHost::from_socketaddr(&peer),
+            None
         ));
         let resp = AppChainClient::request(socket, req)?;
         let resp = AppChainClient::handle_http_error(resp)?;
@@ -576,13 +595,11 @@ impl AppChainClient {
     }
 
     /// Connect to the remote peer and get its peer info.
-    /// Block until we can do this.
-    ///
-    /// Used for booting up the node initially, where blocking forever is the preferred thing to
-    /// do.
+    /// Block until we can do this, if fallable is false.
+    /// Otherwise, return burnchain_error::TrySyncAgain on recoverable error.
     ///
     /// Returns the new TCP stream and the /v2/info data.
-    pub fn begin_session(&mut self) -> (TcpStream, RPCPeerInfoData) {
+    fn inner_begin_session(&mut self, fallable: bool) -> Result<(TcpStream, RPCPeerInfoData), burnchain_error> {
         let mut connect_timeout = 1;
         loop {
             let remote_peer = self.peer.clone();
@@ -594,6 +611,10 @@ impl AppChainClient {
                     panic!("Peer {}:{} reports a bad chain ID. This is likely a configuration error. Please update your node and try again", &self.peer.0, self.peer.1);
                 }
                 Err(e) => {
+                    if fallable {
+                        return Err(burnchain_error::TrySyncAgain);
+                    }
+
                     warn!(
                         "Failed to open session to Stacks peer {}:{} ({:?}), trying again in {} ms",
                         &self.peer.0, self.peer.1, &e, &connect_timeout
@@ -604,13 +625,24 @@ impl AppChainClient {
                 }
             };
 
-            return (socket, peer_info);
+            return Ok((socket, peer_info));
         }
+    }
+
+    /// Infallable begin_session().  Blocks until a session can be opened.
+    pub fn begin_session(&mut self) -> (TcpStream, RPCPeerInfoData) {
+        self.inner_begin_session(false).expect("BUG: infallable begin_session() returned an error")
+    }
+
+    /// Fallable begin_session().  Returns burnchain_error::TrySyncAgain on failure.
+    pub fn try_begin_session(&mut self) -> Result<(TcpStream, RPCPeerInfoData), burnchain_error> {
+        self.inner_begin_session(true)
     }
 
     /// Do something via `todo` with a the internal session state -- i.e. the cached /v2/info and
     /// TCP socket to the remote host chain peer.  If the cached /v2/info is stale, or the socket
-    /// is broken, then the session will be re-instantiated.
+    /// is broken, then the session will be re-instantiated and this method will return
+    /// burnchain_error::TrySyncAgain.
     pub fn with_session<F, R>(&mut self, todo: F) -> Result<R, burnchain_error>
     where
         F: FnOnce(
@@ -640,11 +672,12 @@ impl AppChainClient {
 
         if self.session.is_none() {
             // start up a session
-            let session = self.begin_session();
+            let session = self.try_begin_session()?;
             self.session = Some(session);
         }
 
         if let Some((mut tcp_socket, rpc_peerinfo)) = self.session.take() {
+            debug!("with_session at tip {:?}", &rpc_peerinfo);
             let result = todo(self, &mut tcp_socket, &rpc_peerinfo);
             if result.is_ok() {
                 self.session = Some((tcp_socket, rpc_peerinfo));
@@ -763,7 +796,7 @@ impl AppChainClient {
     }
 
     /// Find the highest header at which our headers DB is consistent with the chain.
-    ///  Returns a height higher than any known height if no reorg is
+    /// Returns a height higher than any known height if no reorg is
     /// necessary.
     pub fn find_reorg_height(
         &mut self,
@@ -788,7 +821,7 @@ impl AppChainClient {
                     Some(our_ehdr) => {
                         if our_ehdr != ehdr {
                             // divergence
-                            debug!("Stacks reorg detected: {:?} != {:?}", &our_ehdr, &ehdr);
+                            test_debug!("Stacks reorg detected: {:?} != {:?}", &our_ehdr, &ehdr);
                             debug!(
                                 "Stacks reorg detected: {:?} != {:?}",
                                 &StacksBlockHeader::make_index_block_hash(
@@ -834,11 +867,11 @@ impl AppChainClient {
             if let Some(marf_tip) = light_client.load_state_root_hash(tip)? {
                 (tip.clone(), marf_tip.clone())
             } else {
-                test_debug!("No state index root for {}", &tip);
+                debug!("No state index root for {}", &tip);
                 return Err(burnchain_error::MissingHeaders);
             }
         } else {
-            test_debug!("No chain tip loaded yet");
+            debug!("No chain tip loaded yet");
             return Err(burnchain_error::MissingHeaders);
         };
 
@@ -1164,7 +1197,7 @@ impl AppChainClient {
     ) -> Result<HttpRequestType, Error> {
         let peer = socket.peer_addr().map_err(Error::RequestError)?;
         let req = HttpRequestType::GetMapEntry(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer)),
+            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer), None),
             self.contract_id.clone().issuer.into(),
             self.contract_id.clone().name.clone(),
             map_name.into(),
@@ -1185,7 +1218,7 @@ impl AppChainClient {
     ) -> Result<HttpRequestType, Error> {
         let peer = socket.peer_addr().map_err(Error::RequestError)?;
         let req = HttpRequestType::GetDataVar(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer)),
+            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer), None),
             self.contract_id.clone().issuer.into(),
             self.contract_id.clone().name.clone(),
             var_name.into(),
@@ -1205,7 +1238,7 @@ impl AppChainClient {
     ) -> Result<HttpRequestType, Error> {
         let peer = socket.peer_addr().map_err(Error::RequestError)?;
         let req = HttpRequestType::GetContractSrc(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer)),
+            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer), None),
             contract_address,
             contract_name,
             TipRequest::SpecificTip(tip),
@@ -1223,7 +1256,7 @@ impl AppChainClient {
     ) -> Result<HttpRequestType, Error> {
         let peer = socket.peer_addr().map_err(Error::RequestError)?;
         let req = HttpRequestType::GetAccount(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer)),
+            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer), None),
             address.to_account_principal(),
             TipRequest::SpecificTip(tip),
             true,
@@ -1240,7 +1273,7 @@ impl AppChainClient {
     ) -> Result<HttpRequestType, Error> {
         let peer = socket.peer_addr().map_err(Error::RequestError)?;
         let req = HttpRequestType::PostTransaction(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer)),
+            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(&peer), None),
             tx,
             attachment,
         );
@@ -1771,10 +1804,11 @@ pub mod test {
     use chainstate::stacks::StacksBlock;
     use vm::ast::build_ast;
     use vm::database::ClarityDatabase;
-    use vm::representations::UrlString;
     use vm::types::signatures::TypeSignature;
     use vm::types::QualifiedContractIdentifier;
     use vm::types::Value;
+    
+    use util_lib::strings::UrlString;
 
     use codec::StacksMessageCodec;
 
@@ -1816,9 +1850,11 @@ pub mod test {
     use chainstate::stacks::index::node::TriePath;
 
     use crate::types::chainstate::{
-        BlockHeaderHash, MARFValue, StacksBlockHeader, StacksBlockId, StacksWorkScore,
+        BlockHeaderHash, StacksBlockId, StacksWorkScore, TrieHash
     };
-    use crate::types::proof::{TrieHash, TrieMerkleProof};
+    use chainstate::stacks::StacksBlockHeader;
+    use chainstate::stacks::index::MARFValue;
+    use chainstate::stacks::index::TrieMerkleProof;
 
     use std::time::Duration;
 
@@ -1827,9 +1863,9 @@ pub mod test {
     use chainstate::burn::db::sortdb::*;
     use chainstate::stacks::db::test::*;
     use chainstate::stacks::events::*;
-    use util::hash::*;
-    use util::strings::*;
-    use util::vrf::*;
+    use stacks_common::util::hash::*;
+    use util_lib::strings::*;
+    use stacks_common::util::vrf::*;
 
     use vm::costs::ExecutionCost;
     use vm::database::NULL_BURN_STATE_DB;
