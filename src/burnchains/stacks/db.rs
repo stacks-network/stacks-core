@@ -32,18 +32,19 @@ use burnchains::stacks::Error as stacks_error;
 use burnchains::ConsensusHash;
 use burnchains::Txid;
 
-use util::db::{
+use util_lib::db::{
     query_row, query_row_columns, query_rows, tx_begin_immediate, tx_busy_handler, u64_to_sql,
     DBConn, DBTx, Error as db_error, FromColumn, FromRow,
 };
-use util::get_epoch_time_secs;
-use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-use util::vrf::VRFProof;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::vrf::VRFProof;
 
 use crate::types::chainstate::{
-    BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId, StacksWorkScore,
+    BlockHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore,
 };
-use crate::types::proof::TrieHash;
+use chainstate::stacks::StacksBlockHeader;
+use stacks_common::types::chainstate::TrieHash;
 
 use net::ExtendedStacksHeader;
 
