@@ -11,7 +11,7 @@ use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::chainstate::StacksAddress;
 use stacks::util::sleep_ms;
-use stacks::util::strings::StacksString;
+use stacks::util_lib::strings::StacksString;
 use stacks::vm::ContractName;
 
 use crate::config::BurnchainConfig;
