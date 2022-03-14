@@ -15,10 +15,9 @@ use stacks::burnchains::BurnchainParameters;
 use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::net::RPCPeerInfoData;
-use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
-use stacks::types::proof::TrieHash;
+use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash};
 use stacks::util::hash::hex_bytes;
-use stacks::util::strings::StacksString;
+use stacks::util_lib::strings::StacksString;
 use stacks::util::{get_epoch_time_secs, sleep_ms};
 use stacks::vm::types::PrincipalData;
 use stacks::vm::types::QualifiedContractIdentifier;
@@ -34,6 +33,8 @@ use crate::{config::InitialBalance, neon, BitcoinRegtestController, BurnchainCon
 use super::bitcoin_regtest::BitcoinCoreController;
 use super::{make_contract_publish, to_addr, SK_1};
 use crate::tests::neon_integrations::*;
+
+use crate::stacks::vm::types::StacksAddressExtensions;
 
 fn neon_integration_test_appchain_conf(
     host_chain_conf: &Config,
@@ -77,6 +78,7 @@ fn neon_integration_test_appchain_conf(
     conf.node.data_url = format!("http://127.0.0.1:{}", node_data_port);
     conf.node.p2p_address = format!("127.0.0.1:{}", node_p2p_port);
     conf.miner.min_tx_fee = 500;
+    conf.burnchain.poll_time_secs = 1;
 
     conf.boot_into_appchain(&boot_code_map);
     (conf, miner_account)
@@ -765,6 +767,10 @@ fn appchain_forking_integration_test() {
 
     let appchain_http_origin = format!("http://{}", appchain_conf.node.rpc_bind);
 
+    // make the appchain mine all the time
+    appchain_conf.miner.first_attempt_time_ms = 100;
+    appchain_conf.miner.subsequent_attempt_time_ms = 100;
+
     let mut appchain_runloop = neon::RunLoop::new(appchain_conf);
     let appchain_blocks_processed = appchain_runloop.get_blocks_processed_arc();
 
@@ -866,16 +872,8 @@ fn appchain_forking_integration_test() {
 
     for i in 0..20 {
         eprintln!("Burnchain block {} of appchain block", i + 3);
-        // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         btc_regtest_controller.build_next_block(1);
         sleep_ms(10_000);
-
-        /*
-        if i > 0 {
-            eprintln!("Appchain block {}", i + 3);
-            next_appchain_block_and_wait(&appchain_blocks_processed);
-        }
-        */
 
         let path = format!("{}/v2/info", &http_origin);
         let tip_info = client
@@ -913,9 +911,20 @@ fn appchain_forking_integration_test() {
             format!("STX_MINER_BLOCK_HASH_{}", tip_info.burn_block_height + 1),
             format!("{}", &bhh),
         );
+
+        let appchain_path = format!("{}/v2/info", &appchain_http_origin);
+        let appchain_tip_info = client
+            .get(&appchain_path)
+            .send()
+            .unwrap()
+            .json::<RPCPeerInfoData>()
+            .unwrap();
+
+        eprintln!("stacks tip for appchain is {:?}", &tip_info);
+        eprintln!("appchain tip is {:?}", &appchain_tip_info);
     }
 
-    for _i in 0..2 {
+    for _i in 0..10 {
         let path = format!("{}/v2/info", &http_origin);
         let tip_info = client
             .get(&path)
@@ -929,8 +938,20 @@ fn appchain_forking_integration_test() {
             "Burnchain block {} of appchain block",
             tip_info.burn_block_height
         );
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        btc_regtest_controller.build_next_block(1);
+        sleep_ms(10_000);
     }
+
+    let path = format!("{}/v2/info", &appchain_http_origin);
+    let tip_info = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCPeerInfoData>()
+        .unwrap();
+
+    eprintln!("Final appchain tip is {:?}", &tip_info);
+    assert!(tip_info.stacks_height >= 9);
 
     test_observer::clear();
 
