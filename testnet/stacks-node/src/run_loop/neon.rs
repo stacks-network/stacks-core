@@ -129,7 +129,7 @@ pub struct RunLoop {
     pox_watchdog: Option<PoxSyncWatchdog>, // can't be instantiated until .start() is called
     is_miner: Option<bool>,                // not known until .start() is called
     burnchain: Option<Burnchain>,          // not known until .start() is called
-    events_observer_handle: JoinHandle<()>,
+    // events_observer_handle: JoinHandle<()>,
 }
 
 /// Write to stderr in an async-safe manner.
@@ -219,14 +219,7 @@ pub async fn start_events_observer(
 impl RunLoop {
     /// Sets up a runloop and node, given a config.
     pub fn new(config: Config) -> Self {
-        info!("start spawning");
-        let events_observer_handle = std::thread::spawn(move || {
-            info!("inside spawning");
-            let future = start_events_observer(
-            );
-            let rt = create_basic_runtime();
-            let _ = rt.block_on(future);
-        });
+
 
         let channels = CoordinatorCommunication::instantiate();
         let should_keep_running = Arc::new(AtomicBool::new(true));
@@ -246,7 +239,6 @@ impl RunLoop {
             pox_watchdog: None,
             is_miner: None,
             burnchain: None,
-            events_observer_handle,
         }
     }
 
@@ -593,6 +585,16 @@ impl RunLoop {
         let sortdb = burnchain.sortdb_mut();
         let mut sortition_db_height = RunLoop::get_sortition_db_height(&sortdb, &burnchain_config);
 
+
+        info!("start spawning");
+        let events_observer_handle = std::thread::spawn(move || {
+            info!("inside spawning");
+            let future = start_events_observer(
+            );
+            let rt = create_basic_runtime();
+            let _ = rt.block_on(future);
+        });
+
         // Start the runloop
         debug!("Begin run loop");
         self.start_prometheus();
@@ -625,6 +627,7 @@ impl RunLoop {
 
                 coordinator_senders.stop_chains_coordinator();
                 coordinator_thread_handle.join().unwrap();
+                events_observer_handle.join().unwrap();
                 node.join();
 
                 info!("Exiting stacks-node");
