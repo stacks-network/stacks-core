@@ -421,7 +421,7 @@ impl BitcoinRegtestController {
             }
             match burnchain.sync_with_indexer(
                 &mut self.indexer,
-                coordinator_comms.clone(),
+                Some(coordinator_comms.clone()),
                 target_block_height_opt,
                 Some(burnchain.pox_constants.reward_cycle_length as u64),
                 self.should_keep_running.clone(),
@@ -1431,7 +1431,6 @@ impl BurnchainController for BitcoinRegtestController {
         }
     }
 
-<<<<<<< HEAD
     fn get_burnchain(&self) -> Burnchain {
         match self.burnchain_config {
             Some(ref burnchain) => burnchain.clone(),
