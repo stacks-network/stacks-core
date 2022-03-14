@@ -23,7 +23,7 @@ use core::NETWORK_ID_TESTNET;
 use core::PEER_VERSION_MAINNET;
 use core::PEER_VERSION_TESTNET;
 
-use util::db::Error as db_error;
+use util_lib::db::Error as db_error;
 
 /// appchain-specific implementations for burnchain
 impl Burnchain {
