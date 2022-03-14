@@ -604,8 +604,7 @@ impl BurnchainController for StacksController {
     }
 
     fn get_headers_height(&self) -> u64 {
-        self.client.get_highest_header_height()
-            .unwrap_or(0)
+        self.client.get_highest_header_height().unwrap_or(0)
     }
 
     /// wait until the ChainsCoordinator has processed sortitions up to the

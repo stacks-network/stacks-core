@@ -22,18 +22,17 @@ use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
-use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksMicroblock,
-    StacksBlockHeader,
-};
+use stacks::chainstate::stacks::StacksTransaction;
+use stacks::chainstate::stacks::StacksTransactionSigner;
+use stacks::chainstate::stacks::TransactionAnchorMode;
+use stacks::chainstate::stacks::TransactionPayload;
+use stacks::chainstate::stacks::TransactionVersion;
 use stacks::chainstate::stacks::{
     miner::BlockBuilderSettings, miner::StacksMicroblockBuilder, StacksBlockBuilder,
 };
-use stacks::chainstate::stacks::TransactionVersion;
-use stacks::chainstate::stacks::StacksTransaction;
-use stacks::chainstate::stacks::TransactionPayload;
-use stacks::chainstate::stacks::StacksTransactionSigner;
-use stacks::chainstate::stacks::TransactionAnchorMode;
+use stacks::chainstate::stacks::{
+    CoinbasePayload, StacksBlock, StacksBlockHeader, StacksMicroblock,
+};
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
@@ -1230,12 +1229,20 @@ enum LeaderKeyRegistrationState {
 /// Get the chain tip the miner should mine off of from the environment.
 /// The environs to look for are STX_MINER_CONSENSUS_HASH_xxx and STX_MINER_BLOCK_HASH_xxx, where
 /// xxx is the burn block height at which these environs are valid.
-fn get_miner_tip_from_environment(burn_height: u64, is_appchain: bool) -> Option<(ConsensusHash, BlockHeaderHash)> {
+fn get_miner_tip_from_environment(
+    burn_height: u64,
+    is_appchain: bool,
+) -> Option<(ConsensusHash, BlockHeaderHash)> {
     let (envar_consensus_hash, envar_block_hash) = if is_appchain {
-        (format!("STX_MINER_APPCHAIN_CONSENSUS_HASH_{}", burn_height), format!("STX_MINER_APPCHAIN_BLOCK_HASH_{}", burn_height))
-    }
-    else {
-        (format!("STX_MINER_CONSENSUS_HASH_{}", burn_height), format!("STX_MINER_BLOCK_HASH_{}", burn_height))
+        (
+            format!("STX_MINER_APPCHAIN_CONSENSUS_HASH_{}", burn_height),
+            format!("STX_MINER_APPCHAIN_BLOCK_HASH_{}", burn_height),
+        )
+    } else {
+        (
+            format!("STX_MINER_CONSENSUS_HASH_{}", burn_height),
+            format!("STX_MINER_BLOCK_HASH_{}", burn_height),
+        )
     };
 
     debug!(
@@ -1730,7 +1737,10 @@ impl StacksNode {
                 &env_stacks_tip_anchored_block_hash,
             )
             .ok()?
-        } else if let Some(stacks_tip) = chain_state.get_stacks_chain_tip(burn_db).expect("FATAL: could not query chain tip") {
+        } else if let Some(stacks_tip) = chain_state
+            .get_stacks_chain_tip(burn_db)
+            .expect("FATAL: could not query chain tip")
+        {
             let miner_address = keychain.origin_address(config.is_mainnet()).unwrap();
             Self::get_mining_tenure_information(
                 chain_state,
@@ -2135,7 +2145,8 @@ impl StacksNode {
         {
             if (stacks_tip.anchored_block_hash != anchored_block.header.parent_block
                 || parent_consensus_hash != stacks_tip.consensus_hash
-                || cur_burn_chain_tip.sortition_id != burn_block.sortition_id) && !tip_override
+                || cur_burn_chain_tip.sortition_id != burn_block.sortition_id)
+                && !tip_override
             {
                 debug!(
                     "Cancel block-commit; chain tip(s) have changed";

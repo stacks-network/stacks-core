@@ -32,7 +32,7 @@ use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
     node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
-    BurnchainController, Config, EventDispatcher
+    BurnchainController, Config, EventDispatcher,
 };
 
 use super::RunLoopCallbacks;
@@ -512,11 +512,10 @@ impl RunLoop {
 
         let burnchain_config = burnchain_client.get_burnchain();
         self.burnchain = Some(burnchain_config.clone());
-        
+
         let is_miner = if self.config.node.miner {
             burnchain_client.can_mine()
-        }
-        else {
+        } else {
             info!("Will run as a Follower node");
             false
         };
@@ -667,7 +666,11 @@ impl RunLoop {
                         let sortition_id = &block.sortition_id;
 
                         // Have the node process the new block, that can include, or not, a sortition.
-                        node.process_burnchain_state(burnchain_client.sortdb_mut(), sortition_id, ibd);
+                        node.process_burnchain_state(
+                            burnchain_client.sortdb_mut(),
+                            sortition_id,
+                            ibd,
+                        );
 
                         // Now, tell the relayer to check if it won a sortition during this block,
                         // and, if so, to process and advertize the block.  This is basically a

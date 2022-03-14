@@ -17,8 +17,8 @@ use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::net::RPCPeerInfoData;
 use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash};
 use stacks::util::hash::hex_bytes;
-use stacks::util_lib::strings::StacksString;
 use stacks::util::{get_epoch_time_secs, sleep_ms};
+use stacks::util_lib::strings::StacksString;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::vm::types::StandardPrincipalData;
@@ -951,7 +951,7 @@ fn appchain_forking_integration_test() {
         .unwrap();
 
     eprintln!("Final appchain tip is {:?}", &tip_info);
-    assert!(tip_info.stacks_height >= 9);
+    assert!(tip_info.stacks_tip_height >= 9);
 
     test_observer::clear();
 
