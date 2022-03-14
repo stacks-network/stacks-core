@@ -32,10 +32,8 @@ use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
     node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
-    BurnchainController, Config, EventDispatcher, Keychain,
+    BurnchainController, Config, EventDispatcher
 };
-use crate::syncctl::PoxSyncWatchdog;
-use crate::{Config, EventDispatcher, NeonGenesisNode};
 
 use super::RunLoopCallbacks;
 use libc;
@@ -279,11 +277,10 @@ impl RunLoop {
             self.config.clone(),
             burnchain_opt,
             coordinator_senders.clone(),
-            should_keep_running.clone(),
+            self.should_keep_running.clone(),
         );
 
         let burnchain_config = burnchain_client.get_burnchain();
-        let pox_constants = burnchain_config.pox_constants.clone();
         let epochs = burnchain_client.get_stacks_epochs();
         if !check_chainstate_db_versions(
             &epochs,
@@ -334,7 +331,7 @@ impl RunLoop {
 
         // TODO (hack) instantiate the sortdb in the burnchain
         let _ = burnchain_client.sortdb_mut();
-        Box::new(burnchain_client)
+        burnchain_client
     }
 
     /// Instantiate the Stacks chain state and start the chains coordinator thread.
@@ -364,22 +361,18 @@ impl RunLoop {
             .collect();
         atlas_config.genesis_attachments = Some(genesis_attachments);
 
-        let mut coordinator_dispatcher = event_dispatcher.clone();
-
         let chainstate_path = self.config.get_chainstate_path_str();
         let coordinator_burnchain_config = burnchain_config.clone();
-
-        let (attachments_tx, attachments_rx) = sync_channel(1);
 
         let mut boot_data =
             if let Some(appchain_runtime) = self.config.burnchain.appchain_runtime.as_ref() {
                 // appchain mode
                 debug!(
                     "Instantiate appchain {} state at {:?}",
-                    chainid, &chainstate_path
+                    self.config.burnchain.chain_id, &chainstate_path
                 );
                 ChainStateBootData::new_appchain(
-                    mainnet,
+                    self.config.is_mainnet(),
                     &coordinator_burnchain_config,
                     initial_balances,
                     appchain_runtime.boot_code.clone(),
@@ -514,14 +507,14 @@ impl RunLoop {
             .expect("Run loop already started, can only start once after initialization.");
 
         self.setup_termination_handler();
-        let mut burnchain =
+        let mut burnchain_client =
             self.instantiate_burnchain_state(burnchain_opt, coordinator_senders.clone());
 
-        let burnchain_config = burnchain.get_burnchain();
+        let burnchain_config = burnchain_client.get_burnchain();
         self.burnchain = Some(burnchain_config.clone());
-
+        
         let is_miner = if self.config.node.miner {
-            burnchain.can_mine()
+            burnchain_client.can_mine()
         }
         else {
             info!("Will run as a Follower node");
@@ -541,7 +534,7 @@ impl RunLoop {
         coordinator_senders.announce_new_burn_block();
 
         // Wait for some sortitions!
-        let mut burnchain_tip = burnchain
+        let mut burnchain_tip = burnchain_client
             .wait_for_sortitions(None)
             .expect("Unable to get burnchain tip");
 
@@ -553,7 +546,7 @@ impl RunLoop {
             coordinator_senders.clone(),
             attachments_rx,
         );
-        let sortdb = burnchain.sortdb_mut();
+        let sortdb = burnchain_client.sortdb_mut();
         let mut sortition_db_height = RunLoop::get_sortition_db_height(&sortdb, &burnchain_config);
 
         // Start the runloop
@@ -594,7 +587,7 @@ impl RunLoop {
                 break;
             }
 
-            let remote_chain_height = burnchain.get_headers_height();
+            let remote_chain_height = burnchain_client.get_headers_height();
 
             // wait for the p2p state-machine to do at least one pass
             debug!("Wait until Stacks block downloads reach a quiescent state before processing more burnchain blocks"; "remote_chain_height" => remote_chain_height, "local_chain_height" => burnchain_height);
@@ -613,76 +606,21 @@ impl RunLoop {
                 }
             };
 
-            // will recalculate this
+            // will recalculate this in the following loop
             num_sortitions_in_last_cycle = 0;
 
-            let (next_burnchain_tip, next_burnchain_height) =
-                match burnchain_client.sync(Some(target_burnchain_block_height)) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        warn!("Burnchain controller stopped: {}", e);
-                        continue;
-                    }
-                };
-
-            target_burnchain_block_height = cmp::min(
-                next_burnchain_height,
-                target_burnchain_block_height + pox_constants.reward_cycle_length as u64,
-            );
-
-            // *now* we know the burnchain height
-            learned_burnchain_height = true;
-            burnchain_tip = next_burnchain_tip;
-            burnchain_height = next_burnchain_height;
-
-            let sortition_tip = &burnchain_tip.block_snapshot.sortition_id;
-            let next_height = burnchain_tip.block_snapshot.block_height;
-
-            if next_height != last_block_height {
-                info!(
-                    "Downloaded burnchain blocks up to height {}; new target height is {}; next_height = {}, block_height = {}",
-                    next_burnchain_height, target_burnchain_block_height, next_height, block_height
-                );
-            }
-
-            if next_height > block_height {
-                debug!(
-                    "New burnchain block height {} > {}",
-                    next_height, block_height
-                );
-
-                let mut sort_count = 0;
-
-                // first, let's process all blocks in (block_height, next_height]
-                for block_to_process in (block_height + 1)..(next_height + 1) {
-                    let block = {
-                        let ic = burnchain_client.sortdb_ref().index_conn();
-                        SortitionDB::get_ancestor_snapshot(&ic, block_to_process, sortition_tip)
-                            .unwrap()
-                            .expect("Failed to find block in fork processed by burnchain indexer")
-                    };
-                    if block.sortition {
-                        sort_count += 1;
-                    }
-
-                    let sortition_id = &block.sortition_id;
-
-                    // Have the node process the new block, that can include, or not, a sortition.
-                    node.process_burnchain_state(burnchain_client.sortdb_mut(), sortition_id, ibd);
-
-                    // Now, tell the relayer to check if it won a sortition during this block,
-                    //   and, if so, to process and advertize the block
-                    //
-                    // _this will block if the relayer's buffer is full_
-                    if !node.relayer_sortition_notify() {
-                        // relayer hung up, exit.
-                        error!("Block relayer and miner hung up, exiting.");
-                        return;
-                    }
+            // Download each burnchain block and process their sortitions.  This, in turn, will
+            // cause the node's p2p and relayer threads to go fetch and download Stacks blocks and
+            // process them.  This loop runs for one reward cycle, so that the next pass of the
+            // runloop will cause the PoX sync watchdog to wait until it believes that the node has
+            // obtained all the Stacks blocks it can.
+            while burnchain_height <= target_burnchain_block_height {
+                if !self.should_keep_running.load(Ordering::SeqCst) {
+                    break;
                 }
 
                 let (next_burnchain_tip, tip_burnchain_height) =
-                    match burnchain.sync(Some(burnchain_height + 1)) {
+                    match burnchain_client.sync(Some(burnchain_height + 1)) {
                         Ok(x) => x,
                         Err(e) => {
                             warn!("Burnchain controller stopped: {}", e);
@@ -715,7 +653,7 @@ impl RunLoop {
                     // first, let's process all blocks in (sortition_db_height, next_sortition_height]
                     for block_to_process in (sortition_db_height + 1)..(next_sortition_height + 1) {
                         let block = {
-                            let ic = burnchain.sortdb_ref().index_conn();
+                            let ic = burnchain_client.sortdb_ref().index_conn();
                             SortitionDB::get_ancestor_snapshot(&ic, block_to_process, sortition_tip)
                                 .unwrap()
                                 .expect(
@@ -729,7 +667,7 @@ impl RunLoop {
                         let sortition_id = &block.sortition_id;
 
                         // Have the node process the new block, that can include, or not, a sortition.
-                        node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd);
+                        node.process_burnchain_state(burnchain_client.sortdb_mut(), sortition_id, ibd);
 
                         // Now, tell the relayer to check if it won a sortition during this block,
                         // and, if so, to process and advertize the block.  This is basically a
