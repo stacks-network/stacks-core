@@ -418,11 +418,16 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 let contract_defining_trait = self
                     .db
                     .load_contract(&trait_identifier.contract_identifier)
-                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+                    .ok_or(CheckErrors::NoSuchContract(
+                        trait_identifier.contract_identifier.to_string(),
+                    ))?;
 
                 let trait_definition = contract_defining_trait
                     .get_defined_trait(&trait_identifier.name)
-                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+                    .ok_or(CheckErrors::NoSuchTrait(
+                        trait_identifier.contract_identifier.to_string(),
+                        trait_identifier.name.to_string(),
+                    ))?;
 
                 contract_to_check.check_trait_compliance(trait_identifier, trait_definition)?;
                 return Ok(expected_type.clone());
