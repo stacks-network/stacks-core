@@ -19,11 +19,18 @@ use super::Error;
 use sha2::Digest;
 use sha2::Sha256;
 
-const C32_CHARACTERS: &str = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const C32_CHARACTERS: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+// C32 chars as an array, indexed by their ASCII code for O(1) lookups
+#[rustfmt::skip]
+const C32_CHARACTERS_MAP: [u8; 91] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0, 0, 10, 11, 12, 13, 14, 15, 16, 
+    17, 0, 18, 19, 0, 20, 21, 0, 22, 23, 24, 25, 26, 0, 27, 28, 29, 30, 31
+];
 
 fn c32_encode(input_bytes: &[u8]) -> String {
-    let c32_chars: &[u8] = C32_CHARACTERS.as_bytes();
-
     let mut result = vec![];
     let mut carry = 0;
     let mut carry_bits = 0;
@@ -32,25 +39,25 @@ fn c32_encode(input_bytes: &[u8]) -> String {
         let low_bits_to_take = 5 - carry_bits;
         let low_bits = current_value & ((1 << low_bits_to_take) - 1);
         let c32_value = (low_bits << carry_bits) + carry;
-        result.push(c32_chars[c32_value as usize]);
+        result.push(C32_CHARACTERS[c32_value as usize]);
         carry_bits = (8 + carry_bits) - 5;
         carry = current_value >> (8 - carry_bits);
 
         if carry_bits >= 5 {
             let c32_value = carry & ((1 << 5) - 1);
-            result.push(c32_chars[c32_value as usize]);
+            result.push(C32_CHARACTERS[c32_value as usize]);
             carry_bits = carry_bits - 5;
             carry = carry >> 5;
         }
     }
 
     if carry_bits > 0 {
-        result.push(c32_chars[carry as usize]);
+        result.push(C32_CHARACTERS[carry as usize]);
     }
 
     // remove leading zeros from c32 encoding
     while let Some(v) = result.pop() {
-        if v != c32_chars[0] {
+        if v != C32_CHARACTERS[0] {
             result.push(v);
             break;
         }
@@ -59,7 +66,7 @@ fn c32_encode(input_bytes: &[u8]) -> String {
     // add leading zeros from input.
     for current_value in input_bytes.iter() {
         if *current_value == 0 {
-            result.push(c32_chars[0]);
+            result.push(C32_CHARACTERS[0]);
         } else {
             break;
         }
@@ -88,19 +95,16 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
     let mut carry: u16 = 0;
     let mut carry_bits = 0; // can be up to 5
 
-    let iter_c32_digits_opts: Vec<Option<usize>> = c32_normalize(input_str)
-        .chars()
-        .rev()
-        .map(|x| C32_CHARACTERS.find(x))
-        .collect();
-
-    let iter_c32_digits: Vec<usize> = iter_c32_digits_opts
+    let normalized_str = c32_normalize(input_str);
+    let iter_c32_digits: Vec<u8> = normalized_str
+        .as_bytes()
         .iter()
-        .filter_map(|x| x.as_ref())
+        .rev()
+        .filter_map(|x| C32_CHARACTERS_MAP.get(*x as usize))
         .map(|ref_x| *ref_x)
         .collect();
 
-    if iter_c32_digits.len() != iter_c32_digits_opts.len() {
+    if normalized_str.len() != iter_c32_digits.len() {
         // at least one char was None
         return Err(Error::InvalidCrockford32);
     }
@@ -142,18 +146,8 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
 }
 
 fn double_sha256_checksum(data: &[u8]) -> Vec<u8> {
-    let mut sha2 = Sha256::new();
-    let mut tmp = [0u8; 32];
-    let mut tmp_2 = [0u8; 32];
-
-    sha2.update(data);
-    tmp.copy_from_slice(sha2.finalize().as_slice());
-
-    let mut sha2_2 = Sha256::new();
-    sha2_2.update(&tmp);
-    tmp_2.copy_from_slice(sha2_2.finalize().as_slice());
-
-    tmp_2[0..4].to_vec()
+    let tmp = Sha256::digest(Sha256::digest(data));
+    tmp[0..4].to_vec()
 }
 
 fn c32_check_encode(version: u8, data: &[u8]) -> Result<String, Error> {
@@ -170,7 +164,7 @@ fn c32_check_encode(version: u8, data: &[u8]) -> Result<String, Error> {
 
     // working with ascii strings is awful.
     let mut c32_string = c32_encode(&encoding_data).into_bytes();
-    let version_char = C32_CHARACTERS.as_bytes()[version as usize];
+    let version_char = C32_CHARACTERS[version as usize];
     c32_string.insert(0, version_char);
 
     Ok(String::from_utf8(c32_string).unwrap())
