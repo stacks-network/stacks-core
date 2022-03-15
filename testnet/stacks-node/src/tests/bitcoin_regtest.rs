@@ -14,6 +14,7 @@ use super::PUBLISH_CONTRACT;
 use stacks::vm::costs::ExecutionCost;
 use std::env;
 use std::io::{BufRead, BufReader};
+use crate::ConfigFile;
 
 #[derive(std::fmt::Debug)]
 pub enum SubprocessError {
@@ -123,9 +124,8 @@ impl StacksMainchainController {
 
         let base_dir = env::var("STACKS_BASE_DIR").expect("couldn't read STACKS_BASE_DIR");
         let bin_file = format!("{}/target/release/stacks-node", &base_dir);
-        let toml_file = format!("{}/testnet/stacks-node/conf/special.toml", &base_dir);
-        let toml_content = toml::to_string(&self.config).expect("couldn't make toml string");
-        info!("toml_content: {}", &toml_content);
+        let toml_file = format!("{}/testnet/stacks-node/conf/mocknet-miner-conf.toml", &base_dir);
+        let toml_content = ConfigFile::from_path(&toml_file);
         let mut command = Command::new(&bin_file);
         command
             .stdout(Stdio::piped())
@@ -189,40 +189,13 @@ fn start_two_test() {
         return;
     }
 
-    let mut conf = super::new_test_conf();
-    conf.burnchain.commit_anchor_block_within = 2000;
-    conf.burnchain.burn_fee_cap = BITCOIND_INT_TEST_COMMITS;
-    conf.burnchain.mode = "helium".to_string();
-    conf.burnchain.peer_host = "127.0.0.1".to_string();
-    conf.burnchain.rpc_port = 18443;
-    conf.burnchain.username = Some("helium-node".to_string());
-    conf.burnchain.password = Some("secret".to_string());
-    conf.burnchain.local_mining_public_key = Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string());
+    let base_dir = env::var("STACKS_BASE_DIR").expect("couldn't read STACKS_BASE_DIR");
+    let bin_file = format!("{}/target/release/stacks-node", &base_dir);
+    let toml_file = format!("{}/testnet/stacks-node/conf/mocknet-miner-conf.toml", &base_dir);
 
-    conf.miner.min_tx_fee = 0;
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    let toml_content = ConfigFile::from_path(&toml_file);
 
-    conf.initial_balances.push(InitialBalance {
-        address: to_addr(
-            &StacksPrivateKey::from_hex(
-                "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
-            )
-            .unwrap(),
-        )
-        .into(),
-        amount: 1000,
-    });
-    conf.initial_balances.push(InitialBalance {
-        address: to_addr(
-            &StacksPrivateKey::from_hex(
-                "b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01",
-            )
-            .unwrap(),
-        )
-        .into(),
-        amount: 1000,
-    });
+    let conf = Config::from_config_file(toml_content);
 
     info!("conf {:#?}", &conf);
 
@@ -236,7 +209,7 @@ fn start_two_test() {
     // Start stacksd
     let _stacks_res = stacks_controller.start_process().expect("didn't start");
 
-    thread::sleep(time::Duration::from_millis(10000));
+//    thread::sleep(time::Duration::from_millis(10000));
 
     bitcoin_controller.kill_process();
     stacks_controller.kill_process();
