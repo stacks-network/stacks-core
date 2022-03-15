@@ -122,11 +122,15 @@ impl StacksMainchainController {
 //        std::fs::create_dir_all(&self.config.get_burnchain_path_str()).unwrap();
 
         let base_dir = env::var("STACKS_BASE_DIR").expect("couldn't read STACKS_BASE_DIR");
-        let mut command = Command::new(format!("{}/target/release/stacks-node", &base_dir));
+        let bin_file = format!("{}/target/release/stacks-node", &base_dir);
+        let toml_file = format!("{}/testnet/stacks-node/conf/special.toml", &base_dir);
+        let toml_content = toml::to_string(&self.config).expect("couldn't make toml string");
+        info!("toml_content: {}", &toml_content);
+        let mut command = Command::new(&bin_file);
         command
             .stdout(Stdio::piped())
             .arg("start")
-            .arg("--config=".to_owned() + &base_dir + "/testnet/stacks-node/conf/mainnet-miner-conf.toml");
+            .arg("--config=".to_owned() + &toml_file);
 
         eprintln!("stacks-node mainchain spawn: {:?}", command);
 
@@ -140,7 +144,6 @@ impl StacksMainchainController {
 
         let mut line = String::new();
         while let Ok(bytes_read) = out_reader.read_line(&mut line) {
-            panic!("here");
             if bytes_read == 0 {
                 return Err(SubprocessError::SpawnFailed(
                     "Bitcoind closed before spawning network".into(),
