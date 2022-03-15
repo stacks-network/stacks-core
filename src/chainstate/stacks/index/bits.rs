@@ -114,65 +114,6 @@ pub fn get_ptrs_byte_len(ptrs: &[TriePtr]) -> usize {
     node_id_len + TRIEPTR_SIZE * ptrs.len()
 }
 
-/*
-/// Read a Trie node's children from a Readable object, and write them to the given ptrs_buf slice.
-/// Returns the Trie node ID detected.
-#[inline]
-pub fn ptrs_from_bytes<R: Read>(
-    node_id: u8,
-    r: &mut R,
-    ptrs_buf: &mut [TriePtr],
-) -> Result<u8, Error> {
-    if !check_node_id(node_id) {
-        trace!("Bad node ID {:x}", node_id);
-        return Err(Error::CorruptionError(format!(
-            "Bad node ID: {:x}",
-            node_id
-        )));
-    }
-
-    let mut idbuf = [0u8; 1];
-    r.read_exact(&mut idbuf).map_err(|e| {
-        if e.kind() == ErrorKind::UnexpectedEof {
-            Error::CorruptionError("Failed to read ptrs buf length".to_string())
-        } else {
-            eprintln!("failed: {:?}", &e);
-            Error::IOError(e)
-        }
-    })?;
-
-    let nid = idbuf[0];
-
-    if clear_backptr(nid) != clear_backptr(node_id) {
-        trace!("Bad idbuf: {:x} != {:x}", nid, node_id);
-        return Err(Error::CorruptionError(
-            "Failed to read expected node ID".to_string(),
-        ));
-    }
-
-    let num_ptrs = node_id_to_ptr_count(node_id);
-    let mut bytes = vec![0u8; num_ptrs * TRIEPTR_SIZE];
-    r.read_exact(&mut bytes).map_err(|e| {
-        if e.kind() == ErrorKind::UnexpectedEof {
-            Error::CorruptionError(format!(
-                "Failed to read {} bytes of ptrs",
-                num_ptrs * TRIEPTR_SIZE
-            ))
-        } else {
-            eprintln!("failed: {:?}", &e);
-            Error::IOError(e)
-        }
-    })?;
-
-    // not a for-loop because "for i in 0..num_ptrs" is noticeably slow
-    let mut i = 0;
-    while i < num_ptrs {
-        ptrs_buf[i] = TriePtr::from_bytes(&bytes[i * TRIEPTR_SIZE..(i + 1) * TRIEPTR_SIZE]);
-        i += 1;
-    }
-    Ok(nid)
-}
-*/
 /// Read a Trie node's children from a Readable object, and write them to the given ptrs_buf slice.
 /// Returns the Trie node ID detected.
 #[inline]
