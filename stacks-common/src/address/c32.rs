@@ -105,11 +105,6 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
 }
 
 fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
-    // must be ASCII
-    if !input_str.is_ascii() {
-        return Err(Error::InvalidCrockford32);
-    }
-
     let mut result = vec![];
     let mut carry: u16 = 0;
     let mut carry_bits = 0; // can be up to 5
