@@ -28,6 +28,7 @@ use super::Config;
 // mod mempool;
 #[allow(dead_code)]
 pub mod neon_integrations;
+pub mod bitcoin_regtest;
 
 // $ cat /tmp/out.clar
 pub const STORE_CONTRACT: &str = r#"(define-map store { key: (string-ascii 32) } { value: (string-ascii 32) })
