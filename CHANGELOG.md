@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Changed
+- Sortition processing performance has been improved by about an order of
+  magnitude, by avoiding a slew of expensive database reads (#3048).
+
 ## [2.05.0.1.0]
 
 ### Added 
