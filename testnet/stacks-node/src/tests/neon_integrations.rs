@@ -62,7 +62,7 @@ use crate::{
 };
 
 use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
-use crate::util::secp256k1::MessageSignature;
+use crate::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use rand::Rng;
 use regex::Regex;
@@ -484,6 +484,14 @@ pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
         eprintln!("{}", res.text().unwrap());
         panic!("");
     }
+}
+
+/// Helper function that generates a new stacks private key and corresponding addresses.
+pub fn generate_spender_info() -> (Secp256k1PrivateKey, StacksAddress, PrincipalData) {
+    let spender_sk = StacksPrivateKey::new();
+    let spender_stacks_addr = to_addr(&spender_sk);
+    let spender_addr: PrincipalData = to_addr(&spender_sk).into();
+    (spender_sk, spender_stacks_addr, spender_addr)
 }
 
 pub fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
@@ -6626,7 +6634,7 @@ fn test_flash_block_skip_tenure() {
         return;
     }
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account, _) = neon_integration_test_conf();
     conf.miner.microblock_attempt_time_ms = 5_000;
     conf.node.wait_time_for_microblocks = 0;
 
@@ -6689,6 +6697,24 @@ fn test_flash_block_skip_tenure() {
     channel.stop_chains_coordinator();
 }
 
+/// This test goes through various cases for the exit at reward cycle contract.
+///  - Vote should fail if there is not enough STX stacked in the reward cycle the votes are counted in.
+///  - Vote should fail if there is enough STX stacked, but there are not enough votes.
+///  - Vote should pass if there is enough STX stacked, and there are enough valid votes for a specific reward cycle
+///  - If there are enough vetos by miners, the proposed exit cycle should be rejected
+///  - A stacker's vote should fail if they already have an outstanding vote
+///  - A stacker's vote should fail if it falls outside the allowable bounds:
+///     - if it is below the minimum buffer (< current reward cycle + minumum buffer)
+///     - if it is above the maximum buffer (> current reward cycle + maxumum buffer)
+///     - if is below the minimum allowable exit reward cycle (hard-coded into contract)
+///  - Vote should pass if there is enough STX stacked, and if there are enough valid votes; this
+///     case checks that a non-unanimous vote can succeed (since a vote for exiting at cycle P is
+///     really a vote for exiting at cycle P or higher).
+///  - Vetos should fail if there aren't enough of them
+///  - Vote should pass if there is enough STX stacked, and if there are enough valid votes
+///    greater than the previously chosen exit reward cycle
+///  - A stacker's vote should be invalidated by the chains coordinator if it is less than the
+///     current exit reward cycle
 #[test]
 #[ignore]
 fn exit_at_rc_integration_test() {
@@ -6696,15 +6722,9 @@ fn exit_at_rc_integration_test() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
-    let spender_stacks_addr = to_addr(&spender_sk);
-    let spender_addr: PrincipalData = to_addr(&spender_sk).into();
-
-    let spender_2_sk = StacksPrivateKey::new();
-    let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
-
-    let spender_3_sk = StacksPrivateKey::new();
-    let spender_3_addr: PrincipalData = to_addr(&spender_3_sk).into();
+    let (spender_sk, spender_stacks_addr, spender_addr) = generate_spender_info();
+    let (spender_2_sk, _, spender_2_addr) = generate_spender_info();
+    let (spender_3_sk, _, spender_3_addr) = generate_spender_info();
 
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
@@ -6806,30 +6826,13 @@ fn exit_at_rc_integration_test() {
 
     let sort_height = channel.get_sortitions_processed();
 
-    // let's query the miner's account nonce:
-    let account = get_account(&http_origin, &miner_account);
-    assert_eq!(account.balance, 0);
-    assert_eq!(account.nonce, 1);
-
-    // and our potential spenders:
-    let account = get_account(&http_origin, &spender_addr);
-    assert_eq!(account.balance, total_bal as u128);
-    assert_eq!(account.nonce, 0);
-
-    let account = get_account(&http_origin, &spender_2_addr);
-    assert_eq!(account.balance, total_bal as u128);
-    assert_eq!(account.nonce, 0);
-
-    let account = get_account(&http_origin, &spender_3_addr);
-    assert_eq!(account.balance, total_bal as u128);
-    assert_eq!(account.nonce, 0);
-
     let pox_info = get_pox_info(&http_origin);
     assert_eq!(pox_info.next_cycle.stacked_ustx, 0);
 
     // TODO (hack) instantiate the sortdb in the burnchain
     let _ = btc_regtest_controller.sortdb_mut();
 
+    // Push stacking transactions for all our stackers
     for sk in [spender_sk, spender_2_sk, spender_3_sk].iter() {
         let tx = make_contract_call(
             sk,
@@ -6851,7 +6854,6 @@ fn exit_at_rc_integration_test() {
             ],
         );
 
-        // okay, let's push that stacking transaction!
         submit_tx(&http_origin, &tx);
     }
 
@@ -6904,6 +6906,11 @@ fn exit_at_rc_integration_test() {
         tested_stacking, 3,
         "Should have observed 3 stack-stx transactions"
     );
+
+    // Stacking is not active for this cycle, so the vote will fail
+    let pox_info = get_pox_info(&http_origin);
+    assert_eq!(pox_info.current_cycle.is_pox_active, false);
+    assert_eq!(pox_info.current_cycle.stacked_ustx, 1500000000000000);
 
     // vote fail: not enough STX stacked for POX, vote should fail
     test_observer::clear();
@@ -7843,7 +7850,7 @@ fn exit_at_rc_integration_test() {
         "Should have observed 3 vote-for-exit-rc transactions (from spender 1, 2, and 3)"
     );
 
-    // check sortdb - vote threshold met (>=50% of stacked stx involved in vote) - curr_exit_proposal should be set
+    // check sortdb - chains coordinator should invalidate votes for cycles less than the agreed upon exit reward cycle
     let sort_db = btc_regtest_controller.sortdb_ref();
 
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();

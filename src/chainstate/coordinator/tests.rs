@@ -283,7 +283,7 @@ pub fn setup_states(
             });
 
             // TODO (#3034): update contract identifier
-            let contract = util::boot::boot_code_id("exit-at-rc", false);
+            let contract = exit_at_reward_cycle_code_id(false);
             let sender = PrincipalData::from(contract.clone());
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(

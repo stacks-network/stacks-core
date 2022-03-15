@@ -64,6 +64,7 @@ use vm::database::BurnStateDB;
 
 pub use self::comm::CoordinatorCommunication;
 use chainstate::burn::db::sortdb::{SortitionDBConn, SortitionHandleTx};
+use chainstate::stacks::boot::exit_at_reward_cycle_code_id;
 use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::Error::PoxNoRewardCycle;
 use clarity_vm::clarity::ClarityConnection;
@@ -655,42 +656,10 @@ impl<
 
             // at this point, we need to figure out if the sortition we are
             //  about to process is the first block in the exit reward cycle.
-            if let Some(chain_tip) = self.canonical_chain_tip {
-                let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
-                    self.sortition_db.conn(),
-                    &chain_tip,
-                )?;
-
-                if let Some(exit_info) = exit_info_opt {
-                    if let Some(exit_reward_cycle) = exit_info.curr_exit_at_reward_cycle {
-                        // get the first reward cycle in this epoch
-                        let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
-                        let curr_epoch =
-                            StacksEpoch::get_current_epoch(&epochs, header.block_height);
-                        let first_reward_cycle_in_epoch = self
-                            .burnchain
-                            .block_height_to_reward_cycle(curr_epoch.start_height)
-                            .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
-
-                        let curr_reward_cycle = self
-                            .burnchain
-                            .block_height_to_reward_cycle(header.block_height)
-                            .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
-                        if curr_reward_cycle >= exit_reward_cycle
-                            && exit_reward_cycle > first_reward_cycle_in_epoch
-                        {
-                            // the burnchain has reached the exit reward cycle (as voted in the
-                            // "exit-at-rc" contract)
-                            info!("Reached the exit reward cycle that was voted on in the \
-                                'exit-at-rc' contract, ignoring subsequent burn blocks";
-                                       "exit_reward_cycle" => exit_reward_cycle,
-                                       "current_reward_cycle" => curr_reward_cycle);
-                            sleep_ms(30000);
-                            self.should_keep_running.store(false, Ordering::SeqCst);
-                            return Ok(());
-                        }
-                    }
-                }
+            if self.reached_exit_reward_cycle(&header)? {
+                sleep_ms(30000);
+                self.should_keep_running.store(false, Ordering::SeqCst);
+                return Ok(());
             }
 
             let reward_cycle_info = self.get_reward_cycle_info(&header)?;
@@ -754,8 +723,7 @@ impl<
         self.chain_state_db
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
                 conn.with_clarity_db_readonly(|db| {
-                    // TODO (#3034): get correct contract ID once contract is published
-                    let exit_at_rc_contract = boot_code_id("exit-at-rc", is_mainnet);
+                    let exit_at_rc_contract = exit_at_reward_cycle_code_id(is_mainnet);
 
                     // from map rc-proposal-vetoes, use key pair (proposed_rc, curr_rc) to get the # of vetos
                     let entry = db
@@ -785,8 +753,8 @@ impl<
                         None => 0,
                     };
 
-                    println!(
-                        "RCPR: in veto check, proposed_exit: {}, num vetos: {:?}",
+                    info!(
+                        "chains coordinator: in veto check, proposed_exit: {}, num vetos: {:?}",
                         proposed_exit_rc, num_vetos
                     );
                     // Check if the percent veto crosses the minimum threshold
@@ -840,8 +808,7 @@ impl<
         self.chain_state_db
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
                 conn.with_clarity_db_readonly(|db| {
-                    // TODO (#3034): get correct contract ID once contract is published
-                    let exit_at_rc_contract = boot_code_id("exit-at-rc", is_mainnet);
+                    let exit_at_rc_contract = exit_at_reward_cycle_code_id(is_mainnet);
 
                     for proposed_exit_rc in min_rc..max_rc {
                         if invalid_reward_cycles.contains(&proposed_exit_rc) {
@@ -865,7 +832,7 @@ impl<
                             )
                             .expect("BUG: Failed querying rc-proposal-votes")
                             .expect_optional();
-                        println!("cc: vote for {}: {:?}", proposed_exit_rc, entry_opt);
+
                         match entry_opt {
                             Some(entry) => {
                                 let entry = entry.expect_tuple();
@@ -889,7 +856,7 @@ impl<
     }
 
     /// At the end of each reward cycle, we tally the votes for the exit at RC contract.
-    /// We need to read PoX contract state to see how much STX is staked into the protocol - we then
+    /// We need to read PoX contract state to see how much STX is stacked into the protocol - we then
     /// ensure that at least 50% of staked STX has a valid vote.
     /// Regarding vote validity: we discard votes for invalid reward cycles. Examples of invalid
     /// reward cycles include those that are the absolute minimum exit cycle, or those below a
@@ -967,8 +934,44 @@ impl<
                 return Ok(Some(*curr_rc_proposal));
             }
         }
-        println!("RCPR: tv: didnt find majority vote, ret None");
         Ok(None)
+    }
+
+    pub fn reached_exit_reward_cycle(&self, header: &BurnchainBlockHeader) -> Result<bool, Error> {
+        if let Some(chain_tip) = self.canonical_chain_tip {
+            let exit_info_opt =
+                SortitionDB::get_exit_at_reward_cycle_info(self.sortition_db.conn(), &chain_tip)?;
+
+            if let Some(exit_info) = exit_info_opt {
+                if let Some(exit_reward_cycle) = exit_info.curr_exit_at_reward_cycle {
+                    // get the first reward cycle in this epoch
+                    let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
+                    let curr_epoch = StacksEpoch::get_current_epoch(&epochs, header.block_height);
+                    let first_reward_cycle_in_epoch = self
+                        .burnchain
+                        .block_height_to_reward_cycle(curr_epoch.start_height)
+                        .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
+
+                    let curr_reward_cycle = self
+                        .burnchain
+                        .block_height_to_reward_cycle(header.block_height)
+                        .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
+                    if curr_reward_cycle >= exit_reward_cycle
+                        && exit_reward_cycle > first_reward_cycle_in_epoch
+                    {
+                        // the burnchain has reached the exit reward cycle (as voted in the
+                        // "exit-at-rc" contract)
+                        info!("Reached the exit reward cycle that was voted on in the \
+                                'exit-at-rc' contract, ignoring subsequent burn blocks";
+                                       "exit_reward_cycle" => exit_reward_cycle,
+                                       "current_reward_cycle" => curr_reward_cycle);
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+
+        Ok(false)
     }
 
     /// returns None if this burnchain block is _not_ the start of a reward cycle
@@ -997,16 +1000,13 @@ impl<
     }
 
     // If it is time to process the exit-at-rc contract for a specific reward cycle, this function
-    // returns that reward cycle. Otherwise, the function returns None.
+    // returns the reward cycle info for the last block (in this fork) in that reward cycle.
+    // Otherwise, the function returns None.
     fn process_exit_reward_cycle(
         &mut self,
         stacks_block_height_in_cycle: u64,
         parent_exit_info: &BlockExitRewardCycleInfo,
     ) -> Result<Option<BlockExitRewardCycleInfo>, Error> {
-        info!(
-            "RCPR: curr height: {}, parent height: {}",
-            stacks_block_height_in_cycle, parent_exit_info.stacks_block_height_in_cycle
-        );
         if stacks_block_height_in_cycle == 2 {
             // We want to process the exit-at-rc contract reward cycle for the reward cycle the
             // current block's parent's parent belongs to since the height (in number of Stacks

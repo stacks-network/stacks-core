@@ -55,7 +55,9 @@ use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use burnchains::Txid;
 use burnchains::{ExitContractConstants, PoxConstants};
 
-use chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET};
+use chainstate::stacks::boot::{
+    exit_at_reward_cycle_code_id, STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET,
+};
 use util::boot::{boot_code_addr, boot_code_id};
 
 use core::BLOCK_LIMIT_MAINNET_20;
@@ -784,8 +786,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         )
         .unwrap();
 
-    // TODO (#3034): update contract ID
-    let exit_at_rc_contract = boot_code_id("exit-at-rc", mainnet);
+    let exit_at_rc_contract = exit_at_reward_cycle_code_id(mainnet);
     let sender = PrincipalData::from(exit_at_rc_contract.clone());
     let exit_params = if mainnet {
         ExitContractConstants::mainnet_default()

@@ -49,6 +49,7 @@ use crate::types::chainstate::StacksBlockHeader;
 use crate::types::chainstate::StacksBlockId;
 use crate::util::boot;
 use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
+use util::boot::boot_code_addr;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
@@ -99,6 +100,15 @@ lazy_static! {
         ("bns", &BOOT_CODE_BNS),
         ("genesis", &BOOT_CODE_GENESIS),
     ];
+}
+
+// TODO (#3034): get correct contract ID once contract is published
+pub fn exit_at_reward_cycle_code_id(mainnet: bool) -> QualifiedContractIdentifier {
+    let addr = boot_code_addr(mainnet);
+    QualifiedContractIdentifier::new(
+        addr.into(),
+        ContractName::try_from(String::from("exit-at-rc")).unwrap(),
+    )
 }
 
 fn make_testnet_cost_voting() -> String {

@@ -1420,8 +1420,7 @@ impl StacksChainState {
 
             // Setup burnchain parameters for exit-at-rc contract
             let exit_contract_constants = &boot_data.exit_contract_constants;
-            // TODO (#3034): replace contract ID
-            let contract = util::boot::boot_code_id("exit-at-rc", mainnet);
+            let contract = exit_at_reward_cycle_code_id(mainnet);
             let sender = PrincipalData::from(contract.clone());
             let params = vec![
                 Value::UInt(boot_data.first_burnchain_block_height as u128),
