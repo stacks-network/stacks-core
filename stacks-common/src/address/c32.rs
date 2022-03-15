@@ -16,18 +16,41 @@
 
 use super::Error;
 
+use std::convert::TryFrom;
 use sha2::Digest;
 use sha2::Sha256;
 
 const C32_CHARACTERS: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-// C32 chars as an array, indexed by their ASCII code for O(1) lookups
+/// C32 chars as an array, indexed by their ASCII code for O(1) lookups.
+/// Table can be generated with:
+/// ```
+/// let mut table: [isize; 128] = [-1; 128];
+/// let alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+/// for (i, x) in alphabet.as_bytes().iter().enumerate() {
+///     table[*x as usize] = i as isize;
+/// }
+/// let alphabet_lower = alphabet.to_lowercase();
+/// for (i, x) in alphabet_lower.as_bytes().iter().enumerate() {
+///     table[*x as usize] = i as isize;
+/// }
+/// let specials = [('O', '0'), ('L', '1'), ('I', '1')];
+/// for pair in specials {
+///     let i = alphabet.find(|a| a == pair.1).unwrap() as isize;
+///     table[pair.0 as usize] = i;
+///     table[pair.0.to_ascii_lowercase() as usize] = i;
+/// }
+/// ```
 #[rustfmt::skip]
-const C32_CHARACTERS_MAP: [u8; 91] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-    2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0, 0, 10, 11, 12, 13, 14, 15, 16, 
-    17, 0, 18, 19, 0, 20, 21, 0, 22, 23, 24, 25, 26, 0, 27, 28, 29, 30, 31
+const C32_CHARACTERS_MAP: [i8; 128] = [
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1, -1, 10, 11,
+    12, 13, 14, 15, 16, 17, 1, 18, 19, 1, 20, 21, 0, 22, 23, 24, 25,
+    26, -1, 27, 28, 29, 30, 31, -1, -1, -1, -1, -1, -1, 10, 11, 12,
+    13, 14, 15, 16, 17, 1, 18, 19, 1, 20, 21, 0, 22, 23, 24, 25, 26,
+    -1, 27, 28, 29, 30, 31, -1, -1, -1, -1, -1
 ];
 
 fn c32_encode(input_bytes: &[u8]) -> String {
@@ -95,22 +118,21 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
     let mut carry: u16 = 0;
     let mut carry_bits = 0; // can be up to 5
 
-    let normalized_str = c32_normalize(input_str);
-    let iter_c32_digits: Vec<u8> = normalized_str
+    let iter_c32_digits: Vec<u8> = input_str
         .as_bytes()
         .iter()
         .rev()
         .filter_map(|x| C32_CHARACTERS_MAP.get(*x as usize))
-        .map(|ref_x| *ref_x)
+        .filter_map(|v| u8::try_from(*v).ok())
         .collect();
 
-    if normalized_str.len() != iter_c32_digits.len() {
+    if input_str.len() != iter_c32_digits.len() {
         // at least one char was None
         return Err(Error::InvalidCrockford32);
     }
 
-    for current_5bit in iter_c32_digits {
-        carry += (current_5bit as u16) << carry_bits;
+    for current_5bit in &iter_c32_digits {
+        carry += (*current_5bit as u16) << carry_bits;
         carry_bits += 5;
 
         if carry_bits >= 8 {
@@ -133,8 +155,8 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
     }
 
     // add leading zeros from input.
-    for current_value in input_str.chars() {
-        if current_value == '0' {
+    for current_value in iter_c32_digits.iter().rev() {
+        if *current_value == 0 {
             result.push(0);
         } else {
             break;
