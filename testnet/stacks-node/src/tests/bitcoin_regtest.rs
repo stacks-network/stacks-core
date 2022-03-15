@@ -15,6 +15,7 @@ use stacks::vm::costs::ExecutionCost;
 use std::env;
 use std::io::{BufRead, BufReader};
 use crate::ConfigFile;
+use crate::neon::RunLoop;
 
 #[derive(std::fmt::Debug)]
 pub enum SubprocessError {
@@ -207,7 +208,12 @@ fn start_two_test() {
     // Start stacksd
     let _stacks_res = stacks_controller.start_process().expect("didn't start");
 
-//    thread::sleep(time::Duration::from_millis(10000));
+    //    thread::sleep(time::Duration::from_millis(10000));
+    {
+        let mut conf = super::new_test_conf();
+        let mut run_loop = RunLoop::new(conf);
+        run_loop.start(None, 20);
+    }
 
     bitcoin_controller.kill_process();
     stacks_controller.kill_process();
