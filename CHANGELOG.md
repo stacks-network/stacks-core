@@ -9,7 +9,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 - Sortition processing performance has been improved by about an order of
-  magnitude, by avoiding a slew of expensive database reads (#3048).
+  magnitude, by avoiding a slew of expensive database reads (#3045).
 
 ## [2.05.0.1.0]
 
