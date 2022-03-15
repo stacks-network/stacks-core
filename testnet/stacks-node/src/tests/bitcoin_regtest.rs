@@ -150,9 +150,7 @@ impl StacksMainchainController {
                 ));
             }
             info!("{:?}", &line);
-            if line.contains("Done loading") {
                 break;
-            }
         }
 
         eprintln!("bitcoind startup finished");
