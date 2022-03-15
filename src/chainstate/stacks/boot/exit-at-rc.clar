@@ -61,7 +61,7 @@
 
 ;; Keeps track of voter specific information; used to ensure a voter doesn't vote twice in the same stacking period.
 (define-map voter-state
-    { address: principal }
+    principal
     {
         proposed-rc: uint,
         amount: uint,
@@ -70,26 +70,26 @@
 )
 
 ;; What's the reward cycle number of the burnchain block height?
-;; Will runtime-abort if height is less than the first burnchain block (this is intentional).
 ;; Returns uint
 (define-private (burn-height-to-reward-cycle (height uint))
+    (/ (- height (var-get first-burnchain-block-height)) (var-get pox-reward-cycle-length)))
+
+;; What's the current PoX reward cycle?
+;; Will runtime-abort if height is less than the first burnchain block (this is intentional).
+;; Returns uint
+(define-private (current-pox-reward-cycle)
     (let
         (
             (local-first-burnchain-block-height (var-get first-burnchain-block-height))
             (local-pox-reward-cycle-length (var-get pox-reward-cycle-length))
         )
 
-        (asserts! (> height local-first-burnchain-block-height) (err ERR_BURN_BLOCK_HEIGHT_TOO_LOW))
+        (asserts! (> burn-block-height local-first-burnchain-block-height) (err ERR_BURN_BLOCK_HEIGHT_TOO_LOW))
         (asserts! (> local-pox-reward-cycle-length u0) (err ERR_AMOUNT_NOT_POSITIVE))
 
-        (ok (/ (- height local-first-burnchain-block-height) local-pox-reward-cycle-length))
+        (ok (burn-height-to-reward-cycle burn-block-height))
     )
 )
-
-;; What's the current PoX reward cycle?
-;; Returns uint
-(define-private (current-pox-reward-cycle)
-    (burn-height-to-reward-cycle burn-block-height))
 
 
 ;; For a specific reward cycle, this function tried to add "amount" number of votes for the proposed exit reward cycle.
@@ -120,11 +120,8 @@
     )
 )
 
-;; TODO (#3034) - fill in real address for contract-call once known
-;; A stacking voter with no outstanding vote can call this function with their proposed exit reward cycle to vote for it.
-;; This function enforces bounds on the vote (can't be above/below specific values).
-;; If a vote is accepted, the voter can only re-vote when they stack again.
-(define-public (vote-for-exit-rc (proposed-exit-rc uint))
+
+(define-private (can-vote-for-exit-rc? (proposed-exit-rc uint))
     (let (
         (stacker-info (unwrap! (contract-call? .pox get-stacker-info tx-sender) (err ERR_VOTER_NOT_STACKING)))
         (amount-stacked (get amount-ustx stacker-info))
@@ -149,7 +146,7 @@
         (asserts! (<= proposed-exit-rc (+ current-reward-cycle MAXIMUM_RC_BUFFER_FROM_PRESENT)) (err ERR_INVALID_PROPOSED_RC))
 
         ;; Check that the voter does not have an outstanding vote for this reward cycle
-        (match (map-get? voter-state {address: tx-sender})
+        (match (map-get? voter-state tx-sender)
             voter-info (asserts! (>= current-reward-cycle (get expiration-reward-cycle voter-info))
                 (err ERR_PREVIOUS_VOTE_VALID))
             ;; no existing state
@@ -159,16 +156,36 @@
         ;; Check that the caller is allowed
         (asserts! (is-eq tx-sender contract-caller) (err ERR_UNAUTHORIZED_CALLER))
 
+        (ok { amount-stacked: amount-stacked, stacking-expiration: stacking-expiration, voting-reward-cycles: voting-reward-cycles, proposed-rc-list: proposed-rc-list, amount-stacked-list: amount-stacked-list })
+    )
+)
+
+
+(define-private (inner-fulfill-vote (proposed-exit-rc uint) (voting-data {amount-stacked: uint, stacking-expiration: uint, voting-reward-cycles: (list 12 (optional uint)), proposed-rc-list: (list 12 uint), amount-stacked-list: (list 12 uint)}))
+    (begin 
         ;; Modify the voter-state map
-        (map-set voter-state { address: tx-sender }
-            { proposed-rc: proposed-exit-rc, amount: amount-stacked, expiration-reward-cycle: stacking-expiration })
+        (map-set voter-state tx-sender
+            { proposed-rc: proposed-exit-rc, amount: (get amount-stacked voting-data), expiration-reward-cycle: (get stacking-expiration voting-data) })
 
         ;; Modify the rc-proposal-votes map - need to loop from curr rc to expiration rc
-        (map add-to-rc-proposal-map voting-reward-cycles proposed-rc-list amount-stacked-list)
+        (map add-to-rc-proposal-map (get voting-reward-cycles voting-data) (get proposed-rc-list voting-data) (get amount-stacked-list voting-data))
 
         (ok true)
     )
 )
+
+;; TODO (#3034) - fill in real address for contract-call once known
+;; A stacking voter with no outstanding vote can call this function with their proposed exit reward cycle to vote for it.
+;; This function enforces bounds on the vote (can't be above/below specific values).
+;; If a vote is accepted, the voter can only re-vote when they stack again.
+(define-public (vote-for-exit-rc (proposed-exit-rc uint))
+    (let (
+        (voting-data (try! (can-vote-for-exit-rc? proposed-exit-rc)))
+    )
+        (inner-fulfill-vote proposed-exit-rc voting-data)
+    )
+)
+
 
 ;; This function is used by miners to veto a proposed exit reward cycle. The veto period is active the reward cycle
 ;; after a vote is confirmed.
@@ -178,8 +195,7 @@
     (let (
         (current-reward-cycle (unwrap-panic (current-pox-reward-cycle)))
         (curr-vetoes (default-to u0 (get vetoes (map-get? rc-proposal-vetoes { proposed-rc: proposed-exit-rc, curr-rc: current-reward-cycle } ))))
-        (last-miner (unwrap! (get-block-info? miner-address (- block-height u1))
-                    (err ERR_FETCHING_BLOCK_INFO)))
+        (last-miner (unwrap-panic (get-block-info? miner-address (- block-height u1))))
         (vetoed (default-to false (get vetoed (map-get? exercised-veto { proposed-rc: proposed-exit-rc, veto-height: block-height }))))
     )
 
