@@ -16,9 +16,9 @@
 
 use super::Error;
 
-use std::convert::TryFrom;
 use sha2::Digest;
 use sha2::Sha256;
+use std::convert::TryFrom;
 
 const C32_CHARACTERS: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -41,16 +41,13 @@ const C32_CHARACTERS: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 ///     table[pair.0.to_ascii_lowercase() as usize] = i;
 /// }
 /// ```
-#[rustfmt::skip]
 const C32_CHARACTERS_MAP: [i8; 128] = [
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1, -1, 10, 11,
-    12, 13, 14, 15, 16, 17, 1, 18, 19, 1, 20, 21, 0, 22, 23, 24, 25,
-    26, -1, 27, 28, 29, 30, 31, -1, -1, -1, -1, -1, -1, 10, 11, 12,
-    13, 14, 15, 16, 17, 1, 18, 19, 1, 20, 21, 0, 22, 23, 24, 25, 26,
-    -1, 27, 28, 29, 30, 31, -1, -1, -1, -1, -1
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, 16, 17, 1,
+    18, 19, 1, 20, 21, 0, 22, 23, 24, 25, 26, -1, 27, 28, 29, 30, 31, -1, -1, -1, -1, -1, -1, 10,
+    11, 12, 13, 14, 15, 16, 17, 1, 18, 19, 1, 20, 21, 0, 22, 23, 24, 25, 26, -1, 27, 28, 29, 30,
+    31, -1, -1, -1, -1, -1,
 ];
 
 fn c32_encode(input_bytes: &[u8]) -> String {
@@ -99,16 +96,15 @@ fn c32_encode(input_bytes: &[u8]) -> String {
     String::from_utf8(result).unwrap()
 }
 
-fn c32_normalize(input_str: &str) -> String {
-    let norm_str: String = input_str
-        .to_uppercase()
-        .replace("O", "0")
-        .replace("L", "1")
-        .replace("I", "1");
-    norm_str
+fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
+    // must be ASCII
+    if !input_str.is_ascii() {
+        return Err(Error::InvalidCrockford32);
+    }
+    c32_decode_ascii(input_str)
 }
 
-fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
+fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
     // must be ASCII
     if !input_str.is_ascii() {
         return Err(Error::InvalidCrockford32);
@@ -204,14 +200,14 @@ fn c32_check_decode(check_data_unsanitized: &str) -> Result<(u8, Vec<u8>), Error
 
     let (version, data) = check_data_unsanitized.split_at(1);
 
-    let data_sum_bytes = c32_decode(data)?;
+    let data_sum_bytes = c32_decode_ascii(data)?;
     if data_sum_bytes.len() < 5 {
         return Err(Error::InvalidCrockford32);
     }
 
     let (data_bytes, expected_sum) = data_sum_bytes.split_at(data_sum_bytes.len() - 4);
 
-    let mut check_data = c32_decode(version)?;
+    let mut check_data = c32_decode_ascii(version)?;
     check_data.extend_from_slice(data_bytes);
 
     let computed_sum = double_sha256_checksum(&check_data);
