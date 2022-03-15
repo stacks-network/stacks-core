@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Changed
+- The MARF implementation will now defer calculating the root hash of a new trie
+  until the moment the trie is committed to disk.  This avoids gratuitous hash
+calculations, and yields a performance improvement of anywhere between 10x and
+200x (#3041).
+- The MARF implementation will now store tries to an external file for instances
+  where the tries are expected to exceed the SQLite page size (namely, the
+Clarity database). This improves read performance by a factor of 10x to 14x
+(#3059).
+- The MARF implementation may now cache trie nodes in RAM if directed to do so
+  by an environment variable (#3042).
+
 ## [2.05.0.1.0]
 
 ### Added 
@@ -77,6 +91,8 @@ tests (#2989).
   key in the cost estimator. (#2984)
 - Fixed a few prometheus metrics to be more accurate compared to `/v2` endpoints 
   when polling data (#2987)
+- Fixed an error message from the type-checker that shows up when the type of a
+  parameter refers to a trait defined in the same contract (#3064).
 
 ## [2.05.0.0.0]
 
