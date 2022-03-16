@@ -190,7 +190,7 @@ impl Drop for StacksMainchainController {
 const BITCOIND_INT_TEST_COMMITS: u64 = 11000;
 
 #[test]
-fn start_two_test() {
+fn l1_observer_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }

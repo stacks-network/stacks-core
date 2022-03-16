@@ -24,7 +24,6 @@ async fn handle_new_block(block: serde_json::Value) -> Result<impl warp::Reply, 
 
 use std::io;
 use tokio::task::JoinError;
-/// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
 async fn serve(signal_receiver: Receiver<()>) -> Result<(), JoinError> {
     let new_blocks = warp::path!("new_block")
         .and(warp::post())

@@ -25,7 +25,6 @@ clarity = { package = "clarity", path = "../../clarity/." }
 stacks_common = { package = "stacks-common", path = "../../stacks-common/." }
 tokio = { version = "=1.15.0", features = ["full"] }
 warp = "0.3"
-futures = "0.1"
 
 [dev-dependencies]
 ring = "0.16.19"

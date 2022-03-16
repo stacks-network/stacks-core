@@ -281,7 +281,7 @@ impl ConfigFile {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
@@ -1522,13 +1522,13 @@ pub struct EventObserverConfigFile {
     pub events_keys: Vec<String>,
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),
