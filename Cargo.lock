@@ -1042,6 +1042,12 @@ checksum = "3dcaa9ae7725d12cdb85b3ad99a434db70b468c09ded17e012d86b5c1010f7a7"
 
 [[package]]
 name = "futures"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a471a38ef8ed83cd6e40aa59c1ffe17db6855c18e3604d9c4ed8c08ebc28678"
+
+[[package]]
+name = "futures"
 version = "0.3.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f73fe65f54d1e12b726f517d3e2135ca3125a437b6d998caf1962961f7172d9e"
@@ -2465,7 +2471,7 @@ dependencies = [
  "bytes",
  "either",
  "figment",
- "futures",
+ "futures 0.3.21",
  "indexmap",
  "log",
  "memchr",
@@ -3069,6 +3075,7 @@ dependencies = [
  "base64 0.12.3",
  "blockstack-core",
  "clarity",
+ "futures 0.1.31",
  "http-types",
  "lazy_static",
  "libc",

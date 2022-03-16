@@ -26,6 +26,7 @@ stacks_common = { package = "stacks-common", path = "../../stacks-common/." }
 tokio = { version = "=1.15.0", features = ["full"] }
 rocket = { version = "=0.5.0-rc.1", features = ["json"] }
 warp = "0.3"
+futures = "0.1"
 
 [dev-dependencies]
 ring = "0.16.19"

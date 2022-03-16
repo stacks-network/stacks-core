@@ -111,7 +111,7 @@ impl BitcoinCoreController {
 pub struct StacksMainchainController {
     sub_process: Option<Child>,
     config: Config,
-    out_reader:Option<BufReader<std::process::ChildStdout>>,
+    out_reader: Option<BufReader<std::process::ChildStdout>>,
 }
 
 impl StacksMainchainController {
@@ -119,7 +119,7 @@ impl StacksMainchainController {
         StacksMainchainController {
             sub_process: None,
             config,
-            out_reader:None
+            out_reader: None,
         }
     }
 

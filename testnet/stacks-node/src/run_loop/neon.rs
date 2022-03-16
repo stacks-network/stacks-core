@@ -539,7 +539,7 @@ impl RunLoop {
         info!("check");
 
         info!("start spawning");
-        let l1_observer_handle = l1_observer::spawn();
+        let l1_observer_signal = l1_observer::spawn();
 
         // Start the runloop
         debug!("Begin run loop");
@@ -573,7 +573,7 @@ impl RunLoop {
 
                 coordinator_senders.stop_chains_coordinator();
                 coordinator_thread_handle.join().unwrap();
-                l1_observer_handle.join().unwrap();
+                l1_observer_signal.send(()).unwrap();
                 node.join();
 
                 info!("Exiting stacks-node");
