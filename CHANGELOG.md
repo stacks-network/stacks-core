@@ -9,7 +9,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 - Sortition processing performance has been improved by about an order of
-  magnitude, by avoiding a slew of expensive database reads (#3045).
+  magnitude, by avoiding a slew of expensive database reads (#3045).  WARNING:
+applying this change to an existing chainstate directory will take a few
+minutes when the node starts up.
 
 ## [2.05.0.1.0]
 
