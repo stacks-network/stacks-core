@@ -1,3 +1,4 @@
+use std;
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time;
@@ -110,6 +111,7 @@ impl BitcoinCoreController {
 pub struct StacksMainchainController {
     sub_process: Option<Child>,
     config: Config,
+    out_reader:Option<BufReader<std::process::ChildStdout>>,
 }
 
 impl StacksMainchainController {
@@ -117,6 +119,7 @@ impl StacksMainchainController {
         StacksMainchainController {
             sub_process: None,
             config,
+            out_reader:None
         }
     }
 
@@ -160,6 +163,7 @@ impl StacksMainchainController {
         eprintln!("bitcoind startup finished");
 
         self.sub_process = Some(process);
+        self.out_reader = Some(out_reader);
 
         Ok(())
     }
