@@ -28,8 +28,6 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
-extern crate futures;
-
 use std::io;
 use std::io::prelude::*;
 use std::process;

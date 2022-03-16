@@ -203,10 +203,7 @@ fn start_two_test() {
     );
 
     let toml_content = ConfigFile::from_path(&toml_file);
-
     let conf = Config::from_config_file(toml_content);
-
-    info!("conf {:#?}", &conf);
 
     // Setup up a bitcoind controller
     let mut bitcoin_controller = BitcoinCoreController::new(conf.clone());

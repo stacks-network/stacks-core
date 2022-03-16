@@ -151,17 +151,6 @@ fn async_safe_write_stderr(msg: &str) {
     }
 }
 
-use tokio;
-
-pub fn create_basic_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .enable_time()
-        .max_blocking_threads(32)
-        .build()
-        .unwrap()
-}
-
 impl RunLoop {
     /// Sets up a runloop and node, given a config.
     pub fn new(config: Config) -> Self {
@@ -488,43 +477,35 @@ impl RunLoop {
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, burnchain_opt: Option<Burnchain>, mut mine_start: u64) {
-        info!("check");
         let (coordinator_receivers, coordinator_senders) = self
             .coordinator_channels
             .take()
             .expect("Run loop already started, can only start once after initialization.");
-        info!("check");
 
         self.setup_termination_handler();
         let mut burnchain =
             self.instantiate_burnchain_state(burnchain_opt, coordinator_senders.clone());
-        info!("check");
 
         let burnchain_config = burnchain.get_burnchain();
         self.burnchain = Some(burnchain_config.clone());
-        info!("check");
 
         let is_miner = self.check_is_miner();
         self.is_miner = Some(is_miner);
-        info!("check");
 
         // have headers; boot up the chains coordinator and instantiate the chain state
         let (coordinator_thread_handle, attachments_rx) =
             self.spawn_chains_coordinator(&burnchain_config, coordinator_receivers);
         self.instantiate_pox_watchdog();
-        info!("check");
 
         // We announce a new burn block so that the chains coordinator
         // can resume prior work and handle eventual unprocessed sortitions
         // stored during a previous session.
         coordinator_senders.announce_new_burn_block();
-        info!("check");
 
         // Wait for some sortitions!
         let mut burnchain_tip = burnchain
             .wait_for_sortitions(None)
             .expect("Unable to get burnchain tip");
-        info!("check");
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
@@ -536,9 +517,6 @@ impl RunLoop {
         );
         let sortdb = burnchain.sortdb_mut();
         let mut sortition_db_height = RunLoop::get_sortition_db_height(&sortdb, &burnchain_config);
-        info!("check");
-
-        info!("start spawning");
         let l1_observer_signal = l1_observer::spawn();
 
         // Start the runloop

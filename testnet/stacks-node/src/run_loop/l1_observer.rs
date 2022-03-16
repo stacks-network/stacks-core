@@ -15,8 +15,8 @@ lazy_static! {
     pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
 }
 
-async fn handle_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
-    info!("handle_block receives {:?}", &block);
+async fn handle_new_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
+    info!("handle_new_block receives {:?}", &block);
     let mut blocks = NEW_BLOCKS.lock().unwrap();
     blocks.push(block);
     Ok(warp::http::StatusCode::OK)
@@ -29,11 +29,7 @@ async fn serve(signal_receiver: Receiver<()>) -> Result<(), JoinError> {
     let new_blocks = warp::path!("new_block")
         .and(warp::post())
         .and(warp::body::json())
-        .and_then(handle_block);
-
-    //    warp::serve(new_blocks)
-    //        .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
-    //        .await;
+        .and_then(handle_new_block);
 
     info!("Binding warp server");
     let (addr, server) = warp::serve(new_blocks).bind_with_graceful_shutdown(
