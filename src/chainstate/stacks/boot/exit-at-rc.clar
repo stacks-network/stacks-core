@@ -187,11 +187,48 @@
 )
 
 
+(define-private (can-veto-exit-rc? (proposed-exit-rc uint))
+    (let (
+        (current-reward-cycle (unwrap-panic (current-pox-reward-cycle)))
+        (curr-vetoes (default-to u0 (get vetoes (map-get? rc-proposal-vetoes { proposed-rc: proposed-exit-rc, curr-rc: current-reward-cycle } ))))
+        (last-miner (unwrap-panic (get-block-info? miner-address (- block-height u1))))
+        (vetoed (default-to false (get vetoed (map-get? exercised-veto { proposed-rc: proposed-exit-rc, veto-height: block-height }))))
+    )
+
+    ;; a miner can only veto once per block
+    (asserts! (not vetoed) (err ERR_ALREADY_VETOED))
+
+    ;; a miner can only veto if they mined the previous block
+    (asserts! (is-eq contract-caller last-miner) (err ERR_UNAUTHORIZED_CALLER))
+
+    (ok {curr-rc: current-reward-cycle, curr-vetoes: curr-vetoes})
+    )
+)
+
+(define-private (inner-fulfill-veto (proposed-exit-rc uint) (veto-data {curr-rc: uint, curr-vetoes: uint}))
+    (begin
+         ;; modify state to store veto
+        (map-set rc-proposal-vetoes { proposed-rc: proposed-exit-rc, curr-rc: (get curr-rc veto-data) } { vetoes: (+ u1 (get curr-vetoes veto-data)) })
+        (map-set exercised-veto { proposed-rc: proposed-exit-rc, veto-height: block-height }
+                                { vetoed: true })
+
+        (ok true)
+    )
+)
+
+(define-public (veto-exit-rc (proposed-exit-rc uint))
+    (let (
+        (veto-data (try! (can-veto-exit-rc? proposed-exit-rc)))
+    )
+        (inner-fulfill-veto proposed-exit-rc veto-data)
+    )
+)
+
 ;; This function is used by miners to veto a proposed exit reward cycle. The veto period is active the reward cycle
 ;; after a vote is confirmed.
 ;; Note: a miner can send in a veto in the block after the one they mined, and they can't include multiple of these
 ;; transactions in a block.
-(define-public (veto-exit-rc (proposed-exit-rc uint))
+(define-public (veto-exit-rc-old (proposed-exit-rc uint))
     (let (
         (current-reward-cycle (unwrap-panic (current-pox-reward-cycle)))
         (curr-vetoes (default-to u0 (get vetoes (map-get? rc-proposal-vetoes { proposed-rc: proposed-exit-rc, curr-rc: current-reward-cycle } ))))
