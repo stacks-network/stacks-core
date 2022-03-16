@@ -26,7 +26,7 @@ use super::Config;
 
 // mod integrations;
 // mod mempool;
-pub mod bitcoin_regtest;
+pub mod l1_observer_test;
 #[allow(dead_code)]
 pub mod neon_integrations;
 

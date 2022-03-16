@@ -22,7 +22,6 @@ async fn handle_new_block(block: serde_json::Value) -> Result<impl warp::Reply, 
     Ok(warp::http::StatusCode::OK)
 }
 
-use std::io;
 use tokio::task::JoinError;
 async fn serve(signal_receiver: Receiver<()>) -> Result<(), JoinError> {
     let new_blocks = warp::path!("new_block")
