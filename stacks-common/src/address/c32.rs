@@ -242,7 +242,37 @@ pub fn c32_address(version: u8, data: &[u8]) -> Result<String, Error> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use rand::Rng;
     use util::hash::hex_bytes;
+    use super::super::c32_old::{c32_address as c32_address_old, c32_address_decode as c32_address_decode_old};
+
+    #[test]
+    fn old_c32_validation() {
+        for n in 0..5000 {
+            // random version
+            let random_version: u8 = rand::thread_rng().gen_range(0, 31);
+
+            // random 20 bytes
+            let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
+
+            let addr_new = c32_address(random_version, &random_bytes).unwrap();
+            let addr_old = c32_address_old(random_version, &random_bytes).unwrap();
+
+            assert_eq!(&addr_new, &addr_old);
+
+            let decoded_addrs = vec![
+                c32_address_decode(&addr_new).unwrap(),
+                c32_address_decode(&addr_old).unwrap(),
+                c32_address_decode_old(&addr_new).unwrap(),
+                c32_address_decode_old(&addr_new).unwrap(),
+            ];
+
+            for decoded_addr in decoded_addrs {
+                assert_eq!(decoded_addr.0, random_version);
+                assert_eq!(decoded_addr.1, random_bytes);
+            }
+        }
+    }
 
     #[test]
     fn test_addresses() {

@@ -31,6 +31,7 @@ use std::convert::TryFrom;
 
 pub mod b58;
 pub mod c32;
+pub mod c32_old;
 
 pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22; // P
 pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20; // M
