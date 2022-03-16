@@ -25,6 +25,8 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance};
 use stx_genesis::GenesisData;
 
+use crate::run_loop::l1_observer;
+
 use crate::burnchains::mock_events::MockController;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::StacksNode;
@@ -129,7 +131,6 @@ pub struct RunLoop {
     pox_watchdog: Option<PoxSyncWatchdog>, // can't be instantiated until .start() is called
     is_miner: Option<bool>,                // not known until .start() is called
     burnchain: Option<Burnchain>,          // not known until .start() is called
-    // events_observer_handle: JoinHandle<()>,
 }
 
 /// Write to stderr in an async-safe manner.
@@ -161,67 +162,9 @@ pub fn create_basic_runtime() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-
-use std::net::{IpAddr, Ipv4Addr};
-use rocket::routes;
-use rocket::config::{Config as RocketConfig, LogLevel};
-use std::error::Error;
-
-#[derive(Clone, Debug)]
-pub struct EventObserverConfig {
-//    pub devnet_config: DevnetConfig,
-//    pub accounts: Vec<Account>,
-//    pub contracts_to_deploy: VecDeque<InitialContract>,
-//    pub manifest_path: PathBuf,
-//    pub session: Session,
-//    pub deployment_fee_rate: u64,
-}
-
-pub async fn start_events_observer(
-) -> Result<(), Box<dyn Error>> {
-    // panic!("start_events_observer is called");
-//    let _ = config.execute_scripts().await;
-
-    let rocket_config = RocketConfig {
-        port: 10000,
-        workers: 4,
-        address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        keep_alive: 5,
-        temp_dir: std::env::temp_dir(),
-        log_level: LogLevel::Debug,
-        ..RocketConfig::default()
-    };
-
-    let _ = std::thread::spawn(move || {
-        let future = rocket::custom(rocket_config)
-//            .manage(indexer_rw_lock)
-//            .manage(devnet_event_tx_mutex)
-//            .manage(config_mutex)
-//            .manage(moved_init_status_rw_lock)
-//            .manage(background_job_tx_mutex)
-            .mount(
-                "/",
-                routes![
-//                    handle_ping,
-//                    handle_new_burn_block,
-//                    handle_new_block,
-//                    handle_new_microblocks,
-//                    handle_new_mempool_tx,
-//                    handle_drop_mempool_tx,
-                ],
-            )
-            .launch();
-        let rt = create_basic_runtime();
-        rt.block_on(future).expect("Unable to spawn event observer");
-    });
-    Ok(())
-}
-
 impl RunLoop {
     /// Sets up a runloop and node, given a config.
     pub fn new(config: Config) -> Self {
-
-
         let channels = CoordinatorCommunication::instantiate();
         let should_keep_running = Arc::new(AtomicBool::new(true));
 
@@ -550,12 +493,12 @@ impl RunLoop {
             .coordinator_channels
             .take()
             .expect("Run loop already started, can only start once after initialization.");
-            info!("check");
+        info!("check");
 
         self.setup_termination_handler();
         let mut burnchain =
             self.instantiate_burnchain_state(burnchain_opt, coordinator_senders.clone());
-            info!("check");
+        info!("check");
 
         let burnchain_config = burnchain.get_burnchain();
         self.burnchain = Some(burnchain_config.clone());
@@ -581,7 +524,7 @@ impl RunLoop {
         let mut burnchain_tip = burnchain
             .wait_for_sortitions(None)
             .expect("Unable to get burnchain tip");
-            info!("check");
+        info!("check");
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
@@ -595,15 +538,8 @@ impl RunLoop {
         let mut sortition_db_height = RunLoop::get_sortition_db_height(&sortdb, &burnchain_config);
         info!("check");
 
-
         info!("start spawning");
-        let events_observer_handle = std::thread::spawn(move || {
-            info!("inside spawning");
-            let future = start_events_observer(
-            );
-            let rt = create_basic_runtime();
-            let _ = rt.block_on(future);
-        });
+        let l1_observer_handle = l1_observer::spawn();
 
         // Start the runloop
         debug!("Begin run loop");
@@ -637,7 +573,7 @@ impl RunLoop {
 
                 coordinator_senders.stop_chains_coordinator();
                 coordinator_thread_handle.join().unwrap();
-                events_observer_handle.join().unwrap();
+                l1_observer_handle.join().unwrap();
                 node.join();
 
                 info!("Exiting stacks-node");

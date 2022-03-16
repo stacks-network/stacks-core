@@ -1,3 +1,4 @@
+pub mod l1_observer;
 pub mod neon;
 
 use crate::{BurnchainController, BurnchainTip, ChainTip, Tenure};
