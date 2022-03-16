@@ -1439,9 +1439,25 @@ impl ConversationP2P {
         // update cache
         SortitionDB::merge_block_header_cache(header_cache, &block_hashes);
 
-        let blocks_inv_data: BlocksInvData = chainstate
-            .get_blocks_inventory(&block_hashes)
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(base_snapshot.block_height)
+            .expect("FATAL: no reward cycle for a valid BlockSnapshot");
+        let blocks_inv_data = chainstate
+            .get_blocks_inventory_for_reward_cycle(burnchain, reward_cycle, &block_hashes)
             .map_err(|e| net_error::from(e))?;
+
+        if cfg!(test) {
+            // make *sure* the behavior stays the same
+            let original_blocks_inv_data: BlocksInvData =
+                chainstate.get_blocks_inventory(&block_hashes)?;
+
+            if original_blocks_inv_data != blocks_inv_data {
+                warn!(
+                    "For reward cycle {}: {:?} != {:?}",
+                    reward_cycle, &original_blocks_inv_data, &blocks_inv_data
+                );
+            }
+        }
 
         Ok(StacksMessageType::BlocksInv(blocks_inv_data))
     }
