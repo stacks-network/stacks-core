@@ -19,7 +19,7 @@ use super::StacksHyperOpType;
 
 /// Parsing struct for the transaction event types of the
 /// `stacks-node` events API
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum TxEventType {
     ContractEvent,
     Other,
@@ -27,7 +27,7 @@ pub enum TxEventType {
 
 /// Parsing struct for the contract_event field in transaction events
 /// of the `stacks-node` events API
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct ContractEvent {
     #[serde(deserialize_with = "deser_contract_identifier")]
     pub contract_identifier: QualifiedContractIdentifier,
@@ -38,7 +38,7 @@ pub struct ContractEvent {
 
 /// Parsing struct for the transaction events of the `stacks-node`
 /// events API
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct NewBlockTxEvent {
     #[serde(deserialize_with = "deser_txid")]
     pub txid: Txid,
@@ -52,7 +52,7 @@ pub struct NewBlockTxEvent {
 
 /// Parsing struct for the new block events of the `stacks-node`
 /// events API
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct NewBlock {
     pub block_height: u64,
     pub burn_block_time: u64,
@@ -63,6 +63,18 @@ pub struct NewBlock {
     pub events: Vec<NewBlockTxEvent>,
 }
 
+impl NewBlock {
+    /// Shortened debug string, for logging.
+    pub fn short_string(&self) -> String {
+        format!(
+            "NewBlock(hash={:?}, parent_hash={:?}, block_height={}, num_events={}",
+            &self.index_block_hash,
+            &self.parent_index_block_hash,
+            self.block_height,
+            self.events.len()
+        )
+    }
+}
 /// Method for deserializing a ClarityValue from the `raw_value` field of contract
 /// transaction events.
 fn deser_clarity_value<'de, D>(deser: D) -> Result<ClarityValue, D::Error>

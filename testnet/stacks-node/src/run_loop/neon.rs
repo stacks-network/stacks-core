@@ -25,6 +25,8 @@ use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance};
 use stx_genesis::GenesisData;
 
+use crate::run_loop::l1_observer;
+
 use crate::burnchains::mock_events::MockController;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::StacksNode;
@@ -303,7 +305,7 @@ impl RunLoop {
             panic!();
         }
 
-        info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
+        info!("Start syncing STACKS L1 HEADERS, feel free to grab a cup of coffee, this can take a while");
 
         let target_burnchain_block_height = match burnchain_config
             .get_highest_burnchain_block()
@@ -516,6 +518,8 @@ impl RunLoop {
         let sortdb = burnchain.sortdb_mut();
         let mut sortition_db_height = RunLoop::get_sortition_db_height(&sortdb, &burnchain_config);
 
+        let l1_observer_signal = l1_observer::spawn();
+
         // Start the runloop
         debug!("Begin run loop");
         self.start_prometheus();
@@ -548,6 +552,7 @@ impl RunLoop {
 
                 coordinator_senders.stop_chains_coordinator();
                 coordinator_thread_handle.join().unwrap();
+                l1_observer_signal.send(()).unwrap();
                 node.join();
 
                 info!("Exiting stacks-node");
