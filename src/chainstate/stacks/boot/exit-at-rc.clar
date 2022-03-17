@@ -9,6 +9,8 @@
 (define-constant ERR_FETCHING_BLOCK_INFO 16)
 (define-constant ERR_NOT_ALLOWED 19)
 (define-constant ERR_INVALID_PROPOSED_RC 21)
+(define-constant ERR_VETO_TOO_LATE 22)
+(define-constant ERR_INVALID_MINE_HEIGHT 23)
 
 ;; Constants
 (define-constant ABSOLUTE_MINIMUM_EXIT_RC u33)
@@ -78,17 +80,7 @@
 ;; Will runtime-abort if height is less than the first burnchain block (this is intentional).
 ;; Returns uint
 (define-private (current-pox-reward-cycle)
-    (let
-        (
-            (local-first-burnchain-block-height (var-get first-burnchain-block-height))
-            (local-pox-reward-cycle-length (var-get pox-reward-cycle-length))
-        )
-
-        (asserts! (> burn-block-height local-first-burnchain-block-height) (err ERR_BURN_BLOCK_HEIGHT_TOO_LOW))
-        (asserts! (> local-pox-reward-cycle-length u0) (err ERR_AMOUNT_NOT_POSITIVE))
-
-        (ok (burn-height-to-reward-cycle burn-block-height))
-    )
+    (ok (burn-height-to-reward-cycle burn-block-height))
 )
 
 
@@ -136,7 +128,13 @@
         (list-indexes (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11))
         ;; a list of the reward cycles the voter's vote is valid for, corresponding to the cycles their stx is locked for
         (voting-reward-cycles (map get-voting-reward-cycles list-indexes lock-period-list first-reward-cycle-list ))
+        (local-first-burnchain-block-height (var-get first-burnchain-block-height))
+        (local-pox-reward-cycle-length (var-get pox-reward-cycle-length))
     )
+        ;; Check that the pox / burnchain parameters make sense
+        (asserts! (> burn-block-height local-first-burnchain-block-height) (err ERR_BURN_BLOCK_HEIGHT_TOO_LOW))
+        (asserts! (> local-pox-reward-cycle-length u0) (err ERR_AMOUNT_NOT_POSITIVE))
+
         ;; Check that the amount stacked is positive
         (asserts! (> amount-stacked u0) (err ERR_AMOUNT_NOT_POSITIVE))
 
@@ -187,66 +185,50 @@
 )
 
 
-(define-private (can-veto-exit-rc? (proposed-exit-rc uint))
+(define-private (can-veto-exit-rc? (proposed-exit-rc uint) (mined-block-height uint))
     (let (
         (current-reward-cycle (unwrap-panic (current-pox-reward-cycle)))
+        (mined-block-id (unwrap! (get-block-info? id-header-hash mined-block-height) (err ERR_INVALID_MINE_HEIGHT)))
+        (mined-burn-block-height (at-block mined-block-id burn-block-height))
+        (mined-reward-cycle (burn-height-to-reward-cycle mined-burn-block-height))
         (curr-vetoes (default-to u0 (get vetoes (map-get? rc-proposal-vetoes { proposed-rc: proposed-exit-rc, curr-rc: current-reward-cycle } ))))
-        (last-miner (unwrap-panic (get-block-info? miner-address (- block-height u1))))
-        (vetoed (default-to false (get vetoed (map-get? exercised-veto { proposed-rc: proposed-exit-rc, veto-height: block-height }))))
+        (miner-address (unwrap! (get-block-info? miner-address mined-block-height) (err ERR_INVALID_MINE_HEIGHT)))
+        (vetoed (default-to false (get vetoed (map-get? exercised-veto { proposed-rc: proposed-exit-rc, veto-height: mined-block-height }))))
     )
 
-    ;; a miner can only veto once per block
+    ;; a miner can only veto once per block mined
     (asserts! (not vetoed) (err ERR_ALREADY_VETOED))
 
-    ;; a miner can only veto if they mined the previous block
-    (asserts! (is-eq contract-caller last-miner) (err ERR_UNAUTHORIZED_CALLER))
+    ;; a miner needs to submit their veto within the same reward cycle of mining a block
+    (asserts! (<= (- current-reward-cycle mined-reward-cycle) u0) (err ERR_VETO_TOO_LATE))
+
+    ;; a miner can only veto if they mined the block at the given height
+    (asserts! (is-eq contract-caller miner-address) (err ERR_UNAUTHORIZED_CALLER))
 
     (ok {curr-rc: current-reward-cycle, curr-vetoes: curr-vetoes})
     )
 )
 
-(define-private (inner-fulfill-veto (proposed-exit-rc uint) (veto-data {curr-rc: uint, curr-vetoes: uint}))
+(define-private (inner-fulfill-veto (proposed-exit-rc uint) (mined-block-height uint) (veto-data {curr-rc: uint, curr-vetoes: uint}))
     (begin
          ;; modify state to store veto
         (map-set rc-proposal-vetoes { proposed-rc: proposed-exit-rc, curr-rc: (get curr-rc veto-data) } { vetoes: (+ u1 (get curr-vetoes veto-data)) })
-        (map-set exercised-veto { proposed-rc: proposed-exit-rc, veto-height: block-height }
+        (map-set exercised-veto { proposed-rc: proposed-exit-rc, veto-height: mined-block-height }
                                 { vetoed: true })
 
         (ok true)
     )
 )
 
-(define-public (veto-exit-rc (proposed-exit-rc uint))
-    (let (
-        (veto-data (try! (can-veto-exit-rc? proposed-exit-rc)))
-    )
-        (inner-fulfill-veto proposed-exit-rc veto-data)
-    )
-)
-
 ;; This function is used by miners to veto a proposed exit reward cycle. The veto period is active the reward cycle
 ;; after a vote is confirmed.
-;; Note: a miner can send in a veto in the block after the one they mined, and they can't include multiple of these
-;; transactions in a block.
-(define-public (veto-exit-rc-old (proposed-exit-rc uint))
+;; The miner must send in the reward cycle number of the proposal they want to veto, as well as the burn height
+;; of a block they mined during the veto period.
+;; Note: a miner can send in a veto for each block they mined in the veto period.
+(define-public (veto-exit-rc (proposed-exit-rc uint) (mined-block-height uint))
     (let (
-        (current-reward-cycle (unwrap-panic (current-pox-reward-cycle)))
-        (curr-vetoes (default-to u0 (get vetoes (map-get? rc-proposal-vetoes { proposed-rc: proposed-exit-rc, curr-rc: current-reward-cycle } ))))
-        (last-miner (unwrap-panic (get-block-info? miner-address (- block-height u1))))
-        (vetoed (default-to false (get vetoed (map-get? exercised-veto { proposed-rc: proposed-exit-rc, veto-height: block-height }))))
+        (veto-data (try! (can-veto-exit-rc? proposed-exit-rc mined-block-height)))
     )
-
-    ;; a miner can only veto once per block
-    (asserts! (not vetoed) (err ERR_ALREADY_VETOED))
-
-    ;; a miner can only veto if they mined the previous block
-    (asserts! (is-eq contract-caller last-miner) (err ERR_UNAUTHORIZED_CALLER))
-
-    ;; modify state to store veto
-    (map-set rc-proposal-vetoes { proposed-rc: proposed-exit-rc, curr-rc: current-reward-cycle } { vetoes: (+ u1 curr-vetoes) })
-    (map-set exercised-veto { proposed-rc: proposed-exit-rc, veto-height: block-height }
-                            { vetoed: true })
-
-    (ok true)
+        (inner-fulfill-veto proposed-exit-rc mined-block-height veto-data)
     )
 )

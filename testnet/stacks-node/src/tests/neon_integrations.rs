@@ -7240,6 +7240,7 @@ fn exit_at_rc_integration_test() {
 
     // veto the proposal with the miner_account for the next reward cycle
     let mut nonce = 144;
+    let mut block_height = 144;
     while sort_height < ((24 * pox_constants.reward_cycle_length) + 1).into() {
         let veto_tx = make_contract_call(
             &miner_privk,
@@ -7248,7 +7249,7 @@ fn exit_at_rc_integration_test() {
             &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
             "exit-at-rc",
             "veto-exit-rc",
-            &[Value::UInt(30)],
+            &[Value::UInt(30), Value::UInt(block_height)],
         );
 
         // okay, let's push that veto transaction!
@@ -7257,6 +7258,7 @@ fn exit_at_rc_integration_test() {
 
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
+        block_height += 1;
     }
 
     // check sortdb - veto threshold met (>=80% of blocks in rc had veto) - curr_exit_at_reward_cycle should not be set
@@ -8032,6 +8034,7 @@ fn exit_at_rc_integration_test() {
 
     // veto the proposal with the miner_account for the next reward cycle, but only 4 times
     let mut nonce = 457;
+    let mut block_height = 457;
     for _ in 0..4 {
         let veto_tx = make_contract_call(
             &miner_privk,
@@ -8040,7 +8043,7 @@ fn exit_at_rc_integration_test() {
             &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
             "exit-at-rc",
             "veto-exit-rc",
-            &[Value::UInt(53)],
+            &[Value::UInt(53), Value::UInt(block_height)],
         );
 
         // okay, let's push that veto transaction!
@@ -8049,6 +8052,7 @@ fn exit_at_rc_integration_test() {
 
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
+        block_height += 1;
     }
 
     // mine blocks until the start of the next reward cycle
