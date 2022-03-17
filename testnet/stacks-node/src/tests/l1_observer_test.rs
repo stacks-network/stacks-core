@@ -209,11 +209,15 @@ fn l1_observer_test() {
 
     // Start bitcoind.
     let mut bitcoin_controller = BitcoinCoreController::new(conf.clone());
-    let _bitcoin_res = bitcoin_controller.start_process().expect("bitcoin controller didn't start");
+    let _bitcoin_res = bitcoin_controller
+        .start_process()
+        .expect("bitcoin controller didn't start");
 
     // Start Stacks L1.
     let mut stacks_controller = StacksMainchainController::new(conf.clone());
-    let _stacks_res = stacks_controller.start_process().expect("stacks l1 controller didn't start");
+    let _stacks_res = stacks_controller
+        .start_process()
+        .expect("stacks l1 controller didn't start");
 
     // Start a run loop.
     let config = super::new_test_conf();
@@ -222,7 +226,7 @@ fn l1_observer_test() {
     thread::spawn(move || run_loop.start(None, 0));
     use std::time::Duration;
 
-    // Sleep to give the 
+    // Sleep to give the
     thread::sleep(Duration::from_millis(30000));
 
     // The burnchain should have registered what the listener recorded.

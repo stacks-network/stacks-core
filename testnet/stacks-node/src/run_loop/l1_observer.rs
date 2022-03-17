@@ -2,6 +2,8 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::burnchains::mock_events::MockChannels;
+use crate::burnchains::mock_events::MOCK_EVENTS_STREAM;
 use stacks::burnchains::events::NewBlock;
 use stacks::types::chainstate::StacksBlockId;
 use std::thread;
@@ -9,11 +11,9 @@ use std::thread::JoinHandle;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tokio::sync::oneshot::Sender;
+use tokio::task::JoinError;
 use warp;
 use warp::Filter;
-use tokio::task::JoinError;
-use crate::burnchains::mock_events::MockChannels;
-use crate::burnchains::mock_events::MOCK_EVENTS_STREAM;
 
 pub const EVENT_OBSERVER_PORT: u16 = 50303;
 

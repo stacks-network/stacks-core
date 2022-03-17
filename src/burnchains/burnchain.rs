@@ -181,7 +181,10 @@ impl Burnchain {
                 PEER_VERSION_MAINNET,
             ),
             (_, _) => {
-                warn!("Burnchain parameters not supported. chain_name: {}, network_name: {}", &chain_name, &network_name);
+                warn!(
+                    "Burnchain parameters not supported. chain_name: {}, network_name: {}",
+                    &chain_name, &network_name
+                );
                 return Err(burnchain_error::UnsupportedBurnchain);
             }
         };
