@@ -29,6 +29,7 @@ pub enum SubprocessError {
 
 type SubprocessResult<T> = Result<T, SubprocessError>;
 
+/// In charge of running `bitcoind`.
 pub struct BitcoinCoreController {
     sub_process: Option<Child>,
     config: Config,
@@ -112,6 +113,7 @@ impl BitcoinCoreController {
     }
 }
 
+/// In charge of running L1 `stacks-node`.
 pub struct StacksMainchainController {
     sub_process: Option<Child>,
     config: Config,
