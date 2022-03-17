@@ -22,24 +22,6 @@ use stacks::vm::costs::ExecutionCost;
 use std::env;
 use std::io::{BufRead, BufReader};
 
-macro_rules! info_blue {
-    ($($arg:tt)*) => ({
-        eprintln!("\x1b[0;96m{}\x1b[0m", format!($($arg)*));
-    })
-}
-
-#[allow(unused_macros)]
-macro_rules! info_yellow {
-    ($($arg:tt)*) => ({
-        eprintln!("\x1b[0;33m{}\x1b[0m", format!($($arg)*));
-    })
-}
-
-macro_rules! info_green {
-    ($($arg:tt)*) => ({
-        eprintln!("\x1b[0;32m{}\x1b[0m", format!($($arg)*));
-    })
-}
 #[derive(std::fmt::Debug)]
 pub enum SubprocessError {
     SpawnFailed(String),
@@ -146,8 +128,6 @@ impl StacksMainchainController {
     }
 
     pub fn start_process(&mut self) -> SubprocessResult<()> {
-        //        std::fs::create_dir_all(&self.config.get_burnchain_path_str()).unwrap();
-
         let base_dir = env::var("STACKS_BASE_DIR").expect("couldn't read STACKS_BASE_DIR");
         let bin_file = format!("{}/target/release/stacks-node", &base_dir);
         let toml_file = format!(
@@ -161,14 +141,14 @@ impl StacksMainchainController {
             .arg("start")
             .arg("--config=".to_owned() + &toml_file);
 
-        eprintln!("stacks-node mainchain spawn: {:?}", command);
+        info!("stacks-node mainchain spawn: {:?}", command);
 
         let mut process = match command.spawn() {
             Ok(child) => child,
             Err(e) => return Err(SubprocessError::SpawnFailed(format!("{:?}", e))),
         };
 
-        eprintln!("stacks-node mainchain spawned, waiting for startup");
+        info!("stacks-node mainchain spawned, waiting for startup");
         let mut out_reader = BufReader::new(process.stdout.take().unwrap());
 
         let mut line = String::new();
@@ -182,7 +162,7 @@ impl StacksMainchainController {
             break;
         }
 
-        eprintln!("bitcoind startup finished");
+        info!("bitcoind startup finished");
 
         self.sub_process = Some(process);
         self.out_reader = Some(out_reader);
@@ -222,7 +202,6 @@ fn l1_observer_test() {
         "{}/testnet/stacks-node/conf/mocknet-miner-conf.toml",
         &base_dir
     );
-
     let toml_content = ConfigFile::from_path(&toml_file);
     let conf = Config::from_config_file(toml_content);
 
@@ -234,21 +213,22 @@ fn l1_observer_test() {
     let mut stacks_controller = StacksMainchainController::new(conf.clone());
     let _stacks_res = stacks_controller.start_process().expect("stacks l1 controller didn't start");
 
+    // Start a run loop.
     let config = super::new_test_conf();
     let mut run_loop = neon::RunLoop::new(config.clone());
-
     let channel = run_loop.get_coordinator_channel().unwrap();
     thread::spawn(move || run_loop.start(None, 0));
     use std::time::Duration;
 
+    // Sleep to give the 
     thread::sleep(Duration::from_millis(30000));
 
+    // The burnchain should have registered what the listener recorded.
     let burnchain = Burnchain::new(&config.get_burn_db_path(), "mockstack", "hyperchain").unwrap();
     let (_, burndb) = burnchain.open_db(true).unwrap();
     let tip = burndb
         .get_canonical_chain_tip()
         .expect("couldn't get chain tip");
-
     info!("burnblock chain tip is {:?}", &tip);
 
     // Ensure that the tip height has moved beyond height 0.
@@ -256,7 +236,6 @@ fn l1_observer_test() {
     assert!(tip.block_height > 3);
 
     channel.stop_chains_coordinator();
-
     bitcoin_controller.kill_process();
     stacks_controller.kill_process();
 }
