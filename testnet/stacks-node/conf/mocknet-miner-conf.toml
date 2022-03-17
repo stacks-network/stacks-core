@@ -27,3 +27,8 @@ amount = 100000000000000
 [[ustx_balance]]
 address = "STSTW15D618BSZQB85R058DS46THH86YQQY6XCB7"
 amount = 100000000000000
+
+[[events_observer]]
+endpoint = "localhost:50303"
+retry_count = 255
+events_keys = ["*"]

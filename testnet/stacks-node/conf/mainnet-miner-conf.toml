@@ -1,5 +1,4 @@
 [node]
-# working_dir = "/dir/to/save/chainstate"
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 seed = "<YOUR_SEED>"

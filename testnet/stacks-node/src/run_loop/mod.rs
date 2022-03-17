@@ -80,7 +80,7 @@ impl RunLoopCallbacks {
         chain_tip: &ChainTip,
     ) {
         info_blue!(
-            "Burnchain block #{} ({}) was produced with sortition #{}",
+            "main: Burnchain block #{} ({}) was produced with sortition #{}",
             burnchain_tip.block_snapshot.block_height,
             burnchain_tip.block_snapshot.burn_header_hash,
             burnchain_tip.block_snapshot.sortition_hash
@@ -100,7 +100,7 @@ impl RunLoopCallbacks {
         burn_dbconn: &dyn BurnStateDB,
     ) {
         info_green!(
-            "Stacks block #{} ({}) successfully produced, including {} transactions",
+            "main: Stacks block #{} ({}) successfully produced, including {} transactions",
             chain_tip.metadata.stacks_block_height,
             chain_tip.metadata.index_block_hash(),
             chain_tip.block.txs.len()
