@@ -69,7 +69,7 @@ use util_lib::db::DBConn;
 use util_lib::db::DBTx;
 use util_lib::db::Error as db_error;
 
-use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
+use crate::types::chainstate::BurnchainHeaderHash;
 use chainstate::stacks::address::StacksAddressExtensions;
 
 impl BurnchainStateTransition {
@@ -206,40 +206,6 @@ impl Burnchain {
         self.network_id == NETWORK_ID_MAINNET
     }
 
-    /// the expected sunset burn is:
-    ///   total_commit * (progress through sunset phase) / (sunset phase duration)
-    pub fn expected_sunset_burn(&self, burn_height: u64, total_commit: u64) -> u64 {
-        if burn_height < self.pox_constants.sunset_start
-            || burn_height >= self.pox_constants.sunset_end
-        {
-            return 0;
-        }
-
-        // no sunset burn needed in prepare phase -- it's already getting burnt
-        if self.is_in_prepare_phase(burn_height) {
-            return 0;
-        }
-
-        let reward_cycle_height = self.reward_cycle_to_block_height(
-            self.block_height_to_reward_cycle(burn_height)
-                .expect("BUG: Sunset start is less than first_block_height"),
-        );
-
-        if reward_cycle_height <= self.pox_constants.sunset_start {
-            return 0;
-        }
-
-        let sunset_duration =
-            (self.pox_constants.sunset_end - self.pox_constants.sunset_start) as u128;
-        let sunset_progress = (reward_cycle_height - self.pox_constants.sunset_start) as u128;
-
-        // use u128 to avoid any possibilities of overflowing in the calculation here.
-        let expected_u128 = (total_commit as u128) * (sunset_progress) / sunset_duration;
-        u64::try_from(expected_u128)
-            // should never be possible, because sunset_burn is <= total_commit, which is a u64
-            .expect("Overflowed u64 in calculating expected sunset_burn")
-    }
-
     pub fn is_reward_cycle_start(&self, burn_height: u64) -> bool {
         let effective_height = burn_height - self.first_block_height;
         // first block of the new reward cycle
@@ -260,23 +226,6 @@ impl Burnchain {
             (block_height - self.first_block_height)
                 / (self.pox_constants.reward_cycle_length as u64),
         )
-    }
-
-    pub fn is_in_prepare_phase(&self, block_height: u64) -> bool {
-        if block_height <= self.first_block_height {
-            // not a reward cycle start if we're the first block after genesis.
-            false
-        } else {
-            let effective_height = block_height - self.first_block_height;
-            let reward_index = effective_height % (self.pox_constants.reward_cycle_length as u64);
-
-            // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
-            // prepare phase.
-            reward_index == 0
-                || reward_index
-                    > ((self.pox_constants.reward_cycle_length - self.pox_constants.prepare_length)
-                        as u64)
-        }
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
