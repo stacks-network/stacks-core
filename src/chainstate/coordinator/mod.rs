@@ -1113,14 +1113,6 @@ impl<
                     if !veto_passed {
                         info!("RCPR: cc: veto did not pass for {}", curr_exit_proposal);
                         current_exit_at_rc = Some(curr_exit_proposal);
-                    } else {
-                        info!("RCPR: cc: storing veto info for {}", curr_exit_proposal);
-                        // record the veto in invalid_reward_cycles
-                        let sortdb_tx = self
-                            .sortition_db
-                            .tx_handle_begin(&canonical_sortition_tip)?;
-                        invalid_reward_cycles.push(curr_exit_proposal);
-                        sortdb_tx.commit()?;
                     }
                 } else {
                     // tally votes of previous reward cycle if there is no veto happening
