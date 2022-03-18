@@ -35,10 +35,7 @@ use vm::eval;
 use vm::representations::SymbolicExpression;
 use vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use vm::types::Value::Response;
-use vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
-};
+use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value, NONE, BuffData};
 
 use crate::{
     burnchains::PoxConstants,
@@ -56,8 +53,11 @@ use util_lib::boot::boot_code_id;
 
 use clarity_vm::clarity::Error as ClarityError;
 use core::PEER_VERSION_EPOCH_1_0;
+use clarity::vm::types::{StacksAddressExtensions, SequenceData};
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
+
+const DUMMY_CODE_SUBNETS: &'static str = std::include_str!("subnets.clar");
 
 lazy_static! {
     static ref FIRST_INDEX_BLOCK_HASH: StacksBlockId = StacksBlockHeader::make_index_block_hash(
@@ -67,6 +67,7 @@ lazy_static! {
     static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
     static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
+    static ref DUMMY_SUBNETS_CONTRACT_ID: QualifiedContractIdentifier = QualifiedContractIdentifier::local("subnets").unwrap();
     static ref USER_KEYS: Vec<StacksPrivateKey> =
         (0..50).map(|_| StacksPrivateKey::new()).collect();
     static ref POX_ADDRS: Vec<Value> = (0..50u64)
@@ -1513,6 +1514,110 @@ fn test_vote_too_many_confirms() {
             .unwrap()
             .0,
             Value::error(Value::Int(17)).unwrap()
+        );
+    });
+}
+
+
+#[test]
+fn test_commit_block() {
+    let mut sim = ClarityTestSim::new();
+
+    let privk = StacksPrivateKey::from_hex(
+        "510f96a8efd0b11e211733c1ac5e3fa6f3d3fcdd62869e376c47decb3e14fea101",
+    )
+        .unwrap();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk)],
+    )
+        .unwrap();
+    // Corresponds to 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP
+    let principal = addr.to_account_principal();
+
+    // Test committing a block with a valid miner
+    sim.execute_next_block(|env| {
+        env.initialize_contract(DUMMY_SUBNETS_CONTRACT_ID.clone(), &DUMMY_CODE_SUBNETS)
+            .unwrap();
+
+        let block_hash = vec![1;32];
+        let block_hash_val = Value::buff_from(block_hash.clone()).unwrap();
+        assert_eq!(
+            env.execute_transaction(
+                principal.clone(),
+                DUMMY_SUBNETS_CONTRACT_ID.clone(),
+                "commit-block",
+                &symbols_from_values(vec![block_hash_val.clone(), Value::UInt(0)])
+            )
+                .unwrap()
+                .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: block_hash_val.into()
+            })
+        );
+    });
+
+    // Test that trying to commit a block with a previously committed block height fails
+    sim.execute_next_block(|env| {
+        let block_hash = vec![1;32];
+        let block_hash_val = Value::buff_from(block_hash.clone()).unwrap();
+        assert_eq!(
+            env.execute_transaction(
+                principal.clone(),
+                DUMMY_SUBNETS_CONTRACT_ID.clone(),
+                "commit-block",
+                &symbols_from_values(vec![block_hash_val.clone(), Value::UInt(0)])
+            )
+                .unwrap()
+                .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(3).into()
+            })
+        );
+    });
+
+    // Test committing a block with a valid miner again
+    sim.execute_next_block(|env| {
+        let block_hash = vec![2;32];
+        let block_hash_val = Value::buff_from(block_hash.clone()).unwrap();
+        assert_eq!(
+            env.execute_transaction(
+                principal.clone(),
+                DUMMY_SUBNETS_CONTRACT_ID.clone(),
+                "commit-block",
+                &symbols_from_values(vec![block_hash_val.clone(), Value::UInt(2)])
+            )
+                .unwrap()
+                .0,
+            Value::Response(ResponseData {
+                committed: true,
+                data: block_hash_val.into()
+            })
+        );
+
+    });
+
+    // Trying to commit a block from an invalid miner address should fail.
+    sim.execute_next_block(|env| {
+        let block_hash = vec![3;32];
+        let block_hash_val = Value::buff_from(block_hash.clone()).unwrap();
+        assert_eq!(
+            env.execute_transaction(
+                (&USER_KEYS[0]).into(),
+                DUMMY_SUBNETS_CONTRACT_ID.clone(),
+                "commit-block",
+                &symbols_from_values(vec![block_hash_val.clone(), Value::UInt(3)])
+            )
+                .unwrap()
+                .0,
+            Value::Response(ResponseData {
+                committed: false,
+                data: Value::Int(3).into()
+            })
         );
     });
 }
