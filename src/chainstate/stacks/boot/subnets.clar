@@ -8,12 +8,12 @@
 (define-map block-commits uint (buff 32))
 (define-constant miners (list 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP))
 
-;; maps a principal to an optional principal
+;; Helper function: maps a principal to an optional principal
 (define-private (map-to-optional (address principal))
     (some address)
 )
 
-;; if a == b, return none; else return a
+;; Helper function for fold: if a == b, return none; else return b
 (define-private (is-principal-eq (miner-a (optional principal)) (miner-b (optional principal)))
     (if (is-eq miner-a miner-b)
         none
@@ -21,18 +21,18 @@
     )
 )
 
-;; Returns a boolean indicating whether the given principal is in the list of miners
+;; Helper function: returns a boolean indicating whether the given principal is in the list of miners
 (define-private (is-miner (miner principal))
    (let (
         (mapped-miners (map map-to-optional miners))
         (mapped-miner (map-to-optional miner))
-        (is-in-list (fold is-principal-eq mapped-miners mapped-miner))
+        (fold-result (fold is-principal-eq mapped-miners mapped-miner))
    )
-        (is-none is-in-list)
+        (is-none fold-result)
    )
 )
 
-;; Determines whether the commit-block operated can be carried out
+;; Helper function: determines whether the commit-block operation can be carried out
 (define-private (can-commit-block? (block (buff 32)) (commit-block-height uint))
     (begin
         ;; check no block has been committed at this height
@@ -45,7 +45,7 @@
     )
 )
 
-;; Modifies the block-commits map with a new commit and has a print
+;; Helper function: modifies the block-commits map with a new commit and prints related info
 (define-private (inner-commit-block (block (buff 32)) (commit-block-height uint))
     (begin
         (map-set block-commits commit-block-height block)

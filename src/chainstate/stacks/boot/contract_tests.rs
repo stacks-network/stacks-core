@@ -1535,9 +1535,9 @@ fn test_commit_block() {
     )
         .unwrap();
     // Corresponds to 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP
-    let principal = addr.to_account_principal();
+    let miner_principal = addr.to_account_principal();
 
-    // Test committing a block with a valid miner
+    // Test committing a block with a valid miner.
     sim.execute_next_block(|env| {
         env.initialize_contract(DUMMY_SUBNETS_CONTRACT_ID.clone(), &DUMMY_CODE_SUBNETS)
             .unwrap();
@@ -1546,7 +1546,7 @@ fn test_commit_block() {
         let block_hash_val = Value::buff_from(block_hash.clone()).unwrap();
         assert_eq!(
             env.execute_transaction(
-                principal.clone(),
+                miner_principal.clone(),
                 DUMMY_SUBNETS_CONTRACT_ID.clone(),
                 "commit-block",
                 &symbols_from_values(vec![block_hash_val.clone(), Value::UInt(0)])
@@ -1560,13 +1560,13 @@ fn test_commit_block() {
         );
     });
 
-    // Test that trying to commit a block with a previously committed block height fails
+    // Test that trying to commit a block with a previously committed block height fails.
     sim.execute_next_block(|env| {
         let block_hash = vec![1;32];
         let block_hash_val = Value::buff_from(block_hash.clone()).unwrap();
         assert_eq!(
             env.execute_transaction(
-                principal.clone(),
+                miner_principal.clone(),
                 DUMMY_SUBNETS_CONTRACT_ID.clone(),
                 "commit-block",
                 &symbols_from_values(vec![block_hash_val.clone(), Value::UInt(0)])
@@ -1580,13 +1580,13 @@ fn test_commit_block() {
         );
     });
 
-    // Test committing a block with a valid miner again
+    // Test committing a block with a valid miner again, this time at a new block height.
     sim.execute_next_block(|env| {
         let block_hash = vec![2;32];
         let block_hash_val = Value::buff_from(block_hash.clone()).unwrap();
         assert_eq!(
             env.execute_transaction(
-                principal.clone(),
+                miner_principal.clone(),
                 DUMMY_SUBNETS_CONTRACT_ID.clone(),
                 "commit-block",
                 &symbols_from_values(vec![block_hash_val.clone(), Value::UInt(2)])
