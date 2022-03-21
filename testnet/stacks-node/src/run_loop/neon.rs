@@ -323,7 +323,7 @@ impl RunLoop {
             Some(self.should_keep_running.clone()),
         );
 
-        // Invoke connect() to perform any db instantiation early
+        // Invoke connect() to perform any db instantiation and migration early
         if let Err(e) = burnchain_controller.connect_dbs() {
             error!("Failed to connect to burnchain databases: {}", e);
             panic!();
