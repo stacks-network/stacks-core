@@ -393,7 +393,7 @@ impl PoxConstants {
         PoxConstants::new(
             8,
             2,
-            1,
+            2,
             3333333333333333,
             1,
             BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
