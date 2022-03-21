@@ -128,10 +128,7 @@ fn get_schema_version(conn: &Connection) -> u64 {
 
 /// Migrate the MARF database to the currently-supported schema.
 /// Returns the version of the DB prior to the migration.
-pub fn migrate_tables_if_needed<T: MarfTrieId>(
-    conn: &mut Connection,
-    mut blobs: Option<&mut TrieFile>,
-) -> Result<u64, Error> {
+pub fn migrate_tables_if_needed<T: MarfTrieId>(conn: &mut Connection) -> Result<u64, Error> {
     let first_version = get_schema_version(conn);
     loop {
         let version = get_schema_version(conn);
@@ -143,19 +140,10 @@ pub fn migrate_tables_if_needed<T: MarfTrieId>(
                 let tx = tx_begin_immediate(conn)?;
                 tx.execute_batch(SQL_MARF_DATA_TABLE_SCHEMA_2)?;
                 tx.commit()?;
-
-                // move blobs to external file
-                if let Some(ref mut file) = blobs.as_mut() {
-                    file.export_trie_blobs::<T>(conn)?;
-
-                    debug!("Deleting old trie blobs from MARF");
-                    let tx = tx_begin_immediate(conn)?;
-                    tx.execute("UPDATE marf_data SET data = ''", NO_PARAMS)?;
-                    tx.commit()?;
-                }
             }
             x if x == SQL_MARF_SCHEMA_VERSION => {
                 // done
+                debug!("Migrated MARF data to schema {}", &SQL_MARF_SCHEMA_VERSION);
                 break;
             }
             x => {

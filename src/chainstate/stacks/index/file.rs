@@ -128,6 +128,15 @@ impl TrieFile {
         }
     }
 
+    /// Get a copy of the path to this TrieFile.
+    /// If in RAM, then the path will be ":memory:"
+    pub fn get_path(&self) -> String {
+        match self {
+            TrieFile::RAM(_) => ":memory:".to_string(),
+            TrieFile::Disk(ref disk) => disk.path.clone(),
+        }
+    }
+
     /// Instantiate a TrieFile, given the associated DB path.
     /// If path is ':memory:', then it'll be an in-RAM TrieFile.
     /// Otherwise, it'll be stored as `$db_path.blobs`.
@@ -179,7 +188,11 @@ impl TrieFile {
     /// Copy the trie blobs out of a sqlite3 DB into their own file
     pub fn export_trie_blobs<T: MarfTrieId>(&mut self, db: &Connection) -> Result<(), Error> {
         let max_block = trie_sql::count_blocks(db)?;
-        info!("Migrate {} blocks to external blob storage", max_block);
+        info!(
+            "Migrate {} blocks to external blob storage at {}",
+            max_block,
+            &self.get_path()
+        );
         for block_id in 0..(max_block + 1) {
             match trie_sql::is_unconfirmed_block(db, block_id) {
                 Ok(true) => {

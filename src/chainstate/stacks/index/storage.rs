@@ -1440,7 +1440,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             None
         };
 
-        let prev_schema_version = trie_sql::migrate_tables_if_needed::<T>(&mut db, blobs.as_mut())?;
+        let prev_schema_version = trie_sql::migrate_tables_if_needed::<T>(&mut db)?;
         if prev_schema_version != trie_sql::SQL_MARF_SCHEMA_VERSION || marf_opts.force_db_migrate {
             if let Some(blobs) = blobs.as_mut() {
                 if TrieFile::exists(&db_path)? {
