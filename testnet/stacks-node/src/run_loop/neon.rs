@@ -323,6 +323,12 @@ impl RunLoop {
             Some(self.should_keep_running.clone()),
         );
 
+        // Invoke connect() to perform any db instantiation early
+        if let Err(e) = burnchain_controller.connect_dbs() {
+            error!("Failed to connect to burnchain databases: {}", e);
+            panic!();
+        };
+
         let burnchain_config = burnchain_controller.get_burnchain();
         let epochs = burnchain_controller.get_stacks_epochs();
         if !check_chainstate_db_versions(
@@ -364,12 +370,6 @@ impl RunLoop {
                 error!("Burnchain controller stopped: {}", e);
                 panic!();
             }
-        };
-
-        // Invoke connect() to perform any db instantiation early
-        if let Err(e) = burnchain_controller.connect_dbs() {
-            error!("Failed to connect to burnchain databases: {}", e);
-            panic!();
         };
 
         // TODO (hack) instantiate the sortdb in the burnchain
