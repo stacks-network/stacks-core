@@ -586,92 +586,43 @@ impl EventDispatcher {
             for event in receipt.events.iter() {
                 match event {
                     StacksTransactionEvent::SmartContractEvent(event_data) => {
-                        if let Some(observer_indexes) =
-                            self.contract_events_observers_lookup.get(&event_data.key)
-                        {
-                            for o_i in observer_indexes {
-                                if self.registered_observers[*o_i as usize].include_data_events {
-                                    dispatch_matrix[*o_i as usize].insert(i);
-                                }
-                            }
-                            for o_i in &self.any_event_observers_lookup {
-                                if self.registered_observers[*o_i as usize].include_data_events {
-                                    dispatch_matrix[*o_i as usize].insert(i);
-                                }
+                        for o_i in &self.any_event_observers_lookup {
+                            if self.registered_observers[*o_i as usize].include_data_events {
+                                dispatch_matrix[*o_i as usize].insert(i);
                             }
                         }
                     }
                     StacksTransactionEvent::DataEvent(DataEventType::VarSetEvent(event_data)) => {
-                        if let Some(observer_indexes) = self
-                            .contract_events_observers_lookup
-                            .get(&(event_data.contract_identifier.clone(), "var".into()))
-                        {
-                            for o_i in observer_indexes {
-                                if self.registered_observers[*o_i as usize].include_data_events {
-                                    dispatch_matrix[*o_i as usize].insert(i);
-                                }
-                            }
-                            for o_i in &self.any_event_observers_lookup {
-                                if self.registered_observers[*o_i as usize].include_data_events {
-                                    dispatch_matrix[*o_i as usize].insert(i);
-                                }
+                        for o_i in &self.any_event_observers_lookup {
+                            if self.registered_observers[*o_i as usize].include_data_events {
+                                dispatch_matrix[*o_i as usize].insert(i);
                             }
                         }
                     }
                     StacksTransactionEvent::DataEvent(DataEventType::MapInsertEvent(
                         event_data,
                     )) => {
-                        if let Some(observer_indexes) = self
-                            .contract_events_observers_lookup
-                            .get(&(event_data.contract_identifier.clone(), "map".into()))
-                        {
-                            for o_i in observer_indexes {
-                                if self.registered_observers[*o_i as usize].include_data_events {
-                                    dispatch_matrix[*o_i as usize].insert(i);
-                                }
-                            }
-                            for o_i in &self.any_event_observers_lookup {
-                                if self.registered_observers[*o_i as usize].include_data_events {
-                                    dispatch_matrix[*o_i as usize].insert(i);
-                                }
+                        for o_i in &self.any_event_observers_lookup {
+                            if self.registered_observers[*o_i as usize].include_data_events {
+                                dispatch_matrix[*o_i as usize].insert(i);
                             }
                         }
                     }
                     StacksTransactionEvent::DataEvent(DataEventType::MapUpdateEvent(
                         event_data,
                     )) => {
-                        if let Some(observer_indexes) = self
-                            .contract_events_observers_lookup
-                            .get(&(event_data.contract_identifier.clone(), "map".into()))
-                        {
-                            for o_i in observer_indexes {
-                                if self.registered_observers[*o_i as usize].include_data_events {
-                                    dispatch_matrix[*o_i as usize].insert(i);
-                                }
-                            }
-                            for o_i in &self.any_event_observers_lookup {
-                                if self.registered_observers[*o_i as usize].include_data_events {
-                                    dispatch_matrix[*o_i as usize].insert(i);
-                                }
+                        for o_i in &self.any_event_observers_lookup {
+                            if self.registered_observers[*o_i as usize].include_data_events {
+                                dispatch_matrix[*o_i as usize].insert(i);
                             }
                         }
                     }
                     StacksTransactionEvent::DataEvent(DataEventType::MapDeleteEvent(
                         event_data,
                     )) => {
-                        if let Some(observer_indexes) = self
-                            .contract_events_observers_lookup
-                            .get(&(event_data.contract_identifier.clone(), "map".into()))
-                        {
-                            for o_i in observer_indexes {
-                                if self.registered_observers[*o_i as usize].include_data_events {
-                                    dispatch_matrix[*o_i as usize].insert(i);
-                                }
-                            }
-                            for o_i in &self.any_event_observers_lookup {
-                                if self.registered_observers[*o_i as usize].include_data_events {
-                                    dispatch_matrix[*o_i as usize].insert(i);
-                                }
+                        for o_i in &self.any_event_observers_lookup {
+                            if self.registered_observers[*o_i as usize].include_data_events {
+                                dispatch_matrix[*o_i as usize].insert(i);
                             }
                         }
                     }
