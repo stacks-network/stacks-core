@@ -1293,14 +1293,33 @@ impl<'a> SortitionHandleTx<'a> {
             }
 
             // step back to the parent
-            let parent_sortition_id = SortitionDB::get_block_commit_parent_sortition_id(
+            match SortitionDB::get_block_commit_parent_sortition_id(
                 self.tx(),
                 &sn.winning_block_txid,
                 &sn.sortition_id,
-            )?
-            .expect("CORRUPTION: winning block commit for snapshot not found");
-            sn = SortitionDB::get_block_snapshot(self.tx(), &parent_sortition_id)?
-                .ok_or_else(|| db_error::NotFoundError)?;
+            )? {
+                Some(parent_sortition_id) => {
+                    // we have the block_commit parent memoization data
+                    test_debug!(
+                        "Parent sortition of {} memoized as {}",
+                        &sn.winning_block_txid,
+                        &parent_sortition_id
+                    );
+                    sn = SortitionDB::get_block_snapshot(self.tx(), &parent_sortition_id)?
+                        .ok_or_else(|| db_error::NotFoundError)?;
+                }
+                None => {
+                    // we do not have the block_commit parent memoization data
+                    // step back to the parent
+                    test_debug!("No parent sortition memo for {}", &sn.winning_block_txid);
+                    let block_commit =
+                        get_block_commit_by_txid(&self.tx(), &sn.winning_block_txid)?
+                            .expect("CORRUPTION: winning block commit for snapshot not found");
+                    sn = self
+                        .get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
+                        .ok_or_else(|| db_error::NotFoundError)?;
+                }
+            }
         }
         return Ok(false);
     }
@@ -2388,7 +2407,9 @@ impl SortitionDB {
     }
 
     /// Get the Sortition ID for the burnchain block containing `txid`'s parent.
-    /// `txid` is the burnchain txid of a block-commit
+    /// `txid` is the burnchain txid of a block-commit.
+    /// Because the block_commit_parents table is not populated on schema migration, the returned
+    /// value may be NULL (and this is okay).
     pub fn get_block_commit_parent_sortition_id(
         conn: &Connection,
         txid: &Txid,
@@ -2467,132 +2488,15 @@ impl SortitionDB {
         Ok(())
     }
 
-    fn apply_schema_3(tx: &mut SortitionHandleTx) -> Result<(), db_error> {
-        // fill in block_commit_parents table
-        info!("Migrating sortition database schema from v2 to v3: populating block-commit parents (this might take a while)");
-
-        let tip_sn = SortitionDB::get_canonical_burn_chain_tip(tx.deref())?;
-        let max_height = tip_sn.block_height;
-        let min_height = SortitionDB::get_first_block_snapshot(tx.deref())?.block_height;
-
-        for height in min_height..(max_height + 1) {
-            // load up the block-commits in this sortition history at this height
-            let ancestor_sn = match tx.get_block_snapshot_by_height(height)? {
-                Some(sn) => sn,
-                None => {
-                    if height == tip_sn.block_height {
-                        tip_sn.clone()
-                    } else {
-                        panic!(
-                            "FATAL: missing sortition in burnchain database at height {}",
-                            height
-                        );
-                    }
-                }
-            };
-            let commits: Vec<LeaderBlockCommitOp> = {
-                let qry = "SELECT * FROM block_commits WHERE block_height = ?1 AND sortition_id = ?2 ORDER BY vtxindex ASC";
-                let args: &[&dyn ToSql] = &[
-                    &u64_to_sql(ancestor_sn.block_height)?,
-                    &ancestor_sn.sortition_id,
-                ];
-                query_rows(tx, qry, args)?
-            };
-
-            test_debug!(
-                "commits at {} ({}): {:?}",
-                &height,
-                &ancestor_sn.sortition_id,
-                &commits
-            );
-
-            let mut already_done = false;
-            for commit in commits.iter() {
-                // if there's a burnchain fork, we can just skip this if it's already processed
-                if let Ok(Some(_)) = SortitionDB::get_block_commit_parent_sortition_id(
-                    tx,
-                    &commit.txid,
-                    &ancestor_sn.sortition_id,
-                ) {
-                    already_done = true;
-                    break;
-                }
-            }
-
-            if already_done {
-                test_debug!("already populated commit parents at {}", height);
-                continue;
-            }
-
-            for commit in commits.into_iter() {
-                let parent_sortition_id =
-                    if commit.parent_block_ptr == 0 && commit.parent_vtxindex == 0 {
-                        // first-ever commit
-                        SortitionId([0x00; 32])
-                    } else {
-                        let parent_sortition_id_opt = tx
-                            .get_block_snapshot_by_height(commit.parent_block_ptr as u64)?
-                            .map(|parent_commit_sn| parent_commit_sn.sortition_id);
-
-                        if cfg!(test) {
-                            parent_sortition_id_opt.unwrap_or(SortitionId([0x00; 32]))
-                        } else {
-                            // should never happen in prod -- we never insert a block commit whose
-                            // parent will not have had a sortition (since they all get rejected in the
-                            // .check() method of LeaderBlockCommitOp).
-                            parent_sortition_id_opt
-                                .expect("FATAL: block commit inserted with no snapshot")
-                        }
-                    };
-
-                test_debug!(
-                    "parent sortition id of {:?} is {}",
-                    &commit,
-                    &parent_sortition_id
-                );
-                let args: &[&dyn ToSql] = &[
-                    &commit.txid,
-                    &ancestor_sn.sortition_id,
-                    &parent_sortition_id,
-                ];
-                tx.execute("INSERT INTO block_commit_parents (block_commit_txid,block_commit_sortition_id,parent_sortition_id) VALUES (?1,?2,?3)", args)?;
-            }
+    fn apply_schema_3(tx: &SortitionDBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_3 {
+            tx.execute_batch(sql_exec)?;
         }
-
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
             &["3"],
         )?;
-
         Ok(())
-    }
-
-    /// Find all fork tips -- i.e. the canonical snapshot sortition ID, plus any sortition ID that
-    /// corresponds to a non-canonical fork.  These will have multiple sortition IDs at the same
-    /// block height.
-    fn find_fork_tips(conn: &Connection) -> Result<Vec<SortitionId>, db_error> {
-        let max_height = SortitionDB::get_canonical_burn_chain_tip(conn)?.block_height;
-        let min_height = SortitionDB::get_first_block_snapshot(conn)?.block_height;
-        let mut tips = vec![];
-        for height in min_height..(max_height + 1) {
-            let qry = "SELECT sortition_id FROM snapshots WHERE block_height = ?1";
-            let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
-            let mut fork_tips: Vec<SortitionId> = query_rows(conn, qry, args)?;
-            if fork_tips.len() > 1 {
-                tips.append(&mut fork_tips);
-            }
-        }
-
-        // remove duplicates
-        let tipset: HashSet<SortitionId> = tips.into_iter().collect();
-        let mut tips: Vec<SortitionId> = tipset.into_iter().collect();
-
-        // the canonical sortition ID is always a fork tip. Do it first.
-        let tip = SortitionDB::get_canonical_burn_chain_tip(conn)?;
-        if !tips.contains(&tip.sortition_id) {
-            tips.insert(0, tip.sortition_id);
-        }
-        Ok(tips)
     }
 
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
@@ -2623,21 +2527,10 @@ impl SortitionDB {
                         SortitionDB::apply_schema_2(&tx, epochs)?;
                         tx.commit()?;
                     } else if version == "2" {
-                        let fork_tips = SortitionDB::find_fork_tips(self.conn())?;
-
-                        // add the tables of schema 3
+                        // add the tables of schema 3, but do not populate them.
                         let tx = self.tx_begin()?;
-                        for sql_exec in SORTITION_DB_SCHEMA_3 {
-                            tx.execute_batch(sql_exec)?;
-                        }
+                        SortitionDB::apply_schema_3(&tx)?;
                         tx.commit()?;
-
-                        // fill the tables of schema 3
-                        for fork_tip in fork_tips.into_iter() {
-                            let mut sort_tx = SortitionHandleTx::begin(self, &fork_tip)?;
-                            SortitionDB::apply_schema_3(&mut sort_tx)?;
-                            sort_tx.commit()?;
-                        }
                     } else if version == expected_version {
                         return Ok(());
                     } else {
@@ -4563,238 +4456,6 @@ pub mod tests {
             .expect("Database should have an epoch entry");
 
         assert!(SortitionDB::open(&db_path_dir, true).is_ok());
-    }
-
-    #[test]
-    fn test_v1_to_v3_migration() {
-        let mut rng = rand::thread_rng();
-        let mut buf = [0u8; 32];
-        rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
-
-        let first_block_height = 123;
-        let first_burn_hash = BurnchainHeaderHash::from_hex(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-
-        // create a v1 sortition DB
-        let mut db = SortitionDB::connect_v1(
-            &db_path_dir,
-            first_block_height,
-            &first_burn_hash,
-            get_epoch_time_secs(),
-            true,
-        )
-        .unwrap();
-
-        let first_sn = SortitionDB::get_first_block_snapshot(&db.conn()).unwrap();
-
-        // convert to v2
-        {
-            let sort_tx = db.tx_begin().unwrap();
-            SortitionDB::apply_schema_2(&sort_tx, &StacksEpoch::unit_test_2_05(first_block_height))
-                .unwrap();
-            sort_tx.commit().unwrap();
-        }
-
-        let leader_block_commit_template = LeaderBlockCommitOp {
-            sunset_burn: 0,
-            block_header_hash: BlockHeaderHash([0x00; 32]),
-            new_seed: VRFSeed([0x00; 32]),
-            parent_block_ptr: 0,
-            parent_vtxindex: 0,
-            key_block_ptr: 0,
-            key_vtxindex: 0,
-            memo: vec![0],
-
-            commit_outs: vec![],
-            burn_fee: 12345,
-            input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
-                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
-                )
-                .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
-
-            txid: Txid([0x00; 32]),
-            vtxindex: 0,
-            block_height: 0,
-            burn_parent_modulus: 0,
-            burn_header_hash: BurnchainHeaderHash([0x00; 32]),
-        };
-
-        // fill in some forked sortitions
-        let mut fork_point = None;
-        let mut fork_1 = vec![];
-        let mut fork_2 = vec![];
-
-        let mut fork_1_commits = vec![];
-        let mut fork_2_commits = vec![];
-
-        for i in 0..5 {
-            let burn_header_hash = BurnchainHeaderHash([(i + 1) as u8; 32]);
-            let mut next_commit = leader_block_commit_template.clone();
-
-            next_commit.burn_header_hash = burn_header_hash.clone();
-            next_commit.block_height = (1 + first_block_height as u64) + (i as u64);
-            next_commit.vtxindex = 1;
-            next_commit.burn_parent_modulus =
-                ((next_commit.block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8;
-
-            next_commit.parent_block_ptr = (next_commit.block_height - 1) as u32;
-            next_commit.parent_vtxindex = 1;
-
-            next_commit.block_header_hash = BlockHeaderHash([(i + 1) as u8; 32]);
-            next_commit.new_seed = VRFSeed([(i + 1) as u8; 32]);
-
-            let sn = test_append_snapshot_with_winner(
-                &mut db,
-                burn_header_hash,
-                &vec![BlockstackOperationType::LeaderBlockCommit(
-                    next_commit.clone(),
-                )],
-                None,
-                Some(next_commit.clone()),
-            );
-            if i == 2 {
-                let mut fork_sn = sn.clone();
-                fork_sn.consensus_hash = ConsensusHash([0xff; 20]);
-                fork_point = Some(fork_sn);
-            }
-
-            fork_1.push(sn.clone());
-            fork_1_commits.push(next_commit.clone());
-
-            if i <= 2 {
-                fork_2.push(sn);
-                fork_2_commits.push(next_commit.clone());
-            }
-        }
-
-        // no fork tips yet besides the canonical tip
-        let fork_tips = SortitionDB::find_fork_tips(db.conn()).unwrap();
-        assert_eq!(fork_tips.len(), 1);
-        assert_eq!(
-            fork_tips[0],
-            SortitionDB::get_canonical_burn_chain_tip(db.conn())
-                .unwrap()
-                .sortition_id
-        );
-
-        // make the fork
-        for i in 3..5 {
-            let burn_header_hash = BurnchainHeaderHash([(i + 1 + 128) as u8; 32]);
-            let mut next_commit = leader_block_commit_template.clone();
-
-            next_commit.burn_header_hash = burn_header_hash.clone();
-            next_commit.block_height = (1 + first_block_height as u64) + (i as u64);
-            next_commit.vtxindex = 1;
-            next_commit.burn_parent_modulus =
-                ((next_commit.block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8;
-
-            next_commit.parent_block_ptr = (next_commit.block_height - 1) as u32;
-            next_commit.parent_vtxindex = 1;
-
-            next_commit.block_header_hash = BlockHeaderHash([(i + 1 + 128) as u8; 32]);
-            next_commit.new_seed = VRFSeed([(i + 1 + 128) as u8; 32]);
-
-            let sn = test_append_snapshot_with_winner(
-                &mut db,
-                burn_header_hash,
-                &vec![BlockstackOperationType::LeaderBlockCommit(
-                    next_commit.clone(),
-                )],
-                fork_point,
-                Some(next_commit.clone()),
-            );
-            fork_point = Some(sn.clone());
-
-            fork_2.push(sn);
-            fork_2_commits.push(next_commit.clone());
-        }
-
-        let fork_tips = SortitionDB::find_fork_tips(db.conn()).unwrap();
-        eprintln!("{:?}", &fork_tips);
-
-        // heights 3 and 4 have multiple sortition IDs
-        assert_eq!(fork_tips.len(), 4);
-
-        let mut fork_tips_1 = vec![];
-        let mut fork_tips_2 = vec![];
-
-        for fork_sn in &fork_1[3..5] {
-            assert!(fork_tips.contains(&fork_sn.sortition_id));
-            fork_tips_1.push(fork_sn.sortition_id.clone());
-        }
-        for fork_sn in &fork_2[3..5] {
-            assert!(fork_tips.contains(&fork_sn.sortition_id));
-            fork_tips_2.push(fork_sn.sortition_id.clone());
-        }
-
-        {
-            let tx = db.tx_begin().unwrap();
-            for sql_exec in SORTITION_DB_SCHEMA_3 {
-                tx.execute_batch(sql_exec).unwrap();
-            }
-            tx.commit().unwrap();
-        }
-
-        // fix up commits in fork 1, but not fork 2
-        for fork_tip in fork_tips_1.into_iter() {
-            test_debug!("Apply schema 3 for sortition ID {}", &fork_tip);
-            let mut sort_tx = SortitionHandleTx::begin(&mut db, &fork_tip).unwrap();
-            SortitionDB::apply_schema_3(&mut sort_tx).unwrap();
-            sort_tx.commit().unwrap();
-        }
-
-        // have parent commit data for fork_1's commits, but not fork 2
-        // skip commit 0, since it has no parent.
-        for (sn, block_commit) in fork_1[0..].iter().zip(fork_1_commits[0..].iter()) {
-            test_debug!(
-                "check {:?}, expect {}",
-                &block_commit,
-                &sn.parent_sortition_id
-            );
-            if block_commit.parent_block_ptr != 0 && block_commit.parent_vtxindex != 0 {
-                assert_eq!(
-                    SortitionDB::get_block_commit_parent_sortition_id(
-                        db.conn(),
-                        &block_commit.txid,
-                        &sn.sortition_id
-                    )
-                    .unwrap(),
-                    Some(sn.parent_sortition_id)
-                );
-            }
-        }
-        for (sn, block_commit) in fork_2[3..5].iter().zip(fork_2_commits[3..5].iter()) {
-            assert!(SortitionDB::get_block_commit_parent_sortition_id(
-                db.conn(),
-                &block_commit.txid,
-                &sn.sortition_id
-            )
-            .unwrap()
-            .is_none());
-        }
-
-        // common ancestor between fork 1 and fork 2
-        for (sn, block_commit) in fork_1[1..3].iter().zip(fork_2_commits[1..3].iter()) {
-            if block_commit.parent_block_ptr != 0 && block_commit.parent_vtxindex != 0 {
-                assert_eq!(
-                    SortitionDB::get_block_commit_parent_sortition_id(
-                        db.conn(),
-                        &block_commit.txid,
-                        &sn.sortition_id
-                    )
-                    .unwrap(),
-                    Some(sn.parent_sortition_id)
-                );
-            }
-        }
     }
 
     #[test]
@@ -8127,68 +7788,86 @@ pub mod tests {
             None
         );
 
-        {
-            let mut db_tx =
-                SortitionHandleTx::begin(&mut db, &third_block_commit_snapshot.sortition_id)
+        for i in 0..2 {
+            // do this battery of tests twice -- once with the block commit parent descendancy
+            // information, and once without.
+            if i == 0 {
+                debug!("Test descended_from with block_commit_parents");
+            } else {
+                debug!("Test descended_from without block_commit_parents");
+            }
+            {
+                let mut db_tx =
+                    SortitionHandleTx::begin(&mut db, &third_block_commit_snapshot.sortition_id)
+                        .unwrap();
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_1.block_height,
+                        &block_commit_1.block_header_hash
+                    )
+                    .unwrap());
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_1.block_height,
+                        &genesis_block_commit.block_header_hash
+                    )
+                    .unwrap());
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_2.block_height,
+                        &genesis_block_commit.block_header_hash
+                    )
+                    .unwrap());
+
+                assert!(!db_tx
+                    .descended_from(
+                        block_commit_2.block_height,
+                        &block_commit_1.block_header_hash
+                    )
+                    .unwrap());
+
+                // not possible, since block_commit_1 predates block_commit_2
+                assert!(!db_tx
+                    .descended_from(
+                        block_commit_1.block_height,
+                        &block_commit_2.block_header_hash
+                    )
+                    .unwrap());
+            }
+            {
+                let mut db_tx =
+                    SortitionHandleTx::begin(&mut db, &third_block_commit_snapshot.sortition_id)
+                        .unwrap();
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_1_1.block_height,
+                        &block_commit_1.block_header_hash
+                    )
+                    .unwrap());
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_1.block_height,
+                        &genesis_block_commit.block_header_hash
+                    )
+                    .unwrap());
+
+                // transitively...
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_1_1.block_height,
+                        &genesis_block_commit.block_header_hash
+                    )
+                    .unwrap());
+            }
+
+            // drop descendancy information
+            {
+                let mut db_tx = db.tx_begin().unwrap();
+                db_tx
+                    .execute("DELETE FROM block_commit_parents", NO_PARAMS)
                     .unwrap();
-            assert!(db_tx
-                .descended_from(
-                    block_commit_1.block_height,
-                    &block_commit_1.block_header_hash
-                )
-                .unwrap());
-            assert!(db_tx
-                .descended_from(
-                    block_commit_1.block_height,
-                    &genesis_block_commit.block_header_hash
-                )
-                .unwrap());
-            assert!(db_tx
-                .descended_from(
-                    block_commit_2.block_height,
-                    &genesis_block_commit.block_header_hash
-                )
-                .unwrap());
-
-            assert!(!db_tx
-                .descended_from(
-                    block_commit_2.block_height,
-                    &block_commit_1.block_header_hash
-                )
-                .unwrap());
-
-            // not possible, since block_commit_1 predates block_commit_2
-            assert!(!db_tx
-                .descended_from(
-                    block_commit_1.block_height,
-                    &block_commit_2.block_header_hash
-                )
-                .unwrap());
-        }
-        {
-            let mut db_tx =
-                SortitionHandleTx::begin(&mut db, &third_block_commit_snapshot.sortition_id)
-                    .unwrap();
-            assert!(db_tx
-                .descended_from(
-                    block_commit_1_1.block_height,
-                    &block_commit_1.block_header_hash
-                )
-                .unwrap());
-            assert!(db_tx
-                .descended_from(
-                    block_commit_1.block_height,
-                    &genesis_block_commit.block_header_hash
-                )
-                .unwrap());
-
-            // transitively...
-            assert!(db_tx
-                .descended_from(
-                    block_commit_1_1.block_height,
-                    &genesis_block_commit.block_header_hash
-                )
-                .unwrap());
+                db_tx.commit().unwrap();
+            }
         }
     }
 }
