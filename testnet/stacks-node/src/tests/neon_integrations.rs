@@ -5537,7 +5537,7 @@ fn atlas_integration_test() {
 
         // From there, let's mine these transaction, and build more blocks.
         let mut sort_height = channel.get_sortitions_processed();
-        let few_blocks = sort_height + 5;
+        let few_blocks = sort_height + 10;
 
         while sort_height < few_blocks {
             next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -5559,7 +5559,7 @@ fn atlas_integration_test() {
 
         // From there, let's mine these transaction, and build more blocks.
         let mut sort_height = channel.get_sortitions_processed();
-        let few_blocks = sort_height + 5;
+        let few_blocks = sort_height + 10;
 
         while sort_height < few_blocks {
             next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -5570,7 +5570,7 @@ fn atlas_integration_test() {
         // Poll GET v2/attachments/<attachment-hash>
         for i in 1..10 {
             let mut attachments_did_sync = false;
-            let mut timeout = 120;
+            let mut timeout = 60;
             while attachments_did_sync != true {
                 let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
                 let hashed_zonefile = Hash160::from_data(&zonefile_hex);
@@ -5592,7 +5592,7 @@ fn atlas_integration_test() {
                 } else {
                     timeout -= 1;
                     if timeout == 0 {
-                        panic!("Failed syncing 9 attachments between 2 neon runloops within 60s - Something is wrong");
+                        panic!("Failed syncing 9 attachments between 2 neon runloops within 60s (failed at {}) - Something is wrong", &to_hex(&zonefile_hex));
                     }
                     eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
                     thread::sleep(Duration::from_millis(1000));
@@ -5686,7 +5686,7 @@ fn atlas_integration_test() {
     // We want to make sure that the miner is able to
     // 1) mine these transactions
     // 2) retrieve the attachments staged on the follower node.
-    // 3) ensure that the follower is also instanciating the attachments after
+    // 3) ensure that the follower is also instantiating the attachments after
     // executing the transactions, once mined.
     let namespace = "passport";
     for i in 1..10 {
@@ -5771,7 +5771,7 @@ fn atlas_integration_test() {
             } else {
                 timeout -= 1;
                 if timeout == 0 {
-                    panic!("Failed syncing 9 attachments between 2 neon runloops within 60s - Something is wrong");
+                    panic!("Failed syncing 9 attachments between 2 neon runloops within 60s (failed at {}) - Something is wrong", &to_hex(&zonefile_hex));
                 }
                 eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
                 thread::sleep(Duration::from_millis(1000));
