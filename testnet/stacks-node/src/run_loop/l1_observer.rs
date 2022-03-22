@@ -20,10 +20,7 @@ pub const EVENT_OBSERVER_PORT: u16 = 50303;
 async fn handle_new_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
     let parsed_block: NewBlock =
         serde_json::from_str(&block.to_string()).expect("Failed to parse events JSON");
-    info!(
-        "handle_new_block receives new block {:?}",
-        &parsed_block.short_string()
-    );
+    info!("handle_new_block receives new block {:?}", &parsed_block);
     MOCK_EVENTS_STREAM.push_block(parsed_block);
     Ok(warp::http::StatusCode::OK)
 }

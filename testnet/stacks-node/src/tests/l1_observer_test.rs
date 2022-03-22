@@ -2,12 +2,11 @@ use std;
 use std::process::{Child, Command, Stdio};
 use std::thread;
 
-use stacks::burnchains::Burnchain;
 use crate::neon;
+use stacks::burnchains::Burnchain;
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::time::Duration;
-
 
 #[derive(std::fmt::Debug)]
 pub enum SubprocessError {

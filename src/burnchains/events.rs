@@ -1,4 +1,5 @@
 use std::convert::TryInto;
+use std::fmt::Formatter;
 
 use burnchains::Txid;
 use serde::de::Error as DeserError;
@@ -52,7 +53,7 @@ pub struct NewBlockTxEvent {
 
 /// Parsing struct for the new block events of the `stacks-node`
 /// events API
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone)]
 pub struct NewBlock {
     pub block_height: u64,
     pub burn_block_time: u64,
@@ -63,11 +64,12 @@ pub struct NewBlock {
     pub events: Vec<NewBlockTxEvent>,
 }
 
-impl NewBlock {
+impl std::fmt::Debug for NewBlock {
     /// Shortened debug string, for logging.
-    pub fn short_string(&self) -> String {
-        format!(
-            "NewBlock(hash={:?}, parent_hash={:?}, block_height={}, num_events={}",
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "NewBlock(hash={:?}, parent_hash={:?}, block_height={}, num_events={})",
             &self.index_block_hash,
             &self.parent_index_block_hash,
             self.block_height,
@@ -75,6 +77,7 @@ impl NewBlock {
         )
     }
 }
+
 /// Method for deserializing a ClarityValue from the `raw_value` field of contract
 /// transaction events.
 fn deser_clarity_value<'de, D>(deser: D) -> Result<ClarityValue, D::Error>

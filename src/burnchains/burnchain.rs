@@ -180,6 +180,11 @@ impl Burnchain {
                 PoxConstants::mainnet_default(),
                 PEER_VERSION_MAINNET,
             ),
+            ("stacks_layer_1", "hyperchain") => (
+                BurnchainParameters::hyperchain_mocknet(),
+                PoxConstants::mainnet_default(),
+                PEER_VERSION_MAINNET,
+            ),
             (_, _) => {
                 warn!(
                     "Burnchain parameters not supported. chain_name: {}, network_name: {}",
