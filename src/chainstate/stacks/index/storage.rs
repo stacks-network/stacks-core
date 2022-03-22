@@ -1456,7 +1456,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             blobs.is_some()
         );
 
-        let cache = TrieCache::new(&marf_opts.cache_strategy, &db)?;
+        let cache = TrieCache::new(&marf_opts.cache_strategy);
 
         let ret = TrieFileStorage {
             db_path,
@@ -1530,7 +1530,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
     pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
-        let cache = TrieCache::default(&db)?;
+        let cache = TrieCache::default();
         let blobs = if self.blobs.is_some() {
             Some(TrieFile::from_db_path(&self.db_path, true)?)
         } else {
@@ -1606,7 +1606,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             &self.db_path
         );
 
-        let cache = TrieCache::default(&db)?;
+        let cache = TrieCache::default();
 
         // TODO: borrow self.uncommitted_writes; don't copy them
         let ret = TrieFileStorage {
