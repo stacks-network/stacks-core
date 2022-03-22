@@ -29,6 +29,9 @@ pub use self::mempool::MemPoolDB;
 
 pub mod mempool;
 
+#[cfg(test)]
+pub mod tests;
+
 use std::cmp::Ord;
 use std::cmp::Ordering;
 use std::cmp::PartialOrd;

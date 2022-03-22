@@ -37,6 +37,7 @@ extern crate regex;
 extern crate ripemd160;
 extern crate sha2;
 extern crate sha3;
+extern crate siphasher;
 extern crate time;
 extern crate url;
 

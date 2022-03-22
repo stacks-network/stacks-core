@@ -86,6 +86,15 @@ impl BurnchainController for MocknetController {
         }
     }
 
+    fn get_headers_height(&self) -> u64 {
+        match &self.chain_tip {
+            Some(chain_tip) => chain_tip.block_snapshot.block_height,
+            None => {
+                unreachable!();
+            }
+        }
+    }
+
     fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
         match &self.config.burnchain.epochs {
             Some(epochs) => epochs.clone(),

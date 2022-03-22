@@ -161,11 +161,12 @@ impl LocalPeer {
 
         let addr = addrbytes;
         let port = port;
-        let services = ServiceFlags::RELAY;
+        let services = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
 
         info!(
-            "Will be authenticating p2p messages with public key: {}",
-            Secp256k1PublicKey::from_private(&pkey).to_hex()
+            "Will be authenticating p2p messages with the following";
+            "public key" => &Secp256k1PublicKey::from_private(&pkey).to_hex(),
+            "services" => &to_hex(&(services as u16).to_be_bytes())
         );
 
         LocalPeer {
@@ -322,7 +323,6 @@ const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(slot)
     );"#,
-    "CREATE INDEX peer_address_index ON frontier(network_id,addrbytes,port);",
     r#"
     CREATE TABLE asn4(
         prefix INTEGER NOT NULL,
@@ -357,6 +357,9 @@ const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
         mask INTEGER NOT NULL
     );"#,
 ];
+
+const PEERDB_INDEXES: &'static [&'static str] =
+    &["CREATE INDEX IF NOT EXISTS peer_address_index ON frontier(network_id,addrbytes,port);"];
 
 #[derive(Debug)]
 pub struct PeerDB {
@@ -438,6 +441,16 @@ impl PeerDB {
 
         tx.commit().map_err(db_error::SqliteError)?;
 
+        self.add_indexes()?;
+        Ok(())
+    }
+
+    fn add_indexes(&mut self) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        for row_text in PEERDB_INDEXES {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -469,7 +482,7 @@ impl PeerDB {
     }
 
     fn reset_allows<'a>(tx: &mut Transaction<'a>) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET allowed = -1", NO_PARAMS)
+        tx.execute("UPDATE frontier SET allowed = 0", NO_PARAMS)
             .map_err(db_error::SqliteError)?;
         Ok(())
     }
@@ -586,6 +599,9 @@ impl PeerDB {
 
                 tx.commit()?;
             }
+        }
+        if readwrite {
+            db.add_indexes()?;
         }
         Ok(db)
     }
@@ -1423,7 +1439,10 @@ mod test {
         );
         assert_eq!(local_peer.port, NETWORK_P2P_PORT);
         assert_eq!(local_peer.addrbytes, PeerAddress::from_ipv4(127, 0, 0, 1));
-        assert_eq!(local_peer.services, ServiceFlags::RELAY as u16);
+        assert_eq!(
+            local_peer.services,
+            (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16)
+        );
     }
 
     #[test]
@@ -2301,7 +2320,7 @@ mod test {
         assert_eq!(n1.denied, i64::MAX);
         assert_eq!(n2.denied, 0); // refreshed; no longer denied
 
-        assert_eq!(n1.allowed, -1);
-        assert_eq!(n2.allowed, -1);
+        assert_eq!(n1.allowed, 0);
+        assert_eq!(n2.allowed, 0);
     }
 }

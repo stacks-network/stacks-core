@@ -215,6 +215,7 @@ impl HttpPeer {
     fn register_http(
         &mut self,
         network_state: &mut NetworkState,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         event_id: usize,
         mut socket: mio_net::TcpStream,
@@ -269,7 +270,7 @@ impl HttpPeer {
             }
 
             // prime the socket
-            match HttpPeer::saturate_http_socket(&mut socket, &mut new_convo, chainstate) {
+            match HttpPeer::saturate_http_socket(&mut socket, &mut new_convo, mempool, chainstate) {
                 Ok(_) => {}
                 Err(e) => {
                     let _ = network_state.deregister(event_id, &socket);
@@ -344,11 +345,12 @@ impl HttpPeer {
     pub fn saturate_http_socket(
         client_sock: &mut mio::net::TcpStream,
         convo: &mut ConversationHttp,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
         // saturate the socket
         loop {
-            let send_res = convo.send(client_sock, chainstate);
+            let send_res = convo.send(client_sock, mempool, chainstate);
             match send_res {
                 Err(e) => {
                     debug!("Failed to send data to socket {:?}: {:?}", &client_sock, &e);
@@ -370,6 +372,7 @@ impl HttpPeer {
     fn process_new_sockets(
         &mut self,
         network_state: &mut NetworkState,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         poll_state: &mut NetworkPollState,
     ) -> Result<Vec<usize>, net_error> {
@@ -402,9 +405,15 @@ impl HttpPeer {
                 continue;
             }
 
-            if let Err(_e) =
-                self.register_http(network_state, chainstate, event_id, client_sock, None, None)
-            {
+            if let Err(_e) = self.register_http(
+                network_state,
+                mempool,
+                chainstate,
+                event_id,
+                client_sock,
+                None,
+                None,
+            ) {
                 // NOTE: register_http will deregister the socket for us
                 continue;
             }
@@ -453,8 +462,12 @@ impl HttpPeer {
                             ),
                         ) {
                             Ok(_) => {
-                                match HttpPeer::saturate_http_socket(client_sock, convo, chainstate)
-                                {
+                                match HttpPeer::saturate_http_socket(
+                                    client_sock,
+                                    convo,
+                                    mempool,
+                                    chainstate,
+                                ) {
                                     Ok(_) => {}
                                     Err(e) => {
                                         debug!(
@@ -504,7 +517,7 @@ impl HttpPeer {
         if !convo_dead {
             // (continue) sending out data in this conversation, if the conversation is still
             // ongoing
-            match HttpPeer::saturate_http_socket(client_sock, convo, chainstate) {
+            match HttpPeer::saturate_http_socket(client_sock, convo, mempool, chainstate) {
                 Ok(_) => {}
                 Err(e) => {
                     debug!(
@@ -528,6 +541,7 @@ impl HttpPeer {
     fn process_connecting_sockets(
         &mut self,
         network_state: &mut NetworkState,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         poll_state: &mut NetworkPollState,
     ) -> () {
@@ -535,10 +549,12 @@ impl HttpPeer {
             if self.connecting.contains_key(event_id) {
                 let (socket, data_url, initial_request_opt, _) =
                     self.connecting.remove(event_id).unwrap();
+
                 debug!("HTTP event {} connected ({:?})", event_id, &data_url);
 
                 if let Err(_e) = self.register_http(
                     network_state,
+                    mempool,
                     chainstate,
                     *event_id,
                     socket,
@@ -623,12 +639,16 @@ impl HttpPeer {
     /// Flush outgoing replies, but don't block.
     /// Drop broken handles.
     /// Return the list of conversation event IDs to close (i.e. they're broken, or the request is done)
-    fn flush_conversations(&mut self, chainstate: &mut StacksChainState) -> Vec<usize> {
+    fn flush_conversations(
+        &mut self,
+        mempool: &MemPoolDB,
+        chainstate: &mut StacksChainState,
+    ) -> Vec<usize> {
         let mut close = vec![];
 
         // flush each outgoing conversation
         for (event_id, ref mut convo) in self.peers.iter_mut() {
-            match convo.try_flush(chainstate) {
+            match convo.try_flush(mempool, chainstate) {
                 Ok(_) => {}
                 Err(_e) => {
                     info!("Broken HTTP connection {:?}: {:?}", convo, &_e);
@@ -662,10 +682,10 @@ impl HttpPeer {
         handler_args: &RPCHandlerArgs,
     ) -> Result<Vec<StacksMessageType>, net_error> {
         // set up new inbound conversations
-        self.process_new_sockets(network_state, chainstate, &mut poll_state)?;
+        self.process_new_sockets(network_state, mempool, chainstate, &mut poll_state)?;
 
         // set up connected sockets
-        self.process_connecting_sockets(network_state, chainstate, &mut poll_state);
+        self.process_connecting_sockets(network_state, mempool, chainstate, &mut poll_state);
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
         let (stacks_msgs, error_events) = self.process_ready_sockets(
@@ -682,7 +702,7 @@ impl HttpPeer {
         }
 
         // move conversations along
-        let close_events = self.flush_conversations(chainstate);
+        let close_events = self.flush_conversations(mempool, chainstate);
         for close_event in close_events {
             debug!("Close HTTP connection on event {}", close_event);
             self.deregister_http(network_state, close_event);

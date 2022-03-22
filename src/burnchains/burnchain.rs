@@ -635,6 +635,7 @@ impl Burnchain {
         db_path
     }
 
+    /// Connect to the burnchain databases.  They may or may not already exist.
     pub fn connect_db<I: BurnchainIndexer>(
         &self,
         indexer: &I,
@@ -668,7 +669,7 @@ impl Burnchain {
         Ok((sortitiondb, burnchaindb))
     }
 
-    /// Open the burn database.  It must already exist.
+    /// Open the burn databases.  They must already exist.
     pub fn open_db(&self, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
@@ -1163,6 +1164,37 @@ impl Burnchain {
         Ok((block_snapshot, state_transition_opt))
     }
 
+    /// Get the highest burnchain block processed, if we have processed any.
+    /// Return Some(..) if we have processed at least one processed burnchain block; return None
+    /// otherwise.
+    pub fn get_highest_burnchain_block(
+        &self,
+    ) -> Result<Option<BurnchainBlockHeader>, burnchain_error> {
+        let burndb = match self.open_db(true) {
+            Ok((_sortdb, burndb)) => burndb,
+            Err(burnchain_error::DBError(db_error::NoDBError)) => {
+                // databases not yet initialized, so no blocks processed
+                return Ok(None);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        let burn_chain_tip = match burndb.get_canonical_chain_tip() {
+            Ok(tip) => tip,
+            Err(burnchain_error::MissingParentBlock) => {
+                // database is empty
+                return Ok(None);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        Ok(Some(burn_chain_tip))
+    }
+
     /// Top-level burnchain sync.
     /// Returns the burnchain block header for the new burnchain tip, which will be _at least_ as
     /// high as target_block_height_opt (if given), or whatever is currently at the tip of the
@@ -1264,6 +1296,9 @@ impl Burnchain {
                     start_block + max_blocks
                 );
                 end_block = start_block + max_blocks;
+
+                // make sure we resume at this height next time
+                indexer.drop_headers(end_block.saturating_sub(1))?;
             }
         }
 

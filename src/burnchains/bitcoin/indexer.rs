@@ -386,6 +386,14 @@ impl BitcoinIndexer {
             true,
             false,
         )?;
+        if let Some(last_block) = last_block.as_ref() {
+            // do we need to do anything?
+            let cur_height = spv_client.get_headers_height()?;
+            if *last_block <= cur_height {
+                debug!("SPV client has all headers up to {}", cur_height);
+                return Ok(cur_height);
+            }
+        }
         spv_client
             .run(self)
             .and_then(|_r| Ok(spv_client.end_block_height.unwrap()))

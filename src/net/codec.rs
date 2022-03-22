@@ -59,18 +59,23 @@ use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksBlockHeader;
 use crate::types::StacksPublicKeyBuffer;
 
-// macro for determining how big an inv bitvec can be, given its bitlen
-macro_rules! BITVEC_LEN {
-    ($bitvec:expr) => {
-        (($bitvec) / 8 + if ($bitvec) % 8 > 0 { 1 } else { 0 }) as u32
-    };
-}
-
 impl_stacks_message_codec_for_int!(u8; [0; 1]);
 impl_stacks_message_codec_for_int!(u16; [0; 2]);
 impl_stacks_message_codec_for_int!(u32; [0; 4]);
 impl_stacks_message_codec_for_int!(u64; [0; 8]);
 impl_stacks_message_codec_for_int!(i64; [0; 8]);
+
+impl StacksMessageCodec for [u8; 32] {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        fd.write_all(self).map_err(codec_error::WriteError)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<[u8; 32], codec_error> {
+        let mut buf = [0u8; 32];
+        fd.read_exact(&mut buf).map_err(codec_error::ReadError)?;
+        Ok(buf)
+    }
+}
 
 impl StacksPublicKeyBuffer {
     pub fn from_public_key(pubkey: &Secp256k1PublicKey) -> StacksPublicKeyBuffer {
@@ -758,6 +763,41 @@ impl StacksMessageCodec for NatPunchData {
             port,
             nonce,
         })
+    }
+}
+
+impl StacksMessageCodec for MemPoolSyncData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        match *self {
+            MemPoolSyncData::BloomFilter(ref bloom_filter) => {
+                write_next(fd, &MemPoolSyncDataID::BloomFilter.to_u8())?;
+                write_next(fd, bloom_filter)?;
+            }
+            MemPoolSyncData::TxTags(ref seed, ref tags) => {
+                write_next(fd, &MemPoolSyncDataID::TxTags.to_u8())?;
+                write_next(fd, seed)?;
+                write_next(fd, tags)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<MemPoolSyncData, codec_error> {
+        let data_id: u8 = read_next(fd)?;
+        match MemPoolSyncDataID::from_u8(data_id).ok_or(codec_error::DeserializeError(format!(
+            "Unrecognized MemPoolSyncDataID {}",
+            &data_id
+        )))? {
+            MemPoolSyncDataID::BloomFilter => {
+                let bloom_filter: BloomFilter<BloomNodeHasher> = read_next(fd)?;
+                Ok(MemPoolSyncData::BloomFilter(bloom_filter))
+            }
+            MemPoolSyncDataID::TxTags => {
+                let seed: [u8; 32] = read_next(fd)?;
+                let txtags: Vec<TxTag> = read_next(fd)?;
+                Ok(MemPoolSyncData::TxTags(seed, txtags))
+            }
+        }
     }
 }
 

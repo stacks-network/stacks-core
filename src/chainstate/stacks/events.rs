@@ -62,6 +62,7 @@ pub struct StacksTransactionReceipt {
     pub contract_analysis: Option<ContractAnalysis>,
     pub execution_cost: ExecutionCost,
     pub microblock_header: Option<StacksMicroblockHeader>,
+    pub tx_index: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]

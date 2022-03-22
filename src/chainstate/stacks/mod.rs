@@ -144,12 +144,13 @@ pub enum Error {
     InvalidFee,
     InvalidStacksBlock(String),
     InvalidStacksMicroblock(String, BlockHeaderHash),
+    // The bool is true if the invalid transaction was quietly ignored.
     InvalidStacksTransaction(String, bool),
     /// This error indicates that the considered transaction was skipped
     /// because of the current state of the block assembly algorithm,
     /// but the transaction otherwise may be valid (e.g., block assembly is
     /// only considering STX transfers and this tx isn't a transfer).
-    StacksTransactionSkipped,
+    StacksTransactionSkipped(String),
     PostConditionFailed(String),
     NoSuchBlockError,
     InvalidChainstateDB,
@@ -239,8 +240,12 @@ impl fmt::Display for Error {
             }
             Error::PoxInsufficientBalance => write!(f, "Not enough STX to lock"),
             Error::PoxNoRewardCycle => write!(f, "No such reward cycle"),
-            Error::StacksTransactionSkipped => {
-                write!(f, "Stacks transaction skipped during assembly")
+            Error::StacksTransactionSkipped(ref r) => {
+                write!(
+                    f,
+                    "Stacks transaction skipped during assembly due to: {}",
+                    r
+                )
             }
             Error::DefunctPoxContract => {
                 write!(f, "A defunct PoX contract was called after transition")
@@ -279,7 +284,7 @@ impl error::Error for Error {
             Error::PoxNoRewardCycle => None,
             Error::PoxExtendNotLocked => None,
             Error::DefunctPoxContract => None,
-            Error::StacksTransactionSkipped => None,
+            Error::StacksTransactionSkipped(ref _r) => None,
         }
     }
 }
@@ -314,7 +319,7 @@ impl Error {
             Error::PoxNoRewardCycle => "PoxNoRewardCycle",
             Error::PoxExtendNotLocked => "PoxExtendNotLocked",
             Error::DefunctPoxContract => "DefunctPoxContract",
-            Error::StacksTransactionSkipped => "StacksTransactionSkipped",
+            Error::StacksTransactionSkipped(ref _r) => "StacksTransactionSkipped",
         }
     }
 

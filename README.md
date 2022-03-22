@@ -337,12 +337,14 @@ wait_time_for_microblocks = 10000
 [miner]
 # Smallest allowed tx fee, in microSTX
 min_tx_fee = 100
-# Time to spend on the first attempt to make a block.
+# Time to spend on the first attempt to make a block, in milliseconds.
 # This can be small, so your node gets a block-commit into the Bitcoin mempool early.
-first_attempt_time_ms: 1000
-# Time to spend on subsequent attempts to make a block.
+first_attempt_time_ms = 1000
+# Time to spend on subsequent attempts to make a block, in milliseconds.
 # This can be bigger -- new block-commits will be RBF'ed.
-subsequent_attempt_time_ms: 60000
+subsequent_attempt_time_ms = 60000
+# Time to spend mining a microblock, in milliseconds.
+microblock_attempt_time_ms = 30000
 ```
 
 You can verify that your node is operating as a miner by checking its log output
@@ -361,7 +363,9 @@ Fee and cost estimators can be configure via the config section `[fee_estimation
 ```
 [fee_estimation]
 cost_estimator = naive_pessimistic
-fee_estimator = scalar_fee_rate
+fee_estimator = fuzzed_weighted_median_fee_rate
+fee_rate_fuzzer_fraction = 0.1
+fee_rate_window_size = 5
 cost_metric = proportion_dot_product
 log_error = true
 enabled = true
@@ -377,6 +381,11 @@ observed. Setting `enabled = false` turns off the cost estimators. Cost estimato
 are **not** consensus-critical components, but rather can be used by miners to
 rank transactions in the mempool or client to determine appropriate fee rates
 for transactions before broadcasting them.
+
+The `fuzzed_weighted_median_fee_rate` uses a
+median estimate from a window of the fees paid in the last `fee_rate_window_size` blocks.
+Estimates are then randomly "fuzzed" using uniform random fuzz of size up to
+`fee_rate_fuzzer_fraction` of the base estimate.
 
 ## Non-Consensus Breaking Release Process
 
@@ -395,9 +404,9 @@ discussed in [Versioning](#versioning).  We assume, in this section,
 that the change is not consensus-breaking.  So, the release manager must first
 determine whether there are any "non-consensus-breaking changes that require a
 fresh chainstate". This means, in other words, that the database schema has
-changed. Then, the release manager should determine whether this is a feature
-release, as opposed to a hot fix or a patch. Given the answers to these
-questions, the version number can be computed.
+changed, but an automatic migration was not implemented. Then, the release manager 
+should determine whether this is a feature release, as opposed to a hot fix or a
+patch. Given the answers to these questions, the version number can be computed.
 
 1. The release manager enumerates the PRs or issues that would _block_
    the release. A label should be applied to each such issue/PR as
@@ -429,7 +438,6 @@ is tagged.
    candidate on various staging infrastructure:
 
    1. Stacks Foundation staging environments.
-   1. Hiro PBC regtest network.
    1. Hiro PBC testnet network.
    1. Hiro PBC mainnet mock miner.
 
@@ -454,7 +462,10 @@ is tagged.
 
 1. Once the final release candidate has rolled out successfully without issue on the
    above staging infrastructure, the release manager tags 2 additional `stacks-blockchain`
-   team members to review the `develop -> master` PR.
+   team members to review the `develop -> master` PR. If there is a merge conflict in this
+   PR, this is the protocol: open a branch off of develop, merge master into that branch, 
+   and then open a PR from this side branch to develop. The merge conflicts will be 
+   resolved. 
 
 1. Once reviewed and approved, the release manager merges the PR, and tags the release
    via the [`stacks-blockchain` Github action]((https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml))

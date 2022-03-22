@@ -82,6 +82,7 @@ pub struct UnconfirmedState {
     readonly: bool,
     dirty: bool,
     num_mblocks_added: u64,
+    have_state: bool,
 
     // fault injection for testing
     pub disable_cost_check: bool,
@@ -113,6 +114,7 @@ impl UnconfirmedState {
             readonly: false,
             dirty: false,
             num_mblocks_added: 0,
+            have_state: false,
 
             disable_cost_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_COST_CHECK),
             disable_bytes_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK),
@@ -145,6 +147,7 @@ impl UnconfirmedState {
             readonly: true,
             dirty: false,
             num_mblocks_added: 0,
+            have_state: false,
 
             disable_cost_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_COST_CHECK),
             disable_bytes_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK),
@@ -195,9 +198,14 @@ impl UnconfirmedState {
         let mut new_cost = ExecutionCost::zero();
         let mut new_bytes = 0;
         let mut num_new_mblocks = 0;
+        let mut have_state = self.have_state;
 
         if mblocks.len() > 0 {
             let cur_cost = self.cost_so_far.clone();
+
+            // NOTE: we *must* commit the clarity_tx now that it's begun.
+            // Otherwise, microblock miners can leave the MARF in a partially-initialized state,
+            // leading to a node crash.
             let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
                 db_config,
                 chainstate.db(),
@@ -205,6 +213,9 @@ impl UnconfirmedState {
                 burn_dbconn,
                 &self.confirmed_chain_tip,
             );
+
+            // we must roll this back later
+            have_state = true;
 
             clarity_tx.reset_cost(cur_cost);
 
@@ -225,7 +236,7 @@ impl UnconfirmedState {
                 let mblock_header = mblock.header.clone();
 
                 debug!(
-                    "Apply microblock {} ({}) to unconfirmed state",
+                    "Try to apply microblock {} ({}) to unconfirmed state",
                     &mblock_hash, mblock.header.sequence
                 );
 
@@ -235,12 +246,10 @@ impl UnconfirmedState {
                         &vec![mblock.clone()],
                     ) {
                         Ok(x) => x,
-                        Err((Error::InvalidStacksMicroblock(msg, _), hdr)) => {
-                            warn!("Invalid stacks microblock {}: {}", hdr, msg);
-                            continue;
-                        }
                         Err((e, _)) => {
-                            return Err(e);
+                            // absorb the error
+                            warn!("Encountered invalid stacks microblock: {}", &e);
+                            break;
                         }
                     };
 
@@ -277,6 +286,7 @@ impl UnconfirmedState {
         self.cost_so_far = new_cost;
         self.bytes_so_far += new_bytes;
         self.num_mblocks_added += num_new_mblocks;
+        self.have_state = have_state;
 
         // apply injected faults
         if self.disable_cost_check {
@@ -383,12 +393,41 @@ impl UnconfirmedState {
             0
         }
     }
+
+    /// Try returning the unconfirmed chain tip. Only return the tip if the underlying MARF trie
+    /// exists, otherwise return None.
+    pub fn get_unconfirmed_state_if_exists(&mut self) -> Result<Option<StacksBlockId>, String> {
+        if self.is_readable() {
+            let trie_exists = match self
+                .clarity_inst
+                .trie_exists_for_block(&self.unconfirmed_chain_tip)
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    let err_str = format!(
+                        "Failed to load Stacks chain tip; error checking underlying trie: {}",
+                        e
+                    );
+                    warn!("{}", err_str);
+                    return Err(err_str);
+                }
+            };
+
+            if trie_exists {
+                Ok(Some(self.unconfirmed_chain_tip))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl StacksChainState {
     /// Clear the current unconfirmed state
     fn drop_unconfirmed_state(&mut self, mut unconfirmed: UnconfirmedState) {
-        if !unconfirmed.has_data() {
+        if !unconfirmed.have_state {
             debug!(
                 "Dropping empty unconfirmed state off of {} ({})",
                 &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
@@ -555,6 +594,8 @@ mod test {
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
     use core::mempool::*;
+    use core::*;
+    use net::relay::*;
     use net::test::*;
 
     use super::*;
@@ -1027,5 +1068,279 @@ mod test {
                 eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked(), confirmed_recv_balance.amount_unlocked(), &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
             }
         }
+    }
+
+    #[test]
+    fn test_unconfirmed_refresh_invalid_microblock() {
+        let privk = StacksPrivateKey::new();
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&privk)],
+        )
+        .unwrap();
+
+        let initial_balance = 1000000000;
+        let mut peer_config =
+            TestPeerConfig::new("test_unconfirmed_refresh_invalid_microblock", 7004, 7005);
+        peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
+        peer_config.epochs = Some(vec![StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: (i64::MAX) as u64,
+            block_limit: BLOCK_LIMIT_MAINNET_20,
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        }]);
+
+        let mut peer = TestPeer::new(peer_config);
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 5;
+        let num_microblocks = 3;
+        let first_stacks_block_height = {
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+            tip.block_height
+        };
+
+        let mut last_block: Option<StacksBlock> = None;
+        let mut next_nonce = 0;
+        let recv_addr =
+            StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
+        let mut recv_balance = 0;
+
+        for tenure_id in 0..num_blocks {
+            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_pubkeyhash =
+                Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
+
+            // send transactions to the mempool
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+
+            assert_eq!(
+                tip.block_height,
+                first_stacks_block_height + (tenure_id as u64)
+            );
+            if let Some(block) = last_block {
+                assert_eq!(tip.winning_stacks_block_hash, block.block_hash());
+            }
+
+            let mut anchor_size = 0;
+            let mut anchor_cost = ExecutionCost::zero();
+
+            let (burn_ops, stacks_block, _) = peer.make_tenure(
+                |ref mut miner,
+                 ref mut sortdb,
+                 ref mut chainstate,
+                 vrf_proof,
+                 ref parent_opt,
+                 _| {
+                    let parent_tip = match parent_opt {
+                        None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                        Some(block) => {
+                            let ic = sortdb.index_conn();
+                            let snapshot =
+                                SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                                    &ic,
+                                    &tip.sortition_id,
+                                    &block.block_hash(),
+                                )
+                                .unwrap()
+                                .unwrap(); // succeeds because we don't fork
+                            StacksChainState::get_anchored_block_header_info(
+                                chainstate.db(),
+                                &snapshot.consensus_hash,
+                                &snapshot.winning_stacks_block_hash,
+                            )
+                            .unwrap()
+                            .unwrap()
+                        }
+                    };
+
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &parent_tip,
+                        vrf_proof,
+                        tip.total_burn,
+                        microblock_pubkeyhash,
+                    )
+                    .unwrap();
+
+                    let anchored_tx = {
+                        let tx = {
+                            let auth = TransactionAuth::Standard(
+                                TransactionSpendingCondition::new_singlesig_p2pkh(
+                                    StacksPublicKey::from_private(&privk),
+                                )
+                                .unwrap(),
+                            );
+                            let mut tx_stx_transfer = StacksTransaction::new(
+                                TransactionVersion::Testnet,
+                                auth.clone(),
+                                TransactionPayload::TokenTransfer(
+                                    recv_addr.clone().into(),
+                                    1,
+                                    TokenTransferMemo([0u8; 34]),
+                                ),
+                            );
+
+                            tx_stx_transfer.chain_id = 0x80000000;
+                            tx_stx_transfer.post_condition_mode =
+                                TransactionPostConditionMode::Allow;
+                            tx_stx_transfer.set_tx_fee(0);
+                            tx_stx_transfer.set_origin_nonce(next_nonce);
+                            next_nonce += 1;
+                            tx_stx_transfer
+                        };
+
+                        let mut signer = StacksTransactionSigner::new(&tx);
+                        signer.sign_origin(&privk).unwrap();
+
+                        let signed_tx = signer.get_tx().unwrap();
+                        signed_tx
+                    };
+                    // this will be accepted
+                    recv_balance += 1;
+
+                    let coinbase_tx = make_coinbase(miner, tenure_id);
+                    let (anchored_block, anchored_block_size, anchored_block_cost) =
+                        StacksBlockBuilder::make_anchored_block_from_txs(
+                            block_builder,
+                            chainstate,
+                            &sortdb.index_conn(),
+                            vec![coinbase_tx, anchored_tx],
+                        )
+                        .unwrap();
+
+                    anchor_size = anchored_block_size;
+                    anchor_cost = anchored_block_cost;
+                    (anchored_block, vec![])
+                },
+            );
+
+            last_block = Some(stacks_block.clone());
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
+
+            let canonical_tip = StacksBlockHeader::make_index_block_hash(
+                &consensus_hash,
+                &stacks_block.block_hash(),
+            );
+
+            let mut sortdb = peer.sortdb.take().unwrap();
+            let mut inner_node = peer.stacks_node.take().unwrap();
+
+            for i in 0..num_microblocks {
+                Relayer::refresh_unconfirmed(&mut inner_node.chainstate, &mut sortdb);
+
+                let microblock = {
+                    let sort_iconn = sortdb.index_conn();
+                    let mut microblock_builder = StacksMicroblockBuilder::resume_unconfirmed(
+                        &mut inner_node.chainstate,
+                        &sort_iconn,
+                        &anchor_cost,
+                        BlockBuilderSettings::max_value(),
+                    )
+                    .unwrap();
+
+                    // make a valid and then an in invalid microblock
+                    let mut signed_txs = vec![];
+                    let tx = {
+                        let auth = TransactionAuth::Standard(
+                            TransactionSpendingCondition::new_singlesig_p2pkh(
+                                StacksPublicKey::from_private(&privk),
+                            )
+                            .unwrap(),
+                        );
+                        let mut tx_stx_transfer = StacksTransaction::new(
+                            TransactionVersion::Testnet,
+                            auth.clone(),
+                            TransactionPayload::TokenTransfer(
+                                recv_addr.clone().into(),
+                                1,
+                                TokenTransferMemo([0u8; 34]),
+                            ),
+                        );
+
+                        tx_stx_transfer.chain_id = 0x80000000;
+                        tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
+                        tx_stx_transfer.set_tx_fee(0);
+
+                        if tenure_id % 2 == 0 {
+                            // stream has an intermittent bad microblock
+                            if i > 0 {
+                                tx_stx_transfer.set_origin_nonce(next_nonce + i + 1000);
+                            // bad nonce
+                            } else {
+                                tx_stx_transfer.set_origin_nonce(next_nonce);
+                                next_nonce += 1;
+                                recv_balance += 1;
+                            }
+                        } else {
+                            // stream starts with a bad microblock
+                            if i == 0 {
+                                tx_stx_transfer.set_origin_nonce(next_nonce + i + 1000);
+                            // bad nonce
+                            } else {
+                                tx_stx_transfer.set_origin_nonce(next_nonce);
+                            }
+                        }
+
+                        let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+                        signer.sign_origin(&privk).unwrap();
+
+                        let signed_tx = signer.get_tx().unwrap();
+                        signed_tx
+                    };
+
+                    signed_txs.push(tx);
+
+                    let microblock = microblock_builder
+                        .make_next_microblock(signed_txs, &microblock_privkey, vec![], None)
+                        .unwrap();
+                    microblock
+                };
+
+                inner_node
+                    .chainstate
+                    .preprocess_streamed_microblock(
+                        &consensus_hash,
+                        &stacks_block.block_hash(),
+                        &microblock,
+                    )
+                    .unwrap();
+            }
+
+            peer.sortdb = Some(sortdb);
+            peer.stacks_node = Some(inner_node);
+        }
+
+        let (consensus_hash, canonical_block) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+        let canonical_tip =
+            StacksBlockHeader::make_index_block_hash(&consensus_hash, &canonical_block);
+
+        // process microblock stream to generate unconfirmed state
+        let sortdb = peer.sortdb.take().unwrap();
+        peer.chainstate()
+            .reload_unconfirmed_state(&sortdb.index_conn(), canonical_tip.clone())
+            .unwrap();
+
+        let db_recv_balance = peer
+            .chainstate()
+            .with_read_only_unconfirmed_clarity_tx(&sortdb.index_conn(), |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    clarity_db.get_account_stx_balance(&recv_addr.into())
+                })
+            })
+            .unwrap()
+            .unwrap();
+        peer.sortdb = Some(sortdb);
+
+        // all valid txs were processed
+        assert_eq!(db_recv_balance.amount_unlocked, recv_balance);
     }
 }

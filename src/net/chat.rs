@@ -621,6 +621,13 @@ impl ConversationP2P {
         self.burnchain_stable_tip_burn_header_hash.clone()
     }
 
+    /// Does this remote neighbor support the mempool query interface?  It will if it has both
+    /// RELAY and RPC bits set.
+    pub fn supports_mempool_query(peer_services: u16) -> bool {
+        let expected_bits = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
+        (peer_services & expected_bits) == expected_bits
+    }
+
     /// Determine whether or not a given (height, burn_header_hash) pair _disagrees_ with our
     /// burnchain view.  If it does, return true.  If it doesn't (including if the given pair is
     /// simply absent from the chain_view), then return False.
@@ -1127,18 +1134,19 @@ impl ConversationP2P {
             "upgraded"
         };
 
-        debug!(
-            "Handshake from {:?} {} public key {:?} expires at {:?}",
-            &self,
-            _authentic_msg,
-            &to_hex(
+        debug!("Handling handshake";
+             "neighbor" => ?self,
+             "authentic_msg" => &_authentic_msg,
+             "public_key" => &to_hex(
                 &handshake_data
                     .node_public_key
                     .to_public_key()
                     .unwrap()
                     .to_bytes_compressed()
-            ),
-            handshake_data.expire_block_height
+             ),
+             "services" => &to_hex(&handshake_data.services.to_be_bytes()),
+             "expires_block_height" => handshake_data.expire_block_height,
+             "supports_mempool_query" => Self::supports_mempool_query(handshake_data.services),
         );
 
         if updated {

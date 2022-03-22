@@ -1898,11 +1898,14 @@ impl PeerNetwork {
         })
     }
 
-    fn connect_or_send_http_request(
+    /// Send a (non-blocking) HTTP request to a remote peer.
+    /// Returns the event ID on success.
+    pub fn connect_or_send_http_request(
         &mut self,
         data_url: UrlString,
         addr: SocketAddr,
         request: HttpRequestType,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<usize, net_error> {
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
@@ -1919,7 +1922,7 @@ impl PeerNetwork {
                         match http.get_conversation_and_socket(event_id) {
                             (Some(ref mut convo), Some(ref mut socket)) => {
                                 convo.send_request(request)?;
-                                HttpPeer::saturate_http_socket(socket, convo, chainstate)?;
+                                HttpPeer::saturate_http_socket(socket, convo, mempool, chainstate)?;
                                 Ok(event_id)
                             }
                             (_, _) => {
@@ -1944,6 +1947,7 @@ impl PeerNetwork {
         network: &mut PeerNetwork,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         requestables: &mut VecDeque<T>,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Option<(T, usize)> {
         loop {
@@ -1966,6 +1970,7 @@ impl PeerNetwork {
                                 requestable.get_url().clone(),
                                 addr.clone(),
                                 request,
+                                mempool,
                                 chainstate,
                             ) {
                                 Ok(handle) => {
@@ -2007,6 +2012,7 @@ impl PeerNetwork {
     /// Start fetching blocks
     pub fn block_getblocks_begin(
         &mut self,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
@@ -2020,6 +2026,7 @@ impl PeerNetwork {
                             network,
                             &downloader.dns_lookups,
                             keys,
+                            mempool,
                             chainstate,
                         ) {
                             Some((key, handle)) => {
@@ -2053,6 +2060,7 @@ impl PeerNetwork {
     /// Proceed to get microblocks
     pub fn block_getmicroblocks_begin(
         &mut self,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
@@ -2066,6 +2074,7 @@ impl PeerNetwork {
                             network,
                             &downloader.dns_lookups,
                             keys,
+                            mempool,
                             chainstate,
                         ) {
                             Some((key, handle)) => {
@@ -2376,6 +2385,7 @@ impl PeerNetwork {
     pub fn download_blocks(
         &mut self,
         sortdb: &SortitionDB,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         dns_client: &mut DNSClient,
         ibd: bool,
@@ -2477,13 +2487,13 @@ impl PeerNetwork {
                     self.block_dns_lookups_try_finish(dns_client)?;
                 }
                 BlockDownloaderState::GetBlocksBegin => {
-                    self.block_getblocks_begin(chainstate)?;
+                    self.block_getblocks_begin(mempool, chainstate)?;
                 }
                 BlockDownloaderState::GetBlocksFinish => {
                     self.block_getblocks_try_finish()?;
                 }
                 BlockDownloaderState::GetMicroblocksBegin => {
-                    self.block_getmicroblocks_begin(chainstate)?;
+                    self.block_getmicroblocks_begin(mempool, chainstate)?;
                 }
                 BlockDownloaderState::GetMicroblocksFinish => {
                     self.block_getmicroblocks_try_finish()?;
@@ -2869,6 +2879,7 @@ pub mod test {
                         sortdb,
                         chainstate,
                         mempool,
+                        false,
                         None,
                         None,
                     )

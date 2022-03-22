@@ -42,10 +42,7 @@ use chainstate::stacks::{
     Error as ChainstateError, StacksBlock, TransactionPayload,
 };
 use core::StacksEpoch;
-use monitoring::{
-    increment_contract_calls_processed, increment_stx_blocks_processed_counter,
-    update_stacks_tip_height,
-};
+use monitoring::{increment_contract_calls_processed, increment_stx_blocks_processed_counter};
 use net::atlas::{AtlasConfig, AttachmentInstance};
 use util::db::Error as DBError;
 use vm::{
@@ -708,8 +705,6 @@ impl<
 
         let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
         let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
-        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
-        update_stacks_tip_height(stacks_tip.canonical_stacks_tip_height as i64);
 
         while let Some(block_result) = processed_blocks.pop() {
             if let (Some(block_receipt), _) = block_result {

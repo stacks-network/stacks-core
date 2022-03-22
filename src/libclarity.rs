@@ -28,7 +28,6 @@ extern crate rand_chacha;
 extern crate rusqlite;
 extern crate secp256k1;
 extern crate serde;
-extern crate tini;
 #[macro_use]
 extern crate lazy_static;
 extern crate integer_sqrt;
@@ -38,6 +37,7 @@ extern crate regex;
 extern crate ripemd160;
 extern crate sha2;
 extern crate sha3;
+extern crate siphasher;
 extern crate time;
 extern crate url;
 
