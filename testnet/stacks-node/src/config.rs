@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use rand::RngCore;
 
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
@@ -30,6 +31,8 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 use crate::BurnchainController;
+use crate::burnchains::l1_events::L1Controller;
+use crate::burnchains::mock_events::MockController;
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
@@ -1185,8 +1188,9 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
 }
 
 impl Config {
-    pub fn make_burnchain_controller(&self) -> Box<dyn BurnchainController> {
-        panic!("not imp'd")
+
+    pub fn make_burnchain_controller(&self, coordinator: CoordinatorChannels) -> Option<Box<dyn BurnchainController + Send>> {
+        Some(Box::new(MockController::new(self.clone(), coordinator)))
     }
     pub fn make_cost_estimator(&self) -> Option<Box<dyn CostEstimator>> {
         let cost_estimator: Box<dyn CostEstimator> =

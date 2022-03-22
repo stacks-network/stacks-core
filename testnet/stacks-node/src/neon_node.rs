@@ -811,7 +811,8 @@ fn spawn_miner_relayer(
         Vec<(AssembledAnchorBlock, Secp256k1PrivateKey)>,
     > = HashMap::new();
 
-    let mut bitcoin_controller = MockController::new(config.clone(), coord_comms.clone());
+    let mut bitcoin_controller = config.make_burnchain_controller(coord_comms.clone()).expect("couldn't create burnchain controller");
+    // let mut bitcoin_controller = MockController::new(config.clone(), coord_comms.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
     let mut miner_tip = None; // only set if we won the last sortition
     let mut last_microblock_tenure_time = 0;
@@ -1044,7 +1045,7 @@ fn spawn_miner_relayer(
                         burn_tenure_snapshot,
                         &mut keychain,
                         &mut mem_pool,
-                        &mut bitcoin_controller,
+                        &mut *bitcoin_controller,
                         &last_mined_blocks_vec.iter().map(|(blk, _)| blk).collect(),
                         &event_dispatcher,
                     );
@@ -1502,7 +1503,7 @@ impl StacksNode {
         burn_block: BlockSnapshot,
         keychain: &mut Keychain,
         mem_pool: &mut MemPoolDB,
-        bitcoin_controller: &mut dyn BurnchainController,
+        bitcoin_controller: &mut (dyn BurnchainController + Send),
         last_mined_blocks: &Vec<&AssembledAnchorBlock>,
         event_dispatcher: &EventDispatcher,
     ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey)> {
