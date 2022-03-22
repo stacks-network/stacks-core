@@ -2,11 +2,8 @@ use std;
 use std::process::{Child, Command, Stdio};
 use std::thread;
 
-use crate::Config;
-
 use stacks::burnchains::Burnchain;
 use crate::neon;
-use crate::ConfigFile;
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::time::Duration;
@@ -86,7 +83,7 @@ impl Drop for StacksL1Controller {
     }
 }
 
-/// This test brings up bitcoind, and Stacks-L1, and ensures that our listener can hear and record burn blocks
+/// This test brings up the Stacks-L1 chain in "mocknet" mode, and ensures that our listener can hear and record burn blocks
 /// from the Stacks-L1 chain.
 #[test]
 fn l1_observer_test() {
