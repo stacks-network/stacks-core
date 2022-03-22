@@ -20,17 +20,17 @@ pub enum SubprocessError {
 type SubprocessResult<T> = Result<T, SubprocessError>;
 
 /// In charge of running L1 `stacks-node`.
-pub struct StacksMainchainController {
+pub struct StacksL1Controller {
     sub_process: Option<Child>,
-    config: Config,
+    config_path: String,
     out_reader: Option<BufReader<std::process::ChildStdout>>,
 }
 
-impl StacksMainchainController {
-    pub fn new(config: Config) -> StacksMainchainController {
-        StacksMainchainController {
+impl StacksL1Controller {
+    pub fn new(config_path: String) -> StacksL1Controller {
+        StacksL1Controller {
             sub_process: None,
-            config,
+            config_path,
             out_reader: None,
         }
     }
@@ -38,16 +38,11 @@ impl StacksMainchainController {
     pub fn start_process(&mut self) -> SubprocessResult<()> {
         let base_dir = env::var("STACKS_BASE_DIR").expect("couldn't read STACKS_BASE_DIR");
         let bin_file = format!("{}/target/release/stacks-node", &base_dir);
-        let toml_file = format!(
-            "{}/testnet/stacks-node/conf/mocknet-miner-conf.toml",
-            &base_dir
-        );
-        let toml_content = ConfigFile::from_path(&toml_file);
         let mut command = Command::new(&bin_file);
         command
             .stdout(Stdio::piped())
             .arg("start")
-            .arg("--config=".to_owned() + &toml_file);
+            .arg("--config=".to_owned() + &self.config_path);
 
         info!("stacks-node mainchain spawn: {:?}", command);
 
@@ -85,7 +80,7 @@ impl StacksMainchainController {
     }
 }
 
-impl Drop for StacksMainchainController {
+impl Drop for StacksL1Controller {
     fn drop(&mut self) {
         self.kill_process();
     }
@@ -95,28 +90,20 @@ impl Drop for StacksMainchainController {
 /// from the Stacks-L1 chain.
 #[test]
 fn l1_observer_test() {
-    let base_dir = env::current_dir().expect("couldn't read the path");
-    info!("path: {:?}", &base_dir);
-    let l1_toml_file = format!(
-        "../../contrib/conf/stacks-l1-mocknet.toml", 
-    );
-    info!("l1_toml_file {:?}", &l1_toml_file);
-    let toml_content = ConfigFile::from_path(&l1_toml_file);
-    let conf = Config::from_config_file(toml_content);
-
     // Start Stacks L1.
-    let mut stacks_controller = StacksMainchainController::new(conf.clone());
-    let _stacks_res = stacks_controller
+    let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
+    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string());
+    let _stacks_res = stacks_l1_controller
         .start_process()
         .expect("stacks l1 controller didn't start");
 
-    // Start a run loop.
+    // Start the L2 run loop.
     let config = super::new_test_conf();
     let mut run_loop = neon::RunLoop::new(config.clone());
     let channel = run_loop.get_coordinator_channel().unwrap();
     thread::spawn(move || run_loop.start(None, 0));
 
-    // Sleep to give the
+    // Sleep to give the run loop time to listen to blocks.
     thread::sleep(Duration::from_millis(30000));
 
     // The burnchain should have registered what the listener recorded.
@@ -132,5 +119,5 @@ fn l1_observer_test() {
     assert!(tip.block_height > 3);
 
     channel.stop_chains_coordinator();
-    stacks_controller.kill_process();
+    stacks_l1_controller.kill_process();
 }

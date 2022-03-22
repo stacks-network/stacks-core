@@ -1,11 +1,10 @@
 [node]
 # working_dir = "/dir/to/save/chainstate"
-rpc_bind = "0.0.0.0:20443"
-p2p_bind = "0.0.0.0:20444"
+rpc_bind = "0.0.0.0:30443"
+p2p_bind = "0.0.0.0:30444"
 seed = "0000000000000000000000000000000000000000000000000000000000000000"
 local_peer_seed = "0000000000000000000000000000000000000000000000000000000000000000"
 miner = true
-wait_time_for_microblocks = 10000
 use_test_genesis_chainstate = true
 
 [burnchain]
