@@ -24,7 +24,6 @@ use stacks::{address::AddressHashMode, util::hash::to_hex};
 
 use super::Config;
 
-// mod integrations;
 // mod mempool;
 #[allow(dead_code)]
 pub mod neon_integrations;
@@ -384,6 +383,7 @@ pub fn make_contract_call_mblock_only(
     )
 }
 
+#[allow(dead_code)]
 fn make_microblock(
     privk: &StacksPrivateKey,
     chainstate: &mut StacksChainState,

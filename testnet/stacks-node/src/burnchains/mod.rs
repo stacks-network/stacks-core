@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use stacks::burnchains;
 use stacks::burnchains::Burnchain;
-use stacks::burnchains::BurnchainStateTransition;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
