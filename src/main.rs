@@ -826,7 +826,6 @@ simulating a miner.
         );
         let (mut new_sortition_db, _) = burnchain
             .connect_db(
-                &indexer,
                 true,
                 first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),

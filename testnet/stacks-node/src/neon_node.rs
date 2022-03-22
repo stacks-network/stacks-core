@@ -9,7 +9,7 @@ use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::{thread, thread::JoinHandle};
 
 use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
-use stacks::burnchains::{BurnchainSigner, PoxConstants};
+use stacks::burnchains::BurnchainSigner;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
@@ -630,6 +630,8 @@ fn spawn_peer(
     let mut sync_comms = runloop.get_pox_sync_comms();
     let event_dispatcher = runloop.get_event_dispatcher();
     let should_keep_running = runloop.get_termination_switch();
+    let burnchain = runloop.get_burnchain();
+    let pox_constants = burnchain.pox_constants;
 
     let is_mainnet = config.is_mainnet();
     let burn_db_path = config.get_burn_db_file_path();

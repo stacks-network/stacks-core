@@ -1493,7 +1493,6 @@ impl BurnchainController for BitcoinRegtestController {
     fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
         let burnchain = self.get_burnchain();
         burnchain.connect_db(
-            &self.indexer,
             true,
             self.indexer.get_first_block_header_hash()?,
             self.indexer.get_first_block_header_timestamp()?,

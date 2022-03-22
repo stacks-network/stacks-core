@@ -636,9 +636,8 @@ impl Burnchain {
     }
 
     /// Connect to the burnchain databases.  They may or may not already exist.
-    pub fn connect_db<I: BurnchainIndexer>(
+    pub fn connect_db(
         &self,
-        indexer: &I,
         readwrite: bool,
         first_block_header_hash: BurnchainHeaderHash,
         first_block_header_timestamp: u64,
@@ -959,7 +958,6 @@ impl Burnchain {
     ) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
         self.setup_chainstate(indexer)?;
         let (mut sortdb, mut burnchain_db) = self.connect_db(
-            indexer,
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
@@ -1213,7 +1211,6 @@ impl Burnchain {
     {
         self.setup_chainstate(indexer)?;
         let (_, mut burnchain_db) = self.connect_db(
-            indexer,
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,

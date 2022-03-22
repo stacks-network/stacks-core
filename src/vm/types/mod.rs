@@ -399,7 +399,7 @@ impl SequenceData {
     }
 
     pub fn slice(self, left_position: usize, right_position: usize) -> Result<Value> {
-        let empty_seq = (left_position == right_position);
+        let empty_seq = left_position == right_position;
 
         let result = match self {
             SequenceData::Buffer(data) => {

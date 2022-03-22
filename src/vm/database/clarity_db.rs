@@ -280,7 +280,7 @@ impl BurnStateDB for NullBurnStateDB {
             network_epoch: PEER_VERSION_EPOCH_2_0,
         })
     }
-    fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+    fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         self.get_stacks_epoch(0)
     }
 
