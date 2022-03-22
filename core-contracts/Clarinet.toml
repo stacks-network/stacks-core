@@ -1,0 +1,7 @@
+
+[project]
+name = "core-contracts"
+
+[contracts.subnets]
+path = "../src/chainstate/stacks/boot/subnets.clar"
+depends_on = []
