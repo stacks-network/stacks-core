@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use stacks::burnchains;
 use stacks::burnchains::Burnchain;
-use stacks::burnchains::BurnchainStateTransition;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
@@ -17,6 +16,9 @@ use stacks::core::StacksEpoch;
 /// commitments, and uses them to produce the next simulated
 /// burnchain block.
 pub mod mock_events;
+
+/// This module is for production, it's driven by the L1 chain.
+pub mod l1_events;
 
 #[derive(Debug)]
 pub enum Error {

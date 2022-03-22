@@ -25,22 +25,22 @@ use stacks::vm::Value as ClarityValue;
 
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
-
+use crate::burnchains::mock_events::MockHeader;
 use super::Error;
-use std::{fmt::Write, num::ParseIntError};
+use super::mock_events::BlockIPC;
 
 #[derive(Clone)]
-pub struct MockChannels {
+pub struct L1Channels {
     blocks: Arc<Mutex<Vec<NewBlock>>>,
     minimum_recorded_height: Arc<Mutex<u64>>,
 }
 
-pub struct MockController {
+pub struct L1Controller {
     /// This is the simulated contract identifier
     contract_identifier: QualifiedContractIdentifier,
     burnchain: Option<Burnchain>,
     config: Config,
-    indexer: MockIndexer,
+    indexer: L1Indexer,
 
     db: Option<SortitionDB>,
     burnchain_db: Option<BurnchainDB>,
@@ -55,9 +55,9 @@ pub struct MockController {
     next_commit: Arc<Mutex<Option<BlockHeaderHash>>>,
 }
 
-pub struct MockIndexer {
+pub struct L1Indexer {
     /// This is the channel that new mocked L1 blocks are fed into
-    incoming_channel: MockChannels,
+    incoming_channel: L1Channels,
     /// This is the Layer 1 contract that is watched for hyperchain events.
     watch_contract: QualifiedContractIdentifier,
     blocks: Vec<NewBlock>,
@@ -66,13 +66,13 @@ pub struct MockIndexer {
     minimum_recorded_height: u64,
 }
 
-pub struct MockBlockDownloader {
-    channel: MockChannels,
+pub struct L1BlockDownloader {
+    channel: L1Channels,
 }
 
-impl MockChannels {
-    pub fn empty() -> MockChannels {
-        MockChannels {
+impl L1Channels {
+    pub fn empty() -> L1Channels {
+        L1Channels {
             blocks: Arc::new(Mutex::new(vec![NewBlock {
                 block_height: 0,
                 burn_block_time: 0,
@@ -85,7 +85,7 @@ impl MockChannels {
     }
 }
 lazy_static! {
-    pub static ref MOCK_EVENTS_STREAM: MockChannels = MockChannels::empty();
+    pub static ref MOCK_EVENTS_STREAM: L1Channels = L1Channels::empty();
     static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
     static ref NEXT_COMMIT: Arc<Mutex<Option<BlockHeaderHash>>> = Arc::new(Mutex::new(None));
 }
@@ -100,7 +100,7 @@ fn make_mock_byte_string(from: u64) -> [u8; 32] {
     bytes_1
 }
 
-impl MockChannels {
+impl L1Channels {
     pub fn push_block(&self, new_block: NewBlock) {
         let mut blocks = self.blocks.lock().unwrap();
         blocks.push(new_block)
@@ -158,7 +158,7 @@ impl MockChannels {
     }
 }
 
-impl MockBlockDownloader {
+impl L1BlockDownloader {
     fn fill_blocks(
         &self,
         into: &mut Vec<NewBlock>,
@@ -169,11 +169,11 @@ impl MockBlockDownloader {
     }
 }
 
-impl MockController {
-    pub fn new(config: Config, coordinator: CoordinatorChannels) -> MockController {
+impl L1Controller {
+    pub fn new(config: Config, coordinator: CoordinatorChannels) -> L1Controller {
         let contract_identifier = config.burnchain.contract_identifier.clone();
-        let indexer = MockIndexer::new(contract_identifier.clone());
-        MockController {
+        let indexer = L1Indexer::new(contract_identifier.clone());
+        L1Controller {
             contract_identifier,
             burnchain: None,
             config,
@@ -332,7 +332,7 @@ impl MockController {
     }
 }
 
-impl BurnchainController for MockController {
+impl BurnchainController for L1Controller {
     fn start(
         &mut self,
         target_block_height_opt: Option<u64>,
@@ -471,63 +471,11 @@ impl BurnchainController for MockController {
     }
 }
 
-pub struct MockParser {
+pub struct L1Parser {
     watch_contract: QualifiedContractIdentifier,
 }
 
-#[derive(Clone)]
-pub struct MockHeader {
-    pub height: u64,
-    pub index_hash: StacksBlockId,
-    pub parent_index_hash: StacksBlockId,
-}
-#[derive(Clone)]
-pub struct BlockIPC(pub NewBlock);
-
-impl BurnHeaderIPC for MockHeader {
-    type H = Self;
-
-    fn height(&self) -> u64 {
-        self.height
-    }
-
-    fn header(&self) -> Self::H {
-        self.clone()
-    }
-
-    fn header_hash(&self) -> [u8; 32] {
-        self.index_hash.0.clone()
-    }
-}
-
-impl From<&NewBlock> for MockHeader {
-    fn from(b: &NewBlock) -> Self {
-        MockHeader {
-            index_hash: b.index_block_hash.clone(),
-            parent_index_hash: b.parent_index_block_hash.clone(),
-            height: b.block_height,
-        }
-    }
-}
-
-impl BurnBlockIPC for BlockIPC {
-    type H = MockHeader;
-    type B = NewBlock;
-
-    fn height(&self) -> u64 {
-        self.0.block_height
-    }
-
-    fn header(&self) -> Self::H {
-        MockHeader::from(&self.0)
-    }
-
-    fn block(&self) -> Self::B {
-        self.0.clone()
-    }
-}
-
-impl BurnchainBlockDownloader for MockBlockDownloader {
+impl BurnchainBlockDownloader for L1BlockDownloader {
     type B = BlockIPC;
 
     fn download(&mut self, header: &MockHeader) -> Result<BlockIPC, BurnchainError> {
@@ -540,7 +488,7 @@ impl BurnchainBlockDownloader for MockBlockDownloader {
     }
 }
 
-impl BurnchainBlockParser for MockParser {
+impl BurnchainBlockParser for L1Parser {
     type B = BlockIPC;
 
     fn parse(&mut self, block: &BlockIPC) -> Result<BurnchainBlock, BurnchainError> {
@@ -550,9 +498,9 @@ impl BurnchainBlockParser for MockParser {
     }
 }
 
-impl MockIndexer {
-    pub fn new(watch_contract: QualifiedContractIdentifier) -> MockIndexer {
-        MockIndexer {
+impl L1Indexer {
+    pub fn new(watch_contract: QualifiedContractIdentifier) -> L1Indexer {
+        L1Indexer {
             incoming_channel: MOCK_EVENTS_STREAM.clone(),
             watch_contract,
             blocks: vec![],
@@ -561,10 +509,10 @@ impl MockIndexer {
     }
 }
 
-impl BurnchainIndexer for MockIndexer {
-    type P = MockParser;
+impl BurnchainIndexer for L1Indexer {
+    type P = L1Parser;
     type B = BlockIPC;
-    type D = MockBlockDownloader;
+    type D = L1BlockDownloader;
 
     fn connect(&mut self) -> Result<(), BurnchainError> {
         Ok(())
@@ -661,14 +609,14 @@ impl BurnchainIndexer for MockIndexer {
         Ok(headers)
     }
 
-    fn downloader(&self) -> MockBlockDownloader {
-        MockBlockDownloader {
+    fn downloader(&self) -> L1BlockDownloader {
+        L1BlockDownloader {
             channel: self.incoming_channel.clone(),
         }
     }
 
-    fn parser(&self) -> MockParser {
-        MockParser {
+    fn parser(&self) -> L1Parser {
+        L1Parser {
             watch_contract: self.watch_contract.clone(),
         }
     }

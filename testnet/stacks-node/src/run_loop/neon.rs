@@ -285,10 +285,11 @@ impl RunLoop {
         &mut self,
         _burnchain_opt: Option<Burnchain>,
         coordinator_senders: CoordinatorChannels,
-    ) -> MockController {
+    ) -> Box<dyn BurnchainController> {
         // Initialize and start the burnchain.
-        let mut burnchain_controller =
-            MockController::new(self.config.clone(), coordinator_senders);
+        let mut burnchain_controller = self.config.make_burnchain_controller();
+        // let mut burnchain_controller =
+        //     MockController::new(self.config.clone(), coordinator_senders);
 
         let burnchain_config = burnchain_controller.get_burnchain();
         let epochs = burnchain_controller.get_stacks_epochs();

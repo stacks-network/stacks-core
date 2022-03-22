@@ -29,6 +29,8 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
+use crate::BurnchainController;
+
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
@@ -1183,6 +1185,9 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
 }
 
 impl Config {
+    pub fn make_burnchain_controller(&self) -> Box<dyn BurnchainController> {
+        panic!("not imp'd")
+    }
     pub fn make_cost_estimator(&self) -> Option<Box<dyn CostEstimator>> {
         let cost_estimator: Box<dyn CostEstimator> =
             match self.estimation.cost_estimator.as_ref()? {
