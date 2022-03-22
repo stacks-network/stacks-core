@@ -27,6 +27,7 @@ impl_array_newtype!(StacksPublicKeyBuffer, u8, 33);
 impl_array_hexstring_fmt!(StacksPublicKeyBuffer);
 impl_byte_array_newtype!(StacksPublicKeyBuffer, u8, 33);
 impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
+impl_byte_array_serde!(StacksPublicKeyBuffer);
 
 impl StacksPublicKeyBuffer {
     pub fn from_public_key(pubkey: &Secp256k1PublicKey) -> StacksPublicKeyBuffer {
