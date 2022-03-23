@@ -1,6 +1,5 @@
 use std::convert::Infallible;
 
-use crate::burnchains::mock_events::MOCK_EVENTS_STREAM;
 use stacks::burnchains::events::NewBlock;
 use std::thread;
 use tokio::sync::oneshot;
@@ -16,7 +15,7 @@ async fn handle_new_block(block: serde_json::Value) -> Result<impl warp::Reply, 
     let parsed_block: NewBlock =
         serde_json::from_str(&block.to_string()).expect("Failed to parse events JSON");
     info!("handle_new_block receives new block {:?}", &parsed_block);
-    MOCK_EVENTS_STREAM.push_block(parsed_block);
+    // MOCK_EVENTS_STREAM.push_block(parsed_block);
     Ok(warp::http::StatusCode::OK)
 }
 

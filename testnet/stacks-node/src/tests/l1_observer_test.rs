@@ -95,7 +95,7 @@ fn l1_observer_test() {
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
-    config.burnchain.chain = "mockstack".to_string();
+    config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
     let mut run_loop = neon::RunLoop::new(config.clone());
     let channel = run_loop.get_coordinator_channel().unwrap();

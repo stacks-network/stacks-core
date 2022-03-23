@@ -12,13 +12,14 @@ use stacks::burnchains::indexer::{
 use stacks::burnchains::{
     Burnchain, BurnchainBlock, Error as BurnchainError, StacksHyperBlock, Txid,
 };
+
+use stacks::burnchains;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks::core::StacksEpoch;
 use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
-use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
 use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks::vm::Value as ClarityValue;
@@ -26,8 +27,7 @@ use stacks::vm::Value as ClarityValue;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
 
-use super::Error;
-use std::{fmt::Write, num::ParseIntError};
+use super::{Error, BurnchainChannel};
 
 #[derive(Clone)]
 pub struct MockChannels {
@@ -70,38 +70,29 @@ pub struct MockBlockDownloader {
     channel: MockChannels,
 }
 
-impl MockChannels {
-    pub fn empty() -> MockChannels {
-        MockChannels {
-            blocks: Arc::new(Mutex::new(vec![NewBlock {
-                block_height: 0,
-                burn_block_time: 0,
-                index_block_hash: StacksBlockId(make_mock_byte_string(1)),
-                parent_index_block_hash: StacksBlockId::sentinel(),
-                events: vec![],
-            }])),
-            minimum_recorded_height: Arc::new(Mutex::new(0)),
-        }
-    }
-}
 lazy_static! {
-    pub static ref MOCK_EVENTS_STREAM: MockChannels = MockChannels::empty();
+    static ref MOCK_EVENTS_STREAM: MockChannels = MockChannels {
+        blocks: Arc::new(Mutex::new(vec![NewBlock {
+            block_height: 0,
+            burn_block_time: 0,
+            index_block_hash: StacksBlockId(make_mock_byte_string(0)),
+            parent_index_block_hash: StacksBlockId::sentinel(),
+            events: vec![],
+        }])),
+        minimum_recorded_height: Arc::new(Mutex::new(0)),
+    };
     static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
     static ref NEXT_COMMIT: Arc<Mutex<Option<BlockHeaderHash>>> = Arc::new(Mutex::new(None));
 }
 
-/// This outputs a hard-coded value for the hash of the first block created by the
-/// Stacks L1 chain. For some reason, this seems stable.
 fn make_mock_byte_string(from: u64) -> [u8; 32] {
-    let mut bytes_1 = [0u8; 32];
-    let bytes_vec = hex_bytes("55c9861be5cff984a20ce6d99d4aa65941412889bdc665094136429b84f8c2ee")
-        .expect("hex value problem");
-    bytes_1.copy_from_slice(&bytes_vec[0..32]);
-    bytes_1
+    let mut output = [1; 32];
+    output[0..8].copy_from_slice(&from.to_be_bytes());
+    output
 }
 
-impl MockChannels {
-    pub fn push_block(&self, new_block: NewBlock) {
+impl BurnchainChannel for MockChannels {
+     fn push_block(&self, new_block: NewBlock) {
         let mut blocks = self.blocks.lock().unwrap();
         blocks.push(new_block)
     }
@@ -128,7 +119,7 @@ impl MockChannels {
         into: &mut Vec<NewBlock>,
         start_block: u64,
         end_block: Option<u64>,
-    ) -> Result<(), BurnchainError> {
+    ) -> Result<(), burnchains::Error> {
         let minimum_recorded_height = self.minimum_recorded_height.lock().unwrap();
         let blocks = self.blocks.lock().unwrap();
 
