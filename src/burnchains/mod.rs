@@ -45,7 +45,6 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 
 pub use types::{Address, PrivateKey, PublicKey};
 
-
 pub mod burnchain;
 pub mod db;
 /// Stacks events parser used to construct the L1 hyperchain operations.

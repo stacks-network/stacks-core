@@ -12,6 +12,7 @@ use warp;
 use warp::Filter;
 pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
+/// Adds in `channel` to downstream functions.
 fn with_db(
     channel: Arc<dyn BurnchainChannel + Send + Sync>,
 ) -> impl Filter<
@@ -21,6 +22,7 @@ fn with_db(
     warp::any().map(move || channel.clone())
 }
 
+/// Route handler.
 async fn handle_new_block(
     block: serde_json::Value,
     channel: Arc<dyn BurnchainChannel + Send + Sync>,
@@ -32,6 +34,7 @@ async fn handle_new_block(
     Ok(warp::http::StatusCode::OK)
 }
 
+/// Define and run the `warp` server.
 async fn serve(
     signal_receiver: Receiver<()>,
     channel: Arc<dyn BurnchainChannel + Send + Sync>,
@@ -55,6 +58,7 @@ async fn serve(
     tokio::task::spawn(server).await
 }
 
+/// Spawn a thread with a `warp` server.
 pub fn spawn(channel: Arc<dyn BurnchainChannel + Send + Sync>) -> Sender<()> {
     let (signal_sender, signal_receiver) = oneshot::channel();
     thread::spawn(|| {
