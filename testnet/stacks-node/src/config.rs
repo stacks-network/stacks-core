@@ -1195,9 +1195,7 @@ impl Config {
     ) -> Option<Box<dyn BurnchainController + Send>> {
         match self.burnchain.chain.as_str() {
             "mockstack" => Some(Box::new(MockController::new(self.clone(), coordinator))),
-
             "stacks_layer_1" => Some(Box::new(L1Controller::new(self.clone(), coordinator))),
-
             _ => {
                 warn!(
                     "No matching controller for `chain`: {}",
