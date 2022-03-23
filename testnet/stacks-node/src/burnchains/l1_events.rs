@@ -189,64 +189,6 @@ impl L1Controller {
         }
     }
 
-    /// Produce the next mocked layer-1 block. If `next_commit` is staged,
-    /// this mocked block will contain that commitment.
-    pub fn next_block(&mut self) {
-        let mut next_burn_block = self.next_burn_block.lock().unwrap();
-        let mut next_commit = self.next_commit.lock().unwrap();
-
-        let tx_event = next_commit.take().map(|next_commit| {
-            let mocked_txid = Txid(next_commit.0.clone());
-            let topic = "print".into();
-            let contract_identifier = self.contract_identifier.clone();
-            let value = TupleData::from_data(vec![
-                (
-                    "event".into(),
-                    ClarityValue::string_ascii_from_bytes("block-commit".as_bytes().to_vec())
-                        .unwrap(),
-                ),
-                (
-                    "block-commit".into(),
-                    ClarityValue::buff_from(next_commit.0.to_vec()).unwrap(),
-                ),
-            ])
-            .expect("Should be a legal Clarity tuple")
-            .into();
-
-            let contract_event = Some(ContractEvent {
-                topic,
-                contract_identifier,
-                value,
-            });
-
-            NewBlockTxEvent {
-                txid: mocked_txid,
-                event_index: 0,
-                committed: true,
-                event_type: TxEventType::ContractEvent,
-                contract_event,
-            }
-        });
-
-        let parent_index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block - 1));
-
-        let index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block));
-
-        let new_block = NewBlock {
-            block_height: *next_burn_block,
-            burn_block_time: *next_burn_block,
-            index_block_hash,
-            parent_index_block_hash,
-            events: tx_event.into_iter().collect(),
-        };
-
-        *next_burn_block += 1;
-
-        info!("Layer 1 block mined");
-
-        STATIC_EVENTS_STREAM.push_block(new_block);
-    }
-
     fn receive_blocks(
         &mut self,
         block_for_sortitions: bool,
