@@ -71,7 +71,7 @@ pub trait BurnchainController {
         -> Result<(BurnchainTip, u64), Error>;
 
     /// Returns a copy of the channel used to push
-    fn get_channel(&self) -> Arc<dyn BurnchainChannel>;
+    fn get_channel(&self) -> dyn BurnchainChannel;
 
     fn submit_operation(
         &mut self,
@@ -117,7 +117,7 @@ impl BurnchainController for PanicController {
     ) -> Result<(BurnchainTip, u64), Error> {
         panic!()
     }
-    fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
+    fn get_channel(&self) -> Arc<dyn BurnchainChannel + Sync + Send> {
         panic!("tbd")
     }
 

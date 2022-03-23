@@ -333,8 +333,8 @@ impl BurnchainController for MockController {
             target_block_height_opt.map_or_else(|| Some(1), |x| Some(x)),
         )
     }
-    fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
-        panic!("tbd")
+    fn get_channel(&self) -> Arc<dyn BurnchainChannel + Send + Sync> {
+        MOCK_EVENTS_STREAM.clone()
     }
     fn submit_operation(
         &mut self,

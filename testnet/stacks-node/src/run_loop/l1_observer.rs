@@ -12,7 +12,11 @@ use warp::Filter;
 use crate::burnchains::BurnchainChannel;
 pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
-async fn handle_new_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
+fn with_db(channel: Arc<dyn BurnchainChannel + Send + Sync>) -> impl Filter<Extract = (Arc<dyn BurnchainChannel + Send + Sync>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || channel.clone())
+}
+
+async fn handle_new_block(block: serde_json::Value, channel: Arc<dyn BurnchainChannel + Send + Sync>) -> Result<impl warp::Reply, Infallible> {
     let parsed_block: NewBlock =
         serde_json::from_str(&block.to_string()).expect("Failed to parse events JSON");
     info!("handle_new_block receives new block {:?}", &parsed_block);
@@ -20,10 +24,12 @@ async fn handle_new_block(block: serde_json::Value) -> Result<impl warp::Reply, 
     Ok(warp::http::StatusCode::OK)
 }
 
-async fn serve(signal_receiver: Receiver<()>) -> Result<(), JoinError> {
-    let new_blocks = warp::path!("new_block")
+async fn serve(signal_receiver: Receiver<()>, channel: Arc<dyn BurnchainChannel + Send + Sync>) -> Result<(), JoinError> {
+    let first_part = warp::path!("new_block")
         .and(warp::post())
         .and(warp::body::json())
+        .and(with_db(channel));
+    let new_blocks = first_part
         .and_then(handle_new_block);
 
     info!("Binding warp server.");
@@ -39,11 +45,11 @@ async fn serve(signal_receiver: Receiver<()>) -> Result<(), JoinError> {
     tokio::task::spawn(server).await
 }
 
-pub fn spawn(_channel: Arc<dyn BurnchainChannel>) -> Sender<()> {
+pub fn spawn(channel: Arc<dyn BurnchainChannel + Send + Sync>) -> Sender<()> {
     let (signal_sender, signal_receiver) = oneshot::channel();
     thread::spawn(|| {
         let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
-        rt.block_on(serve(signal_receiver))
+        rt.block_on(serve(signal_receiver, channel))
             .expect("block_on failed");
     });
     signal_sender
