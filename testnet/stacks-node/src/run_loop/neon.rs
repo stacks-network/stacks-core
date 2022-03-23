@@ -520,7 +520,7 @@ impl RunLoop {
         let sortdb = burnchain.sortdb_mut();
         let mut sortition_db_height = RunLoop::get_sortition_db_height(&sortdb, &burnchain_config);
 
-        let l1_observer_signal = l1_observer::spawn();
+        let l1_observer_signal = l1_observer::spawn(burnchain.get_channel());
 
         // Start the runloop
         debug!("Begin run loop");

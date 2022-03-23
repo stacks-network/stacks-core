@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::sync::Arc;
 
 use stacks::burnchains::events::NewBlock;
 use std::thread;
@@ -8,7 +9,7 @@ use tokio::sync::oneshot::Sender;
 use tokio::task::JoinError;
 use warp;
 use warp::Filter;
-
+use crate::burnchains::BurnchainChannel;
 pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
 async fn handle_new_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
@@ -38,7 +39,7 @@ async fn serve(signal_receiver: Receiver<()>) -> Result<(), JoinError> {
     tokio::task::spawn(server).await
 }
 
-pub fn spawn() -> Sender<()> {
+pub fn spawn(_channel: Arc<dyn BurnchainChannel>) -> Sender<()> {
     let (signal_sender, signal_receiver) = oneshot::channel();
     thread::spawn(|| {
         let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");

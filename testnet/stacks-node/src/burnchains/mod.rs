@@ -43,7 +43,7 @@ impl From<burnchains::Error> for Error {
     }
 }
 
-trait BurnchainChannel {
+pub trait BurnchainChannel {
     /// Push a block into the channel.
     fn push_block(&self, new_block: NewBlock);
 
