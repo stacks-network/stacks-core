@@ -105,7 +105,12 @@ fn l1_observer_test() {
     thread::sleep(Duration::from_millis(30000));
 
     // The burnchain should have registered what the listener recorded.
-    let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain, &config.burnchain.mode).unwrap();
+    let burnchain = Burnchain::new(
+        &config.get_burn_db_path(),
+        &config.burnchain.chain,
+        &config.burnchain.mode,
+    )
+    .unwrap();
     let (_, burndb) = burnchain.open_db(true).unwrap();
     let tip = burndb
         .get_canonical_chain_tip()

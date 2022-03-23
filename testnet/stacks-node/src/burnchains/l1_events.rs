@@ -24,7 +24,7 @@ use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks::vm::Value as ClarityValue;
 
 use super::mock_events::BlockIPC;
-use super::{Error, BurnchainChannel};
+use super::{BurnchainChannel, Error};
 use crate::burnchains::mock_events::MockHeader;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
@@ -102,7 +102,7 @@ fn make_mock_byte_string() -> [u8; 32] {
 }
 
 impl BurnchainChannel for L1Channel {
-     fn push_block(&self, new_block: NewBlock) {
+    fn push_block(&self, new_block: NewBlock) {
         let mut blocks = self.blocks.lock().unwrap();
         blocks.push(new_block)
     }

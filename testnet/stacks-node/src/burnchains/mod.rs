@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use stacks::burnchains;
-use stacks::burnchains::Burnchain;
 use stacks::burnchains::events::NewBlock;
+use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
@@ -120,7 +120,6 @@ impl BurnchainController for PanicController {
     fn get_channel(&self) -> Arc<dyn BurnchainChannel + Sync + Send> {
         panic!("tbd")
     }
-
 
     fn submit_operation(
         &mut self,

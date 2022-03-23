@@ -27,7 +27,7 @@ use stacks::vm::Value as ClarityValue;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
 
-use super::{Error, BurnchainChannel};
+use super::{BurnchainChannel, Error};
 
 #[derive(Clone)]
 pub struct MockChannel {
@@ -92,7 +92,7 @@ fn make_mock_byte_string(from: u64) -> [u8; 32] {
 }
 
 impl BurnchainChannel for MockChannel {
-     fn push_block(&self, new_block: NewBlock) {
+    fn push_block(&self, new_block: NewBlock) {
         let mut blocks = self.blocks.lock().unwrap();
         blocks.push(new_block)
     }
