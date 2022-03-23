@@ -291,8 +291,6 @@ impl RunLoop {
             .config
             .make_burnchain_controller(coordinator_senders)
             .expect("couldn't create burnchain controller");
-        // let mut burnchain_controller =
-        //     MockController::new(self.config.clone(), coordinator_senders);
 
         let burnchain_config = burnchain_controller.get_burnchain();
         let epochs = burnchain_controller.get_stacks_epochs();

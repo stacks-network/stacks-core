@@ -95,8 +95,8 @@ fn l1_observer_test() {
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
-    config.burnchain.chain = "stacks_layer_1".to_string();
-    config.burnchain.mode = "mockstack".to_string();
+    config.burnchain.chain = "mockstack".to_string();
+    config.burnchain.mode = "hyperchain".to_string();
     let mut run_loop = neon::RunLoop::new(config.clone());
     let channel = run_loop.get_coordinator_channel().unwrap();
     thread::spawn(move || run_loop.start(None, 0));
@@ -105,7 +105,7 @@ fn l1_observer_test() {
     thread::sleep(Duration::from_millis(30000));
 
     // The burnchain should have registered what the listener recorded.
-    let burnchain = Burnchain::new(&config.get_burn_db_path(), "mockstack", "hyperchain").unwrap();
+    let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain, &config.burnchain.mode).unwrap();
     let (_, burndb) = burnchain.open_db(true).unwrap();
     let tip = burndb
         .get_canonical_chain_tip()

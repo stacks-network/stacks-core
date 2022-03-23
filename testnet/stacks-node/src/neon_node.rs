@@ -814,7 +814,6 @@ fn spawn_miner_relayer(
     let mut bitcoin_controller = config
         .make_burnchain_controller(coord_comms.clone())
         .expect("couldn't create burnchain controller");
-    // let mut bitcoin_controller = MockController::new(config.clone(), coord_comms.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
     let mut miner_tip = None; // only set if we won the last sortition
     let mut last_microblock_tenure_time = 0;
