@@ -57,7 +57,7 @@ pub struct MockController {
 
 pub struct MockIndexer {
     /// This is the channel that new mocked L1 blocks are fed into
-    incoming_channel: MockChannel,
+    incoming_channel: Arc<MockChannel>,
     /// This is the Layer 1 contract that is watched for hyperchain events.
     watch_contract: QualifiedContractIdentifier,
     blocks: Vec<NewBlock>,
@@ -67,11 +67,11 @@ pub struct MockIndexer {
 }
 
 pub struct MockBlockDownloader {
-    channel: MockChannel,
+    channel: Arc<MockChannel>,
 }
 
 lazy_static! {
-    static ref MOCK_EVENTS_STREAM: MockChannel = MockChannel {
+    static ref MOCK_EVENTS_STREAM: Arc<MockChannel> = Arc::new(MockChannel {
         blocks: Arc::new(Mutex::new(vec![NewBlock {
             block_height: 0,
             burn_block_time: 0,
@@ -80,7 +80,7 @@ lazy_static! {
             events: vec![],
         }])),
         minimum_recorded_height: Arc::new(Mutex::new(0)),
-    };
+    });
     static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
     static ref NEXT_COMMIT: Arc<Mutex<Option<BlockHeaderHash>>> = Arc::new(Mutex::new(None));
 }
