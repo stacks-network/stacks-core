@@ -77,7 +77,7 @@ impl L1Channel {
             blocks: Arc::new(Mutex::new(vec![NewBlock {
                 block_height: 0,
                 burn_block_time: 0,
-                index_block_hash: StacksBlockId(make_mock_byte_string()),
+                index_block_hash: StacksBlockId(make_mock_byte_string_for_first_l1_block()),
                 parent_index_block_hash: StacksBlockId::sentinel(),
                 events: vec![],
             }])),
@@ -93,7 +93,7 @@ lazy_static! {
 
 /// This outputs a hard-coded value for the hash of the first block created by the
 /// Stacks L1 chain. For some reason, this seems stable.
-fn make_mock_byte_string() -> [u8; 32] {
+fn make_mock_byte_string_for_first_l1_block() -> [u8; 32] {
     let mut bytes_1 = [0u8; 32];
     let bytes_vec = hex_bytes("55c9861be5cff984a20ce6d99d4aa65941412889bdc665094136429b84f8c2ee")
         .expect("hex value problem");
@@ -468,7 +468,7 @@ impl BurnchainIndexer for L1Indexer {
     }
 
     fn get_first_block_header_hash(&self) -> Result<BurnchainHeaderHash, BurnchainError> {
-        Ok(BurnchainHeaderHash(make_mock_byte_string()))
+        Ok(BurnchainHeaderHash(make_mock_byte_string_for_first_l1_block()))
     }
 
     fn get_first_block_header_timestamp(&self) -> Result<u64, BurnchainError> {
