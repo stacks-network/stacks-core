@@ -30,7 +30,7 @@ use crate::{BurnchainController, BurnchainTip, Config};
 use super::{Error, BurnchainChannel};
 
 #[derive(Clone)]
-pub struct MockChannels {
+pub struct MockChannel {
     blocks: Arc<Mutex<Vec<NewBlock>>>,
     minimum_recorded_height: Arc<Mutex<u64>>,
 }
@@ -57,7 +57,7 @@ pub struct MockController {
 
 pub struct MockIndexer {
     /// This is the channel that new mocked L1 blocks are fed into
-    incoming_channel: MockChannels,
+    incoming_channel: MockChannel,
     /// This is the Layer 1 contract that is watched for hyperchain events.
     watch_contract: QualifiedContractIdentifier,
     blocks: Vec<NewBlock>,
@@ -67,11 +67,11 @@ pub struct MockIndexer {
 }
 
 pub struct MockBlockDownloader {
-    channel: MockChannels,
+    channel: MockChannel,
 }
 
 lazy_static! {
-    static ref MOCK_EVENTS_STREAM: MockChannels = MockChannels {
+    static ref MOCK_EVENTS_STREAM: MockChannel = MockChannel {
         blocks: Arc::new(Mutex::new(vec![NewBlock {
             block_height: 0,
             burn_block_time: 0,
@@ -91,7 +91,7 @@ fn make_mock_byte_string(from: u64) -> [u8; 32] {
     output
 }
 
-impl BurnchainChannel for MockChannels {
+impl BurnchainChannel for MockChannel {
      fn push_block(&self, new_block: NewBlock) {
         let mut blocks = self.blocks.lock().unwrap();
         blocks.push(new_block)
