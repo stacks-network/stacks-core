@@ -13,30 +13,18 @@
 ;;      secret_key: 7287ba251d44a4d3fd9276c88ce34c5c52a038955511cccaf77e61068649c17801
 ;;      btc_address: mr1iPkD9N3RJZZxXRk7xF9d36gffa6exNC
 
-
-;; Helper function: maps a principal to an optional principal
-(define-private (map-to-optional (address principal))
-    (some address)
-)
-
 ;; Helper function for fold: if a == b, return none; else return b
-(define-private (is-principal-eq (miner-a (optional principal)) (miner-b (optional principal)))
-    (if (is-eq miner-a miner-b)
+(define-private (is-principal-eq (miner-a principal) (search-for (optional principal)))
+    (if (is-eq (some miner-a) search-for)
         none
-        miner-b
+        search-for
     )
 )
-
 ;; Helper function: returns a boolean indicating whether the given principal is in the list of miners
 (define-private (is-miner (miner principal))
-   (let (
-        (mapped-miners (map map-to-optional miners))
-        (mapped-miner (map-to-optional miner))
-        (fold-result (fold is-principal-eq mapped-miners mapped-miner))
-   )
+   (let ((fold-result (fold is-principal-eq miners (some miner))))
         (is-none fold-result)
-   )
-)
+   ))
 
 ;; Helper function: determines whether the commit-block operation can be carried out
 (define-private (can-commit-block? (commit-block-height uint))
