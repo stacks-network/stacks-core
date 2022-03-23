@@ -30,7 +30,7 @@ use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
 
 #[derive(Clone)]
-pub struct L1Channels {
+pub struct L1Channel {
     blocks: Arc<Mutex<Vec<NewBlock>>>,
     minimum_recorded_height: Arc<Mutex<u64>>,
 }
@@ -57,7 +57,7 @@ pub struct L1Controller {
 
 pub struct L1Indexer {
     /// This is the channel that new mocked L1 blocks are fed into
-    incoming_channel: L1Channels,
+    incoming_channel: Arc<L1Channel>,
     /// This is the Layer 1 contract that is watched for hyperchain events.
     watch_contract: QualifiedContractIdentifier,
     blocks: Vec<NewBlock>,
@@ -67,16 +67,17 @@ pub struct L1Indexer {
 }
 
 pub struct L1BlockDownloader {
-    channel: L1Channels,
+    channel: Arc<L1Channel>,
 }
 
-impl L1Channels {
-    pub fn empty() -> L1Channels {
-        L1Channels {
+impl L1Channel {
+    /// Creates a channel with a single block with hash from `make_mock_byte_string`.
+    pub fn single_block() -> L1Channel {
+        L1Channel {
             blocks: Arc::new(Mutex::new(vec![NewBlock {
                 block_height: 0,
                 burn_block_time: 0,
-                index_block_hash: StacksBlockId(make_mock_byte_string(1)),
+                index_block_hash: StacksBlockId(make_mock_byte_string()),
                 parent_index_block_hash: StacksBlockId::sentinel(),
                 events: vec![],
             }])),
@@ -85,14 +86,14 @@ impl L1Channels {
     }
 }
 lazy_static! {
-    pub static ref MOCK_EVENTS_STREAM: L1Channels = L1Channels::empty();
+    pub static ref STATIC_EVENTS_STREAM: Arc<L1Channel> = Arc::new(L1Channel::single_block());
     static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
     static ref NEXT_COMMIT: Arc<Mutex<Option<BlockHeaderHash>>> = Arc::new(Mutex::new(None));
 }
 
 /// This outputs a hard-coded value for the hash of the first block created by the
 /// Stacks L1 chain. For some reason, this seems stable.
-fn make_mock_byte_string(from: u64) -> [u8; 32] {
+fn make_mock_byte_string() -> [u8; 32] {
     let mut bytes_1 = [0u8; 32];
     let bytes_vec = hex_bytes("55c9861be5cff984a20ce6d99d4aa65941412889bdc665094136429b84f8c2ee")
         .expect("hex value problem");
@@ -100,8 +101,8 @@ fn make_mock_byte_string(from: u64) -> [u8; 32] {
     bytes_1
 }
 
-impl L1Channels {
-    pub fn push_block(&self, new_block: NewBlock) {
+impl BurnchainChannel for L1Channel {
+     fn push_block(&self, new_block: NewBlock) {
         let mut blocks = self.blocks.lock().unwrap();
         blocks.push(new_block)
     }
@@ -243,7 +244,7 @@ impl L1Controller {
 
         info!("Layer 1 block mined");
 
-        MOCK_EVENTS_STREAM.push_block(new_block);
+        STATIC_EVENTS_STREAM.push_block(new_block);
     }
 
     fn receive_blocks(
@@ -343,7 +344,7 @@ impl BurnchainController for L1Controller {
         )
     }
     fn get_channel(&self) -> Arc<dyn BurnchainChannel + Sync + Send> {
-        panic!("tbd")
+        STATIC_EVENTS_STREAM.clone()
     }
     fn submit_operation(
         &mut self,
@@ -503,7 +504,7 @@ impl BurnchainBlockParser for L1Parser {
 impl L1Indexer {
     pub fn new(watch_contract: QualifiedContractIdentifier) -> L1Indexer {
         L1Indexer {
-            incoming_channel: MOCK_EVENTS_STREAM.clone(),
+            incoming_channel: STATIC_EVENTS_STREAM.clone(),
             watch_contract,
             blocks: vec![],
             minimum_recorded_height: 0,
@@ -525,7 +526,7 @@ impl BurnchainIndexer for L1Indexer {
     }
 
     fn get_first_block_header_hash(&self) -> Result<BurnchainHeaderHash, BurnchainError> {
-        Ok(BurnchainHeaderHash(make_mock_byte_string(0)))
+        Ok(BurnchainHeaderHash(make_mock_byte_string()))
     }
 
     fn get_first_block_header_timestamp(&self) -> Result<u64, BurnchainError> {

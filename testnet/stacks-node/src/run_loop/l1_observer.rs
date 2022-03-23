@@ -20,7 +20,7 @@ async fn handle_new_block(block: serde_json::Value, channel: Arc<dyn BurnchainCh
     let parsed_block: NewBlock =
         serde_json::from_str(&block.to_string()).expect("Failed to parse events JSON");
     info!("handle_new_block receives new block {:?}", &parsed_block);
-    // MOCK_EVENTS_STREAM.push_block(parsed_block);
+    channel.push_block(parsed_block);
     Ok(warp::http::StatusCode::OK)
 }
 
