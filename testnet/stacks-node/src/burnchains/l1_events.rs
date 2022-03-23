@@ -24,7 +24,7 @@ use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks::vm::Value as ClarityValue;
 
 use super::mock_events::BlockIPC;
-use super::Error;
+use super::{Error, BurnchainChannel};
 use crate::burnchains::mock_events::MockHeader;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
@@ -342,7 +342,9 @@ impl BurnchainController for L1Controller {
             target_block_height_opt.map_or_else(|| Some(1), |x| Some(x)),
         )
     }
-
+    fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
+        panic!("tbd")
+    }
     fn submit_operation(
         &mut self,
         operation: BlockstackOperationType,

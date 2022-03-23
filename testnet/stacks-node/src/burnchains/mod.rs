@@ -1,6 +1,7 @@
 use super::operations::BurnchainOpSigner;
 
 use std::fmt;
+use std::sync::Arc;
 use std::time::Instant;
 
 use stacks::burnchains;
@@ -68,6 +69,10 @@ trait BurnchainChannel {
 pub trait BurnchainController {
     fn start(&mut self, target_block_height_opt: Option<u64>)
         -> Result<(BurnchainTip, u64), Error>;
+
+    /// Returns a copy of the channel used to push
+    fn get_channel(&self) -> Arc<dyn BurnchainChannel>;
+
     fn submit_operation(
         &mut self,
         operation: BlockstackOperationType,
@@ -112,6 +117,10 @@ impl BurnchainController for PanicController {
     ) -> Result<(BurnchainTip, u64), Error> {
         panic!()
     }
+    fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
+        panic!("tbd")
+    }
+
 
     fn submit_operation(
         &mut self,
