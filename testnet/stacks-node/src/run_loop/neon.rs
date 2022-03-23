@@ -287,7 +287,10 @@ impl RunLoop {
         coordinator_senders: CoordinatorChannels,
     ) -> Box<dyn BurnchainController> {
         // Initialize and start the burnchain.
-        let mut burnchain_controller = self.config.make_burnchain_controller(coordinator_senders).expect("couldn't create burnchain controller");
+        let mut burnchain_controller = self
+            .config
+            .make_burnchain_controller(coordinator_senders)
+            .expect("couldn't create burnchain controller");
         // let mut burnchain_controller =
         //     MockController::new(self.config.clone(), coordinator_senders);
 

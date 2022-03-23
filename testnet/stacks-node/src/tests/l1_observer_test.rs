@@ -94,7 +94,9 @@ fn l1_observer_test() {
         .expect("stacks l1 controller didn't start");
 
     // Start the L2 run loop.
-    let config = super::new_test_conf();
+    let mut config = super::new_test_conf();
+    config.burnchain.chain = "stacks_layer_1".to_string();
+    config.burnchain.mode = "mockstack".to_string();
     let mut run_loop = neon::RunLoop::new(config.clone());
     let channel = run_loop.get_coordinator_channel().unwrap();
     thread::spawn(move || run_loop.start(None, 0));

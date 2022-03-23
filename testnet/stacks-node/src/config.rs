@@ -30,9 +30,9 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
-use crate::BurnchainController;
 use crate::burnchains::l1_events::L1Controller;
 use crate::burnchains::mock_events::MockController;
+use crate::BurnchainController;
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
@@ -1188,9 +1188,24 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
 }
 
 impl Config {
+    /// Factory function based on `self.burnchain.chain`.
+    pub fn make_burnchain_controller(
+        &self,
+        coordinator: CoordinatorChannels,
+    ) -> Option<Box<dyn BurnchainController + Send>> {
+        match self.burnchain.chain.as_str() {
+            "mockstack" => Some(Box::new(MockController::new(self.clone(), coordinator))),
 
-    pub fn make_burnchain_controller(&self, coordinator: CoordinatorChannels) -> Option<Box<dyn BurnchainController + Send>> {
-        Some(Box::new(MockController::new(self.clone(), coordinator)))
+            "stacks_layer_1" => Some(Box::new(L1Controller::new(self.clone(), coordinator))),
+
+            _ => {
+                warn!(
+                    "No matching controller for `chain`: {}",
+                    self.burnchain.chain.as_str()
+                );
+                None
+            }
+        }
     }
     pub fn make_cost_estimator(&self) -> Option<Box<dyn CostEstimator>> {
         let cost_estimator: Box<dyn CostEstimator> =

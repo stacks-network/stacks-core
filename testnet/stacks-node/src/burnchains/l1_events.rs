@@ -23,11 +23,11 @@ use stacks::util::sleep_ms;
 use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks::vm::Value as ClarityValue;
 
+use super::mock_events::BlockIPC;
+use super::Error;
+use crate::burnchains::mock_events::MockHeader;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
-use crate::burnchains::mock_events::MockHeader;
-use super::Error;
-use super::mock_events::BlockIPC;
 
 #[derive(Clone)]
 pub struct L1Channels {
