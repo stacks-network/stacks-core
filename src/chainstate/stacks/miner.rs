@@ -537,14 +537,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
         })
     }
 
-    /// Produce the next microblock in the stream, unconditionally, from the given txs.
-    /// No validity checking will be done.
-    pub fn make_next_microblock(
-        &mut self,
+    /// Produce a microblock, given its parent.
+    /// No accounting state will be updated.
+    pub fn make_next_microblock_from_txs(
         txs: Vec<StacksTransaction>,
         miner_key: &Secp256k1PrivateKey,
-        tx_events: Vec<TransactionEvent>,
-        event_dispatcher: Option<&dyn MemPoolEventDispatcher>,
+        parent_anchor_block_hash: &BlockHeaderHash,
+        prev_microblock_header: Option<&StacksMicroblockHeader>,
     ) -> Result<StacksMicroblock, Error> {
         let miner_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(miner_key));
@@ -556,24 +555,39 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
-        let mut next_microblock_header =
-            if let Some(ref prev_microblock) = self.runtime.prev_microblock_header {
-                StacksMicroblockHeader::from_parent_unsigned(prev_microblock, &tx_merkle_root)
-                    .ok_or(Error::MicroblockStreamTooLongError)?
-            } else {
-                // .prev_block is the hash of the parent anchored block
-                StacksMicroblockHeader::first_unsigned(&self.anchor_block, &tx_merkle_root)
-            };
+        let mut next_microblock_header = if let Some(ref prev_microblock) = prev_microblock_header {
+            StacksMicroblockHeader::from_parent_unsigned(prev_microblock, &tx_merkle_root)
+                .ok_or(Error::MicroblockStreamTooLongError)?
+        } else {
+            // .prev_block is the hash of the parent anchored block
+            StacksMicroblockHeader::first_unsigned(parent_anchor_block_hash, &tx_merkle_root)
+        };
 
         next_microblock_header.sign(miner_key).unwrap();
         next_microblock_header.verify(&miner_pubkey_hash).unwrap();
-
-        self.runtime.prev_microblock_header = Some(next_microblock_header.clone());
-
-        let microblock = StacksMicroblock {
+        Ok(StacksMicroblock {
             header: next_microblock_header,
             txs: txs,
-        };
+        })
+    }
+
+    /// Produce the next microblock in the stream, unconditionally, from the given txs.
+    /// Inner accouting state, like runtime and space, will be updated.
+    /// Otherwise, no validity checking will be done.
+    pub fn make_next_microblock(
+        &mut self,
+        txs: Vec<StacksTransaction>,
+        miner_key: &Secp256k1PrivateKey,
+        tx_events: Vec<TransactionEvent>,
+        event_dispatcher: Option<&dyn MemPoolEventDispatcher>,
+    ) -> Result<StacksMicroblock, Error> {
+        let microblock = StacksMicroblockBuilder::make_next_microblock_from_txs(
+            txs,
+            miner_key,
+            &self.anchor_block,
+            self.runtime.prev_microblock_header.as_ref(),
+        )?;
+        self.runtime.prev_microblock_header = Some(microblock.header.clone());
 
         if let Some(dispatcher) = event_dispatcher {
             dispatcher.mined_microblock_event(

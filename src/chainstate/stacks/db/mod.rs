@@ -679,7 +679,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
                                 parent_anchored_block_hash TEXT NOT NULL,
                                 consensus_hash TEXT NOT NULL,
-                                -- parent_consensus_hash is the consensus hash of the parent sortition of the sortition that chose this block
+                                -- parent_consensus_hash is the consensus hash of the sortition that chose the parent Stacks block.
                                 parent_consensus_hash TEXT NOT NULL,
                                 parent_microblock_hash TEXT NOT NULL,
                                 parent_microblock_seq INT NOT NULL,
@@ -690,7 +690,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                 processed INT NOT NULL,
                                 commit_burn INT NOT NULL,
                                 sortition_burn INT NOT NULL,
-                                index_block_hash TEXT NOT NULL,           -- used internally; hash of consensus hash and block header
+                                index_block_hash TEXT NOT NULL,           -- used internally; hash of consensus hash and anchored_block_hash
                                 download_time INT NOT NULL,               -- how long the block was in-flight
                                 arrival_time INT NOT NULL,                -- when this block was stored
                                 processed_time INT NOT NULL,              -- when this block was processed
@@ -739,6 +739,7 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash ON staging_microblocks(index_block_hash);",
     "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash_processed ON staging_microblocks(index_block_hash,processed);",
     "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash_orphaned ON staging_microblocks(index_block_hash,orphaned);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_microblock_hash ON staging_microblocks(microblock_hash);",
     "CREATE INDEX IF NOT EXISTS processed_stacks_blocks ON staging_blocks(processed,anchored_block_hash,consensus_hash);",
     "CREATE INDEX IF NOT EXISTS orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);",
     "CREATE INDEX IF NOT EXISTS parent_blocks ON staging_blocks(parent_anchored_block_hash);",
