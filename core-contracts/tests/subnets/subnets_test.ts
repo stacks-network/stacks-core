@@ -136,6 +136,20 @@ Clarinet.test({
             .expectErr()
             .expectInt(2);
 
+        // Invalid miner should not be able to withdraw NFT asset
+        block = chain.mineBlock([
+            Tx.contractCall("subnets", "withdraw-nft-asset",
+                [
+                    types.uint(1),
+                    types.principal(bob.address),
+                    types.principal(nft_contract.contract_id),
+                ],
+                bob.address),
+        ]);
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(2);
+
         // Miner should be able to withdraw NFT asset
         block = chain.mineBlock([
             Tx.contractCall("subnets", "withdraw-nft-asset",
@@ -249,6 +263,21 @@ Clarinet.test({
                     types.principal(ft_contract.contract_id),
                 ],
                 charlie.address),
+        ]);
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(2);
+
+        // Invalid miner should not be able to withdraw FT asset
+        block = chain.mineBlock([
+            Tx.contractCall("subnets", "withdraw-ft-asset",
+                [
+                    types.uint(1),
+                    types.principal(bob.address),
+                    types.none(),
+                    types.principal(ft_contract.contract_id),
+                ],
+                bob.address),
         ]);
         block.receipts[0].result
             .expectErr()

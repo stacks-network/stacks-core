@@ -8,9 +8,6 @@
 (define-constant ERR_VALIDATION_FAILED 3)
 (define-constant ERR_CONTRACT_CALL_FAILED 4)
 (define-constant ERR_TRANSFER_FAILED 5)
-(define-constant ERR_MAP_INSERT_FAILED 6)
-(define-constant ERR_TRANSFER_DOES_NOT_EXIST 7)
-(define-constant ERR_ALREADY_ACKED 8)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
@@ -111,7 +108,9 @@
 ;; Returns response<bool, int>
 (define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>))
     (begin
+        ;; Verify that tx-sender is an authorized miner
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+
         (inner-withdraw-nft-asset id recipient nft-contract)
     )
 )
@@ -153,7 +152,9 @@
 ;; Returns response<bool, int>
 (define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
     (begin
+        ;; Verify that tx-sender is an authorized miner
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+
         (inner-withdraw-ft-asset amount recipient memo ft-contract)
     )
 )

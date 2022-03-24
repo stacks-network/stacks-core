@@ -30,17 +30,6 @@
   )
 )
 
-;; extra functions
-(define-public (set-base-uri (uri (optional (string-ascii 256))))
-  (begin
-    (asserts! (is-eq contract-caller CONTRACT_OWNER) ERR_NOT_AUTHORIZED)
-    (ok (match uri uriVal
-      (map-set CFG_BASE_URI true uriVal)
-      (map-delete CFG_BASE_URI true)
-    ))
-  )
-)
-
 ;; test functions
 (define-public (test-mint (recipient principal))
   (let
@@ -48,12 +37,5 @@
     (asserts! (is-eq DEPLOYED_AT u0) ERR_NOT_AUTHORIZED)
     (var-set lastId newId)
     (nft-mint? nft newId recipient)
-  )
-)
-
-(define-public (test-burn (id uint) (sender principal))
-  (begin
-    (asserts! (is-eq tx-sender sender) ERR_NOT_AUTHORIZED)
-    (nft-burn? nft id sender)
   )
 )

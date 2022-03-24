@@ -3,19 +3,19 @@
 name = "core-contracts"
 
 [contracts.nft-trait-standard]
-path = "contracts/nft-trait-standard.clar"
+path = "contracts/helper/nft-trait-standard.clar"
 depends_on = []
 
 [contracts.simple-nft]
-path = "contracts/simple-nft.clar"
+path = "contracts/helper/simple-nft.clar"
 depends_on = ["nft-trait-standard"]
 
 [contracts.ft-trait-standard]
-path = "contracts/ft-trait-standard.clar"
+path = "contracts/helper/ft-trait-standard.clar"
 depends_on = []
 
 [contracts.simple-ft]
-path = "contracts/simple-ft.clar"
+path = "contracts/helper/simple-ft.clar"
 depends_on = ["ft-trait-standard"]
 
 [contracts.subnets]
