@@ -1434,7 +1434,7 @@ mod test {
         ];
 
         for desc in okay_types.iter() {
-            TypeSignature::from(*desc); // panics on failed types.
+            let _ = TypeSignature::from(*desc); // panics on failed types.
         }
     }
 }

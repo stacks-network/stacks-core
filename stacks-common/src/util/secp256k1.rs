@@ -25,9 +25,9 @@ use secp256k1::PublicKey as LibSecp256k1PublicKey;
 use secp256k1::Secp256k1;
 use secp256k1::SecretKey as LibSecp256k1PrivateKey;
 
-use types::PrivateKey;
-use types::PublicKey;
-use util::hash::{hex_bytes, to_hex};
+use crate::types::PrivateKey;
+use crate::types::PublicKey;
+use crate::util::hash::{hex_bytes, to_hex};
 
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
@@ -410,14 +410,14 @@ pub fn secp256k1_verify(
 mod tests {
     use super::*;
 
-    use util::hash::hex_bytes;
+    use crate::util::hash::hex_bytes;
 
     use secp256k1;
     use secp256k1::PublicKey as LibSecp256k1PublicKey;
     use secp256k1::Secp256k1;
 
-    use util::get_epoch_time_ms;
-    use util::log;
+    use crate::util::get_epoch_time_ms;
+    use crate::util::log;
 
     struct KeyFixture<I, R> {
         input: I,

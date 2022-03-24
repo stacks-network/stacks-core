@@ -1,10 +1,10 @@
 use std::io::{Read, Write};
 use std::{error, fmt, io, mem};
 
-// use types::chainstate::MARFValue;
-use types::chainstate::SortitionId;
-use util::hash::HASH160_ENCODED_SIZE;
-use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+// use crate::types::chainstate::MARFValue;
+use crate::types::chainstate::SortitionId;
+use crate::util::hash::HASH160_ENCODED_SIZE;
+use crate::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
 #[macro_use]
 pub mod macros;
