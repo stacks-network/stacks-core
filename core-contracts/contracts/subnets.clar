@@ -72,12 +72,13 @@
 )
 
 
-;; Implement functions below in M2
-
-;; FOR NFTs
 
 
-;; user: deposit asset
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; FOR NFT ASSET TRANSFERS
+
+;; A user calls this function to deposit an NFT into the contract.
+;; Returns response<int, bool>
 (define-public (deposit-nft-asset (id uint) (sender principal) (nft-contract <nft-trait>))
     (let (
         (call-result (contract-call? nft-contract transfer id sender CONTRACT_ADDRESS))
@@ -85,12 +86,13 @@
     )
         (asserts! transfer-result (err ERR_TRANSFER_FAILED))
 
-        (print { event: "deposit-nft", nft-id: id })
+        (print { event: "deposit-nft", nft-id: id, nft-trait: nft-contract })
 
         (ok true)
     )
 )
 
+;; Helper function for `withdraw-nft-asset`
 (define-public (inner-withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>))
     (let (
         (call-result (as-contract (contract-call? nft-contract transfer id CONTRACT_ADDRESS recipient)))
@@ -98,16 +100,60 @@
     )
         (asserts! transfer-result (err ERR_TRANSFER_FAILED))
 
-        (print { event: "deposit-nft", nft-id: id })
+        (print { event: "withdraw-nft", nft-id: id, nft-trait: nft-contract })
 
         (ok true)
     )
 )
 
-;; user: issue withdraw request
+;; An authorized miner can call this function to withdraw an NFT asset from the contract and
+;; send it to a recipient.
+;; Returns response<bool, int>
 (define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>))
     (begin
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
         (inner-withdraw-nft-asset id recipient nft-contract)
+    )
+)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; FOR FUNGIBLE TOKEN ASSET TRANSFERS
+
+;; A user calls this function to deposit a fungible token into the contract.
+;; Returns response<int, bool>
+(define-public (deposit-ft-asset (amount uint) (sender principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
+    (let (
+        (call-result (contract-call? ft-contract transfer amount sender CONTRACT_ADDRESS memo))
+        (transfer-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
+    )
+        (asserts! transfer-result (err ERR_TRANSFER_FAILED))
+
+        (print { event: "deposit-ft", ft-amount: amount, ft-trait: ft-contract })
+
+        (ok true)
+    )
+)
+
+;; Helper function for `withdraw-ft-asset`
+(define-public (inner-withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
+    (let (
+        (call-result (as-contract (contract-call? ft-contract transfer amount CONTRACT_ADDRESS recipient memo)))
+        (transfer-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
+    )
+        (asserts! transfer-result (err ERR_TRANSFER_FAILED))
+
+        (print { event: "withdraw-ft", ft-amount: amount, ft-trait: ft-contract })
+
+        (ok true)
+    )
+)
+
+;; An authorized miner can call this function to withdraw a fungible token asset from the contract and
+;; send it to a recipient.
+;; Returns response<bool, int>
+(define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
+    (begin
+        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+        (inner-withdraw-ft-asset amount recipient memo ft-contract)
     )
 )

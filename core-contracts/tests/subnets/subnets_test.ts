@@ -167,3 +167,123 @@ Clarinet.test({
 
     },
 });
+
+
+Clarinet.test({
+    name: "Ensure that user can deposit FT & miner can withdraw it",
+    async fn(chain: Chain, accounts: Map<string, Account>, contracts: Map<string, Contract>) {
+
+        // valid miner
+        const alice = accounts.get("wallet_1")!;
+        // invalid miner
+        const bob = accounts.get("wallet_2")!;
+        // user
+        const charlie = accounts.get("wallet_3")!;
+
+        // ft contract
+        const ft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-ft")!;
+
+        // User should be able to mint a fungible token
+        let block = chain.mineBlock([
+            Tx.contractCall("simple-ft", "gift-tokens", [types.principal(charlie.address)], charlie.address),
+        ]);
+        block.receipts[0].result.expectOk().expectBool(true);
+        // User should be able to mint another fungible token
+        block = chain.mineBlock([
+            Tx.contractCall("simple-ft", "gift-tokens", [types.principal(charlie.address)], charlie.address),
+        ]);
+        block.receipts[0].result.expectOk().expectBool(true);
+
+        // User should not be able to deposit a larger quantity than they own
+        block = chain.mineBlock([
+            Tx.contractCall("subnets", "deposit-ft-asset",
+                [
+                    types.uint(3),
+                    types.principal(charlie.address),
+                    types.none(),
+                    types.principal(ft_contract.contract_id),
+                ],
+                charlie.address),
+        ]);
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(4);
+
+        // User should be able to deposit FT asset
+        block = chain.mineBlock([
+            Tx.contractCall("subnets", "deposit-ft-asset",
+                [
+                    types.uint(2),
+                    types.principal(charlie.address),
+                    types.none(),
+                    types.principal(ft_contract.contract_id),
+                ],
+                charlie.address),
+        ]);
+        block.receipts[0].result
+            .expectOk()
+            .expectBool(true);
+
+        // User should not be able to deposit an FT asset they don't own
+        block = chain.mineBlock([
+            Tx.contractCall("subnets", "deposit-ft-asset",
+                [
+                    types.uint(1),
+                    types.principal(charlie.address),
+                    types.none(),
+                    types.principal(ft_contract.contract_id),
+                ],
+                charlie.address),
+        ]);
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(4);
+
+        // User should not be able to withdraw FT asset
+        block = chain.mineBlock([
+            Tx.contractCall("subnets", "withdraw-ft-asset",
+                [
+                    types.uint(1),
+                    types.principal(bob.address),
+                    types.none(),
+                    types.principal(ft_contract.contract_id),
+                ],
+                charlie.address),
+        ]);
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(2);
+
+        // Miner should be able to withdraw FT asset
+        block = chain.mineBlock([
+            Tx.contractCall("subnets", "withdraw-ft-asset",
+                [
+                    types.uint(2),
+                    types.principal(bob.address),
+                    types.none(),
+                    types.principal(ft_contract.contract_id),
+                ],
+                alice.address),
+        ]);
+        block.receipts[0].result
+            .expectOk()
+            .expectBool(true);
+
+
+        // Miner should not be able to withdraw FT asset a second time
+        block = chain.mineBlock([
+            Tx.contractCall("subnets", "withdraw-ft-asset",
+                [
+                    types.uint(1),
+                    types.principal(bob.address),
+                    types.none(),
+                    types.principal(ft_contract.contract_id),
+                ],
+                alice.address),
+        ]);
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(4);
+
+    },
+});
