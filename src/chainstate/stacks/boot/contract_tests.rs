@@ -35,10 +35,7 @@ use vm::eval;
 use vm::representations::SymbolicExpression;
 use vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use vm::types::Value::Response;
-use vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
-};
+use vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value, NONE};
 
 use crate::{
     burnchains::PoxConstants,
