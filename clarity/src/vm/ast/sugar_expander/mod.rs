@@ -14,19 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-use std::convert::TryInto;
-use vm::ast::errors::{ParseError, ParseErrors, ParseResult};
-use vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
-use vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
-use vm::functions::NativeFunctions;
-use vm::representations::{
+use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
+use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
+use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::{
     ClarityName, PreSymbolicExpression, PreSymbolicExpressionType, SymbolicExpression,
     SymbolicExpressionType,
 };
-use vm::types::{
+use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
+use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
 
 pub struct SugarExpander {
     issuer: StandardPrincipalData,
@@ -125,12 +125,12 @@ impl SugarExpander {
 
 #[cfg(test)]
 mod test {
-    use vm::ast::errors::{ParseError, ParseErrors};
-    use vm::ast::sugar_expander::SugarExpander;
-    use vm::ast::types::ContractAST;
-    use vm::representations::{ContractName, PreSymbolicExpression, SymbolicExpression};
-    use vm::types::{PrincipalData, QualifiedContractIdentifier};
-    use vm::{ast, Value};
+    use crate::vm::ast::errors::{ParseError, ParseErrors};
+    use crate::vm::ast::sugar_expander::SugarExpander;
+    use crate::vm::ast::types::ContractAST;
+    use crate::vm::representations::{ContractName, PreSymbolicExpression, SymbolicExpression};
+    use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
+    use crate::vm::{ast, Value};
 
     fn make_pre_atom(
         x: &str,

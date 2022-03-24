@@ -22,10 +22,10 @@ use rusqlite::{
 
 use crate::types::chainstate::StacksBlockId;
 
-use util::db_common::tx_busy_handler;
+use stacks_common::util::db_common::tx_busy_handler;
 
-use vm::contracts::Contract;
-use vm::errors::{
+use crate::vm::contracts::Contract;
+use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 

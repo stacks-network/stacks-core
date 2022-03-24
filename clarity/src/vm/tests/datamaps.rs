@@ -14,17 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::From;
-use std::convert::TryFrom;
-use vm::contexts::OwnedEnvironment;
-use vm::database::MemoryBackingStore;
-use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
-use vm::execute;
-use vm::types::{
+use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
+use crate::vm::execute;
+use crate::vm::types::{
     ListData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TupleTypeSignature, TypeSignature, Value,
 };
-use vm::ClarityName;
+use crate::vm::ClarityName;
+use std::convert::From;
+use std::convert::TryFrom;
 
 fn assert_executes(expected: Result<Value, Error>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
@@ -330,7 +330,7 @@ fn test_set_list_variable() {
 
 #[test]
 fn test_get_list_max_len() {
-    use vm::types::TypeSignature;
+    use crate::vm::types::TypeSignature;
     let contract_src = r#"
         (define-data-var ranking (list 10 int) (list 1 2 3))
         (define-private (get-ranking)

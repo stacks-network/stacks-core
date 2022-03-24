@@ -14,17 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use address::c32::c32_address_decode;
-use regex::{Captures, Regex};
-use std::cmp;
-use std::convert::TryInto;
-use util::hash::hex_bytes;
-use vm::ast::errors::{ParseError, ParseErrors, ParseResult};
-use vm::errors::{InterpreterResult as Result, RuntimeErrorType};
-use vm::representations::{
+use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
+use crate::vm::representations::{
     ClarityName, ContractName, PreSymbolicExpression, PreSymbolicExpressionType, MAX_STRING_LEN,
 };
-use vm::types::{PrincipalData, QualifiedContractIdentifier, TraitIdentifier, Value};
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, TraitIdentifier, Value};
+use regex::{Captures, Regex};
+use stacks_common::address::c32::c32_address_decode;
+use stacks_common::util::hash::hex_bytes;
+use std::cmp;
+use std::convert::TryInto;
 
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
@@ -695,11 +695,13 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
 
 #[cfg(test)]
 mod test {
-    use vm::ast;
-    use vm::ast::errors::{ParseError, ParseErrors};
-    use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
-    use vm::types::TraitIdentifier;
-    use vm::types::{CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, Value};
+    use crate::vm::ast;
+    use crate::vm::ast::errors::{ParseError, ParseErrors};
+    use crate::vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
+    use crate::vm::types::TraitIdentifier;
+    use crate::vm::types::{
+        CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, Value,
+    };
 
     fn make_atom(
         x: &str,
@@ -941,7 +943,7 @@ mod test {
 
     #[test]
     fn test_parse_field_identifiers() {
-        use vm::types::PrincipalData;
+        use crate::vm::types::PrincipalData;
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.my-contract.my-trait";
         let parsed = ast::parser::parse(&input).unwrap();
 
@@ -975,7 +977,7 @@ mod test {
 
     #[test]
     fn test_parse_failures() {
-        use vm::errors::{Error, RuntimeErrorType};
+        use crate::vm::errors::{Error, RuntimeErrorType};
 
         let too_much_closure = "(let ((x 1) (y 2))))";
         let not_enough_closure = "(let ((x 1) (y 2))";
