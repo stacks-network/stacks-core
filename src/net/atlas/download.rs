@@ -21,23 +21,23 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::net::atlas::MAX_RETRY_DELAY;
+use crate::net::connection::ConnectionOptions;
+use crate::net::dns::*;
+use crate::net::p2p::PeerNetwork;
+use crate::net::server::HttpPeer;
+use crate::net::Error as net_error;
+use crate::net::NeighborKey;
+use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse};
+use crate::net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
 use crate::types::chainstate::StacksBlockId;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::StacksChainState;
-use net::atlas::MAX_RETRY_DELAY;
-use net::connection::ConnectionOptions;
-use net::dns::*;
-use net::p2p::PeerNetwork;
-use net::server::HttpPeer;
-use net::Error as net_error;
-use net::NeighborKey;
-use net::{GetAttachmentResponse, GetAttachmentsInvResponse};
-use net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
-use util::hash::{Hash160, MerkleHashFunc};
-use util::{get_epoch_time_ms, get_epoch_time_secs};
-use util_lib::strings;
-use util_lib::strings::UrlString;
-use vm::types::QualifiedContractIdentifier;
+use crate::util_lib::strings;
+use crate::util_lib::strings::UrlString;
+use clarity::vm::types::QualifiedContractIdentifier;
+use stacks_common::util::hash::{Hash160, MerkleHashFunc};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::types::chainstate::BlockHeaderHash;
 
@@ -47,7 +47,7 @@ use rand::thread_rng;
 use rand::Rng;
 use std::cmp;
 
-use core::mempool::MemPoolDB;
+use crate::core::mempool::MemPoolDB;
 
 #[derive(Debug)]
 pub struct AttachmentsDownloader {

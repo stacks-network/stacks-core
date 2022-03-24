@@ -43,45 +43,45 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use url;
 
-use crate::util_lib::boot::boot_code_tx_auth;
-use burnchains::Txid;
-use chainstate::burn::ConsensusHash;
-use chainstate::coordinator::Error as coordinator_error;
-use chainstate::stacks::db::blocks::MemPoolRejection;
-use chainstate::stacks::index::Error as marf_error;
-use chainstate::stacks::Error as chainstate_error;
-use chainstate::stacks::{
+use crate::burnchains::Txid;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::coordinator::Error as coordinator_error;
+use crate::chainstate::stacks::db::blocks::MemPoolRejection;
+use crate::chainstate::stacks::index::Error as marf_error;
+use crate::chainstate::stacks::Error as chainstate_error;
+use crate::chainstate::stacks::{
     Error as chain_error, StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
     TransactionPayload,
 };
-use clarity_vm::clarity::Error as clarity_error;
-use codec::Error as codec_error;
-use codec::StacksMessageCodec;
-use codec::{read_next, write_next};
-use core::mempool::*;
-use core::POX_REWARD_CYCLE_LENGTH;
-use net::atlas::{Attachment, AttachmentInstance};
-use net::http::HttpReservedHeader;
-use util::get_epoch_time_secs;
-use util::hash::Hash160;
-use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
-use util::hash::HASH160_ENCODED_SIZE;
-use util::hash::{hex_bytes, to_hex};
-use util::log;
-use util::secp256k1::MessageSignature;
-use util::secp256k1::Secp256k1PublicKey;
-use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-use util_lib::bloom::{BloomFilter, BloomNodeHasher};
-use util_lib::db::DBConn;
-use util_lib::db::Error as db_error;
-use util_lib::strings::UrlString;
-use vm::types::TraitIdentifier;
-use vm::{
+use crate::clarity_vm::clarity::Error as clarity_error;
+use crate::core::mempool::*;
+use crate::core::POX_REWARD_CYCLE_LENGTH;
+use crate::net::atlas::{Attachment, AttachmentInstance};
+use crate::net::http::HttpReservedHeader;
+use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
+use crate::util_lib::boot::boot_code_tx_auth;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::strings::UrlString;
+use clarity::vm::types::TraitIdentifier;
+use clarity::vm::{
     analysis::contract_interface_builder::ContractInterface, types::PrincipalData, ClarityName,
     ContractName, Value,
 };
+use stacks_common::codec::Error as codec_error;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::{read_next, write_next};
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::DOUBLE_SHA256_ENCODED_SIZE;
+use stacks_common::util::hash::HASH160_ENCODED_SIZE;
+use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
-use chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksBlockHeader;
 
 use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 use crate::cost_estimates::FeeRateEstimate;
@@ -95,7 +95,7 @@ use crate::vm::costs::ExecutionCost;
 use self::dns::*;
 pub use self::http::StacksHttp;
 
-use core::StacksEpoch;
+use crate::core::StacksEpoch;
 
 /// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
 pub mod asn;
@@ -2051,58 +2051,58 @@ pub mod test {
     use rand;
     use rand::RngCore;
 
-    use address::*;
-    use burnchains::bitcoin::address::*;
-    use burnchains::bitcoin::keys::*;
-    use burnchains::bitcoin::*;
-    use burnchains::burnchain::*;
-    use burnchains::db::BurnchainDB;
-    use burnchains::test::*;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::*;
-    use chainstate::burn::*;
-    use chainstate::coordinator::tests::*;
-    use chainstate::coordinator::*;
-    use chainstate::stacks::boot::*;
-    use chainstate::stacks::db::StacksChainState;
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::miner::test::*;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::*;
-    use chainstate::*;
-    use core::NETWORK_P2P_PORT;
-    use net::asn::*;
-    use net::atlas::*;
-    use net::chat::*;
-    use net::codec::*;
-    use net::connection::*;
-    use net::db::*;
-    use net::neighbors::*;
-    use net::p2p::*;
-    use net::poll::*;
-    use net::relay::*;
-    use net::rpc::RPCHandlerArgs;
-    use net::Error as net_error;
-    use util::get_epoch_time_secs;
-    use util::hash::*;
-    use util::secp256k1::*;
-    use util::uint::*;
-    use util::vrf::*;
-    use util_lib::strings::*;
-    use vm::costs::ExecutionCost;
-    use vm::database::STXBalance;
-    use vm::types::*;
+    use crate::burnchains::bitcoin::address::*;
+    use crate::burnchains::bitcoin::keys::*;
+    use crate::burnchains::bitcoin::*;
+    use crate::burnchains::burnchain::*;
+    use crate::burnchains::db::BurnchainDB;
+    use crate::burnchains::test::*;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::operations::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::coordinator::tests::*;
+    use crate::chainstate::coordinator::*;
+    use crate::chainstate::stacks::boot::*;
+    use crate::chainstate::stacks::db::StacksChainState;
+    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::miner::test::*;
+    use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::*;
+    use crate::chainstate::*;
+    use crate::core::NETWORK_P2P_PORT;
+    use crate::net::asn::*;
+    use crate::net::atlas::*;
+    use crate::net::chat::*;
+    use crate::net::codec::*;
+    use crate::net::connection::*;
+    use crate::net::db::*;
+    use crate::net::neighbors::*;
+    use crate::net::p2p::*;
+    use crate::net::poll::*;
+    use crate::net::relay::*;
+    use crate::net::rpc::RPCHandlerArgs;
+    use crate::net::Error as net_error;
+    use crate::util_lib::strings::*;
+    use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::database::STXBalance;
+    use clarity::vm::types::*;
+    use stacks_common::address::*;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::secp256k1::*;
+    use stacks_common::util::uint::*;
+    use stacks_common::util::vrf::*;
 
     use super::*;
-    use chainstate::stacks::boot::test::get_parent_tip;
-    use chainstate::stacks::StacksMicroblockHeader;
-    use chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt};
-    use core::StacksEpochExtension;
+    use crate::chainstate::stacks::boot::test::get_parent_tip;
+    use crate::chainstate::stacks::StacksMicroblockHeader;
+    use crate::chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt};
+    use crate::core::StacksEpochExtension;
+    use crate::util_lib::boot::boot_code_test_addr;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::types::chainstate::TrieHash;
-    use util_lib::boot::boot_code_test_addr;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

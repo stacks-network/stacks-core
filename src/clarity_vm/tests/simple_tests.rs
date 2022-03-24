@@ -6,8 +6,8 @@ use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_H
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
 
-use chainstate::stacks::index::ClarityMarfTrieId;
-use clarity_vm::database::marf::MarfedKV;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::clarity_vm::database::marf::MarfedKV;
 
 pub fn with_marfed_environment<F>(f: F, top_level: bool)
 where
