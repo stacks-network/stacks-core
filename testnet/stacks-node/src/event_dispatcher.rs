@@ -128,7 +128,7 @@ impl EventObserver {
                 match client::connect(stream, req).await {
                     Ok(response) => Some(response),
                     Err(err) => {
-                        warn!("Event dispatcher: rpc invokation failed  - {:?}", err);
+                        warn!("Event dispatcher: rpc invocation failed  - {:?}", err);
                         return None;
                     }
                 }
@@ -137,14 +137,12 @@ impl EventObserver {
             if let Some(response) = response {
                 if response.status().is_success() {
                     debug!(
-                        "Event dispatcher: Successful POST {}/{}",
-                        self.endpoint, &url
+                        "Event dispatcher: Successful POST"; "url" => %url
                     );
                     break;
                 } else {
                     error!(
-                        "Event dispatcher: POST {}/{} failed with error {:?}",
-                        self.endpoint, &url, response
+                        "Event dispatcher: Failed POST"; "url" => %url, "err" => ?response
                     );
                 }
             }

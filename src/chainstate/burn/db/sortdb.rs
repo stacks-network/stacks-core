@@ -2755,7 +2755,7 @@ impl SortitionDB {
     /// * `from_tip` - tip of the "sortition chain" that is being built on
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
     /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
-    ///                   commits its results.
+    ///                   commits its results. This is used to post the calculated reward set to an event observer.
     pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>) -> ()>(
         &mut self,
         burn_header: &BurnchainBlockHeader,
@@ -2826,7 +2826,9 @@ impl SortitionDB {
         announce_to(reward_set_info);
 
         // commit everything!
-        sortition_db_handle.commit()?;
+        sortition_db_handle.commit().expect(
+            "Failed to commit to sortition db after announcing reward set info, state corrupted.",
+        );
         Ok((new_snapshot.0, new_snapshot.1))
     }
 

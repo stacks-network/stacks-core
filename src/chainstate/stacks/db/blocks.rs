@@ -5069,14 +5069,25 @@ impl StacksChainState {
     }
 
     /// Process the next pre-processed staging block.
-    /// We've already processed parent_chain_tip.  chain_tip refers to a block we have _not_
+    /// We've already processed `parent_chain_tip`, whereas `chain_tip` refers to a block we have _not_
     /// processed yet.
-    /// Returns a StacksHeaderInfo with the microblock stream and chain state index root hash filled in, corresponding to the next block to process.
-    /// In addition, returns the list of transaction receipts for both the preceeding microblock
-    /// stream that the block confirms, as well as the transaction receipts for the anchored
-    /// block's transactions.  Finally, it returns the execution costs for the microblock stream
-    /// and for the anchored block (separately).
-    /// Returns None if we're out of blocks to process.
+    ///
+    /// Returns a `StacksEpochReceipt` containing receipts and events from the transactions executed
+    /// in the block, and a `PreCommitClarityBlock` struct.
+    ///
+    /// The `StacksEpochReceipts` contains the list of transaction
+    /// receipts for both the preceeding microblock stream that the
+    /// block confirms, as well as the transaction receipts for the
+    /// anchored block's transactions. Finally, it returns the
+    /// execution costs for the microblock stream and for the anchored
+    /// block (separately).
+    ///
+    /// The `PreCommitClarityBlock` struct represents a finished
+    /// Clarity block that has not been committed to the Clarity
+    /// backing store (MARF and side storage) yet.  This struct is
+    /// necessary so that the Headers database and Clarity database's
+    /// transactions can commit very close to one another, after the
+    /// event observer has emitted.
     fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,

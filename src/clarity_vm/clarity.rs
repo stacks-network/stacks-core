@@ -105,6 +105,17 @@ pub struct ClarityInstance {
     mainnet: bool,
 }
 
+///
+/// This struct represents a "sealed" or "finished" Clarity block that
+/// has *not* yet been committed. This struct allows consumers of the
+/// `clarity_vm` module's high level interface to separate the
+/// completion of the Clarity operations in a Stacks block from the
+/// final commit to the database.
+///
+/// This is necessary to allow callers complete other operations like
+/// preparing a commitment to the chainstate headers MARF, and
+/// issuring event dispatches, before the Clarity database commits.
+///
 pub struct PreCommitClarityBlock<'a> {
     datastore: WritableMarfStore<'a>,
     commit_to: StacksBlockId,
