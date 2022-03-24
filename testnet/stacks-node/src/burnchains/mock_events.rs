@@ -333,7 +333,7 @@ impl BurnchainController for MockController {
             target_block_height_opt.map_or_else(|| Some(1), |x| Some(x)),
         )
     }
-    fn get_channel(&self) -> Arc<dyn BurnchainChannel + Send + Sync> {
+    fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
         MOCK_EVENTS_STREAM.clone()
     }
     fn submit_operation(
@@ -468,12 +468,12 @@ pub struct MockParser {
     watch_contract: QualifiedContractIdentifier,
 }
 
-#[derive(Clone)]
-pub struct MockHeader {
-    pub height: u64,
-    pub index_hash: StacksBlockId,
-    pub parent_index_hash: StacksBlockId,
-}
+    #[derive(Clone)]
+    pub struct MockHeader {
+        pub height: u64,
+        pub index_hash: StacksBlockId,
+        pub parent_index_hash: StacksBlockId,
+    }
 #[derive(Clone)]
 pub struct BlockIPC(pub NewBlock);
 

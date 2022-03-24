@@ -285,7 +285,7 @@ impl BurnchainController for L1Controller {
             target_block_height_opt.map_or_else(|| Some(1), |x| Some(x)),
         )
     }
-    fn get_channel(&self) -> Arc<dyn BurnchainChannel + Sync + Send> {
+    fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
         STATIC_EVENTS_STREAM.clone()
     }
     fn submit_operation(
