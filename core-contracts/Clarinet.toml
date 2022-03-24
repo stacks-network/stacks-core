@@ -2,6 +2,18 @@
 [project]
 name = "core-contracts"
 
+[contracts.nft-trait-standard]
+path = "contracts/nft-trait-standard.clar"
+depends_on = []
+
+[contracts.simple-nft]
+path = "contracts/simple-nft.clar"
+depends_on = ["nft-trait-standard"]
+
+[contracts.ft-trait-standard]
+path = "contracts/ft-trait-standard.clar"
+depends_on = []
+
 [contracts.subnets]
 path = "contracts/subnets.clar"
-depends_on = []
+depends_on = ["nft-trait-standard", "ft-trait-standard"]
