@@ -52,6 +52,7 @@ use self::bitcoin::Error as btc_error;
 use self::bitcoin::{
     BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
 };
+use vm::types::QualifiedContractIdentifier;
 
 /// This module contains drivers and types for all burn chains we support.
 pub mod bitcoin;
@@ -296,6 +297,7 @@ pub struct Burnchain {
     pub first_block_timestamp: u32,
     pub pox_constants: PoxConstants,
     pub exit_contract_constants: ExitContractConstants,
+    // pub exit_contract_id: Option<QualifiedContractIdentifier>,
     pub initial_reward_start_block: u64,
 }
 
@@ -355,11 +357,11 @@ impl ExitContractConstants {
     }
 
     pub fn mainnet_default() -> ExitContractConstants {
-        ExitContractConstants::new(80, 50, 50)
+        ExitContractConstants::new(60, 50, 50)
     }
 
     pub fn testnet_default() -> ExitContractConstants {
-        ExitContractConstants::new(80, 50, 50)
+        ExitContractConstants::new(60, 50, 50)
     }
 }
 

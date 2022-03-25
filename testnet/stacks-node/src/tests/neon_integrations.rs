@@ -7242,26 +7242,28 @@ fn exit_at_rc_integration_test() {
     let mut nonce = 144;
     let mut block_height = 144;
     while sort_height < ((24 * pox_constants.reward_cycle_length) + 1).into() {
-        let veto_tx = make_contract_call(
-            &miner_privk,
-            nonce,
-            260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
-            "exit-at-rc",
-            "veto-exit-rc",
-            &[Value::UInt(30), Value::UInt(block_height)],
-        );
+        if block_height < 155 {
+            let veto_tx = make_contract_call(
+                &miner_privk,
+                nonce,
+                260,
+                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "exit-at-rc",
+                "veto-exit-rc",
+                &[Value::UInt(30), Value::UInt(block_height)],
+            );
 
-        // okay, let's push that veto transaction!
-        submit_tx(&http_origin, &veto_tx);
-        nonce += 2;
+            // okay, let's push that veto transaction!
+            submit_tx(&http_origin, &veto_tx);
+            nonce += 2;
+        }
 
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         block_height += 1;
     }
 
-    // check sortdb - veto threshold met (>=80% of blocks in rc had veto) - curr_exit_at_reward_cycle should not be set
+    // check sortdb - veto threshold met (>=60% of blocks in rc had veto) - curr_exit_at_reward_cycle should not be set
     let sort_db = btc_regtest_controller.sortdb_ref();
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
