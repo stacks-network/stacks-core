@@ -459,7 +459,7 @@ impl BurnchainController for MockController {
     }
 
     #[cfg(test)]
-    fn bootstrap_chain(&mut self, blocks_count: u64) {
+    fn bootstrap_chain(&mut self, _blocks_count: u64) {
         todo!()
     }
 }

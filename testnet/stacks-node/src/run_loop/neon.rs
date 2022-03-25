@@ -22,20 +22,15 @@ use stacks::chainstate::coordinator::{
     check_chainstate_db_versions, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
-use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance};
-use stx_genesis::GenesisData;
+use stacks::net::atlas::{AtlasConfig, AttachmentInstance};
 
 use crate::run_loop::l1_observer;
 
 use crate::burnchains::mock_events::MockController;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::StacksNode;
-use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
-use crate::{
-    node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
-    BurnchainController, Config, EventDispatcher,
-};
+use crate::{BurnchainController, Config, EventDispatcher};
 
 use super::RunLoopCallbacks;
 use libc;

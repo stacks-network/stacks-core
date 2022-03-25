@@ -443,29 +443,6 @@ impl Burnchain {
         Ok(header)
     }
 
-    /// Hand off the block to the ChainsCoordinator _and_ process the sortition
-    ///   *only* to be used by legacy stacks node interfaces, like the Helium node
-    pub fn process_block_and_sortition_deprecated(
-        db: &mut SortitionDB,
-        burnchain_db: &mut BurnchainDB,
-        burnchain: &Burnchain,
-        block: &BurnchainBlock,
-    ) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
-        debug!(
-            "Process block {} {}",
-            block.block_height(),
-            &block.block_hash()
-        );
-
-        let header = block.header();
-        let blockstack_txs = burnchain_db.store_new_burnchain_block(burnchain, &block)?;
-
-        let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
-
-        db.evaluate_sortition(&header, blockstack_txs, burnchain, &sortition_tip, None)
-            .map(|(snapshot, transition, _)| (snapshot, transition))
-    }
-
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
     /// Return the new chain tip and a boolean signaling the presence of a reorg
     fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<(u64, bool), burnchain_error> {

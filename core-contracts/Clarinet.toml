@@ -1,0 +1,7 @@
+
+[project]
+name = "core-contracts"
+
+[contracts.subnets]
+path = "contracts/subnets.clar"
+depends_on = []

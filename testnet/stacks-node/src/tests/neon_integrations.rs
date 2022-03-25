@@ -9,6 +9,7 @@ use stacks::net::{AccountEntryResponse, ContractSrcResponse, RPCPeerInfoData};
 use stacks::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Hash160;
+use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::{
     chainstate::stacks::{
         StacksBlock, StacksBlockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,
@@ -18,6 +19,9 @@ use stacks::{
 
 use crate::burnchains::mock_events::MockController;
 use crate::neon;
+use crate::tests::{
+    make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, SK_1, SK_2, SK_3,
+};
 use crate::{Config, ConfigFile, Keychain};
 
 pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
@@ -360,8 +364,8 @@ pub fn wait_for_microblocks(microblocks_processed: &Arc<AtomicU64>, timeout: u64
     return true;
 }
 
-/// returns Txid string
-pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
+/// returns Some(Txid string) on success, None on failure
+pub fn submit_tx_fallible(http_origin: &str, tx: &Vec<u8>) -> Option<String> {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/transactions", http_origin);
     let res = client
@@ -379,11 +383,16 @@ pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
                 .txid()
                 .to_string()
         );
-        return res;
+        Some(res)
     } else {
         eprintln!("{}", res.text().unwrap());
-        panic!("");
+        None
     }
+}
+
+/// returns Txid string
+pub fn submit_tx(http_origin: &str, tx: &Vec<u8>) -> String {
+    submit_tx_fallible(http_origin, tx).expect("Failed to submit transaction")
 }
 
 pub fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
@@ -603,4 +612,120 @@ fn get_contract_src(
         let err_str = res.text().unwrap();
         Err(err_str)
     }
+}
+
+const FAUCET_CONTRACT: &'static str = "
+  (define-public (spout)
+    (let ((recipient tx-sender))
+      (print (as-contract (stx-transfer? u1 .faucet recipient)))))
+";
+
+/// Test the node's RPC interface using a faucet contract, issuing
+/// several transfers and contract calls, and check that the RPC interface
+/// processes the blocks
+#[test]
+fn faucet_test() {
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
+    let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+    let addr_2 = to_addr(&sk_2);
+    let addr_3 = to_addr(&sk_3);
+
+    let addr_3_init_balance = 100000;
+    let addr_2_init_balance = 1000;
+
+    conf.add_initial_balance(addr_3.to_string(), addr_3_init_balance);
+    conf.add_initial_balance(addr_2.to_string(), addr_2_init_balance);
+    conf.add_initial_balance(to_addr(&contract_sk).to_string(), 3000);
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    let mut btc_regtest_controller = MockController::new(conf, channel.clone());
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query the miner's account nonce:
+
+    eprintln!("Miner account: {}", miner_account);
+
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(account.nonce, 1);
+
+    eprintln!("Tenure in 1 started!");
+
+    let contract_identifier = QualifiedContractIdentifier::parse(&format!(
+        "{}.{}",
+        to_addr(&contract_sk).to_string(),
+        "faucet"
+    ))
+    .unwrap();
+
+    let xfer_to_faucet_tx =
+        make_stacks_transfer(&sk_3, 0, 1000, &contract_identifier.clone().into(), 1000);
+    let _xfer_to_faucet_txid = submit_tx(&http_origin, &xfer_to_faucet_tx);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let publish_tx = make_contract_publish(&contract_sk, 0, 1000, "faucet", FAUCET_CONTRACT);
+    let _publish_txid = submit_tx(&http_origin, &publish_tx);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let publish_dup_tx = make_contract_publish(&contract_sk, 1, 1000, "faucet", FAUCET_CONTRACT);
+    assert!(
+        submit_tx_fallible(&http_origin, &publish_dup_tx).is_none(),
+        "Duplicate contract publish should not be allowed"
+    );
+
+    let contract_call_tx = make_contract_call(
+        &sk_2,
+        0,
+        1000,
+        &to_addr(&contract_sk),
+        "faucet",
+        "spout",
+        &[],
+    );
+    let _contract_call_txid = submit_tx(&http_origin, &contract_call_tx);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    assert_eq!(
+        get_balance(&http_origin, &addr_3) as u64,
+        addr_3_init_balance - 1000 - 1000
+    );
+    assert_eq!(
+        get_balance(&http_origin, &addr_2) as u64,
+        addr_2_init_balance - 1000 + 1
+    );
+    assert_eq!(
+        get_balance(&http_origin, &contract_identifier) as u64,
+        1000 - 1
+    );
+
+    channel.stop_chains_coordinator();
 }
