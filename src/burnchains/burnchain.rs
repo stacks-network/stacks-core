@@ -78,6 +78,7 @@ use util::vrf::VRFPublicKey;
 
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
 use burnchains::bitcoin::indexer::BitcoinIndexer;
+use vm::types::QualifiedContractIdentifier;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -415,25 +416,28 @@ impl Burnchain {
         chain_name: &str,
         network_name: &str,
     ) -> Result<Burnchain, burnchain_error> {
-        let (params, pox_constants, peer_version, exit_contract_constants) =
+        let (params, pox_constants, peer_version, exit_contract_constants, exit_contract_id) =
             match (chain_name, network_name) {
                 ("bitcoin", "mainnet") => (
                     BurnchainParameters::bitcoin_mainnet(),
                     PoxConstants::mainnet_default(),
                     PEER_VERSION_MAINNET,
                     ExitContractConstants::mainnet_default(),
+                    None,
                 ),
                 ("bitcoin", "testnet") => (
                     BurnchainParameters::bitcoin_testnet(),
                     PoxConstants::testnet_default(),
                     PEER_VERSION_TESTNET,
                     ExitContractConstants::testnet_default(),
+                    Some(QualifiedContractIdentifier::transient()),
                 ),
                 ("bitcoin", "regtest") => (
                     BurnchainParameters::bitcoin_regtest(),
                     PoxConstants::regtest_default(),
                     PEER_VERSION_TESTNET,
                     ExitContractConstants::testnet_default(),
+                    None,
                 ),
                 (_, _) => {
                     return Err(burnchain_error::UnsupportedBurnchain);

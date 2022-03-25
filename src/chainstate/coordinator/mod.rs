@@ -107,8 +107,6 @@ pub struct BlockExitRewardCycleInfo {
     pub parent_block_id: StacksBlockId,
     /// The reward cycle of the block that corresponds to this exit cycle information
     pub block_reward_cycle: u64,
-    /// The stacks block "height" within the reward cycle that this block belongs to
-    pub stacks_block_height_in_cycle: u64,
     /// This value is non-None when consensus has been achieved on a vote; the cycle after this
     /// proposal was voted on will be a veto period for miners
     pub curr_exit_proposal: Option<u64>,
@@ -1026,7 +1024,6 @@ impl<
         let mut current_exit_at_rc = None;
         let mut current_proposal = None;
         let mut invalid_reward_cycles = vec![];
-        let mut stacks_block_height_in_cycle = 1;
         let stacks_block_id = StacksBlockId::new(&block_receipt.header.consensus_hash, &block_hash);
         let parent_block_id = self
             .chain_state_db
@@ -1104,7 +1101,6 @@ impl<
             block_id: stacks_block_id,
             parent_block_id,
             block_reward_cycle: current_reward_cycle,
-            stacks_block_height_in_cycle,
             curr_exit_proposal: current_proposal,
             curr_exit_at_reward_cycle: current_exit_at_rc,
             invalid_reward_cycles,

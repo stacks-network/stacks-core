@@ -450,7 +450,6 @@ impl FromRow<BlockExitRewardCycleInfo> for BlockExitRewardCycleInfo {
         let block_id = StacksBlockId::from_column(row, "block_id")?;
         let parent_block_id = StacksBlockId::from_column(row, "parent_block_id")?;
         let block_reward_cycle = u64::from_column(row, "block_reward_cycle")?;
-        let stacks_block_height_in_cycle = u64::from_column(row, "stacks_block_height_in_cycle")?;
         let curr_exit_proposal = Option::<u64>::from_column(row, "curr_exit_proposal")?;
         let curr_exit_at_reward_cycle =
             Option::<u64>::from_column(row, "curr_exit_at_reward_cycle")?;
@@ -462,7 +461,6 @@ impl FromRow<BlockExitRewardCycleInfo> for BlockExitRewardCycleInfo {
             block_id,
             parent_block_id,
             block_reward_cycle,
-            stacks_block_height_in_cycle,
             curr_exit_proposal,
             curr_exit_at_reward_cycle,
             invalid_reward_cycles,
@@ -643,7 +641,6 @@ const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
         block_id TEXT NOT NULL,
         parent_block_id TEXT NOT NULL,
         block_reward_cycle INTEGER NOT NULL,
-        stacks_block_height_in_cycle INTEGER NOT NULL,
         curr_exit_proposal INTEGER,
         curr_exit_at_reward_cycle INTEGER,
         invalid_reward_cycles TEXT NOT NULL,
@@ -3802,12 +3799,11 @@ impl<'a> SortitionHandleTx<'a> {
                 None
             };
 
-        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_id, parent_block_id, block_reward_cycle, stacks_block_height_in_cycle, invalid_reward_cycles, curr_exit_proposal, curr_exit_at_reward_cycle) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_id, parent_block_id, block_reward_cycle, invalid_reward_cycles, curr_exit_proposal, curr_exit_at_reward_cycle) VALUES (?, ?, ?, ?, ?, ?)";
         let args: &[&dyn ToSql] = &[
             &exit_at_reward_cycle_info.block_id,
             &exit_at_reward_cycle_info.parent_block_id,
             &u64_to_sql(exit_at_reward_cycle_info.block_reward_cycle)?,
-            &u64_to_sql(exit_at_reward_cycle_info.stacks_block_height_in_cycle)?,
             &serde_json::to_string(&exit_at_reward_cycle_info.invalid_reward_cycles).unwrap(),
             &exit_proposal,
             &exit_at_reward_cycle,
