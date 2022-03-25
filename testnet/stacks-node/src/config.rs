@@ -41,6 +41,9 @@ const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
 const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
+pub const BURNCHAIN_NAME_STACKS_L1: &str = "stacks_layer_1";
+pub const BURNCHAIN_NAME_MOCKSTACK: &str = "mockstack";
+
 #[derive(Clone, Deserialize, Default)]
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
@@ -987,6 +990,11 @@ impl Default for BurnchainConfig {
 }
 
 impl BurnchainConfig {
+    /// Does this configuration need a L1 observer to be spawned?
+    pub fn spawn_l1_observer(&self) -> bool {
+        self.chain == BURNCHAIN_NAME_STACKS_L1
+    }
+
     pub fn get_rpc_url(&self) -> String {
         let scheme = match self.rpc_ssl {
             true => "https://",
@@ -1194,8 +1202,12 @@ impl Config {
         coordinator: CoordinatorChannels,
     ) -> Option<Box<dyn BurnchainController + Send>> {
         match self.burnchain.chain.as_str() {
-            "mockstack" => Some(Box::new(MockController::new(self.clone(), coordinator))),
-            "stacks_layer_1" => Some(Box::new(L1Controller::new(self.clone(), coordinator))),
+            BURNCHAIN_NAME_MOCKSTACK => {
+                Some(Box::new(MockController::new(self.clone(), coordinator)))
+            }
+            BURNCHAIN_NAME_STACKS_L1 => {
+                Some(Box::new(L1Controller::new(self.clone(), coordinator)))
+            }
             _ => {
                 warn!(
                     "No matching controller for `chain`: {}",
