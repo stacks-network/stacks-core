@@ -96,23 +96,26 @@ pub enum PoxAnchorBlockStatus {
     NotSelected,
 }
 
+/// This struct is generated for each Stacks block, and holds metadata relating to the exit
+/// contract. It tracks the current exit proposal as well as the current agreed upon exit height.
+/// It is ultimately stored in the table `exit_at_reward_cycle_info` in the sortition DB.
 #[derive(Debug)]
 pub struct BlockExitRewardCycleInfo {
-    // The block id that corresponds to this exit cycle information
+    /// The block id that corresponds to this exit cycle information
     pub block_id: StacksBlockId,
-    // The block id of the parent
+    /// The block id of the parent
     pub parent_block_id: StacksBlockId,
-    // The reward cycle of the block that corresponds to this exit cycle information
+    /// The reward cycle of the block that corresponds to this exit cycle information
     pub block_reward_cycle: u64,
-    // The stacks block "height" within the reward cycle that this block belongs to
+    /// The stacks block "height" within the reward cycle that this block belongs to
     pub stacks_block_height_in_cycle: u64,
-    // This value is non-None when consensus has been achieved on a vote; the cycle after this
-    // proposal was voted on will be a veto period for miners
+    /// This value is non-None when consensus has been achieved on a vote; the cycle after this
+    /// proposal was voted on will be a veto period for miners
     pub curr_exit_proposal: Option<u64>,
-    // The current exit reward cycle for node (can be None; when set, this values rises monotonically)
+    /// The current exit reward cycle for node (can be None; when set, this values rises monotonically)
     pub curr_exit_at_reward_cycle: Option<u64>,
-    // A list of reward cycles to skip over when tallying votes (these are cycles that were
-    // previously proposed and/or vetoed).
+    /// A list of reward cycles to skip over when tallying votes (these are cycles that were
+    /// previously proposed and/or vetoed).
     pub invalid_reward_cycles: Vec<u64>,
 }
 

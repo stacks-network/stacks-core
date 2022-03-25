@@ -3790,33 +3790,30 @@ impl<'a> SortitionHandleTx<'a> {
         &self,
         exit_at_reward_cycle_info: BlockExitRewardCycleInfo,
     ) -> Result<(), db_error> {
-        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_id, parent_block_id, block_reward_cycle, stacks_block_height_in_cycle, invalid_reward_cycles) VALUES (?, ?, ?, ?, ?)";
+        let exit_proposal = if let Some(exit_prop) = exit_at_reward_cycle_info.curr_exit_proposal {
+            Some(u64_to_sql(exit_prop)?)
+        } else {
+            None
+        };
+        let exit_at_reward_cycle =
+            if let Some(curr_exit) = exit_at_reward_cycle_info.curr_exit_at_reward_cycle {
+                Some(u64_to_sql(curr_exit)?)
+            } else {
+                None
+            };
+
+        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_id, parent_block_id, block_reward_cycle, stacks_block_height_in_cycle, invalid_reward_cycles, curr_exit_proposal, curr_exit_at_reward_cycle) VALUES (?, ?, ?, ?, ?, ?, ?)";
         let args: &[&dyn ToSql] = &[
             &exit_at_reward_cycle_info.block_id,
             &exit_at_reward_cycle_info.parent_block_id,
             &u64_to_sql(exit_at_reward_cycle_info.block_reward_cycle)?,
             &u64_to_sql(exit_at_reward_cycle_info.stacks_block_height_in_cycle)?,
             &serde_json::to_string(&exit_at_reward_cycle_info.invalid_reward_cycles).unwrap(),
+            &exit_proposal,
+            &exit_at_reward_cycle,
         ];
         self.execute(sql, args)?;
 
-        if let Some(exit_proposal) = exit_at_reward_cycle_info.curr_exit_proposal {
-            let sql =
-                "UPDATE exit_at_reward_cycle_info SET curr_exit_proposal = ? WHERE block_id = ?";
-            let args: &[&dyn ToSql] = &[
-                &u64_to_sql(exit_proposal)?,
-                &exit_at_reward_cycle_info.block_id,
-            ];
-            self.execute(sql, args)?;
-        }
-        if let Some(exit_at_reward_cycle) = exit_at_reward_cycle_info.curr_exit_at_reward_cycle {
-            let sql = "UPDATE exit_at_reward_cycle_info SET curr_exit_at_reward_cycle = ? WHERE block_id = ?";
-            let args: &[&dyn ToSql] = &[
-                &u64_to_sql(exit_at_reward_cycle)?,
-                &exit_at_reward_cycle_info.block_id,
-            ];
-            self.execute(sql, args)?;
-        }
         Ok(())
     }
 
