@@ -71,4 +71,3 @@ pub fn build_ast<T: CostTracker>(
     ExpressionIdentifier::run_expression_pass(&mut contract_ast, clarity_version)?;
     Ok(contract_ast)
 }
-

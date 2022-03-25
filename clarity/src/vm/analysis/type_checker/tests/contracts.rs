@@ -27,8 +27,7 @@ use vm::types::QualifiedContractIdentifier;
 use vm::{
     analysis::{CheckError, ContractAnalysis},
     costs::LimitedCostTracker,
-    SymbolicExpression,
-    ClarityVersion
+    ClarityVersion, SymbolicExpression,
 };
 
 #[template]

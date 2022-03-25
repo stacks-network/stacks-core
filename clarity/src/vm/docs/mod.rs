@@ -2206,12 +2206,19 @@ mod test {
             .unwrap()
             .expressions;
 
-            type_check(&contract_id, &mut parsed, &mut analysis_db, false, &ClarityVersion::latest())
-                .expect("Failed to type check");
+            type_check(
+                &contract_id,
+                &mut parsed,
+                &mut analysis_db,
+                false,
+                &ClarityVersion::latest(),
+            )
+            .expect("Failed to type check");
         }
 
         let conn = store.as_docs_clarity_db();
-        let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::latest());
+        let mut contract_context =
+            ContractContext::new(contract_id.clone(), ClarityVersion::latest());
         let mut global_context = GlobalContext::new(
             false,
             conn,
@@ -2288,23 +2295,44 @@ mod test {
 
                 {
                     let mut analysis_db = store.as_analysis_db();
-                    let mut parsed = ast::build_ast(&contract_id, &token_contract_content, &mut (), ClarityVersion::latest())
-                        .unwrap()
-                        .expressions;
+                    let mut parsed = ast::build_ast(
+                        &contract_id,
+                        &token_contract_content,
+                        &mut (),
+                        ClarityVersion::latest(),
+                    )
+                    .unwrap()
+                    .expressions;
 
-                    type_check(&contract_id, &mut parsed, &mut analysis_db, true, &ClarityVersion::latest())
-                        .expect("Failed to type check sample-contracts/tokens");
+                    type_check(
+                        &contract_id,
+                        &mut parsed,
+                        &mut analysis_db,
+                        true,
+                        &ClarityVersion::latest(),
+                    )
+                    .expect("Failed to type check sample-contracts/tokens");
                 }
 
                 {
                     let mut analysis_db = store.as_analysis_db();
-                    let mut parsed =
-                        ast::build_ast(&trait_def_id, super::DEFINE_TRAIT_API.example, &mut (), ClarityVersion::latest())
-                            .unwrap()
-                            .expressions;
+                    let mut parsed = ast::build_ast(
+                        &trait_def_id,
+                        super::DEFINE_TRAIT_API.example,
+                        &mut (),
+                        ClarityVersion::latest(),
+                    )
+                    .unwrap()
+                    .expressions;
 
-                    type_check(&trait_def_id, &mut parsed, &mut analysis_db, true, &ClarityVersion::latest())
-                        .expect("Failed to type check sample-contracts/tokens");
+                    type_check(
+                        &trait_def_id,
+                        &mut parsed,
+                        &mut analysis_db,
+                        true,
+                        &ClarityVersion::latest(),
+                    )
+                    .expect("Failed to type check sample-contracts/tokens");
                 }
 
                 let conn = store.as_docs_clarity_db();
