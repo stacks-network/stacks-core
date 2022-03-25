@@ -515,7 +515,11 @@ impl RunLoop {
         let sortdb = burnchain.sortdb_mut();
         let mut sortition_db_height = RunLoop::get_sortition_db_height(&sortdb, &burnchain_config);
 
-        let l1_observer_signal = l1_observer::spawn(burnchain.get_channel());
+        let l1_observer_signal = if self.config.burnchain.spawn_l1_observer() {
+            Some(l1_observer::spawn(burnchain.get_channel()))
+        } else {
+            None
+        };
 
         // Start the runloop
         debug!("Begin run loop");
@@ -549,7 +553,7 @@ impl RunLoop {
 
                 coordinator_senders.stop_chains_coordinator();
                 coordinator_thread_handle.join().unwrap();
-                l1_observer_signal.send(()).unwrap();
+                l1_observer_signal.map(|signal| signal.send(()).unwrap());
                 node.join();
 
                 info!("Exiting stacks-node");

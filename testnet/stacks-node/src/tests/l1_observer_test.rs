@@ -32,9 +32,14 @@ impl StacksL1Controller {
     }
 
     pub fn start_process(&mut self) -> SubprocessResult<()> {
-        let base_dir = env::var("STACKS_BASE_DIR").expect("couldn't read STACKS_BASE_DIR");
-        let bin_file = format!("{}/target/release/stacks-node", &base_dir);
-        let mut command = Command::new(&bin_file);
+        let binary = match env::var("STACKS_BASE_DIR") {
+            Err(_) => {
+                // assume stacks-node is in path
+                "stacks-node".into()
+            }
+            Ok(path) => path,
+        };
+        let mut command = Command::new(&binary);
         command
             .stdout(Stdio::piped())
             .arg("start")
@@ -86,6 +91,10 @@ impl Drop for StacksL1Controller {
 /// from the Stacks-L1 chain.
 #[test]
 fn l1_observer_test() {
+    if env::var("STACKS_NODE_TEST") != Ok("1".into()) {
+        return;
+    }
+
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string());
@@ -102,7 +111,7 @@ fn l1_observer_test() {
     thread::spawn(move || run_loop.start(None, 0));
 
     // Sleep to give the run loop time to listen to blocks.
-    thread::sleep(Duration::from_millis(30000));
+    thread::sleep(Duration::from_millis(45000));
 
     // The burnchain should have registered what the listener recorded.
     let burnchain = Burnchain::new(

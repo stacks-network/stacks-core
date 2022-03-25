@@ -1,5 +1,5 @@
 [package]
-name = "stacks-node"
+name = "hyperchain-node"
 version = "0.1.0"
 authors = ["Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2018"
@@ -35,7 +35,7 @@ version = "=0.24.2"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [[bin]]
-name = "stacks-node"
+name = "hyperchain-node"
 path = "src/main.rs"
 
 [features]

@@ -4,24 +4,20 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use stacks::burnchains::db::BurnchainDB;
-use stacks::burnchains::events::{ContractEvent, NewBlockTxEvent};
-use stacks::burnchains::events::{NewBlock, TxEventType};
+use stacks::burnchains::events::NewBlock;
 use stacks::burnchains::indexer::{
-    BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
+    BurnBlockIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
-use stacks::burnchains::{
-    Burnchain, BurnchainBlock, Error as BurnchainError, StacksHyperBlock, Txid,
-};
+use stacks::burnchains::{Burnchain, BurnchainBlock, Error as BurnchainError, StacksHyperBlock};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
+use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks::core::StacksEpoch;
-use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
+use stacks::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
-use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
-use stacks::vm::Value as ClarityValue;
+use stacks::vm::types::QualifiedContractIdentifier;
 
 use super::mock_events::BlockIPC;
 use super::{BurnchainChannel, Error};
@@ -36,8 +32,6 @@ pub struct L1Channel {
 }
 
 pub struct L1Controller {
-    /// This is the simulated contract identifier
-    contract_identifier: QualifiedContractIdentifier,
     burnchain: Option<Burnchain>,
     config: Config,
     indexer: L1Indexer,
@@ -49,10 +43,6 @@ pub struct L1Controller {
 
     coordinator: CoordinatorChannels,
     chain_tip: Option<BurnchainTip>,
-
-    /// This will be a unique number for the next burn block. Starts at 1
-    next_burn_block: Arc<Mutex<u64>>,
-    next_commit: Arc<Mutex<Option<BlockHeaderHash>>>,
 }
 
 pub struct L1Indexer {
@@ -88,7 +78,6 @@ impl L1Channel {
 lazy_static! {
     pub static ref STATIC_EVENTS_STREAM: Arc<L1Channel> = Arc::new(L1Channel::single_block());
     static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
-    static ref NEXT_COMMIT: Arc<Mutex<Option<BlockHeaderHash>>> = Arc::new(Mutex::new(None));
 }
 
 /// This outputs a hard-coded value for the hash of the first block created by the
@@ -175,7 +164,6 @@ impl L1Controller {
         let contract_identifier = config.burnchain.contract_identifier.clone();
         let indexer = L1Indexer::new(contract_identifier.clone());
         L1Controller {
-            contract_identifier,
             burnchain: None,
             config,
             indexer,
@@ -184,8 +172,6 @@ impl L1Controller {
             should_keep_running: Some(Arc::new(AtomicBool::new(true))),
             coordinator,
             chain_tip: None,
-            next_burn_block: NEXT_BURN_BLOCK.clone(),
-            next_commit: NEXT_COMMIT.clone(),
         }
     }
 
@@ -290,23 +276,12 @@ impl BurnchainController for L1Controller {
     }
     fn submit_operation(
         &mut self,
-        operation: BlockstackOperationType,
+        _operation: BlockstackOperationType,
         _op_signer: &mut BurnchainOpSigner,
         _attempt: u64,
     ) -> bool {
-        match operation {
-            BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-                block_header_hash,
-                ..
-            }) => {
-                let mut next_commit = self.next_commit.lock().unwrap();
-                if let Some(prior_commit) = next_commit.replace(block_header_hash) {
-                    warn!("Mocknet controller replaced a staged commit"; "prior_commit" => %prior_commit);
-                }
-
-                true
-            }
-        }
+        // todo(issue #29)
+        false
     }
 
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error> {
@@ -468,7 +443,9 @@ impl BurnchainIndexer for L1Indexer {
     }
 
     fn get_first_block_header_hash(&self) -> Result<BurnchainHeaderHash, BurnchainError> {
-        Ok(BurnchainHeaderHash(make_mock_byte_string_for_first_l1_block()))
+        Ok(BurnchainHeaderHash(
+            make_mock_byte_string_for_first_l1_block(),
+        ))
     }
 
     fn get_first_block_header_timestamp(&self) -> Result<u64, BurnchainError> {

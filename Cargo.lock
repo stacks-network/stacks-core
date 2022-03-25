@@ -1257,6 +1257,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyperchain-node"
+version = "0.1.0"
+dependencies = [
+ "async-h1",
+ "async-std",
+ "backtrace",
+ "base64 0.12.3",
+ "blockstack-core",
+ "clarity",
+ "http-types",
+ "lazy_static",
+ "libc",
+ "pico-args",
+ "rand 0.7.3",
+ "reqwest",
+ "ring",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "slog",
+ "stacks-common",
+ "stx-genesis",
+ "tokio",
+ "toml",
+ "warp",
+]
+
+[[package]]
 name = "idna"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2668,35 +2697,6 @@ dependencies = [
  "slog-json",
  "slog-term",
  "time 0.2.27",
-]
-
-[[package]]
-name = "stacks-node"
-version = "0.1.0"
-dependencies = [
- "async-h1",
- "async-std",
- "backtrace",
- "base64 0.12.3",
- "blockstack-core",
- "clarity",
- "http-types",
- "lazy_static",
- "libc",
- "pico-args",
- "rand 0.7.3",
- "reqwest",
- "ring",
- "rusqlite",
- "serde",
- "serde_derive",
- "serde_json",
- "slog",
- "stacks-common",
- "stx-genesis",
- "tokio",
- "toml",
- "warp",
 ]
 
 [[package]]

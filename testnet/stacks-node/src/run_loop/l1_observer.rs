@@ -15,10 +15,7 @@ pub const EVENT_OBSERVER_PORT: u16 = 50303;
 /// Adds in `channel` to downstream functions.
 fn with_db(
     channel: Arc<dyn BurnchainChannel>,
-) -> impl Filter<
-    Extract = (Arc<dyn BurnchainChannel>,),
-    Error = std::convert::Infallible,
-> + Clone {
+) -> impl Filter<Extract = (Arc<dyn BurnchainChannel>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || channel.clone())
 }
 
@@ -46,7 +43,7 @@ async fn serve(
     let new_blocks = first_part.and_then(handle_new_block);
 
     info!("Binding warp server.");
-    let (addr, server) = warp::serve(new_blocks).bind_with_graceful_shutdown(
+    let (_addr, server) = warp::serve(new_blocks).bind_with_graceful_shutdown(
         ([127, 0, 0, 1], EVENT_OBSERVER_PORT),
         async {
             signal_receiver.await.ok();

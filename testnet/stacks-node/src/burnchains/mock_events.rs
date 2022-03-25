@@ -468,12 +468,12 @@ pub struct MockParser {
     watch_contract: QualifiedContractIdentifier,
 }
 
-    #[derive(Clone)]
-    pub struct MockHeader {
-        pub height: u64,
-        pub index_hash: StacksBlockId,
-        pub parent_index_hash: StacksBlockId,
-    }
+#[derive(Clone)]
+pub struct MockHeader {
+    pub height: u64,
+    pub index_hash: StacksBlockId,
+    pub parent_index_hash: StacksBlockId,
+}
 #[derive(Clone)]
 pub struct BlockIPC(pub NewBlock);
 

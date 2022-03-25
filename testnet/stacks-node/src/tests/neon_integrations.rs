@@ -24,7 +24,7 @@ use crate::tests::{
 };
 use crate::{Config, ConfigFile, Keychain};
 
-pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
+pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
 
     let keychain = Keychain::default(conf.node.seed.clone());
@@ -32,8 +32,8 @@ pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     conf.node.miner = true;
     conf.node.wait_time_for_microblocks = 500;
     conf.burnchain.burn_fee_cap = 20000;
-
-    conf.burnchain.mode = "neon".into();
+    conf.burnchain.chain = "mockstack".into();
+    conf.burnchain.mode = "hyperchain".into();
     conf.burnchain.username = Some("neon-tester".into());
     conf.burnchain.password = Some("neon-tester-pass".into());
     conf.burnchain.peer_host = "127.0.0.1".into();
@@ -456,8 +456,10 @@ fn is_close_f64(a: f64, b: f64) -> bool {
 
 #[test]
 #[ignore]
-fn bitcoind_integration_test() {
-    let (mut conf, miner_account) = neon_integration_test_conf();
+/// Simple test for the mock backend: test that the hyperchain miner
+/// is capable of producing blocks
+fn mockstack_integration_test() {
+    let (mut conf, miner_account) = mockstack_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
 
@@ -625,7 +627,7 @@ const FAUCET_CONTRACT: &'static str = "
 /// processes the blocks
 #[test]
 fn faucet_test() {
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, miner_account) = mockstack_test_conf();
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
