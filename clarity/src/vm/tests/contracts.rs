@@ -30,8 +30,7 @@ use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
 use vm::representations::SymbolicExpression;
 use vm::tests::{
-    execute, symbols_from_values,
-    with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+    execute, symbols_from_values, with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -58,7 +57,6 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: 
                                (ok false))))))
         (begin (init-factorial 1337 3)
                (init-factorial 8008 5))";
-
 
 fn get_principal() -> Value {
     StandardPrincipalData::transient().into()

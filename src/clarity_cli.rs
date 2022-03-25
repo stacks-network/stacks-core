@@ -51,10 +51,10 @@ use crate::clarity::{
     vm::errors::{Error, InterpreterResult, RuntimeErrorType},
     vm::eval_all,
     vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier},
+    vm::ClarityVersion,
     vm::ContractContext,
     vm::ContractName,
     vm::{SymbolicExpression, SymbolicExpressionType, Value},
-    vm::ClarityVersion,
 };
 use stacks_common::util::log;
 
@@ -209,7 +209,7 @@ fn run_analysis_free<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         LimitedCostTracker::new_free(),
-        clarity_version
+        clarity_version,
     )
 }
 
@@ -239,7 +239,7 @@ fn run_analysis<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         cost_track,
-        clarity_version
+        clarity_version,
     )
 }
 
@@ -1419,8 +1419,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         Ok(analysis) => {
                             let result_and_cost =
                                 with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                                    vm_env
-                                        .initialize_contract(contract_identifier, &contract_content, None)
+                                    vm_env.initialize_contract(
+                                        contract_identifier,
+                                        &contract_content,
+                                        None,
+                                    )
                                 });
                             (header_db, marf, Ok((analysis, result_and_cost)))
                         }
@@ -1532,7 +1535,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    vm_env.execute_transaction(sender, None, contract_identifier, &tx_name, &arguments)
+                    vm_env.execute_transaction(
+                        sender,
+                        None,
+                        contract_identifier,
+                        &tx_name,
+                        &arguments,
+                    )
                 });
                 (header_db, marf, result_and_cost)
             });

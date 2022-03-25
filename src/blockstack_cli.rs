@@ -40,21 +40,21 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::codec::{Error as CodecError, StacksMessageCodec};
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::Error as NetError;
 use blockstack_lib::types::chainstate::StacksAddress;
+use blockstack_lib::util::hash::hex_bytes;
+use blockstack_lib::util::hash::to_hex;
+use blockstack_lib::util::retry::LogReader;
+use blockstack_lib::util_lib::strings::StacksString;
 use blockstack_lib::vm::ClarityVersion;
 use blockstack_lib::vm::{
     errors::{Error as ClarityError, RuntimeErrorType},
     types::PrincipalData,
     ClarityName, ContractName, Value,
 };
-use blockstack_lib::util_lib::strings::StacksString;
-use blockstack_lib::util::hash::hex_bytes;
-use blockstack_lib::util::hash::to_hex;
-use blockstack_lib::util::retry::LogReader;
-use blockstack_lib::clarity_cli::vm_execute;
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]
 

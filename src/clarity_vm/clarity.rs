@@ -939,7 +939,7 @@ impl<'a, 'b> Drop for ClarityTransactionConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {    
+impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
     fn with_abort_callback<F, A, R, E>(
         &mut self,
         to_do: F,

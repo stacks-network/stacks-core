@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use chainstate::stacks::StacksBlockHeader;
 use clarity_vm::clarity::ClarityInstance;
 use clarity_vm::database::marf::MarfedKV;
-use chainstate::stacks::StacksBlockHeader;
 
 use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
@@ -28,8 +28,8 @@ use vm::events::*;
 use vm::tests::execute;
 use vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
 
-use types::StacksEpochId;
 use types::chainstate::StacksBlockId;
+use types::StacksEpochId;
 
 use vm::database::MemoryBackingStore;
 

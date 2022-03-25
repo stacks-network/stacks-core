@@ -60,6 +60,8 @@ use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::stacks::*;
 use blockstack_lib::clarity::vm::costs::ExecutionCost;
 use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
+use blockstack_lib::clarity::vm::ClarityVersion;
+use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::core::*;
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
@@ -85,8 +87,6 @@ use blockstack_lib::{
     util::{hash::Hash160, vrf::VRFProof},
     util_lib::db::sqlite_open,
 };
-use blockstack_lib::clarity::vm::ClarityVersion;
-use blockstack_lib::clarity_cli::vm_execute;
 use std::collections::HashSet;
 
 fn main() {

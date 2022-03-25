@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
+use crate::util_lib::db::{DBConn, FromRow};
 use address::AddressHashMode;
 use chainstate::burn::BlockSnapshot;
 use chainstate::burn::ConsensusHash;
@@ -11,9 +12,9 @@ use chainstate::stacks::boot::{
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo, MINER_REWARD_MATURITY};
 use chainstate::stacks::index::MarfTrieId;
 use chainstate::stacks::*;
+use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use clarity_vm::database::marf::MarfedKV;
 use core::*;
-use crate::util_lib::db::{DBConn, FromRow};
 use util::hash::to_hex;
 use util::hash::{Sha256Sum, Sha512Trunc256Sum};
 use vm::contexts::OwnedEnvironment;
@@ -25,7 +26,6 @@ use vm::errors::{
 };
 use vm::eval;
 use vm::representations::SymbolicExpression;
-use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use vm::types::Value::Response;
 use vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -33,6 +33,7 @@ use vm::types::{
 };
 
 use crate::net::test::TestPeer;
+use crate::util_lib::boot::boot_code_id;
 use crate::{
     burnchains::Burnchain,
     chainstate::{
@@ -42,7 +43,6 @@ use crate::{
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
     net::test::TestEventObserver,
 };
-use crate::util_lib::boot::boot_code_id;
 use types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };

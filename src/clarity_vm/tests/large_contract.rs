@@ -16,12 +16,12 @@
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
+use chainstate::stacks::index::ClarityMarfTrieId;
+use clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use chainstate::stacks::index::ClarityMarfTrieId;
-use clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
 use util::hash::hex_bytes;
 use vm::ast;
 use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
@@ -109,7 +109,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion) {
 
         let tokens_contract = SIMPLE_TOKENS;
 
-        let contract_ast = ast::build_ast(&contract_identifier, tokens_contract, &mut (), version).unwrap();
+        let contract_ast =
+            ast::build_ast(&contract_identifier, tokens_contract, &mut (), version).unwrap();
 
         block.as_transaction(|tx| {
             tx.initialize_smart_contract(
@@ -547,7 +548,6 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
         ));
     }
 }
-
 
 /*
  * This test exhibits memory inflation --

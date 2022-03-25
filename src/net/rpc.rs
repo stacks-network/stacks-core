@@ -1369,15 +1369,21 @@ impl ConversationHttp {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
                     })?;
 
-                clarity_tx.with_readonly_clarity_env(mainnet, sender.clone(), sponsor.cloned(), cost_track, |env| {
-                    // we want to execute any function as long as no actual writes are made as
-                    // opposed to be limited to purely calling `define-read-only` functions,
-                    // so use `read_only = false`.  This broadens the number of functions that
-                    // can be called, and also circumvents limitations on `define-read-only`
-                    // functions that can not use `contrac-call?`, even when calling other
-                    // read-only functions
-                    env.execute_contract(&contract_identifier, function.as_str(), &args, false)
-                })
+                clarity_tx.with_readonly_clarity_env(
+                    mainnet,
+                    sender.clone(),
+                    sponsor.cloned(),
+                    cost_track,
+                    |env| {
+                        // we want to execute any function as long as no actual writes are made as
+                        // opposed to be limited to purely calling `define-read-only` functions,
+                        // so use `read_only = false`.  This broadens the number of functions that
+                        // can be called, and also circumvents limitations on `define-read-only`
+                        // functions that can not use `contrac-call?`, even when calling other
+                        // read-only functions
+                        env.execute_contract(&contract_identifier, function.as_str(), &args, false)
+                    },
+                )
             });
 
         let response = match data_opt_res {

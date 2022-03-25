@@ -1929,14 +1929,13 @@ impl HttpRequestType {
         let sender = PrincipalData::parse(&body.sender)
             .map_err(|_e| net_error::DeserializeError("Failed to parse sender principal".into()))?;
 
-        let sponsor =
-            if let Some(sponsor) = body.sponsor {
-                Some(PrincipalData::parse(&sponsor)
-                    .map_err(|_e| net_error::DeserializeError("Failed to parse sponsor principal".into()))?)
-            }
-            else {
-                None
-            };
+        let sponsor = if let Some(sponsor) = body.sponsor {
+            Some(PrincipalData::parse(&sponsor).map_err(|_e| {
+                net_error::DeserializeError("Failed to parse sponsor principal".into())
+            })?)
+        } else {
+            None
+        };
 
         let arguments = body
             .arguments

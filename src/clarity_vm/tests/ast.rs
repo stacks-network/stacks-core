@@ -53,7 +53,7 @@ fn dependency_edge_counting_runtime(iters: usize, version: ClarityVersion) -> u6
         &QualifiedContractIdentifier::transient(),
         &progn,
         &mut cost_track,
-        version
+        version,
     )
     .unwrap();
 
@@ -62,8 +62,10 @@ fn dependency_edge_counting_runtime(iters: usize, version: ClarityVersion) -> u6
 
 #[apply(test_edge_counting_runtime_template)]
 fn test_edge_counting_runtime(#[case] version: ClarityVersion) {
-    let ratio_4_8 = dependency_edge_counting_runtime(8, version) / dependency_edge_counting_runtime(4, version);
-    let ratio_8_16 = dependency_edge_counting_runtime(16, version) / dependency_edge_counting_runtime(8, version);
+    let ratio_4_8 =
+        dependency_edge_counting_runtime(8, version) / dependency_edge_counting_runtime(4, version);
+    let ratio_8_16 = dependency_edge_counting_runtime(16, version)
+        / dependency_edge_counting_runtime(8, version);
 
     // this really is just testing for the non-linearity
     //   in the runtime cost assessment (because the edge count in the dependency graph is going up O(n^2)).

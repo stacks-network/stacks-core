@@ -41,16 +41,15 @@ use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, Stri
 use vm::{eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
-use vm::ClarityVersion;
 use vm::database::MemoryBackingStore;
 use vm::types::StacksAddressExtensions;
+use vm::ClarityVersion;
 
 #[template]
 #[rstest]
 #[case(ClarityVersion::Clarity1)]
 #[case(ClarityVersion::Clarity2)]
 fn test_clarity_versions_simple_apply_eval(#[case] version: ClarityVersion) {}
-
 
 #[test]
 fn test_doubly_defined_persisted_vars() {

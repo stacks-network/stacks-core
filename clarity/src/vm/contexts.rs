@@ -730,7 +730,7 @@ impl<'a> OwnedEnvironment<'a> {
                 .increment_ustx_liquid_supply(amount)
                 .unwrap();
 
-            let res : std::result::Result<(), ::vm::errors::Error> = Ok(());
+            let res: std::result::Result<(), ::vm::errors::Error> = Ok(());
             res
         })
         .unwrap();

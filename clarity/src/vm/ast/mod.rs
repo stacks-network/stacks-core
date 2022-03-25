@@ -87,8 +87,8 @@ mod tests {
     use vm::costs::LimitedCostTracker;
     use vm::representations::depth_traverse;
     use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
-    use vm::version::ClarityVersion::Clarity1;
     use vm::types::QualifiedContractIdentifier;
+    use vm::version::ClarityVersion::Clarity1;
 
     #[template]
     #[rstest]

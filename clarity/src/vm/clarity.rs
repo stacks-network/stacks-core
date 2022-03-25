@@ -12,9 +12,9 @@ use vm::costs::LimitedCostTracker;
 use vm::database::ClarityDatabase;
 use vm::errors::Error as InterpreterError;
 use vm::events::StacksTransactionEvent;
-use vm::types::{PrincipalData, QualifiedContractIdentifier, BuffData};
-use vm::{ast, SymbolicExpression, Value};
+use vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use vm::ClarityVersion;
+use vm::{ast, SymbolicExpression, Value};
 
 #[derive(Debug)]
 pub enum Error {
@@ -168,12 +168,17 @@ pub trait TransactionConnection: ClarityConnection {
         contract_content: &str,
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
         let epoch_id = self.get_epoch();
-        
+
         // ClarityVersionPragmaTodo: need to use contract's declared version or default
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
 
         self.with_analysis_db(|db, mut cost_track| {
-            let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track, clarity_version);
+            let ast_result = ast::build_ast(
+                identifier,
+                contract_content,
+                &mut cost_track,
+                clarity_version,
+            );
 
             let mut contract_ast = match ast_result {
                 Ok(x) => x,
@@ -186,7 +191,7 @@ pub trait TransactionConnection: ClarityConnection {
                 db,
                 false,
                 cost_track,
-                clarity_version
+                clarity_version,
             );
 
             match result {
@@ -230,10 +235,14 @@ pub trait TransactionConnection: ClarityConnection {
         from: &PrincipalData,
         to: &PrincipalData,
         amount: u128,
-        memo: &BuffData
+        memo: &BuffData,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
         self.with_abort_callback(
-            |vm_env| vm_env.stx_transfer(from, to, amount, memo).map_err(Error::from),
+            |vm_env| {
+                vm_env
+                    .stx_transfer(from, to, amount, memo)
+                    .map_err(Error::from)
+            },
             |_, _| false,
         )
         .and_then(|(value, assets, events, _)| Ok((value, assets, events)))
@@ -303,7 +312,12 @@ pub trait TransactionConnection: ClarityConnection {
         let (_, asset_map, events, aborted) = self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str, sponsor)
+                    .initialize_contract_from_ast(
+                        identifier.clone(),
+                        contract_ast,
+                        contract_str,
+                        sponsor,
+                    )
                     .map_err(Error::from)
             },
             abort_call_back,

@@ -54,7 +54,7 @@ fn test_at_unknown_block() {
             .initialize_contract(
                 QualifiedContractIdentifier::local("contract").unwrap(),
                 &contract,
-                None
+                None,
             )
             .unwrap_err();
         eprintln!("{}", err);
