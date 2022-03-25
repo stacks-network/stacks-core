@@ -54,21 +54,21 @@ use cost_estimates::EstimatorError;
 use net::BlocksInvData;
 use net::Error as net_error;
 use net::ExtendedStacksHeader;
-use net::MemPoolSyncData;
-use util::db::u64_to_sql;
-use util::db::Error as db_error;
-use util::db::{
-    query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
-    tx_busy_handler, DBConn, FromColumn, FromRow,
-};
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::retry::BoundReader;
-use util::strings::StacksString;
+use util_lib::db::u64_to_sql;
+use util_lib::db::Error as db_error;
+use util_lib::db::{
+    query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
+    tx_busy_handler, DBConn, FromColumn, FromRow,
+};
+use util_lib::strings::StacksString;
 pub use vm::analysis::errors::{CheckError, CheckErrors};
 use vm::analysis::run_analysis;
 use vm::ast::build_ast;
+use vm::clarity::TransactionConnection;
 use vm::contexts::AssetMap;
 use vm::contracts::Contract;
 use vm::costs::LimitedCostTracker;
@@ -78,12 +78,14 @@ use vm::types::{
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
-use crate::types::chainstate::{
-    StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader,
-};
 use crate::{types, util};
+use chainstate::stacks::address::StacksAddressExtensions;
+use chainstate::stacks::StacksBlockHeader;
+use chainstate::stacks::StacksMicroblockHeader;
 use monitoring::set_last_execution_cost_observed;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use types::chainstate::BurnchainHeaderHash;
+use util_lib::boot::boot_code_id;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -2119,7 +2121,7 @@ impl StacksChainState {
             match stacks_header_hash_opt {
                 None => {
                     test_debug!(
-                        "Do not have any block in burn block {} in {}",
+                        "Do not have any Stacks block for consensus hash {} in {}",
                         &consensus_hash,
                         &self.blocks_path
                     );
@@ -2201,6 +2203,128 @@ impl StacksChainState {
             header_hashes.len(),
             block_bench_total,
             mblock_bench_total
+        );
+
+        Ok(BlocksInvData {
+            bitlen: block_bits.len() as u16,
+            block_bitvec: block_bitvec,
+            microblocks_bitvec: microblocks_bitvec,
+        })
+    }
+
+    /// Find the minimum and maximum Stacks block heights for a reward cycle
+    pub fn get_min_max_stacks_block_heights_in_reward_cycle(
+        &self,
+        burnchain: &Burnchain,
+        reward_cycle: u64,
+    ) -> Result<(u64, u64), Error> {
+        // find height range
+        let burn_height_start = burnchain.reward_cycle_to_block_height(reward_cycle);
+        let burn_height_end = burnchain.reward_cycle_to_block_height(reward_cycle + 1);
+
+        test_debug!(
+            "Search for min/max Stacks blocks between burn blocks [{},{})",
+            burn_height_start,
+            burn_height_end
+        );
+
+        let sql = "SELECT COALESCE(MIN(block_height), 0), COALESCE(MAX(block_height), 0) FROM block_headers WHERE burn_header_height >= ?1 AND burn_header_height < ?2";
+        let args: &[&dyn ToSql] = &[
+            &u64_to_sql(burn_height_start)?,
+            &u64_to_sql(burn_height_end)?,
+        ];
+
+        self.db()
+            .query_row(sql, args, |row| {
+                let start_height_i64: i64 = row.get_unwrap(0);
+                let end_height_i64: i64 = row.get_unwrap(1);
+                return Ok((start_height_i64 as u64, end_height_i64 as u64));
+            })
+            .optional()?
+            .ok_or_else(|| Error::DBError(db_error::NotFoundError))
+    }
+
+    /// Generate a blocks inventory message for a range of Stacks block heights.
+    /// NOTE: header_hashes must be *only* for this reward cycle.
+    pub fn get_blocks_inventory_for_reward_cycle(
+        &self,
+        burnchain: &Burnchain,
+        reward_cycle: u64,
+        header_hashes: &[(ConsensusHash, Option<BlockHeaderHash>)],
+    ) -> Result<BlocksInvData, Error> {
+        let bench_start = get_epoch_time_ms();
+        let mut block_bits = vec![false; header_hashes.len()];
+        let mut microblock_bits = vec![false; header_hashes.len()];
+        let mut num_rows = 0;
+
+        let mut ch_lookup: HashMap<&ConsensusHash, _> = HashMap::new();
+        for (i, (ch, _)) in header_hashes.iter().enumerate() {
+            ch_lookup.insert(ch, i);
+        }
+
+        // find height range
+        let (start_height, end_height) =
+            self.get_min_max_stacks_block_heights_in_reward_cycle(burnchain, reward_cycle)?;
+
+        test_debug!(
+            "Search for accepted blocks and microblocks in [{},{}] for reward cycle {}",
+            start_height,
+            end_height,
+            reward_cycle,
+        );
+
+        let sql = "SELECT staging_blocks.consensus_hash, staging_blocks.processed, staging_blocks.orphaned, staging_microblocks.processed, staging_microblocks.orphaned \
+                   FROM staging_blocks LEFT JOIN staging_microblocks \
+                   ON staging_blocks.parent_microblock_hash = staging_microblocks.microblock_hash \
+                   WHERE staging_blocks.height >= ?1 AND staging_blocks.height <= ?2";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(start_height)?, &u64_to_sql(end_height)?];
+
+        let mut stmt = self.db().prepare(sql)?;
+
+        let mut rows = stmt.query(args)?;
+
+        while let Some(row) = rows.next()? {
+            num_rows += 1;
+            let consensus_hash: ConsensusHash = row.get_unwrap(0);
+            let index = match ch_lookup.get(&consensus_hash) {
+                Some(i) => *i,
+                None => {
+                    test_debug!("No staging block data for {}", &consensus_hash);
+                    continue;
+                }
+            };
+
+            let block_processed: i64 = row.get_unwrap(1);
+            let block_orphaned: i64 = row.get_unwrap(2);
+            let microblock_processed_opt: Option<i64> = row.get_unwrap(3);
+            let microblock_orphaned_opt: Option<i64> = row.get_unwrap(4);
+
+            if block_processed != 0 && block_orphaned == 0 {
+                block_bits[index] = true;
+            }
+
+            if let Some(microblock_processed) = microblock_processed_opt {
+                if let Some(microblock_orphaned) = microblock_orphaned_opt {
+                    if block_processed != 0
+                        && block_orphaned == 0
+                        && microblock_processed != 0
+                        && microblock_orphaned == 0
+                    {
+                        microblock_bits[index] = true;
+                    }
+                }
+            }
+        }
+
+        let block_bitvec = BlocksInvData::compress_bools(&block_bits);
+        let microblocks_bitvec = BlocksInvData::compress_bools(&microblock_bits);
+        let bench_end = get_epoch_time_ms();
+
+        debug!(
+            "Time to evaluate {} entries: {}ms; {} rows visited",
+            header_hashes.len(),
+            bench_end.saturating_sub(bench_start),
+            num_rows
         );
 
         Ok(BlocksInvData {
@@ -2443,6 +2567,14 @@ impl StacksChainState {
         anchored_block_hash: &BlockHeaderHash,
     ) -> Result<(), Error> {
         // This block is orphaned
+        let index_block_hash =
+            StacksBlockHeader::make_index_block_hash(consensus_hash, anchored_block_hash);
+        test_debug!(
+            "Orphan block {}/{} ({})",
+            consensus_hash,
+            anchored_block_hash,
+            &index_block_hash
+        );
         let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attachable = 0 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
         let update_block_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
@@ -2458,11 +2590,23 @@ impl StacksChainState {
         .map_err(Error::DBError)?;
 
         // drop microblocks (this processes them)
+        test_debug!(
+            "Orphan microblocks descending from {}/{} ({})",
+            consensus_hash,
+            anchored_block_hash,
+            &index_block_hash
+        );
         let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
         let update_microblock_children_args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
 
         tx.execute(&update_block_sql, update_block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+
+        tx.execute(
+            &update_microblock_children_sql,
+            update_microblock_children_args,
+        )
+        .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         // mark the block as empty if we haven't already
         let block_path =
@@ -4582,7 +4726,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx<'a>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
         let mainnet = clarity_tx.config.mainnet;
-        let lockup_contract_id = util::boot::boot_code_id("lockup", mainnet);
+        let lockup_contract_id = boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {
@@ -6194,16 +6338,18 @@ pub mod test {
     use core::mempool::*;
     use net::test::*;
     use net::ExtendedStacksHeader;
-    use util::db::Error as db_error;
-    use util::db::*;
     use util::hash::*;
     use util::retry::*;
+    use util_lib::db::Error as db_error;
+    use util_lib::db::*;
 
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;
     use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore};
 
     use super::*;
+
+    use clarity::vm::types::StacksAddressExtensions;
 
     use serde_json;
 
@@ -10090,8 +10236,305 @@ pub mod test {
             }
             for j in (i + 1)..blocks.len() {
                 assert!(block_inv_all.has_ith_block(j as u16));
-                assert!(block_inv_all.has_ith_microblock_stream(j as u16));
+                if j > i + 1 {
+                    assert!(block_inv_all.has_ith_microblock_stream(j as u16));
+                }
             }
+        }
+    }
+
+    #[test]
+    fn stacks_db_get_blocks_inventory_for_reward_cycle() {
+        let mut peer_config = TestPeerConfig::new(
+            "stacks_db_get_blocks_inventory_for_reward_cycle",
+            21313,
+            21314,
+        );
+
+        let privk = StacksPrivateKey::new();
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&privk)],
+        )
+        .unwrap();
+
+        let initial_balance = 1000000000;
+        peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
+        let recv_addr =
+            StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
+
+        let mut peer = TestPeer::new(peer_config.clone());
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        // NOTE: first_stacks_block_height is the burnchain height at which the node starts mining.
+        // The burnchain block at this height will have the VRF key register, but no block-commit.
+        // The first burnchain block with a Stacks block is at first_stacks_block_height + 1.
+        let (first_stacks_block_height, canonical_sort_id) = {
+            let sn =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+            (sn.block_height, sn.sortition_id)
+        };
+
+        let mut header_hashes = vec![];
+        for i in 0..(first_stacks_block_height + 1) {
+            let ic = peer.sortdb.as_ref().unwrap().index_conn();
+            let sn = SortitionDB::get_ancestor_snapshot(&ic, i, &canonical_sort_id)
+                .unwrap()
+                .unwrap();
+            header_hashes.push((
+                sn.consensus_hash,
+                if sn.sortition {
+                    Some(sn.winning_stacks_block_hash)
+                } else {
+                    None
+                },
+            ));
+        }
+
+        let last_stacks_block_height = first_stacks_block_height
+            + ((peer_config.burnchain.pox_constants.reward_cycle_length as u64) * 5)
+            + 2;
+
+        let mut mblock_nonce = 0;
+
+        // make some blocks, up to and including a fractional reward cycle
+        for tenure_id in 0..(last_stacks_block_height - first_stacks_block_height) {
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+
+            assert_eq!(
+                tip.block_height,
+                first_stacks_block_height + (tenure_id as u64)
+            );
+
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+                |ref mut miner,
+                 ref mut sortdb,
+                 ref mut chainstate,
+                 vrf_proof,
+                 ref parent_opt,
+                 ref parent_microblock_header_opt| {
+                    let parent_tip = match parent_opt {
+                        None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                        Some(block) => {
+                            let ic = sortdb.index_conn();
+                            let snapshot =
+                                SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                                    &ic,
+                                    &tip.sortition_id,
+                                    &block.block_hash(),
+                                )
+                                .unwrap()
+                                .unwrap(); // succeeds because we don't fork
+                            StacksChainState::get_anchored_block_header_info(
+                                chainstate.db(),
+                                &snapshot.consensus_hash,
+                                &snapshot.winning_stacks_block_hash,
+                            )
+                            .unwrap()
+                            .unwrap()
+                        }
+                    };
+
+                    let mut mempool =
+                        MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                    let coinbase_tx =
+                        make_coinbase_with_nonce(miner, tenure_id as usize, tenure_id.into());
+
+                    let microblock_privkey = StacksPrivateKey::new();
+                    let microblock_pubkeyhash = Hash160::from_node_public_key(
+                        &StacksPublicKey::from_private(&microblock_privkey),
+                    );
+                    let anchored_block = StacksBlockBuilder::build_anchored_block(
+                        chainstate,
+                        &sortdb.index_conn(),
+                        &mut mempool,
+                        &parent_tip,
+                        tip.total_burn,
+                        vrf_proof,
+                        microblock_pubkeyhash,
+                        &coinbase_tx,
+                        BlockBuilderSettings::max_value(),
+                        None,
+                    )
+                    .unwrap();
+
+                    let mut microblocks: Vec<StacksMicroblock> = vec![];
+                    for i in 0..2 {
+                        let mut mblock_txs = vec![];
+                        let tx = {
+                            let auth = TransactionAuth::Standard(
+                                TransactionSpendingCondition::new_singlesig_p2pkh(
+                                    StacksPublicKey::from_private(&privk),
+                                )
+                                .unwrap(),
+                            );
+                            let mut tx_stx_transfer = StacksTransaction::new(
+                                TransactionVersion::Testnet,
+                                auth.clone(),
+                                TransactionPayload::TokenTransfer(
+                                    recv_addr.clone().into(),
+                                    1,
+                                    TokenTransferMemo([0u8; 34]),
+                                ),
+                            );
+
+                            tx_stx_transfer.chain_id = 0x80000000;
+                            tx_stx_transfer.post_condition_mode =
+                                TransactionPostConditionMode::Allow;
+                            tx_stx_transfer.set_tx_fee(0);
+                            tx_stx_transfer.set_origin_nonce(mblock_nonce);
+                            mblock_nonce += 1;
+
+                            let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+                            signer.sign_origin(&privk).unwrap();
+
+                            let signed_tx = signer.get_tx().unwrap();
+                            signed_tx
+                        };
+
+                        mblock_txs.push(tx);
+                        let microblock = StacksMicroblockBuilder::make_next_microblock_from_txs(
+                            mblock_txs,
+                            &microblock_privkey,
+                            &anchored_block.0.block_hash(),
+                            microblocks.last().map(|mblock| &mblock.header),
+                        )
+                        .unwrap();
+                        microblocks.push(microblock);
+                    }
+
+                    (anchored_block.0, microblocks)
+                },
+            );
+
+            let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+            peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+            header_hashes.push((consensus_hash, Some(stacks_block.block_hash())));
+        }
+
+        let total_reward_cycles = peer_config
+            .burnchain
+            .block_height_to_reward_cycle(last_stacks_block_height)
+            .unwrap();
+        let mut chainstate = StacksChainState::open(false, 0x80000000, &chainstate_path)
+            .unwrap()
+            .0;
+
+        test_debug!(
+            "first, last block heights are {}, {}. Total reward cycles: {}",
+            first_stacks_block_height,
+            last_stacks_block_height,
+            total_reward_cycles
+        );
+
+        // everything is stored, so check each reward cycle
+        for i in 0..total_reward_cycles {
+            let start_range = peer_config.burnchain.reward_cycle_to_block_height(i);
+            let end_range = cmp::min(
+                header_hashes.len() as u64,
+                peer_config.burnchain.reward_cycle_to_block_height(i + 1),
+            );
+            let blocks_inv = chainstate
+                .get_blocks_inventory_for_reward_cycle(
+                    &peer_config.burnchain,
+                    i,
+                    &header_hashes[(start_range as usize)..(end_range as usize)],
+                )
+                .unwrap();
+
+            let original_blocks_inv = chainstate
+                .get_blocks_inventory(&header_hashes[(start_range as usize)..(end_range as usize)])
+                .unwrap();
+
+            test_debug!(
+                "reward cycle {}: {:?} (compare to {:?})",
+                i,
+                &blocks_inv,
+                &original_blocks_inv
+            );
+            assert_eq!(original_blocks_inv, blocks_inv);
+            for block_height in start_range..end_range {
+                test_debug!(
+                    "check block {} ({}-{})",
+                    block_height,
+                    start_range,
+                    end_range
+                );
+                if block_height > first_stacks_block_height
+                    && block_height <= last_stacks_block_height
+                {
+                    assert!(blocks_inv.has_ith_block((block_height - start_range) as u16));
+                    if block_height > first_stacks_block_height + 1 {
+                        // the first block doesn't have a microblock parent
+                        assert!(blocks_inv
+                            .has_ith_microblock_stream((block_height - start_range) as u16));
+                    }
+                } else {
+                    assert!(!blocks_inv.has_ith_block((block_height - start_range) as u16));
+                    assert!(
+                        !blocks_inv.has_ith_microblock_stream((block_height - start_range) as u16)
+                    );
+                }
+            }
+        }
+
+        // orphan blocks
+        for i in 0..total_reward_cycles {
+            let start_range = peer_config.burnchain.reward_cycle_to_block_height(i);
+            let end_range = cmp::min(
+                header_hashes.len() as u64,
+                peer_config.burnchain.reward_cycle_to_block_height(i + 1),
+            );
+            for block_height in start_range..end_range {
+                if let Some(hdr_hash) = &header_hashes[block_height as usize].1 {
+                    if block_height % 3 == 0 {
+                        set_block_orphaned(
+                            &mut chainstate,
+                            &header_hashes[block_height as usize].0,
+                            &hdr_hash,
+                        );
+                        test_debug!(
+                            "Orphaned {}/{}",
+                            &header_hashes[block_height as usize].0,
+                            &hdr_hash
+                        );
+                    }
+                }
+            }
+        }
+
+        for i in 0..total_reward_cycles {
+            let start_range = peer_config.burnchain.reward_cycle_to_block_height(i);
+            let end_range = cmp::min(
+                header_hashes.len() as u64,
+                peer_config.burnchain.reward_cycle_to_block_height(i + 1),
+            );
+            let blocks_inv = chainstate
+                .get_blocks_inventory_for_reward_cycle(
+                    &peer_config.burnchain,
+                    i,
+                    &header_hashes[(start_range as usize)..(end_range as usize)],
+                )
+                .unwrap();
+
+            let original_blocks_inv = chainstate
+                .get_blocks_inventory(&header_hashes[(start_range as usize)..(end_range as usize)])
+                .unwrap();
+
+            test_debug!(
+                "reward cycle {}: {:?} (compare to {:?})",
+                i,
+                &blocks_inv,
+                &original_blocks_inv
+            );
+            assert_eq!(original_blocks_inv, blocks_inv);
         }
     }
 

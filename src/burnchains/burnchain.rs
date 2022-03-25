@@ -28,7 +28,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::types::chainstate::StacksAddress;
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::TrieHash;
 use address::public_keys_to_address_hash;
 use address::AddressHashMode;
 use burnchains::bitcoin::address::address_type_to_version_byte;
@@ -67,22 +67,24 @@ use core::PEER_VERSION_MAINNET;
 use core::PEER_VERSION_TESTNET;
 use core::STACKS_EPOCHS_MAINNET;
 use deps;
-use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use monitoring::update_burnchain_height;
-use util::db::DBConn;
-use util::db::DBTx;
-use util::db::Error as db_error;
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
 use util::vrf::VRFPublicKey;
+use util_lib::db::DBConn;
+use util_lib::db::DBTx;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
 use burnchains::bitcoin::indexer::BitcoinIndexer;
 use chainstate::stacks::boot::POX_2_MAINNET_CODE;
 use chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
+
+use chainstate::stacks::address::StacksAddressExtensions;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -1505,6 +1507,9 @@ impl Burnchain {
 
 #[cfg(test)]
 pub mod tests {
+    use chainstate::burn::ConsensusHashExtensions;
+    use chainstate::stacks::address::StacksAddressExtensions;
+    use chainstate::stacks::index::TrieHashExtension;
     use ed25519_dalek::Keypair as VRFKeypair;
     use rand::rngs::ThreadRng;
     use rand::thread_rng;
@@ -1512,7 +1517,7 @@ pub mod tests {
     use sha2::Sha512;
 
     use crate::types::chainstate::StacksAddress;
-    use crate::types::proof::TrieHash;
+    use crate::types::chainstate::TrieHash;
     use address::AddressHashMode;
     use burnchains::bitcoin::address::*;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -1527,7 +1532,6 @@ pub mod tests {
     };
     use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
     use chainstate::stacks::StacksPublicKey;
-    use util::db::Error as db_error;
     use util::get_epoch_time_secs;
     use util::hash::hex_bytes;
     use util::hash::to_hex;
@@ -1539,6 +1543,7 @@ pub mod tests {
     use util::uint::Uint512;
     use util::vrf::VRFPrivateKey;
     use util::vrf::VRFPublicKey;
+    use util_lib::db::Error as db_error;
 
     use crate::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,

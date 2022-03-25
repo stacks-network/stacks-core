@@ -400,9 +400,6 @@ impl BurnSamplePoint {
 
 #[cfg(test)]
 mod tests {
-    use std::marker::PhantomData;
-
-    use crate::types::chainstate::StacksAddress;
     use address::AddressHashMode;
     use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -417,8 +414,12 @@ mod tests {
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
     use chainstate::burn::ConsensusHash;
+    use chainstate::stacks::address::StacksAddressExtensions;
+    use chainstate::stacks::index::TrieHashExtension;
     use chainstate::stacks::StacksPublicKey;
     use core::MINING_COMMITMENT_WINDOW;
+    use stacks_common::types::chainstate::StacksAddress;
+    use std::marker::PhantomData;
     use util::hash::hex_bytes;
     use util::hash::Hash160;
     use util::log;

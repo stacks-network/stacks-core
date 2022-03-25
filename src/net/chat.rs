@@ -55,16 +55,15 @@ use net::StacksMessage;
 use net::StacksP2P;
 use net::GETPOXINV_MAX_BITLEN;
 use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
 use util::secp256k1::Secp256k1PrivateKey;
 use util::secp256k1::Secp256k1PublicKey;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::PoxId;
-use crate::types::chainstate::StacksBlockHeader;
 use crate::types::StacksPublicKeyBuffer;
 use core::StacksEpoch;
 
@@ -87,7 +86,9 @@ impl Default for NeighborHealthPoint {
 pub const NUM_HEALTH_POINTS: usize = 32;
 pub const HEALTH_POINT_LIFETIME: u64 = 12 * 3600; // 12 hours
 
+/// The max number of data points to gather for block/microblock/transaction push messages from a neighbor
 pub const NUM_BLOCK_POINTS: usize = 32;
+/// The number of seconds a block data point is valid for the purpose of computing stats
 pub const BLOCK_POINT_LIFETIME: u64 = 600;
 
 pub const MAX_PEER_HEARTBEAT_INTERVAL: usize = 3600 * 6; // 6 hours
@@ -135,9 +136,9 @@ pub struct NeighborStats {
     pub msgs_err: u64,
     pub healthpoints: VecDeque<NeighborHealthPoint>,
     pub msg_rx_counts: HashMap<StacksMessageID, u64>,
-    pub block_push_rx_counts: VecDeque<(u64, u64)>, // (count, num bytes)
-    pub microblocks_push_rx_counts: VecDeque<(u64, u64)>, // (count, num bytes)
-    pub transaction_push_rx_counts: VecDeque<(u64, u64)>, // (count, num bytes)
+    pub block_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
+    pub microblocks_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
+    pub transaction_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
     pub relayed_messages: HashMap<NeighborAddress, RelayStats>,
 }
 
@@ -380,7 +381,10 @@ impl Neighbor {
         conn: &DBConn,
         handshake_data: &HandshakeData,
     ) -> Result<(), net_error> {
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
         let asn_opt =
             PeerDB::asn_lookup(conn, &handshake_data.addrbytes).map_err(net_error::DBError)?;
 
@@ -408,7 +412,10 @@ impl Neighbor {
         handshake_data: &HandshakeData,
     ) -> Result<Neighbor, net_error> {
         let addr = NeighborKey::from_handshake(peer_version, network_id, handshake_data);
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
 
         let peer_opt = PeerDB::get_peer(conn, network_id, &addr.addrbytes, addr.port)
             .map_err(net_error::DBError)?;
@@ -1032,7 +1039,10 @@ impl ConversationP2P {
         preamble: &Preamble,
         handshake_data: &HandshakeData,
     ) -> Result<bool, net_error> {
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
 
         self.peer_version = preamble.peer_version;
         self.peer_network_id = preamble.network_id;
@@ -1432,9 +1442,25 @@ impl ConversationP2P {
         // update cache
         SortitionDB::merge_block_header_cache(header_cache, &block_hashes);
 
-        let blocks_inv_data: BlocksInvData = chainstate
-            .get_blocks_inventory(&block_hashes)
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(base_snapshot.block_height)
+            .expect("FATAL: no reward cycle for a valid BlockSnapshot");
+        let blocks_inv_data = chainstate
+            .get_blocks_inventory_for_reward_cycle(burnchain, reward_cycle, &block_hashes)
             .map_err(|e| net_error::from(e))?;
+
+        if cfg!(test) {
+            // make *sure* the behavior stays the same
+            let original_blocks_inv_data: BlocksInvData =
+                chainstate.get_blocks_inventory(&block_hashes)?;
+
+            if original_blocks_inv_data != blocks_inv_data {
+                warn!(
+                    "For reward cycle {}: {:?} != {:?}",
+                    reward_cycle, &original_blocks_inv_data, &blocks_inv_data
+                );
+            }
+        }
 
         Ok(StacksMessageType::BlocksInv(blocks_inv_data))
     }
@@ -2393,8 +2419,8 @@ mod test {
     use net::*;
     use util::pipe::*;
     use util::secp256k1::*;
-    use util::test::*;
     use util::uint::*;
+    use util_lib::test::*;
     use vm::costs::ExecutionCost;
 
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};

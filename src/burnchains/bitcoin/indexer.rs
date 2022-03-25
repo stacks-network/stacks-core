@@ -41,10 +41,10 @@ use burnchains::Error as burnchain_error;
 use burnchains::MagicBytes;
 use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 
-use deps::bitcoin::blockdata::block::LoneBlockHeader;
-use deps::bitcoin::network::message::NetworkMessage;
-use deps::bitcoin::network::serialize::BitcoinHash;
-use deps::bitcoin::network::serialize::Error as btc_serialization_err;
+use stacks_common::deps_common::bitcoin::blockdata::block::LoneBlockHeader;
+use stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
+use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialization_err;
 use util::log;
 
 use core::{StacksEpoch, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET};
@@ -845,10 +845,12 @@ mod test {
     use burnchains::Error as burnchain_error;
     use burnchains::*;
 
-    use deps::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
-    use deps::bitcoin::network::encodable::VarInt;
-    use deps::bitcoin::network::serialize::{deserialize, serialize, BitcoinHash};
-    use deps::bitcoin::util::hash::Sha256dHash;
+    use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
+    use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
+    use stacks_common::deps_common::bitcoin::network::serialize::{
+        deserialize, serialize, BitcoinHash,
+    };
+    use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
     use std::env;
 

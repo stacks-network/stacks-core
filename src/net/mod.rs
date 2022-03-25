@@ -43,7 +43,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use url;
 
-use crate::util::boot::boot_code_tx_auth;
+use crate::util_lib::boot::boot_code_tx_auth;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::coordinator::Error as coordinator_error;
@@ -61,9 +61,7 @@ use codec::{read_next, write_next};
 use core::mempool::*;
 use core::POX_REWARD_CYCLE_LENGTH;
 use net::atlas::{Attachment, AttachmentInstance};
-use util::bloom::{BloomFilter, BloomNodeHasher};
-use util::db::DBConn;
-use util::db::Error as db_error;
+use net::http::HttpReservedHeader;
 use util::get_epoch_time_secs;
 use util::hash::Hash160;
 use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
@@ -73,20 +71,23 @@ use util::log;
 use util::secp256k1::MessageSignature;
 use util::secp256k1::Secp256k1PublicKey;
 use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-use util::strings::UrlString;
+use util_lib::bloom::{BloomFilter, BloomNodeHasher};
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
+use util_lib::strings::UrlString;
 use vm::types::TraitIdentifier;
 use vm::{
     analysis::contract_interface_builder::ContractInterface, types::PrincipalData, ClarityName,
     ContractName, Value,
 };
 
+use chainstate::stacks::StacksBlockHeader;
+
 use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::PoxId;
-use crate::types::chainstate::{
-    BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
-};
+use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use crate::types::StacksPublicKeyBuffer;
 use crate::util::hash::Sha256Sum;
 use crate::vm::costs::ExecutionCost;
@@ -96,18 +97,36 @@ pub use self::http::StacksHttp;
 
 use core::StacksEpoch;
 
+/// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
 pub mod asn;
+/// Implements the Atlas network. This network uses the infrastructure created in `src/net` to
+/// discover peers, query attachment inventories, and download attachments.
 pub mod atlas;
+/// Implements the `ConversationP2P` object, a host-to-host session abstraction which allows
+/// the node to recieve `StacksMessage` instances. The downstream consumer of this API is `PeerNetwork`.
+/// To use OSI terminology, this module implements the session & presentation layers of the P2P network.
+/// Other functionality includes (but is not limited to):
+///     * set up & tear down of sessions
+///     * dealing with and responding to invalid messages
+///     * rate limiting messages  
 pub mod chat;
+/// Implements serialization and deserialization for `StacksMessage` types.
+/// Also has functionality to sign, verify, and ensure well-formedness of messages.
 pub mod codec;
 pub mod connection;
 pub mod db;
+/// Implements `DNSResolver`, a simple DNS resolver state machine. Also implements `DNSClient`,
+/// which serves as an API for `DNSResolver`.  
 pub mod dns;
 pub mod download;
 pub mod http;
 pub mod inv;
 pub mod neighbors;
 pub mod p2p;
+/// Implements wrapper around `mio` crate, which itself is a wrapper around Linux's `epoll(2)` syscall.
+/// Creates a pollable interface for sockets, and provides an API for registering and deregistering
+/// sockets. This is used to control how many sockets are allocated for the two network servers: the
+/// p2p server and the http server.
 pub mod poll;
 pub mod prune;
 pub mod relay;
@@ -728,10 +747,13 @@ pub struct PoxInvData {
     pub pox_bitvec: Vec<u8>, // a bit will be '1' if the node knows for sure the status of its reward cycle's anchor block; 0 if not.
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlocksDatum(pub ConsensusHash, pub StacksBlock);
+
 /// Blocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksData {
-    pub blocks: Vec<(ConsensusHash, StacksBlock)>,
+    pub blocks: Vec<BlocksDatum>,
 }
 
 /// Microblocks pushed
@@ -1164,6 +1186,7 @@ pub struct HttpRequestMetadata {
     pub version: HttpVersion,
     pub peer: PeerHost,
     pub keep_alive: bool,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1286,27 +1309,46 @@ pub struct AttachmentPage {
 pub const HTTP_REQUEST_ID_RESERVED: u32 = 0;
 
 impl HttpRequestMetadata {
-    pub fn new(host: String, port: u16) -> HttpRequestMetadata {
+    pub fn new(
+        host: String,
+        port: u16,
+        canonical_stacks_tip_height: Option<u64>,
+    ) -> HttpRequestMetadata {
         HttpRequestMetadata {
             version: HttpVersion::Http11,
             peer: PeerHost::from_host_port(host, port),
             keep_alive: true,
+            canonical_stacks_tip_height,
         }
     }
 
-    pub fn from_host(peer_host: PeerHost) -> HttpRequestMetadata {
+    pub fn from_host(
+        peer_host: PeerHost,
+        canonical_stacks_tip_height: Option<u64>,
+    ) -> HttpRequestMetadata {
         HttpRequestMetadata {
             version: HttpVersion::Http11,
             peer: peer_host,
             keep_alive: true,
+            canonical_stacks_tip_height,
         }
     }
 
     pub fn from_preamble(preamble: &HttpRequestPreamble) -> HttpRequestMetadata {
+        let mut canonical_stacks_tip_height = None;
+        for header in &preamble.headers {
+            if let Some(HttpReservedHeader::CanonicalStacksTipHeight(h)) =
+                HttpReservedHeader::try_from_str(&header.0, &header.1)
+            {
+                canonical_stacks_tip_height = Some(h);
+                break;
+            }
+        }
         HttpRequestMetadata {
             version: preamble.version,
             peer: preamble.host.clone(),
             keep_alive: preamble.keep_alive,
+            canonical_stacks_tip_height,
         }
     }
 }
@@ -1438,6 +1480,7 @@ pub struct HttpResponseMetadata {
     pub client_keep_alive: bool,
     pub request_id: u32,
     pub content_length: Option<u32>,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 impl HttpResponseMetadata {
@@ -1455,12 +1498,14 @@ impl HttpResponseMetadata {
         request_id: u32,
         content_length: Option<u32>,
         client_keep_alive: bool,
+        canonical_stacks_tip_height: Option<u64>,
     ) -> HttpResponseMetadata {
         HttpResponseMetadata {
             client_version: client_version,
             client_keep_alive: client_keep_alive,
             request_id: request_id,
             content_length: content_length,
+            canonical_stacks_tip_height: canonical_stacks_tip_height,
         }
     }
 
@@ -1468,11 +1513,21 @@ impl HttpResponseMetadata {
         request_version: HttpVersion,
         preamble: &HttpResponsePreamble,
     ) -> HttpResponseMetadata {
+        let mut canonical_stacks_tip_height = None;
+        for header in &preamble.headers {
+            if let Some(HttpReservedHeader::CanonicalStacksTipHeight(h)) =
+                HttpReservedHeader::try_from_str(&header.0, &header.1)
+            {
+                canonical_stacks_tip_height = Some(h);
+                break;
+            }
+        }
         HttpResponseMetadata {
             client_version: request_version,
             client_keep_alive: preamble.keep_alive,
             request_id: preamble.request_id,
             content_length: preamble.content_length.clone(),
+            canonical_stacks_tip_height: canonical_stacks_tip_height,
         }
     }
 
@@ -1482,18 +1537,21 @@ impl HttpResponseMetadata {
             client_keep_alive: false,
             request_id: HttpResponseMetadata::make_request_id(),
             content_length: Some(0),
+            canonical_stacks_tip_height: None,
         }
     }
-}
 
-impl From<&HttpRequestType> for HttpResponseMetadata {
-    fn from(req: &HttpRequestType) -> HttpResponseMetadata {
+    fn from_http_request_type(
+        req: &HttpRequestType,
+        canonical_stacks_tip_height: Option<u64>,
+    ) -> HttpResponseMetadata {
         let metadata = req.metadata();
         HttpResponseMetadata::new(
             metadata.version,
             HttpResponseMetadata::make_request_id(),
             None,
             metadata.keep_alive,
+            canonical_stacks_tip_height,
         )
     }
 }
@@ -1678,17 +1736,8 @@ pub const GETPOXINV_MAX_BITLEN: u64 = 8;
 // message.
 pub const BLOCKS_PUSHED_MAX: u32 = 32;
 
-impl_byte_array_message_codec!(ConsensusHash, 20);
-impl_byte_array_message_codec!(Hash160, 20);
-impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
-impl_byte_array_message_codec!(BlockHeaderHash, 32);
-impl_byte_array_message_codec!(StacksBlockId, 32);
-impl_byte_array_message_codec!(MessageSignature, 65);
 impl_byte_array_message_codec!(PeerAddress, 16);
-impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
 impl_byte_array_message_codec!(Txid, 32);
-
-impl_byte_array_serde!(ConsensusHash);
 
 /// neighbor identifier
 #[derive(Clone, Eq, PartialOrd, Ord)]
@@ -1994,6 +2043,7 @@ pub mod test {
     use std::ops::Deref;
     use std::ops::DerefMut;
     use std::sync::mpsc::sync_channel;
+    use std::sync::Mutex;
     use std::thread;
     use std::{collections::HashMap, sync::Mutex};
 
@@ -2038,23 +2088,21 @@ pub mod test {
     use util::get_epoch_time_secs;
     use util::hash::*;
     use util::secp256k1::*;
-    use util::strings::*;
     use util::uint::*;
     use util::vrf::*;
+    use util_lib::strings::*;
     use vm::costs::ExecutionCost;
     use vm::database::STXBalance;
     use vm::types::*;
 
-    use crate::chainstate::stacks::boot::test::get_parent_tip;
-    use crate::types::chainstate::StacksMicroblockHeader;
-    use crate::types::proof::TrieHash;
-    use crate::util::boot::boot_code_test_addr;
-    use crate::{
-        chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt},
-        codec::StacksMessageCodec,
-    };
-
     use super::*;
+    use chainstate::stacks::boot::test::get_parent_tip;
+    use chainstate::stacks::StacksMicroblockHeader;
+    use chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt};
+    use core::StacksEpochExtension;
+    use stacks_common::codec::StacksMessageCodec;
+    use stacks_common::types::chainstate::TrieHash;
+    use util_lib::boot::boot_code_test_addr;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

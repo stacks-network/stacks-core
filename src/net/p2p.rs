@@ -74,16 +74,17 @@ use net::Neighbor;
 use net::NeighborKey;
 use net::PeerAddress;
 use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
 use util::get_epoch_time_ms;
 use util::get_epoch_time_secs;
 use util::hash::to_hex;
 use util::log;
 use util::secp256k1::Secp256k1PublicKey;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
 use vm::database::BurnStateDB;
 
-use crate::types::chainstate::{PoxId, SortitionId, StacksBlockHeader};
+use crate::types::chainstate::{PoxId, SortitionId};
+use chainstate::stacks::StacksBlockHeader;
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -1052,7 +1053,7 @@ impl PeerNetwork {
                     StacksMessageType::Blocks(ref data) => {
                         // send to each neighbor that needs one
                         let mut all_neighbors = HashSet::new();
-                        for (_, block) in data.blocks.iter() {
+                        for BlocksDatum(_, block) in data.blocks.iter() {
                             let mut neighbors = self.sample_broadcast_peers(&relay_hints, block)?;
                             for nk in neighbors.drain(..) {
                                 all_neighbors.insert(nk);
@@ -2951,7 +2952,7 @@ impl PeerNetwork {
                                         network.antientropy_blocks.insert(nk.clone(), pushed);
                                     }
 
-                                    local_blocks.push((consensus_hash, block));
+                                    local_blocks.push(BlocksDatum(consensus_hash, block));
 
                                     if !lowest_reward_cycle_with_missing_block.contains_key(nk) {
                                         lowest_reward_cycle_with_missing_block
@@ -3064,7 +3065,7 @@ impl PeerNetwork {
                     );
                 }
 
-                let blocks_data = BlocksData { blocks: blocks };
+                let blocks_data = BlocksData { blocks };
 
                 self.broadcast_message(
                     vec![nk.clone()],
@@ -3337,7 +3338,10 @@ impl PeerNetwork {
     ) -> Result<(bool, Option<usize>), net_error> {
         let sync_data = mempool.make_mempool_sync_data()?;
         let request = HttpRequestType::MemPoolQuery(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(addr)),
+            HttpRequestMetadata::from_host(
+                PeerHost::from_socketaddr(addr),
+                Some(self.burnchain_tip.canonical_stacks_tip_height),
+            ),
             sync_data,
             Some(page_id),
         );
@@ -4454,7 +4458,7 @@ impl PeerNetwork {
 
         let mut to_buffer = false;
 
-        for (consensus_hash, block) in new_blocks.blocks.iter() {
+        for BlocksDatum(consensus_hash, block) in new_blocks.blocks.iter() {
             let sn = match SortitionDB::get_block_snapshot_consensus(
                 &sortdb.conn(),
                 &consensus_hash,
@@ -5326,10 +5330,13 @@ mod test {
     use rand;
     use rand::RngCore;
 
+    use crate::types::chainstate::BurnchainHeaderHash;
     use burnchains::burnchain::*;
     use burnchains::*;
     use chainstate::stacks::test::*;
     use chainstate::stacks::*;
+    use clarity::vm::types::StacksAddressExtensions;
+    use core::StacksEpochExtension;
     use net::atlas::*;
     use net::codec::*;
     use net::db::*;
@@ -5337,13 +5344,7 @@ mod test {
     use net::*;
     use util::log;
     use util::sleep_ms;
-    use util::test::*;
-
-    use chainstate::stacks::{
-        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    };
-
-    use crate::types::chainstate::BurnchainHeaderHash;
+    use util_lib::test::*;
 
     use super::*;
 

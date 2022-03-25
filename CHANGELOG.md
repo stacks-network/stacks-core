@@ -85,6 +85,8 @@ tests (#2989).
   key in the cost estimator. (#2984)
 - Fixed a few prometheus metrics to be more accurate compared to `/v2` endpoints 
   when polling data (#2987)
+- Fixed an error message from the type-checker that shows up when the type of a
+  parameter refers to a trait defined in the same contract (#3064).
 
 ## [2.05.0.0.0]
 

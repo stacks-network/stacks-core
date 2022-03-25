@@ -14,8 +14,8 @@ use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
-    TransactionAnchorMode, TransactionPayload, TransactionVersion,
+    CoinbasePayload, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
+    StacksTransactionSigner, TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
 use stacks::core::mempool::MemPoolDB;
@@ -29,15 +29,13 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, PeerAddress,
 };
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, VRFSeed,
-};
-use stacks::types::proof::TrieHash;
+use stacks::types::chainstate::TrieHash;
+use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
+use stacks::util_lib::strings::UrlString;
 use stacks::{
     burnchains::PoxConstants,
     chainstate::burn::operations::{
@@ -908,7 +906,7 @@ impl Node {
             if let Err(e) = estimator.notify_block(&processed_block, &stacks_epoch.block_limit) {
                 warn!("FeeEstimator failed to process block receipt";
                       "stacks_block" => %processed_block.header.anchored_header.block_hash(),
-                      "stacks_height" => %processed_block.header.block_height,
+                      "stacks_height" => %processed_block.header.stacks_block_height,
                       "error" => %e);
             }
         }
@@ -979,8 +977,11 @@ impl Node {
                                     &event_data.value,
                                     &contract_id,
                                     epoch_receipt.header.index_block_hash(),
-                                    epoch_receipt.header.block_height,
+                                    epoch_receipt.header.stacks_block_height,
                                     receipt.transaction.txid(),
+                                    self.chain_tip
+                                        .as_ref()
+                                        .map(|t| t.metadata.stacks_block_height),
                                 );
                                 if let Some(attachment_instance) = res {
                                     attachments_instances.insert(attachment_instance);

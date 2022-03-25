@@ -25,7 +25,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 
 use rusqlite::Error as RusqliteError;
-use sha2::{Digest, Sha512Trunc256};
+use sha2::{Digest, Sha512_256};
 
 use crate::codec::MAX_MESSAGE_LEN;
 use address::AddressHashMode;
@@ -38,15 +38,15 @@ use chainstate::stacks::db::StacksHeaderInfo;
 use chainstate::stacks::index::Error as marf_error;
 use clarity_vm::clarity::Error as clarity_error;
 use net::Error as net_error;
-use util::db::DBConn;
-use util::db::Error as db_error;
 use util::hash::Hash160;
 use util::hash::Sha512Trunc256Sum;
 use util::hash::HASH160_ENCODED_SIZE;
 use util::secp256k1;
 use util::secp256k1::MessageSignature;
-use util::strings::StacksString;
 use util::vrf::VRFProof;
+use util_lib::db::DBConn;
+use util_lib::db::Error as db_error;
+use util_lib::strings::StacksString;
 use vm::contexts::GlobalContext;
 use vm::costs::CostErrors;
 use vm::costs::ExecutionCost;
@@ -58,8 +58,7 @@ use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCod
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
 };
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
-use crate::types::proof::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
 
 pub mod address;
 pub mod auth;
@@ -71,73 +70,18 @@ pub mod index;
 pub mod miner;
 pub mod transaction;
 
-pub type StacksPublicKey = secp256k1::Secp256k1PublicKey;
-pub type StacksPrivateKey = secp256k1::Secp256k1PrivateKey;
+pub use types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
-impl_byte_array_message_codec!(TrieHash, TRIEHASH_ENCODED_SIZE as u32);
-impl_byte_array_message_codec!(Sha512Trunc256Sum, 32);
-
-pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22; // P
-pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20; // M
-pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26; // T
-pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21; // N
+pub use stacks_common::address::{
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 
 pub const STACKS_BLOCK_VERSION: u8 = 0;
 pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
-
-impl StacksBlockId {
-    pub fn new(
-        sortition_consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-    ) -> StacksBlockId {
-        let mut hasher = Sha512Trunc256::new();
-        hasher.input(block_hash);
-        hasher.input(sortition_consensus_hash);
-
-        let h = Sha512Trunc256Sum::from_hasher(hasher);
-        StacksBlockId(h.0)
-    }
-}
-
-impl From<StacksAddress> for StandardPrincipalData {
-    fn from(addr: StacksAddress) -> StandardPrincipalData {
-        StandardPrincipalData(addr.version, addr.bytes.0)
-    }
-}
-
-impl From<StacksAddress> for PrincipalData {
-    fn from(addr: StacksAddress) -> PrincipalData {
-        PrincipalData::from(StandardPrincipalData::from(addr))
-    }
-}
-
-impl AddressHashMode {
-    pub fn to_version_mainnet(&self) -> u8 {
-        match *self {
-            AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            _ => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-        }
-    }
-
-    pub fn to_version_testnet(&self) -> u8 {
-        match *self {
-            AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            _ => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-        }
-    }
-
-    pub fn from_version(version: u8) -> AddressHashMode {
-        match version {
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG | C32_ADDRESS_VERSION_MAINNET_SINGLESIG => {
-                AddressHashMode::SerializeP2PKH
-            }
-            _ => AddressHashMode::SerializeP2SH,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub enum Error {
@@ -864,6 +808,30 @@ pub struct StacksBlock {
 pub struct StacksMicroblock {
     pub header: StacksMicroblockHeader,
     pub txs: Vec<StacksTransaction>,
+}
+
+/// The header for an on-chain-anchored Stacks block
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct StacksBlockHeader {
+    pub version: u8,
+    pub total_work: StacksWorkScore, // NOTE: this is the work done on the chain tip this block builds on (i.e. take this from the parent)
+    pub proof: VRFProof,
+    pub parent_block: BlockHeaderHash, // NOTE: even though this is also present in the burn chain, we need this here for super-light clients that don't even have burn chain headers
+    pub parent_microblock: BlockHeaderHash,
+    pub parent_microblock_sequence: u16,
+    pub tx_merkle_root: Sha512Trunc256Sum,
+    pub state_index_root: TrieHash,
+    pub microblock_pubkey_hash: Hash160, // we'll get the public key back from the first signature (note that this is the Hash160 of the _compressed_ public key)
+}
+
+/// Header structure for a microblock
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StacksMicroblockHeader {
+    pub version: u8,
+    pub sequence: u16,
+    pub prev_block: BlockHeaderHash,
+    pub tx_merkle_root: Sha512Trunc256Sum,
+    pub signature: MessageSignature,
 }
 
 // values a miner uses to produce the next block

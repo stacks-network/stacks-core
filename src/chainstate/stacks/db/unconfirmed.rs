@@ -29,7 +29,7 @@ use chainstate::stacks::*;
 use clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
 use core::*;
 use net::Error as net_error;
-use util::db::Error as db_error;
+use util_lib::db::Error as db_error;
 use vm::costs::ExecutionCost;
 use vm::database::BurnStateDB;
 use vm::database::HeadersDB;
@@ -37,7 +37,7 @@ use vm::database::NULL_BURN_STATE_DB;
 use vm::database::NULL_HEADER_DB;
 
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
+use crate::types::chainstate::StacksBlockId;
 use chainstate::burn::db::sortdb::SortitionDB;
 use types::chainstate::BurnchainHeaderHash;
 
@@ -176,7 +176,7 @@ impl UnconfirmedState {
             mblocks.len()
         );
 
-        let headers_db = chainstate.db();
+        let headers_db = HeadersDBConn(chainstate.db());
         let burn_block_hash = headers_db
             .get_burn_header_hash_for_block(&self.confirmed_chain_tip)
             .expect("BUG: unable to get burn block hash based on chain tip");
@@ -202,13 +202,14 @@ impl UnconfirmedState {
 
         if mblocks.len() > 0 {
             let cur_cost = self.cost_so_far.clone();
+            let headers_db_conn = HeadersDBConn(chainstate.db());
 
             // NOTE: we *must* commit the clarity_tx now that it's begun.
             // Otherwise, microblock miners can leave the MARF in a partially-initialized state,
             // leading to a node crash.
             let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
                 db_config,
-                chainstate.db(),
+                &headers_db_conn,
                 &mut self.clarity_inst,
                 burn_dbconn,
                 &self.confirmed_chain_tip,
@@ -323,7 +324,7 @@ impl UnconfirmedState {
 
         StacksChainState::load_descendant_staging_microblock_stream(
             &chainstate.db(),
-            &StacksBlockHeader::make_index_block_hash(&consensus_hash, &anchored_block_hash),
+            &StacksBlockId::new(&consensus_hash, &anchored_block_hash),
             0,
             u16::MAX,
         )
@@ -593,6 +594,7 @@ mod test {
     use chainstate::stacks::miner::*;
     use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use chainstate::stacks::*;
+    use clarity::vm::types::StacksAddressExtensions;
     use core::mempool::*;
     use core::*;
     use net::relay::*;
@@ -710,10 +712,7 @@ mod test {
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
 
-            let canonical_tip = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let canonical_tip = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             let recv_addr =
                 StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
@@ -941,10 +940,7 @@ mod test {
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
             peer.process_stacks_epoch_at_tip(&stacks_block, &vec![]);
 
-            let canonical_tip = StacksBlockHeader::make_index_block_hash(
-                &consensus_hash,
-                &stacks_block.block_hash(),
-            );
+            let canonical_tip = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
 
             let recv_addr =
                 StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();

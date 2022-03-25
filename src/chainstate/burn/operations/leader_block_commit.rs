@@ -17,8 +17,8 @@
 use std::io::{Read, Write};
 
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
-use crate::types::proof::TrieHash;
 use address::AddressHashMode;
 use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::Address;
@@ -872,13 +872,15 @@ mod tests {
     use chainstate::burn::operations::*;
     use chainstate::burn::ConsensusHash;
     use chainstate::burn::*;
+    use chainstate::stacks::address::StacksAddressExtensions;
+    use chainstate::stacks::index::TrieHashExtension;
     use chainstate::stacks::StacksPublicKey;
     use core::{
         StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
         PEER_VERSION_EPOCH_2_05, STACKS_EPOCH_MAX,
     };
-    use deps::bitcoin::blockdata::transaction::Transaction;
-    use deps::bitcoin::network::serialize::{deserialize, serialize_hex};
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
     use util::get_epoch_time_secs;
     use util::hash::*;
     use util::vrf::VRFPublicKey;
@@ -2264,7 +2266,10 @@ mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let mut db = SortitionDB::connect(
             &db_path_dir,

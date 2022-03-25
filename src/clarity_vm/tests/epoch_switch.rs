@@ -21,19 +21,20 @@ use chainstate::burn::db::sortdb::{
 };
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
-use util::db::{DBConn, FromRow};
+use util_lib::db::{DBConn, FromRow};
 use vm::analysis::AnalysisDatabase;
 use vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
     NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use vm::errors::{InterpreterResult, RuntimeErrorType};
-use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
+use crate::burnchains::PoxConstants;
+use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
-use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
-use crate::{burnchains::PoxConstants, types::chainstate::StacksBlockId};
+use chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 
 use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
 use core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
@@ -76,7 +77,10 @@ fn test_vm_epoch_switch() {
     let mut rng = rand::thread_rng();
     let mut buf = [0u8; 32];
     rng.fill_bytes(&mut buf);
-    let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+    let db_path_dir = format!(
+        "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+        to_hex(&buf)
+    );
 
     let mut db = SortitionDB::connect(
         &db_path_dir,

@@ -5,7 +5,7 @@ use chainstate::burn::db::sortdb::{
 };
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
-use util::db::{DBConn, FromRow};
+use util_lib::db::{DBConn, FromRow};
 use vm::analysis::AnalysisDatabase;
 use vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
@@ -13,45 +13,120 @@ use vm::database::{
 };
 use vm::errors::{InterpreterResult, RuntimeErrorType};
 
+use crate::chainstate::stacks::db::ChainstateTx;
+use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
-use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
+use chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 
 use core::StacksEpoch;
 use core::StacksEpochId;
+use std::ops::{Deref, DerefMut};
+
+use clarity_vm::special::handle_contract_call_special_cases;
+use vm::database::SpecialCaseHandler;
 
 pub mod marf;
 
-impl HeadersDB for DBConn {
+pub struct HeadersDBConn<'a>(pub &'a Connection);
+
+impl<'a> HeadersDB for HeadersDBConn<'a> {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
     ) -> Option<BlockHeaderHash> {
-        get_stacks_header_info(self, id_bhh).map(|x| x.anchored_header.block_hash())
+        get_stacks_header_info(self.0, id_bhh).map(|x| x.anchored_header.block_hash())
     }
 
     fn get_burn_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
     ) -> Option<BurnchainHeaderHash> {
-        get_stacks_header_info(self, id_bhh).map(|x| x.burn_header_hash)
+        get_stacks_header_info(self.0, id_bhh).map(|x| x.burn_header_hash)
     }
 
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
-        get_stacks_header_info(self, id_bhh).map(|x| x.burn_header_timestamp)
+        get_stacks_header_info(self.0, id_bhh).map(|x| x.burn_header_timestamp)
     }
 
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
-        get_stacks_header_info(self, id_bhh).map(|x| x.burn_header_height)
+        get_stacks_header_info(self.0, id_bhh).map(|x| x.burn_header_height)
     }
 
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
-        get_stacks_header_info(self, id_bhh).map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
+        get_stacks_header_info(self.0, id_bhh)
+            .map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
     }
 
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
-        get_miner_info(self, id_bhh).map(|x| x.address)
+        get_miner_info(self.0, id_bhh).map(|x| x.address)
+    }
+}
+
+impl<'a> HeadersDB for ChainstateTx<'a> {
+    fn get_stacks_block_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BlockHeaderHash> {
+        get_stacks_header_info(self.deref().deref(), id_bhh).map(|x| x.anchored_header.block_hash())
+    }
+
+    fn get_burn_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BurnchainHeaderHash> {
+        get_stacks_header_info(self.deref().deref(), id_bhh).map(|x| x.burn_header_hash)
+    }
+
+    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        get_stacks_header_info(self.deref().deref(), id_bhh).map(|x| x.burn_header_timestamp)
+    }
+
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        get_stacks_header_info(self.deref().deref(), id_bhh).map(|x| x.burn_header_height)
+    }
+
+    fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
+        get_stacks_header_info(self.deref().deref(), id_bhh)
+            .map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
+    }
+
+    fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+        get_miner_info(self.deref().deref(), id_bhh).map(|x| x.address)
+    }
+}
+
+impl HeadersDB for crate::chainstate::stacks::index::marf::MARF<StacksBlockId> {
+    fn get_stacks_block_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BlockHeaderHash> {
+        get_stacks_header_info(self.sqlite_conn(), id_bhh).map(|x| x.anchored_header.block_hash())
+    }
+
+    fn get_burn_header_hash_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> Option<BurnchainHeaderHash> {
+        get_stacks_header_info(self.sqlite_conn(), id_bhh).map(|x| x.burn_header_hash)
+    }
+
+    fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
+        get_stacks_header_info(self.sqlite_conn(), id_bhh).map(|x| x.burn_header_timestamp)
+    }
+
+    fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
+        get_stacks_header_info(self.sqlite_conn(), id_bhh).map(|x| x.burn_header_height)
+    }
+
+    fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
+        get_stacks_header_info(self.sqlite_conn(), id_bhh)
+            .map(|x| VRFSeed::from_proof(&x.anchored_header.proof))
+    }
+
+    fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+        get_miner_info(self.sqlite_conn(), id_bhh).map(|x| x.address)
     }
 }
 
@@ -214,8 +289,8 @@ impl ClarityBackingStore for MemoryBackingStore {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, TrieMerkleProof<StacksBlockId>)> {
-        SqliteConnection::get(self.get_side_store(), key).map(|x| (x, TrieMerkleProof(vec![])))
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)> {
+        SqliteConnection::get(self.get_side_store(), key).map(|x| (x, vec![]))
     }
 
     fn get_side_store(&mut self) -> &Connection {
@@ -240,6 +315,10 @@ impl ClarityBackingStore for MemoryBackingStore {
 
     fn get_current_block_height(&mut self) -> u32 {
         0
+    }
+
+    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        Some(&handle_contract_call_special_cases)
     }
 
     fn put_all(&mut self, items: Vec<(String, String)>) {

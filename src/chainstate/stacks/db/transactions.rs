@@ -31,15 +31,16 @@ use clarity_vm::clarity::{
     Error as clarity_error,
 };
 use net::Error as net_error;
-use util::db::Error as db_error;
-use util::db::{query_count, query_rows, DBConn};
 use util::hash::to_hex;
+use util_lib::db::Error as db_error;
+use util_lib::db::{query_count, query_rows, DBConn};
 
-use util::strings::{StacksString, VecDisplay};
+use util_lib::strings::{StacksString, VecDisplay};
 pub use vm::analysis::errors::CheckErrors;
 use vm::analysis::run_analysis;
 use vm::analysis::types::ContractAnalysis;
 use vm::ast::build_ast;
+use vm::clarity::TransactionConnection;
 use vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use vm::contracts::Contract;
 use vm::costs::cost_functions;
@@ -56,17 +57,8 @@ use vm::types::{
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
-use crate::types::chainstate::StacksMicroblockHeader;
-
-// make it possible to have a set of Values
-impl std::hash::Hash for Value {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let mut s = vec![];
-        self.consensus_serialize(&mut s)
-            .expect("FATAL: failed to serialize to vec");
-        s.hash(state);
-    }
-}
+use chainstate::stacks::StacksMicroblockHeader;
+use clarity::vm::types::StacksAddressExtensions as ClarityStacksAddressExt;
 
 impl StacksTransactionReceipt {
     pub fn from_stx_transfer(
@@ -1203,7 +1195,7 @@ pub mod test {
     use vm::contracts::Contract;
     use vm::representations::ClarityName;
     use vm::representations::ContractName;
-    use vm::tests::TEST_BURN_STATE_DB;
+    use vm::test_util::TEST_BURN_STATE_DB;
     use vm::types::*;
 
     use super::*;

@@ -35,15 +35,17 @@ use chainstate::stacks::index::storage::{
 };
 use chainstate::stacks::index::trie::Trie;
 use chainstate::stacks::index::Error;
+use chainstate::stacks::index::MARFValue;
 use chainstate::stacks::index::MarfTrieId;
-use util::db::Error as db_error;
 use util::hash::Sha512Trunc256Sum;
 use util::log;
+use util_lib::db::Error as db_error;
 
-use crate::types::chainstate::{BlockHeaderHash, MARFValue};
-use crate::types::proof::{
-    ClarityMarfTrieId, TrieHash, TrieLeaf, TrieMerkleProof, TRIEHASH_ENCODED_SIZE,
-};
+use chainstate::stacks::index::TrieHashExtension;
+use chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf, TrieMerkleProof};
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::TRIEHASH_ENCODED_SIZE;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";

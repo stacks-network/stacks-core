@@ -41,17 +41,20 @@ use stacks::chainstate::burn::operations::{
     UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::address::StacksAddressExtensions;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
-use stacks::deps::bitcoin::blockdata::opcodes;
-use stacks::deps::bitcoin::blockdata::script::{Builder, Script};
-use stacks::deps::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
-use stacks::deps::bitcoin::network::encodable::ConsensusEncodable;
-use stacks::deps::bitcoin::network::serialize::RawEncoder;
-use stacks::deps::bitcoin::util::hash::Sha256dHash;
 use stacks::util::hash::{hex_bytes, Hash160};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
+use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
+use stacks_common::deps_common::bitcoin::blockdata::transaction::{
+    OutPoint, Transaction, TxIn, TxOut,
+};
+use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
+use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 

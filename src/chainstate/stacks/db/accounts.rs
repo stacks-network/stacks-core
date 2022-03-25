@@ -25,13 +25,13 @@ use chainstate::stacks::db::*;
 use chainstate::stacks::Error;
 use chainstate::stacks::*;
 use clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
-use util::db::Error as db_error;
-use util::db::*;
+use util_lib::db::Error as db_error;
+use util_lib::db::*;
 use vm::database::clarity_store::*;
 use vm::database::*;
 use vm::types::*;
 
-use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId};
+use crate::types::chainstate::{StacksAddress, StacksBlockId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
@@ -384,10 +384,8 @@ impl StacksChainState {
         assert!(block_reward.burnchain_sortition_burn < i64::MAX as u64);
         assert!(block_reward.stacks_block_height < i64::MAX as u64);
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(
-            &block_reward.consensus_hash,
-            &block_reward.block_hash,
-        );
+        let index_block_hash =
+            StacksBlockId::new(&block_reward.consensus_hash, &block_reward.block_hash);
 
         let args: &[&dyn ToSql] = &[
             &block_reward.address.to_string(),
@@ -538,11 +536,11 @@ impl StacksChainState {
         tx: &mut StacksDBTx<'a>,
         tip: &StacksHeaderInfo,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
-        if tip.block_height < MINER_REWARD_MATURITY {
+        if tip.stacks_block_height < MINER_REWARD_MATURITY {
             return Ok(vec![]);
         }
 
-        let block_height = tip.block_height - MINER_REWARD_MATURITY;
+        let block_height = tip.stacks_block_height - MINER_REWARD_MATURITY;
         StacksChainState::get_scheduled_block_rewards_in_fork_at_height(tx, tip, block_height)
     }
 
@@ -735,12 +733,12 @@ impl StacksChainState {
         parent_miner: MinerPaymentSchedule,
     ) -> Result<Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, Error> {
         let mainnet = clarity_tx.config.mainnet;
-        if tip.block_height <= MINER_REWARD_MATURITY {
+        if tip.stacks_block_height <= MINER_REWARD_MATURITY {
             // no mature rewards exist
             return Ok(None);
         }
 
-        let reward_height = tip.block_height - MINER_REWARD_MATURITY;
+        let reward_height = tip.stacks_block_height - MINER_REWARD_MATURITY;
 
         assert!(latest_matured_miners.len() > 0);
         assert!(latest_matured_miners[0].vtxindex == 0);
@@ -895,7 +893,7 @@ mod test {
         new_tip.anchored_header.total_work.work =
             parent_header_info.anchored_header.total_work.work + 1;
         new_tip.microblock_tail = None;
-        new_tip.block_height = parent_header_info.block_height + 1;
+        new_tip.stacks_block_height = parent_header_info.stacks_block_height + 1;
         new_tip.consensus_hash = ConsensusHash(
             Hash160::from_data(
                 &Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0,
@@ -992,8 +990,8 @@ mod test {
 
             assert!(ancestor_1.is_some());
             assert!(ancestor_0.is_some());
-            assert_eq!(ancestor_0.unwrap().block_height, 0); // block 0 is the boot block
-            assert_eq!(ancestor_1.unwrap().block_height, 1);
+            assert_eq!(ancestor_0.unwrap().stacks_block_height, 0); // block 0 is the boot block
+            assert_eq!(ancestor_1.unwrap().stacks_block_height, 1);
         }
 
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
@@ -1005,11 +1003,11 @@ mod test {
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
 
             assert!(ancestor_2.is_some());
-            assert_eq!(ancestor_2.unwrap().block_height, 2);
+            assert_eq!(ancestor_2.unwrap().stacks_block_height, 2);
             assert!(ancestor_1.is_some());
-            assert_eq!(ancestor_1.unwrap().block_height, 1);
+            assert_eq!(ancestor_1.unwrap().stacks_block_height, 1);
             assert!(ancestor_0.is_some());
-            assert_eq!(ancestor_0.unwrap().block_height, 0); // block 0 is the boot block
+            assert_eq!(ancestor_0.unwrap().stacks_block_height, 0); // block 0 is the boot block
         }
     }
 
