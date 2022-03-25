@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::contracts::type_check;
-use crate::clarity_vm::database::MemoryBackingStore;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]

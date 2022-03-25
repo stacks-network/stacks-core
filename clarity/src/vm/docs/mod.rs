@@ -2206,12 +2206,12 @@ mod test {
             .unwrap()
             .expressions;
 
-            type_check(&contract_id, &mut parsed, &mut analysis_db, false)
+            type_check(&contract_id, &mut parsed, &mut analysis_db, false, &ClarityVersion::latest())
                 .expect("Failed to type check");
         }
 
         let conn = store.as_docs_clarity_db();
-        let mut contract_context = ContractContext::new(contract_id.clone());
+        let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::latest());
         let mut global_context = GlobalContext::new(
             false,
             conn,
@@ -2288,22 +2288,22 @@ mod test {
 
                 {
                     let mut analysis_db = store.as_analysis_db();
-                    let mut parsed = ast::build_ast(&contract_id, &token_contract_content, &mut ())
+                    let mut parsed = ast::build_ast(&contract_id, &token_contract_content, &mut (), ClarityVersion::latest())
                         .unwrap()
                         .expressions;
 
-                    type_check(&contract_id, &mut parsed, &mut analysis_db, true)
+                    type_check(&contract_id, &mut parsed, &mut analysis_db, true, &ClarityVersion::latest())
                         .expect("Failed to type check sample-contracts/tokens");
                 }
 
                 {
                     let mut analysis_db = store.as_analysis_db();
                     let mut parsed =
-                        ast::build_ast(&trait_def_id, super::DEFINE_TRAIT_API.example, &mut ())
+                        ast::build_ast(&trait_def_id, super::DEFINE_TRAIT_API.example, &mut (), ClarityVersion::latest())
                             .unwrap()
                             .expressions;
 
-                    type_check(&trait_def_id, &mut parsed, &mut analysis_db, true)
+                    type_check(&trait_def_id, &mut parsed, &mut analysis_db, true, &ClarityVersion::latest())
                         .expect("Failed to type check sample-contracts/tokens");
                 }
 
@@ -2314,6 +2314,7 @@ mod test {
                 let balance = STXBalance::initial(1000);
                 env.execute_in_env::<_, _, ()>(
                     QualifiedContractIdentifier::local("tokens").unwrap().into(),
+                    None,
                     |e| {
                         let mut snapshot = e
                             .global_context
@@ -2330,10 +2331,10 @@ mod test {
                 )
                 .unwrap();
 
-                env.initialize_contract(contract_id, &token_contract_content)
+                env.initialize_contract(contract_id, &token_contract_content, None)
                     .unwrap();
 
-                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example)
+                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example, None)
                     .unwrap();
             }
 

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::clarity_vm::database::MemoryBackingStore;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -1381,8 +1380,8 @@ fn test_return_trait_with_contract_of_wrapped_in_let(#[case] version: ClarityVer
     .unwrap();
 }
 
-#[test]
-fn test_trait_contract_not_found() {
+#[apply(test_clarity_versions_trait_checker)]
+fn test_trait_contract_not_found(#[case] version: ClarityVersion) {
     let trait_contract_src = "(define-trait my-trait
         ((hello (int) (response uint uint)))
     )
@@ -1399,8 +1398,8 @@ fn test_trait_contract_not_found() {
     let trait_contract_id = QualifiedContractIdentifier::local("trait-contract").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("impl-contract").unwrap();
 
-    let mut impl_contract = parse(&impl_contract_id, impl_contract_src).unwrap();
-    let mut trait_contract = parse(&trait_contract_id, trait_contract_src).unwrap();
+    let mut impl_contract = parse(&impl_contract_id, impl_contract_src, version).unwrap();
+    let mut trait_contract = parse(&trait_contract_id, trait_contract_src, version).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 

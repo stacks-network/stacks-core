@@ -690,7 +690,7 @@ fn test_at_unknown_block() {
         }
     }
 
-    with_marfed_environment(test, true);
+    with_memory_environment(test, true);
 }
 
 #[test]

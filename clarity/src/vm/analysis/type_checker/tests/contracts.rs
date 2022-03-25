@@ -17,14 +17,6 @@
 use assert_json_diff;
 use serde_json;
 
-use crate::{
-    clarity_vm::database::MemoryBackingStore,
-    vm::{
-        analysis::{CheckError, ContractAnalysis},
-        costs::LimitedCostTracker,
-        ClarityVersion, SymbolicExpression,
-    },
-};
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::run_analysis;
 use vm::analysis::type_checker::tests::mem_type_check;
@@ -36,6 +28,7 @@ use vm::{
     analysis::{CheckError, ContractAnalysis},
     costs::LimitedCostTracker,
     SymbolicExpression,
+    ClarityVersion
 };
 
 #[template]
