@@ -4918,7 +4918,7 @@ fn pox_integration_test() {
             Value::UInt(stacked_bal),
             execute(
                 &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
-                &ClarityVersion::Clarity2,
+                ClarityVersion::Clarity2,
             )
             .unwrap()
             .unwrap(),
@@ -5031,7 +5031,7 @@ fn pox_integration_test() {
             Value::UInt(stacked_bal / 2),
             execute(
                 &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_2_pubkey_hash),
-                &ClarityVersion::Clarity2,
+                ClarityVersion::Clarity2,
             )
             .unwrap()
             .unwrap(),
@@ -5054,7 +5054,7 @@ fn pox_integration_test() {
             Value::UInt(stacked_bal / 2),
             execute(
                 &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_2_pubkey_hash),
-                &ClarityVersion::Clarity2,
+                ClarityVersion::Clarity2,
             )
             .unwrap()
             .unwrap(),

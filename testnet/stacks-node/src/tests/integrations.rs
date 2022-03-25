@@ -648,6 +648,7 @@ fn integration_test_get_info() {
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    sponsor: None,
                     arguments: vec![Value::UInt(3).serialize()]
                 };
 
@@ -669,6 +670,7 @@ fn integration_test_get_info() {
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    sponsor: None,
                     arguments: vec![]
                 };
 
@@ -695,6 +697,7 @@ fn integration_test_get_info() {
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    sponsor: None,
                     arguments: vec![]
                 };
 
@@ -713,6 +716,7 @@ fn integration_test_get_info() {
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    sponsor: None,
                     arguments: vec![Value::UInt(3).serialize()]
                 };
 
@@ -735,6 +739,7 @@ fn integration_test_get_info() {
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    sponsor: None,
                     arguments: vec![Value::UInt(100).serialize()]
                 };
 
@@ -753,6 +758,7 @@ fn integration_test_get_info() {
 
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
+                    sponsor: None,
                     arguments: vec![]
                 };
 

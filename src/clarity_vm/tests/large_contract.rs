@@ -16,6 +16,10 @@
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
 use chainstate::stacks::index::ClarityMarfTrieId;
 use clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
 use util::hash::hex_bytes;
@@ -33,7 +37,18 @@ use vm::types::{
 };
 
 use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::MemoryBackingStore;
 use vm::clarity::TransactionConnection;
+
+use vm::tests::with_memory_environment;
+
+use clarity::vm::version::ClarityVersion;
+
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn clarity_version_template(#[case] version: ClarityVersion) {}
 
 fn test_block_headers(n: u8) -> StacksBlockId {
     StacksBlockId([n as u8; 32])
@@ -71,8 +86,8 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200)
                 (token-credit! .tokens u4))";
 
-#[test]
-fn test_simple_token_system() {
+#[apply(clarity_version_template)]
+fn test_simple_token_system(#[case] version: ClarityVersion) {
     let mut clarity = ClarityInstance::new(false, MarfedKV::temporary());
     let p1 = PrincipalData::from(
         PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
@@ -94,13 +109,14 @@ fn test_simple_token_system() {
 
         let tokens_contract = SIMPLE_TOKENS;
 
-        let contract_ast = ast::build_ast(&contract_identifier, tokens_contract, &mut ()).unwrap();
+        let contract_ast = ast::build_ast(&contract_identifier, tokens_contract, &mut (), version).unwrap();
 
         block.as_transaction(|tx| {
             tx.initialize_smart_contract(
                 &contract_identifier,
                 &contract_ast,
                 tokens_contract,
+                None,
                 |_, _| false,
             )
             .unwrap()
@@ -110,6 +126,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p2,
+                    None,
                     &contract_identifier,
                     "token-transfer",
                     &[p1.clone().into(), Value::UInt(210)],
@@ -122,6 +139,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "token-transfer",
                     &[p2.clone().into(), Value::UInt(9000)],
@@ -135,6 +153,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "token-transfer",
                     &[p2.clone().into(), Value::UInt(1001)],
@@ -145,7 +164,7 @@ fn test_simple_token_system() {
         ));
         assert!(is_committed(
             & // send to self!
-            block.as_transaction(|tx| tx.run_contract_call(&p1, &contract_identifier, "token-transfer",
+            block.as_transaction(|tx| tx.run_contract_call(&p1, None, &contract_identifier, "token-transfer",
                                     &[p1.clone().into(), Value::UInt(1000)], |_, _| false)).unwrap().0
         ));
 
@@ -172,6 +191,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "faucet",
                     &[],
@@ -185,6 +205,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "faucet",
                     &[],
@@ -198,6 +219,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "faucet",
                     &[],
@@ -221,6 +243,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "mint-after",
                     &[Value::UInt(25)],
@@ -255,6 +278,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "mint-after",
                     &[Value::UInt(25)],
@@ -268,6 +292,7 @@ fn test_simple_token_system() {
             &block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "faucet",
                     &[],
@@ -290,6 +315,7 @@ fn test_simple_token_system() {
             block
                 .as_transaction(|tx| tx.run_contract_call(
                     &p1,
+                    None,
                     &contract_identifier,
                     "my-get-token-balance",
                     &[p1.clone().into()],
@@ -301,6 +327,227 @@ fn test_simple_token_system() {
         );
     }
 }
+
+pub fn with_versioned_memory_environment<F>(f: F, version: ClarityVersion, top_level: bool)
+where
+    F: FnOnce(&mut OwnedEnvironment, ClarityVersion) -> (),
+{
+    let mut marf_kv = MemoryBackingStore::new();
+
+    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db());
+    // start an initial transaction.
+    if !top_level {
+        owned_env.begin();
+    }
+
+    f(&mut owned_env, version)
+}
+
+#[apply(clarity_version_template)]
+fn test_simple_naming_system(#[case] version: ClarityVersion) {
+    with_versioned_memory_environment(inner_test_simple_naming_system, version, true);
+}
+
+fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
+    let tokens_contract = SIMPLE_TOKENS;
+
+    let names_contract = "(define-constant burn-address 'SP000000000000000000002Q6VF78)
+         (define-private (price-function (name int))
+           (if (< name 100000) u1000 u100))
+
+         (define-map name-map
+           { name: int } { owner: principal })
+         (define-map preorder-map
+           { name-hash: (buff 20) }
+           { buyer: principal, paid: uint })
+
+         (define-public (preorder
+                        (name-hash (buff 20))
+                        (name-price uint))
+           (let ((xfer-result (contract-call? .tokens token-transfer
+                                  burn-address name-price)))
+            (if (is-ok xfer-result)
+               (if
+                 (map-insert preorder-map
+                   (tuple (name-hash name-hash))
+                   (tuple (paid name-price)
+                          (buyer tx-sender)))
+                 (ok 0) (err 2))
+               (if (is-eq (unwrap-err! xfer-result (err (- 1)))
+                        \"not enough balance\")
+                   (err 1) (err 3)))))
+
+         (define-public (register 
+                        (recipient-principal principal)
+                        (name int)
+                        (salt int))
+           (let ((preorder-entry
+                   ;; preorder entry must exist!
+                   (unwrap! (map-get? preorder-map
+                                  (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
+                 (name-entry
+                   (map-get? name-map (tuple (name name)))))
+             (if (and
+                  (is-none name-entry)
+                  ;; preorder must have paid enough
+                  (<= (price-function name)
+                      (get paid preorder-entry))
+                  ;; preorder must have been the current principal
+                  (is-eq tx-sender
+                       (get buyer preorder-entry)))
+                  (if (and
+                    (map-insert name-map
+                      (tuple (name name))
+                      (tuple (owner recipient-principal)))
+                    (map-delete preorder-map
+                      (tuple (name-hash (hash160 (xor name salt))))))
+                    (ok 0)
+                    (err 3))
+                  (err 4))))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+
+    let name_hash_expensive_0 = execute("(hash160 1)");
+    let name_hash_expensive_1 = execute("(hash160 2)");
+    let name_hash_cheap_0 = execute("(hash160 100001)");
+
+    {
+        let mut env = owned_env.get_exec_environment(None, None);
+
+        let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+        env.initialize_contract(contract_identifier, tokens_contract)
+            .unwrap();
+
+        let contract_identifier = QualifiedContractIdentifier::local("names").unwrap();
+        env.initialize_contract(contract_identifier, names_contract)
+            .unwrap();
+    }
+
+    {
+        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
+
+        assert!(is_err_code(
+            &env.execute_contract(
+                &QualifiedContractIdentifier::local("names").unwrap(),
+                "preorder",
+                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                false
+            )
+            .unwrap(),
+            1
+        ));
+    }
+
+    {
+        let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
+        assert!(is_committed(
+            &env.execute_contract(
+                &QualifiedContractIdentifier::local("names").unwrap(),
+                "preorder",
+                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                false
+            )
+            .unwrap()
+        ));
+        assert!(is_err_code(
+            &env.execute_contract(
+                &QualifiedContractIdentifier::local("names").unwrap(),
+                "preorder",
+                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                false
+            )
+            .unwrap(),
+            2
+        ));
+    }
+
+    {
+        // shouldn't be able to register a name you didn't preorder!
+        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
+        assert!(is_err_code(
+            &env.execute_contract(
+                &QualifiedContractIdentifier::local("names").unwrap(),
+                "register",
+                &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                false
+            )
+            .unwrap(),
+            4
+        ));
+    }
+
+    {
+        // should work!
+        let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
+        assert!(is_committed(
+            &env.execute_contract(
+                &QualifiedContractIdentifier::local("names").unwrap(),
+                "register",
+                &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
+                false
+            )
+            .unwrap()
+        ));
+    }
+
+    {
+        // try to underpay!
+        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
+        assert!(is_committed(
+            &env.execute_contract(
+                &QualifiedContractIdentifier::local("names").unwrap(),
+                "preorder",
+                &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::UInt(100)]),
+                false
+            )
+            .unwrap()
+        ));
+        assert!(is_err_code(
+            &env.execute_contract(
+                &QualifiedContractIdentifier::local("names").unwrap(),
+                "register",
+                &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
+                false
+            )
+            .unwrap(),
+            4
+        ));
+
+        // register a cheap name!
+        assert!(is_committed(
+            &env.execute_contract(
+                &QualifiedContractIdentifier::local("names").unwrap(),
+                "preorder",
+                &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::UInt(100)]),
+                false
+            )
+            .unwrap()
+        ));
+        assert!(is_committed(
+            &env.execute_contract(
+                &QualifiedContractIdentifier::local("names").unwrap(),
+                "register",
+                &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+                false
+            )
+            .unwrap()
+        ));
+
+        // preorder must exist!
+        assert!(is_err_code(
+            &env.execute_contract(
+                &QualifiedContractIdentifier::local("names").unwrap(),
+                "register",
+                &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+                false
+            )
+            .unwrap(),
+            5
+        ));
+    }
+}
+
 
 /*
  * This test exhibits memory inflation --
@@ -370,8 +617,6 @@ pub fn rollback_log_memory_test() {
     }
 }
 
-/*
- */
 #[test]
 pub fn let_memory_test() {
     let marf = MarfedKV::temporary();

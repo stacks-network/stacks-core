@@ -12,8 +12,9 @@ use vm::costs::LimitedCostTracker;
 use vm::database::ClarityDatabase;
 use vm::errors::Error as InterpreterError;
 use vm::events::StacksTransactionEvent;
-use vm::types::{PrincipalData, QualifiedContractIdentifier};
+use vm::types::{PrincipalData, QualifiedContractIdentifier, BuffData};
 use vm::{ast, SymbolicExpression, Value};
+use vm::ClarityVersion;
 
 #[derive(Debug)]
 pub enum Error {
@@ -119,6 +120,7 @@ pub trait ClarityConnection {
         &mut self,
         mainnet: bool,
         sender: PrincipalData,
+        sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
         to_do: F,
     ) -> Result<R, InterpreterError>
@@ -130,7 +132,7 @@ pub trait ClarityConnection {
             let mut vm_env =
                 OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track, epoch_id);
             let result = vm_env
-                .execute_in_env(sender, to_do)
+                .execute_in_env(sender, sponsor, to_do)
                 .map(|(result, _, _)| result);
             let (db, _) = vm_env
                 .destruct()
@@ -165,8 +167,13 @@ pub trait TransactionConnection: ClarityConnection {
         identifier: &QualifiedContractIdentifier,
         contract_content: &str,
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
+        let epoch_id = self.get_epoch();
+        
+        // ClarityVersionPragmaTodo: need to use contract's declared version or default
+        let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
+
         self.with_analysis_db(|db, mut cost_track| {
-            let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
+            let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track, clarity_version);
 
             let mut contract_ast = match ast_result {
                 Ok(x) => x,
@@ -179,6 +186,7 @@ pub trait TransactionConnection: ClarityConnection {
                 db,
                 false,
                 cost_track,
+                clarity_version
             );
 
             match result {
@@ -222,9 +230,10 @@ pub trait TransactionConnection: ClarityConnection {
         from: &PrincipalData,
         to: &PrincipalData,
         amount: u128,
+        memo: &BuffData
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
         self.with_abort_callback(
-            |vm_env| vm_env.stx_transfer(from, to, amount).map_err(Error::from),
+            |vm_env| vm_env.stx_transfer(from, to, amount, memo).map_err(Error::from),
             |_, _| false,
         )
         .and_then(|(value, assets, events, _)| Ok((value, assets, events)))
@@ -238,6 +247,7 @@ pub trait TransactionConnection: ClarityConnection {
     fn run_contract_call<F>(
         &mut self,
         sender: &PrincipalData,
+        sponsor: Option<&PrincipalData>,
         contract: &QualifiedContractIdentifier,
         public_function: &str,
         args: &[Value],
@@ -256,6 +266,7 @@ pub trait TransactionConnection: ClarityConnection {
                 vm_env
                     .execute_transaction(
                         sender.clone(),
+                        sponsor.cloned(),
                         contract.clone(),
                         public_function,
                         &expr_args,
@@ -283,6 +294,7 @@ pub trait TransactionConnection: ClarityConnection {
         identifier: &QualifiedContractIdentifier,
         contract_ast: &ContractAST,
         contract_str: &str,
+        sponsor: Option<PrincipalData>,
         abort_call_back: F,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where
@@ -291,7 +303,7 @@ pub trait TransactionConnection: ClarityConnection {
         let (_, asset_map, events, aborted) = self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str)
+                    .initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str, sponsor)
                     .map_err(Error::from)
             },
             abort_call_back,

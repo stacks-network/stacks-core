@@ -85,7 +85,8 @@ use blockstack_lib::{
     util::{hash::Hash160, vrf::VRFProof},
     util_lib::db::sqlite_open,
 };
-use vm::ClarityVersion;
+use blockstack_lib::clarity::vm::ClarityVersion;
+use blockstack_lib::clarity_cli::vm_execute;
 use std::collections::HashSet;
 
 fn main() {
@@ -656,7 +657,8 @@ simulating a miner.
         }
         let program: String =
             fs::read_to_string(&argv[2]).expect(&format!("Error reading file: {}", argv[2]));
-        match clarity::vm_execute(&program, &ClarityVersion::Clarity2) {
+        let clarity_version = ClarityVersion::default_for_epoch(clarity_cli::DEFAULT_CLI_EPOCH);
+        match clarity_cli::vm_execute(&program, clarity_version) {
             Ok(Some(result)) => println!("{}", result),
             Ok(None) => println!(""),
             Err(error) => {
@@ -793,25 +795,6 @@ simulating a miner.
         ];
 
         let burnchain = Burnchain::regtest(&burnchain_db_path);
-        let spv_headers_path = "/tmp/replay-chainstate".to_string();
-        let indexer_config = BitcoinIndexerConfig {
-            peer_host: "127.0.0.1".to_string(),
-            peer_port: 18444,
-            rpc_port: 18443,
-            rpc_ssl: false,
-            username: Some("blockstack".to_string()),
-            password: Some("blockstacksystem".to_string()),
-            timeout: 30,
-            spv_headers_path,
-            first_block: 0,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
-            epochs: None,
-        };
-
-        let indexer = BitcoinIndexer::new(
-            indexer_config,
-            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
-        );
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
         let epochs = StacksEpoch::all(
@@ -916,7 +899,6 @@ simulating a miner.
 
         let (p2p_new_sortition_db, _) = burnchain
             .connect_db(
-                &indexer,
                 true,
                 first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),

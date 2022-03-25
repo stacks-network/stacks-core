@@ -50,6 +50,11 @@ use blockstack_lib::vm::{
     types::PrincipalData,
     ClarityName, ContractName, Value,
 };
+use blockstack_lib::util_lib::strings::StacksString;
+use blockstack_lib::util::hash::hex_bytes;
+use blockstack_lib::util::hash::to_hex;
+use blockstack_lib::util::retry::LogReader;
+use blockstack_lib::clarity_cli::vm_execute;
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]
 
@@ -454,7 +459,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
-                blockstack_lib::clarity::vm_execute(input, &clarity_version)?
+                vm_execute(input, clarity_version)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
             _ => {

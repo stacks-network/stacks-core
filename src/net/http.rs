@@ -1929,6 +1929,15 @@ impl HttpRequestType {
         let sender = PrincipalData::parse(&body.sender)
             .map_err(|_e| net_error::DeserializeError("Failed to parse sender principal".into()))?;
 
+        let sponsor =
+            if let Some(sponsor) = body.sponsor {
+                Some(PrincipalData::parse(&sponsor)
+                    .map_err(|_e| net_error::DeserializeError("Failed to parse sponsor principal".into()))?)
+            }
+            else {
+                None
+            };
+
         let arguments = body
             .arguments
             .into_iter()
@@ -1945,6 +1954,7 @@ impl HttpRequestType {
             contract_addr,
             contract_name,
             sender,
+            sponsor,
             func_name,
             arguments,
             tip,
@@ -2855,6 +2865,7 @@ impl HttpRequestType {
                 contract_addr,
                 contract_name,
                 _,
+                _,
                 func_name,
                 _,
                 tip_req,
@@ -3046,6 +3057,7 @@ impl HttpRequestType {
                 _contract_addr,
                 _contract_name,
                 sender,
+                sponsor,
                 _func_name,
                 func_args,
                 ..,
@@ -3060,6 +3072,7 @@ impl HttpRequestType {
 
                 let request_body = CallReadOnlyRequestBody {
                     sender: sender.to_string(),
+                    sponsor: sponsor.as_ref().map(|sp| sp.to_string()),
                     arguments: args,
                 };
 

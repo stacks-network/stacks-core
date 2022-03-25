@@ -43,7 +43,7 @@ pub mod coverage;
 
 pub mod events;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod tests;
 
 #[cfg(any(test, feature = "testing"))]
@@ -435,13 +435,13 @@ pub fn execute_with_parameters(
 }
 
 /// Execute for test with `version`, Epoch20, testnet.
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
     execute_with_parameters(program, version, StacksEpochId::Epoch20, false)
 }
 
 /// Execute for test in Clarity1, Epoch20, testnet.
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn execute(program: &str) -> Result<Option<Value>> {
     execute_with_parameters(
         program,
@@ -452,7 +452,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 }
 
 /// Execute for test in in Clarity2, Epoch21, testnet.
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn execute_v2(program: &str) -> Result<Option<Value>> {
     execute_with_parameters(
         program,

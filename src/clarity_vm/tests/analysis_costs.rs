@@ -27,9 +27,10 @@ use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
 use vm::functions::NativeFunctions;
 use vm::representations::SymbolicExpression;
-use vm::tests::costs::get_simple_test;
+use crate::clarity_vm::tests::costs::get_simple_test;
+use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
 use vm::tests::{
-    execute, symbols_from_values, with_marfed_environment, with_memory_environment,
+    execute, symbols_from_values, with_memory_environment,
     UnitTestBurnStateDB
 };
 use vm::types::{
@@ -40,7 +41,6 @@ use vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::tests::costs::get_simple_test;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use vm::ClarityVersion;
 use crate::types::StacksEpochId;

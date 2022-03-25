@@ -883,7 +883,7 @@ impl StacksChainState {
 
                 let contract_call_resp = clarity_tx.run_contract_call(
                     &origin_account.principal,
-                    sponsor,
+                    sponsor.as_ref(),
                     &contract_id,
                     &contract_call.function_name,
                     &contract_call.function_args,

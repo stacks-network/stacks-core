@@ -44,9 +44,6 @@ use vm::{eval, is_reserved};
 
 use crate::{types::chainstate::StacksBlockId, types::StacksEpochId};
 
-use crate::types::chainstate::StacksMicroblockHeader;
-use crate::{core::StacksEpochId, types::chainstate::StacksBlockId};
-
 use serde::Serialize;
 use vm::costs::cost_functions::ClarityCostFunction;
 use vm::version::ClarityVersion;
@@ -717,20 +714,9 @@ impl<'a> OwnedEnvironment<'a> {
         })
     }
 
-    pub fn handle_poison_microblock(
-        &mut self,
-        sender: &PrincipalData,
-        mblock_hdr_1: &StacksMicroblockHeader,
-        mblock_hdr_2: &StacksMicroblockHeader,
-    ) -> std::result::Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ChainstateError> {
-        self.execute_in_env(sender.clone(), None, |exec_env| {
-            exec_env.handle_poison_microblock(mblock_hdr_1, mblock_hdr_2)
-        })
-    }
-
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env::<_, _, ()>(recipient.clone(), None, |env| {
+        self.execute_in_env(recipient.clone(), None, |env| {
             let mut snapshot = env
                 .global_context
                 .database
@@ -743,7 +729,9 @@ impl<'a> OwnedEnvironment<'a> {
                 .database
                 .increment_ustx_liquid_supply(amount)
                 .unwrap();
-            Ok(())
+
+            let res : std::result::Result<(), ::vm::errors::Error> = Ok(());
+            res
         })
         .unwrap();
     }
@@ -1040,13 +1028,9 @@ impl<'a, 'b> Environment<'a, 'b> {
 
             match res {
                 Ok(value) => {
-<<<<<<< HEAD:src/vm/contexts.rs
-                    handle_contract_call_special_cases(&mut self.global_context, self.sender.as_ref(), self.sponsor.as_ref(), contract_identifier, tx_name, &value)?;
-=======
                     if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
-                        handler(&mut self.global_context, self.sender.as_ref(), contract_identifier, tx_name, &value)?;
+                        handler(&mut self.global_context, self.sender.as_ref(), self.sponsor.as_ref(), contract_identifier, tx_name, &value)?;
                     }
->>>>>>> develop:clarity/src/vm/contexts.rs
                     Ok(value)
                 },
                 Err(e) => Err(e)

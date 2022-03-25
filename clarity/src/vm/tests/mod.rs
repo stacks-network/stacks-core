@@ -48,7 +48,6 @@ mod assets;
 mod contracts;
 mod datamaps;
 mod defines;
-mod events;
 mod sequences;
 mod simple_apply_eval;
 mod traits;

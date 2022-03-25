@@ -393,6 +393,8 @@ dependencies = [
  "rand_chacha 0.2.2",
  "regex",
  "ripemd",
+ "rstest",
+ "rstest_reuse",
  "rusqlite",
  "secp256k1",
  "serde",
@@ -534,11 +536,14 @@ dependencies = [
  "rand 0.7.3",
  "rand_chacha 0.2.2",
  "regex",
+ "rstest",
+ "rstest_reuse",
  "rusqlite",
  "serde",
  "serde_derive",
  "serde_json",
  "serde_stacker",
+ "sha2-asm 0.5.5",
  "slog",
  "stacks-common",
  "time 0.2.27",
@@ -2524,7 +2529,16 @@ dependencies = [
  "cfg-if 1.0.0",
  "cpufeatures",
  "digest 0.10.3",
- "sha2-asm",
+ "sha2-asm 0.6.2",
+]
+
+[[package]]
+name = "sha2-asm"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7c2f225be6502f2134e6bbb35bb5e2957e41ffa0495ed08bce2e2b4ca885da4"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

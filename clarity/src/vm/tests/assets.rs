@@ -1211,7 +1211,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert!(is_err_code(&result, 5));
 
     // p1 burning 5 should fail (not owner anymore).
-    let (result, asset_map, _events) = execute_transaction(
+    let (result, _asset_map, _events) = execute_transaction(
         owned_env,
         p1_principal.clone(),
         &names_contract_id,
@@ -1242,7 +1242,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     );
 
     // p2 re-burning 5 should succeed.
-    let (result, asset_map, _events) = execute_transaction(
+    let (result, _asset_map, _events) = execute_transaction(
         owned_env,
         p2_principal.clone(),
         &names_contract_id,

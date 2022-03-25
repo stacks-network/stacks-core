@@ -57,6 +57,9 @@ use util_lib::boot::boot_code_id;
 use clarity_vm::clarity::Error as ClarityError;
 use core::PEER_VERSION_EPOCH_1_0;
 
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::version::ClarityVersion;
+
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
 lazy_static! {
@@ -87,31 +90,6 @@ lazy_static! {
     .unwrap();
     static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
     static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25;
-}
-
-impl From<&StacksPrivateKey> for StandardPrincipalData {
-    fn from(o: &StacksPrivateKey) -> StandardPrincipalData {
-        let stacks_addr = StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(o)],
-        )
-        .unwrap();
-        StandardPrincipalData::from(stacks_addr)
-    }
-}
-
-impl From<&StacksPrivateKey> for PrincipalData {
-    fn from(o: &StacksPrivateKey) -> PrincipalData {
-        PrincipalData::Standard(StandardPrincipalData::from(o))
-    }
-}
-
-impl From<&StacksPrivateKey> for Value {
-    fn from(o: &StacksPrivateKey) -> Value {
-        Value::from(StandardPrincipalData::from(o))
-    }
 }
 
 pub struct ClarityTestSim {
@@ -302,21 +280,21 @@ fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
     }
 }
 
-fn check_arithmetic_only(contract: &str) {
-    let analysis = mem_type_check(contract).unwrap().1;
+fn check_arithmetic_only(contract: &str, version: ClarityVersion) {
+    let analysis = mem_type_check(contract, version).unwrap().1;
     ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
 }
 
 #[test]
 fn cost_contract_is_arithmetic_only() {
     use chainstate::stacks::boot::BOOT_CODE_COSTS;
-    check_arithmetic_only(BOOT_CODE_COSTS);
+    check_arithmetic_only(BOOT_CODE_COSTS, ClarityVersion::Clarity1);
 }
 
 #[test]
 fn cost_2_contract_is_arithmetic_only() {
     use chainstate::stacks::boot::BOOT_CODE_COSTS_2;
-    check_arithmetic_only(BOOT_CODE_COSTS_2);
+    check_arithmetic_only(BOOT_CODE_COSTS_2, ClarityVersion::Clarity2);
 }
 
 impl BurnStateDB for TestSimBurnStateDB {

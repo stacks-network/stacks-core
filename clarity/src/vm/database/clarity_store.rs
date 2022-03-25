@@ -43,6 +43,8 @@ pub type SpecialCaseHandler = &'static dyn Fn(
     &mut GlobalContext,
     // the current sender
     Option<&PrincipalData>,
+    // the current sponsor
+    Option<&PrincipalData>,
     // the invoked contract
     &QualifiedContractIdentifier,
     // the invoked function name

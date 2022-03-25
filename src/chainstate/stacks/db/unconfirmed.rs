@@ -1337,6 +1337,6 @@ mod test {
         peer.sortdb = Some(sortdb);
 
         // all valid txs were processed
-        assert_eq!(db_recv_balance.amount_unlocked, recv_balance);
+        assert_eq!(db_recv_balance.amount_unlocked(), recv_balance);
     }
 }

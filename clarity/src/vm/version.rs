@@ -1,4 +1,4 @@
-use core::StacksEpochId;
+use stacks_common::types::StacksEpochId;
 use std::fmt;
 use std::str::FromStr;
 use vm::errors::{Error, RuntimeErrorType};

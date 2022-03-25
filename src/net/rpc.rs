@@ -266,7 +266,7 @@ impl RPCPoxInfoData {
 
         let data = chainstate
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-                clarity_tx.with_readonly_clarity_env(mainnet, sender, cost_track, |env| {
+                clarity_tx.with_readonly_clarity_env(mainnet, sender, None, cost_track, |env| {
                     env.execute_contract(&contract_identifier, function, &vec![], true)
                 })
             })
@@ -1339,6 +1339,7 @@ impl ConversationHttp {
         contract_name: &ContractName,
         function: &ClarityName,
         sender: &PrincipalData,
+        sponsor: Option<&PrincipalData>,
         args: &[Value],
         options: &ConnectionOptions,
         canonical_stacks_tip_height: u64,
@@ -1368,7 +1369,7 @@ impl ConversationHttp {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
                     })?;
 
-                clarity_tx.with_readonly_clarity_env(mainnet, sender.clone(), cost_track, |env| {
+                clarity_tx.with_readonly_clarity_env(mainnet, sender.clone(), sponsor.cloned(), cost_track, |env| {
                     // we want to execute any function as long as no actual writes are made as
                     // opposed to be limited to purely calling `define-read-only` functions,
                     // so use `read_only = false`.  This broadens the number of functions that
@@ -2478,6 +2479,7 @@ impl ConversationHttp {
                 ref ctrct_addr,
                 ref ctrct_name,
                 ref as_sender,
+                ref as_sponsor,
                 ref func_name,
                 ref args,
                 ref tip_req,
@@ -2502,6 +2504,7 @@ impl ConversationHttp {
                         ctrct_name,
                         func_name,
                         as_sender,
+                        as_sponsor.as_ref(),
                         args,
                         &self.connection.options,
                         network.burnchain_tip.canonical_stacks_tip_height,
@@ -3341,6 +3344,7 @@ impl ConversationHttp {
         contract_addr: StacksAddress,
         contract_name: ContractName,
         sender: PrincipalData,
+        sponsor: Option<PrincipalData>,
         function_name: ClarityName,
         function_args: Vec<Value>,
         tip_req: TipRequest,
@@ -3350,6 +3354,7 @@ impl ConversationHttp {
             contract_addr,
             contract_name,
             sender,
+            sponsor,
             function_name,
             function_args,
             tip_req,
@@ -5860,6 +5865,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
+                    None,
                     "ro-test".try_into().unwrap(),
                     vec![],
                     TipRequest::UseLatestAnchoredTip,
@@ -5913,6 +5919,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
+                    None,
                     "ro-test".try_into().unwrap(),
                     vec![],
                     TipRequest::UseLatestAnchoredTip,
@@ -5973,6 +5980,7 @@ mod test {
                     StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
                         .unwrap()
                         .to_account_principal(),
+                    None,
                     "ro-test".try_into().unwrap(),
                     vec![],
                     TipRequest::SpecificTip(unconfirmed_tip),

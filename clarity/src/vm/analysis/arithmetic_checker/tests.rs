@@ -14,6 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::ClarityVersion;
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
+use vm::analysis::type_checker::tests::mem_type_check;
 use vm::analysis::{
     arithmetic_checker::ArithmeticOnlyChecker, arithmetic_checker::Error,
     arithmetic_checker::Error::*, ContractAnalysis,
@@ -53,8 +59,8 @@ fn check_good(contract: &str) {
     ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
 }
 
-#[test]
-fn test_bad_defines() {
+#[apply(test_clarity_versions_arith_checker)]
+fn test_bad_defines(#[case] version: ClarityVersion) {
     let tests = [
         ("(define-public (foo) (ok 1))", DefineTypeForbidden(DefineFunctions::PublicFunction)),
         ("(define-map foo-map ((a uint)) ((b uint))) (define-private (foo) (map-get? foo-map {a: u1}))", DefineTypeForbidden(DefineFunctions::Map)),

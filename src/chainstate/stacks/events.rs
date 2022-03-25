@@ -52,10 +52,3 @@ pub struct StacksTransactionReceipt {
     pub tx_index: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum StacksTransactionEvent {
-    SmartContractEvent(SmartContractEventData),
-    STXEvent(STXEventType),
-    NFTEvent(NFTEventType),
-    FTEvent(FTEventType),
-}

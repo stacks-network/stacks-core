@@ -22,7 +22,6 @@ use address::AddressHashMode;
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use util::hash::{hex_bytes, to_hex};
 use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use stacks_common::types::chainstate::StacksAddress;
@@ -42,10 +41,7 @@ use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, Stri
 use vm::{eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters};
 use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
-use crate::{clarity_vm::database::MemoryBackingStore, vm::ClarityVersion};
-use chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
+use vm::ClarityVersion;
 use vm::database::MemoryBackingStore;
 use vm::types::StacksAddressExtensions;
 

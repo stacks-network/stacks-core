@@ -36,8 +36,6 @@ use crate::core::GENESIS_EPOCH;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::SortitionId;
 use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::StacksMicroblockHeader;
-use crate::util_lib::secp256k1::MessageSignature;
 use crate::types::chainstate::TrieHash;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::{
@@ -84,6 +82,7 @@ pub use vm::clarity::ClarityConnection;
 pub use vm::clarity::Error;
 use vm::clarity::TransactionConnection;
 
+use stacks_common::util::secp256k1::MessageSignature;
 ///
 /// A high-level interface for interacting with the Clarity VM.
 ///
@@ -940,97 +939,7 @@ impl<'a, 'b> Drop for ClarityTransactionConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
-    fn inner_with_analysis_db<F, R>(&mut self, to_do: F) -> R
-    where
-        F: FnOnce(&mut AnalysisDatabase) -> R,
-    {
-        using!(self.log, "log", |log| {
-            let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-            let mut db = AnalysisDatabase::new_with_rollback_wrapper(rollback_wrapper);
-            let r = to_do(&mut db);
-            (db.destroy().into(), r)
-        })
-    }
-
-    /// Do something to the underlying DB that involves writing.
-    pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
-    where
-        F: FnOnce(&mut ClarityDatabase) -> Result<R, Error>,
-    {
-        using!(self.log, "log", |log| {
-            let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-            let mut db = ClarityDatabase::new_with_rollback_wrapper(
-                rollback_wrapper,
-                &self.header_db,
-                &self.burn_state_db,
-            );
-
-            db.begin();
-            let result = to_do(&mut db);
-            if result.is_ok() {
-                db.commit();
-            } else {
-                db.roll_back();
-            }
-
-            (db.destroy().into(), result)
-        })
-    }
-
-    /// What's our total (block-wide) resource use so far?
-    pub fn cost_so_far(&self) -> ExecutionCost {
-        match self.cost_track {
-            Some(ref track) => track.get_total(),
-            None => ExecutionCost::zero(),
-        }
-    }
-
-    /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
-    pub fn analyze_smart_contract(
-        &mut self,
-        identifier: &QualifiedContractIdentifier,
-        contract_content: &str,
-    ) -> Result<(ContractAST, ContractAnalysis), Error> {
-        let epoch_id = self.with_clarity_db_readonly(|db| db.get_clarity_epoch_version());
-
-        // ClarityVersionPragmaTodo: need to use contract's declared version or default
-        let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
-
-        using!(self.cost_track, "cost tracker", |mut cost_track| {
-            self.inner_with_analysis_db(|db| {
-                let ast_result = ast::build_ast(
-                    identifier,
-                    contract_content,
-                    &mut cost_track,
-                    clarity_version,
-                );
-
-                let mut contract_ast = match ast_result {
-                    Ok(x) => x,
-                    Err(e) => return (cost_track, Err(e.into())),
-                };
-
-                let result = analysis::run_analysis(
-                    identifier,
-                    &mut contract_ast.expressions,
-                    db,
-                    false,
-                    cost_track,
-                    clarity_version,
-                );
-
-                match result {
-                    Ok(mut contract_analysis) => {
-                        let cost_track = contract_analysis.take_contract_cost_tracker();
-                        (cost_track, Ok((contract_ast, contract_analysis)))
-                    }
-                    Err((e, cost_track)) => (cost_track, Err(e.into())),
-                }
-            })
-        })
-    }
-
+impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {    
     fn with_abort_callback<F, A, R, E>(
         &mut self,
         to_do: F,
@@ -1140,7 +1049,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .execute_in_env(sender.clone(), |env| {
+                    .execute_in_env(sender.clone(), None, |env| {
                         env.run_as_transaction(|env| {
                             StacksChainState::handle_poison_microblock(
                                 env,

@@ -210,7 +210,7 @@ impl StacksChainState {
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
         let result = self
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-                clarity_tx.with_readonly_clarity_env(mainnet, sender, cost_track, |env| {
+                clarity_tx.with_readonly_clarity_env(mainnet, sender, None, cost_track, |env| {
                     env.execute_contract(
                         &contract_identifier,
                         function,

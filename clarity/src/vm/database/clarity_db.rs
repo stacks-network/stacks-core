@@ -44,7 +44,6 @@ use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
 
-use chainstate::stacks::index::TrieMerkleProof;
 use crate::vm::types::byte_len_of_serialization;
 
 use crate::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0};

@@ -1356,6 +1356,8 @@ impl HttpRequestMetadata {
 #[derive(Serialize, Deserialize)]
 pub struct CallReadOnlyRequestBody {
     pub sender: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sponsor: Option<String>,
     pub arguments: Vec<String>,
 }
 
@@ -1445,6 +1447,7 @@ pub enum HttpRequestType {
         StacksAddress,
         ContractName,
         PrincipalData,
+        Option<PrincipalData>,
         ClarityName,
         Vec<Value>,
         TipRequest,
@@ -2043,7 +2046,6 @@ pub mod test {
     use std::ops::Deref;
     use std::ops::DerefMut;
     use std::sync::mpsc::sync_channel;
-    use std::sync::Mutex;
     use std::thread;
     use std::{collections::HashMap, sync::Mutex};
 

@@ -54,6 +54,7 @@ use crate::clarity::{
     vm::ContractContext,
     vm::ContractName,
     vm::{SymbolicExpression, SymbolicExpressionType, Value},
+    vm::ClarityVersion,
 };
 use stacks_common::util::log;
 
@@ -152,7 +153,8 @@ fn parse(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
 ) -> Result<Vec<SymbolicExpression>, Error> {
-    let ast = build_ast(contract_identifier, source_code, &mut ())
+    let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
+    let ast = build_ast(contract_identifier, source_code, &mut (), clarity_version)
         .map_err(|e| RuntimeErrorType::ASTError(e))?;
     Ok(ast.expressions)
 }
@@ -200,12 +202,14 @@ fn run_analysis_free<C: ClarityStorage>(
     marf_kv: &mut C,
     save_contract: bool,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
+    let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     analysis::run_analysis(
         contract_identifier,
         expressions,
         &mut marf_kv.get_analysis_db(),
         save_contract,
         LimitedCostTracker::new_free(),
+        clarity_version
     )
 }
 
@@ -217,6 +221,7 @@ fn run_analysis<C: ClarityStorage>(
     save_contract: bool,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
     let mainnet = header_db.is_mainnet();
+    let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     let cost_track = LimitedCostTracker::new(
         mainnet,
         if mainnet {
@@ -234,6 +239,7 @@ fn run_analysis<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         cost_track,
+        clarity_version
     )
 }
 
@@ -410,9 +416,9 @@ where
 
 /// Execute program in a transient environment. To be used only by CLI tools
 ///  for program evaluation, not by consensus critical code.
-pub fn vm_execute(program: &str) -> Result<Option<Value>, Error> {
+pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Option<Value>, Error> {
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut contract_context = ContractContext::new(contract_id.clone());
+    let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(
@@ -422,8 +428,8 @@ pub fn vm_execute(program: &str) -> Result<Option<Value>, Error> {
         DEFAULT_CLI_EPOCH,
     );
     global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
-        eval_all(&parsed, &mut contract_context, g)
+        let parsed = ast::build_ast(&contract_id, program, &mut (), clarity_version)?.expressions;
+        eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
@@ -752,7 +758,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                 let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
                 let mut vm_env = OwnedEnvironment::new_free(mainnet, db, DEFAULT_CLI_EPOCH);
                 vm_env
-                    .initialize_contract(contract_identifier, &contract_content)
+                    .initialize_contract(contract_identifier, &contract_content, None)
                     .unwrap();
             }
             Err(_) => {
@@ -782,6 +788,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     vm_env
         .execute_transaction(
             sender,
+            None,
             pox_contract,
             "set-burnchain-parameters",
             params.as_slice(),
@@ -1072,7 +1079,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let mut marf = MemoryBackingStore::new();
             let mut vm_env =
                 OwnedEnvironment::new_free(mainnet, marf.as_clarity_db(), DEFAULT_CLI_EPOCH);
-            let mut exec_env = vm_env.get_exec_environment(None);
+            let mut exec_env = vm_env.get_exec_environment(None, None);
             let mut analysis_marf = MemoryBackingStore::new();
 
             let contract_id = QualifiedContractIdentifier::transient();
@@ -1145,7 +1152,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 friendly_expect(parse(&contract_id, &content), "Failed to parse program.");
             match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                 Ok(_) => {
-                    let result = vm_env.get_exec_environment(None).eval_raw(&content);
+                    let result = vm_env.get_exec_environment(None, None).eval_raw(&content);
                     match result {
                         Ok(x) => (
                             0,
@@ -1195,7 +1202,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
                     vm_env
-                        .get_exec_environment(None)
+                        .get_exec_environment(None, None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                 });
                 (header_db, marf, result_and_cost)
@@ -1248,7 +1255,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
                     vm_env
-                        .get_exec_environment(None)
+                        .get_exec_environment(None, None)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                 });
                 (marf, result_and_cost)
@@ -1321,7 +1328,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
                     vm_env
-                        .get_exec_environment(None)
+                        .get_exec_environment(None, None)
                         .eval_read_only(&contract_identifier, &content)
                 });
                 (marf, result_and_cost)
@@ -1413,7 +1420,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                             let result_and_cost =
                                 with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
                                     vm_env
-                                        .initialize_contract(contract_identifier, &contract_content)
+                                        .initialize_contract(contract_identifier, &contract_content, None)
                                 });
                             (header_db, marf, Ok((analysis, result_and_cost)))
                         }
@@ -1510,8 +1517,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let arguments: Vec<_> = argv[5..]
                 .iter()
                 .map(|argument| {
+                    let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
                     let argument_parsed = friendly_expect(
-                        vm_execute(argument),
+                        vm_execute(argument, clarity_version),
                         &format!("Error parsing argument \"{}\"", argument),
                     );
                     let argument_value = friendly_expect_opt(
@@ -1524,7 +1532,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    vm_env.execute_transaction(sender, contract_identifier, &tx_name, &arguments)
+                    vm_env.execute_transaction(sender, None, contract_identifier, &tx_name, &arguments)
                 });
                 (header_db, marf, result_and_cost)
             });

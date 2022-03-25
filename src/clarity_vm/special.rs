@@ -37,7 +37,7 @@ use chainstate::stacks::db::StacksChainState;
 
 use vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 
-use create::util_lib::hash::Hash160;
+use stacks_common::util::hash::Hash160;
 
 use crate::vm::costs::runtime_cost;
 

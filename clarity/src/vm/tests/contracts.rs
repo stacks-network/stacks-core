@@ -16,10 +16,9 @@
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
-use clarity_vm::clarity::ClarityInstance;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 use rstest_reuse::{self, *};
 use util::hash::hex_bytes;
 use vm::ast::errors::ParseErrors;
@@ -31,7 +30,7 @@ use vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use vm::execute as vm_execute;
 use vm::representations::SymbolicExpression;
 use vm::tests::{
-    execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
+    execute, symbols_from_values,
     with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use vm::types::{
@@ -41,12 +40,6 @@ use vm::types::{
 use vm::{ast, ClarityVersion};
 
 use vm::database::MemoryBackingStore;
-
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1)]
-#[case(ClarityVersion::Clarity2)]
-fn test_clarity_versions_vm(#[case] version: ClarityVersion) {}
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))
@@ -66,37 +59,6 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: 
         (begin (init-factorial 1337 3)
                (init-factorial 8008 5))";
 
-const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
-         (define-read-only (my-get-token-balance (account principal))
-            (default-to u0 (get balance (map-get? tokens (tuple (account account))))))
-         (define-read-only (explode (account principal))
-             (map-delete tokens (tuple (account account))))
-         (define-private (token-credit! (account principal) (amount uint))
-            (if (<= amount u0)
-                (err \"must be positive\")
-                (let ((current-amount (my-get-token-balance account)))
-                  (begin
-                    (map-set tokens (tuple (account account))
-                                       (tuple (balance (+ amount current-amount))))
-                    (ok 0)))))
-         (define-public (token-transfer (to principal) (amount uint))
-          (let ((balance (my-get-token-balance tx-sender)))
-             (if (or (> amount balance) (<= amount u0))
-                 (err \"not enough balance\")
-                 (begin
-                   (map-set tokens (tuple (account tx-sender))
-                                      (tuple (balance (- balance amount))))
-                   (token-credit! to amount)))))
-         (define-public (faucet)
-           (let ((original-sender tx-sender))
-             (as-contract (print (token-transfer (print original-sender) u1)))))                     
-         (define-public (mint-after (block-to-release uint))
-           (if (>= block-height block-to-release)
-               (faucet)
-               (err \"must be in the future\")))
-         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
-                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200)
-                (token-credit! .tokens u4))";
 
 fn get_principal() -> Value {
     StandardPrincipalData::transient().into()
@@ -129,19 +91,6 @@ fn test_get_block_info_eval() {
         Ok(Value::none()),
         Ok(Value::none()),
     ];
-    /*    let expected = [
-        Ok(Value::UInt(0)),
-        Ok(Value::none()),
-        Ok(Value::none()),
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(-1)).into()),
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Bool(true)).into()),
-        Ok(Value::some(
-            Value::buff_from(hex_bytes("0200000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap())),
-        Ok(Value::some(
-            Value::buff_from(hex_bytes("0300000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap())),
-        Ok(Value::some(
-            Value::buff_from(hex_bytes("0100000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap())),
-    ]; */
 
     for i in 0..contracts.len() {
         let mut marf = MemoryBackingStore::new();
@@ -190,250 +139,6 @@ fn is_err_code(v: &Value, e: i128) -> bool {
 
 fn test_block_headers(n: u8) -> StacksBlockId {
     StacksBlockId([n as u8; 32])
-}
-
-#[apply(test_clarity_versions_vm)]
-fn test_simple_token_system(#[case] version: ClarityVersion) {
-    let mut clarity = ClarityInstance::new(false, MarfedKV::temporary());
-    let p1 = PrincipalData::from(
-        PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
-            .unwrap(),
-    );
-    let p2 = PrincipalData::from(
-        PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")
-            .unwrap(),
-    );
-    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-
-    {
-        let mut block = clarity.begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &test_block_headers(0),
-            &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
-        );
-
-        let tokens_contract = SIMPLE_TOKENS;
-
-        let contract_ast =
-            ast::build_ast(&contract_identifier, tokens_contract, &mut (), version).unwrap();
-
-        block.as_transaction(|tx| {
-            tx.initialize_smart_contract(
-                &contract_identifier,
-                &contract_ast,
-                tokens_contract,
-                None,
-                |_, _| false,
-            )
-            .unwrap()
-        });
-
-        assert!(!is_committed(
-            &block
-                .as_transaction(|tx| tx.run_contract_call(
-                    &p2,
-                    None,
-                    &contract_identifier,
-                    "token-transfer",
-                    &[p1.clone().into(), Value::UInt(210)],
-                    |_, _| false
-                ))
-                .unwrap()
-                .0
-        ));
-        assert!(is_committed(
-            &block
-                .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
-                    None,
-                    &contract_identifier,
-                    "token-transfer",
-                    &[p2.clone().into(), Value::UInt(9000)],
-                    |_, _| false
-                ))
-                .unwrap()
-                .0
-        ));
-
-        assert!(!is_committed(
-            &block
-                .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
-                    None,
-                    &contract_identifier,
-                    "token-transfer",
-                    &[p2.clone().into(), Value::UInt(1001)],
-                    |_, _| false
-                ))
-                .unwrap()
-                .0
-        ));
-        assert!(is_committed(
-            & // send to self!
-            block.as_transaction(|tx| tx.run_contract_call(&p1,
-                                                           None, &contract_identifier, "token-transfer",
-                                                           &[p1.clone().into(), Value::UInt(1000)], |_, _| false)).unwrap().0
-        ));
-
-        assert_eq!(
-            block
-                .as_transaction(|tx| tx.eval_read_only(
-                    &contract_identifier,
-                    "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
-                ))
-                .unwrap(),
-            Value::UInt(1000)
-        );
-        assert_eq!(
-            block
-                .as_transaction(|tx| tx.eval_read_only(
-                    &contract_identifier,
-                    "(my-get-token-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"
-                ))
-                .unwrap(),
-            Value::UInt(9200)
-        );
-
-        assert!(is_committed(
-            &block
-                .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
-                    None,
-                    &contract_identifier,
-                    "faucet",
-                    &[],
-                    |_, _| false
-                ))
-                .unwrap()
-                .0
-        ));
-
-        assert!(is_committed(
-            &block
-                .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
-                    None,
-                    &contract_identifier,
-                    "faucet",
-                    &[],
-                    |_, _| false
-                ))
-                .unwrap()
-                .0
-        ));
-
-        assert!(is_committed(
-            &block
-                .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
-                    None,
-                    &contract_identifier,
-                    "faucet",
-                    &[],
-                    |_, _| false
-                ))
-                .unwrap()
-                .0
-        ));
-
-        assert_eq!(
-            block
-                .as_transaction(|tx| tx.eval_read_only(
-                    &contract_identifier,
-                    "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
-                ))
-                .unwrap(),
-            Value::UInt(1003)
-        );
-
-        assert!(!is_committed(
-            &block
-                .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
-                    None,
-                    &contract_identifier,
-                    "mint-after",
-                    &[Value::UInt(25)],
-                    |_, _| false
-                ))
-                .unwrap()
-                .0
-        ));
-        block.commit_block();
-    }
-
-    for i in 0..25 {
-        {
-            let block = clarity.begin_block(
-                &test_block_headers(i),
-                &test_block_headers(i + 1),
-                &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
-            );
-            block.commit_block();
-        }
-    }
-
-    {
-        let mut block = clarity.begin_block(
-            &test_block_headers(25),
-            &test_block_headers(26),
-            &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
-        );
-        assert!(is_committed(
-            &block
-                .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
-                    None,
-                    &contract_identifier,
-                    "mint-after",
-                    &[Value::UInt(25)],
-                    |_, _| false
-                ))
-                .unwrap()
-                .0
-        ));
-
-        assert!(!is_committed(
-            &block
-                .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
-                    None,
-                    &contract_identifier,
-                    "faucet",
-                    &[],
-                    |_, _| false
-                ))
-                .unwrap()
-                .0
-        ));
-
-        assert_eq!(
-            block
-                .as_transaction(|tx| tx.eval_read_only(
-                    &contract_identifier,
-                    "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
-                ))
-                .unwrap(),
-            Value::UInt(1004)
-        );
-        assert_eq!(
-            block
-                .as_transaction(|tx| tx.run_contract_call(
-                    &p1,
-                    None,
-                    &contract_identifier,
-                    "my-get-token-balance",
-                    &[p1.clone().into()],
-                    |_, _| false
-                ))
-                .unwrap()
-                .0,
-            Value::UInt(1004)
-        );
-    }
 }
 
 fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
@@ -681,206 +386,6 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
             .unwrap(),
             Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap()
         );
-    }
-}
-
-fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
-    let tokens_contract = SIMPLE_TOKENS;
-
-    let names_contract = "(define-constant burn-address 'SP000000000000000000002Q6VF78)
-         (define-private (price-function (name int))
-           (if (< name 100000) u1000 u100))
-
-         (define-map name-map
-           { name: int } { owner: principal })
-         (define-map preorder-map
-           { name-hash: (buff 20) }
-           { buyer: principal, paid: uint })
-
-         (define-public (preorder
-                        (name-hash (buff 20))
-                        (name-price uint))
-           (let ((xfer-result (contract-call? .tokens token-transfer
-                                  burn-address name-price)))
-            (if (is-ok xfer-result)
-               (if
-                 (map-insert preorder-map
-                   (tuple (name-hash name-hash))
-                   (tuple (paid name-price)
-                          (buyer tx-sender)))
-                 (ok 0) (err 2))
-               (if (is-eq (unwrap-err! xfer-result (err (- 1)))
-                        \"not enough balance\")
-                   (err 1) (err 3)))))
-
-         (define-public (register 
-                        (recipient-principal principal)
-                        (name int)
-                        (salt int))
-           (let ((preorder-entry
-                   ;; preorder entry must exist!
-                   (unwrap! (map-get? preorder-map
-                                  (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
-                 (name-entry
-                   (map-get? name-map (tuple (name name)))))
-             (if (and
-                  (is-none name-entry)
-                  ;; preorder must have paid enough
-                  (<= (price-function name)
-                      (get paid preorder-entry))
-                  ;; preorder must have been the current principal
-                  (is-eq tx-sender
-                       (get buyer preorder-entry)))
-                  (if (and
-                    (map-insert name-map
-                      (tuple (name name))
-                      (tuple (owner recipient-principal)))
-                    (map-delete preorder-map
-                      (tuple (name-hash (hash160 (xor name salt))))))
-                    (ok 0)
-                    (err 3))
-                  (err 4))))";
-
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
-
-    let name_hash_expensive_0 = execute("(hash160 1)");
-    let name_hash_expensive_1 = execute("(hash160 2)");
-    let name_hash_cheap_0 = execute("(hash160 100001)");
-
-    {
-        let mut env = owned_env.get_exec_environment(None, None);
-
-        let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-        env.initialize_contract(contract_identifier, tokens_contract)
-            .unwrap();
-
-        let contract_identifier = QualifiedContractIdentifier::local("names").unwrap();
-        env.initialize_contract(contract_identifier, names_contract)
-            .unwrap();
-    }
-
-    {
-        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
-
-        assert!(is_err_code(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
-                false
-            )
-            .unwrap(),
-            1
-        ));
-    }
-
-    {
-        let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
-        assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
-                false
-            )
-            .unwrap()
-        ));
-        assert!(is_err_code(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
-                false
-            )
-            .unwrap(),
-            2
-        ));
-    }
-
-    {
-        // shouldn't be able to register a name you didn't preorder!
-        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
-        assert!(is_err_code(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
-            4
-        ));
-    }
-
-    {
-        // should work!
-        let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
-        assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(1), Value::Int(0)]),
-                false
-            )
-            .unwrap()
-        ));
-    }
-
-    {
-        // try to underpay!
-        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
-        assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::UInt(100)]),
-                false
-            )
-            .unwrap()
-        ));
-        assert!(is_err_code(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(2), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
-            4
-        ));
-
-        // register a cheap name!
-        assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "preorder",
-                &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::UInt(100)]),
-                false
-            )
-            .unwrap()
-        ));
-        assert!(is_committed(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
-                false
-            )
-            .unwrap()
-        ));
-
-        // preorder must exist!
-        assert!(is_err_code(
-            &env.execute_contract(
-                &QualifiedContractIdentifier::local("names").unwrap(),
-                "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
-                false
-            )
-            .unwrap(),
-            5
-        ));
     }
 }
 
@@ -1331,7 +836,6 @@ fn test_all() {
         test_contract_caller,
         test_tx_sponsor,
         test_fully_qualified_contract_call,
-        test_simple_naming_system,
         test_simple_contract_call,
     ];
     for test in to_test.iter() {

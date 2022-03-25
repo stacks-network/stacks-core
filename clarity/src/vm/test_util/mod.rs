@@ -169,4 +169,23 @@ impl BurnStateDB for UnitTestBurnStateDB {
     fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         self.get_stacks_epoch(0)
     }
+    
+    fn get_v1_unlock_height(&self) -> u32 {
+        u32::max_value()
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        1
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        1
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        1
+    }
+    fn get_burn_start_height(&self) -> u32 {
+        0
+    }
 }

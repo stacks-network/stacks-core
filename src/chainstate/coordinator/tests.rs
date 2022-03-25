@@ -1044,6 +1044,7 @@ fn missed_block_commits() {
                     .with_readonly_clarity_env(
                         false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
                     )
@@ -1212,6 +1213,7 @@ fn test_simple_setup() {
                     .with_readonly_clarity_env(
                         false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
                     )
@@ -1517,6 +1519,7 @@ fn test_sortition_with_reward_set() {
                     .with_readonly_clarity_env(
                         false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
                     )
@@ -1757,6 +1760,7 @@ fn test_sortition_with_burner_reward_set() {
                     .with_readonly_clarity_env(
                         false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
                     )
@@ -2030,6 +2034,7 @@ fn test_pox_btc_ops() {
                     .with_readonly_clarity_env(
                         false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
                     )
@@ -2342,6 +2347,7 @@ fn test_stx_transfer_btc_ops() {
                     .with_readonly_clarity_env(
                         false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
                     )
@@ -2578,6 +2584,7 @@ fn test_initial_coinbase_reward_distributions() {
                     .with_readonly_clarity_env(
                         false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
                     )
@@ -3056,6 +3063,7 @@ fn test_sortition_with_sunset() {
                     .with_readonly_clarity_env(
                         false,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
                         LimitedCostTracker::new_free(),
                         |env| env.eval_raw("block-height")
                     )
@@ -3901,6 +3909,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
                 conn.with_readonly_clarity_env(
                     false,
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                    None,
                     LimitedCostTracker::new_free(),
                     |env| env.eval_raw(eval),
                 )
