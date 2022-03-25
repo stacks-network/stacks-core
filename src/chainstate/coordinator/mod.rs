@@ -1012,39 +1012,6 @@ impl<
         )
     }
 
-    // If it is time to process the exit-at-rc contract for a specific reward cycle, this function
-    // returns the reward cycle info for the last block (in this fork) in that reward cycle.
-    // Otherwise, the function returns None.
-    fn should_process_exit_reward_cycle(
-        &mut self,
-        stacks_block_height_in_cycle: u64,
-        parent_exit_info: &BlockExitRewardCycleInfo,
-    ) -> Result<Option<BlockExitRewardCycleInfo>, Error> {
-        if stacks_block_height_in_cycle == 2 {
-            // We want to process the exit-at-rc contract reward cycle for the reward cycle the
-            // current block's parent's parent belongs to since the height (in number of Stacks
-            // blocks) of the current block in its reward cycle is 2.
-            let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
-                self.sortition_db.conn(),
-                &parent_exit_info.parent_block_id,
-            )?;
-            Ok(exit_info_opt)
-        } else if stacks_block_height_in_cycle == 1
-            && parent_exit_info.stacks_block_height_in_cycle == 1
-        {
-            // This is an edge case in which the previous reward cycle contains only a single Stacks block.
-            // It is time to process the exit-at-rc contract for the reward cycle the current block's
-            // parent's parent belongs to.
-            let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
-                self.sortition_db.conn(),
-                &parent_exit_info.parent_block_id,
-            )?;
-            Ok(exit_info_opt)
-        } else {
-            Ok(None)
-        }
-    }
-
     fn process_exit_reward_cycle(
         &mut self,
         block_receipt: &StacksEpochReceipt,
@@ -1074,14 +1041,8 @@ impl<
             info!("RCPR: cc: parent block info is non-None");
             // copy info from parent block
             current_exit_at_rc = parent_exit_info.curr_exit_at_reward_cycle;
-            if parent_exit_info.block_reward_cycle < current_reward_cycle {
-                stacks_block_height_in_cycle = 1;
-            } else if parent_exit_info.block_reward_cycle == current_reward_cycle {
+            if parent_exit_info.block_reward_cycle == current_reward_cycle {
                 current_proposal = parent_exit_info.curr_exit_proposal;
-                stacks_block_height_in_cycle = parent_exit_info.stacks_block_height_in_cycle + 1;
-            } else {
-                error!("A child block should never have a lower reward cycle than its parent");
-                panic!();
             }
             invalid_reward_cycles = parent_exit_info
                 .invalid_reward_cycles
@@ -1100,14 +1061,12 @@ impl<
             // reward cycles contain only 1 Stacks block in them.
             // RC P -> block 1 in RC Q ->  block 1 in RC R ->  block 1 in RC S -> block 2 in RC S
             //                            | PROCESS RC P  |   | PROCESS RC Q |   | PROCESS RC R |
-            if let Some(ancestor_info) = self
-                .should_process_exit_reward_cycle(stacks_block_height_in_cycle, &parent_exit_info)?
-            {
+            if parent_exit_info.block_reward_cycle < current_reward_cycle {
                 info!("RCPR: cc: ancestor - rc is greater than parent rc");
                 // Check if there is some proposal. If so, need to check for a veto.
-                if let Some(curr_exit_proposal) = ancestor_info.curr_exit_proposal {
+                if let Some(curr_exit_proposal) = parent_exit_info.curr_exit_proposal {
                     let veto_passed = self.read_veto_state(
-                        ancestor_info.block_reward_cycle,
+                        parent_exit_info.block_reward_cycle,
                         curr_exit_proposal,
                         &block_receipt.header.consensus_hash,
                         &block_hash,
@@ -1120,31 +1079,17 @@ impl<
                 } else {
                     // tally votes of previous reward cycle if there is no veto happening
                     // if there is consensus for some proposal, record it
-                    let tallied_proposal = self.tally_votes(
-                        ancestor_info.block_reward_cycle,
-                        ancestor_info.curr_exit_at_reward_cycle,
-                        ancestor_info.invalid_reward_cycles,
+                    current_proposal = self.tally_votes(
+                        parent_exit_info.block_reward_cycle,
+                        parent_exit_info.curr_exit_at_reward_cycle,
+                        parent_exit_info.invalid_reward_cycles,
                         &block_hash,
                         &block_receipt.header.consensus_hash,
                     )?;
-                    if let Some(exit_proposal) = tallied_proposal {
-                        info!("RCPR: cc: storing proposal info for {:?}", exit_proposal);
+                    if let Some(exit_proposal) = current_proposal {
+                        info!("RCPR: storing proposal info for {:?}", exit_proposal);
                         // record the proposal in invalid_reward_cycles
-                        let sortdb_tx = self
-                            .sortition_db
-                            .tx_handle_begin(&canonical_sortition_tip)?;
                         invalid_reward_cycles.push(exit_proposal);
-
-                        // store this proposal in parent
-                        info!("RCPR: cc: storing exit proposal for parent");
-                        sortdb_tx.update_exit_proposal(parent_exit_info.block_id, exit_proposal)?;
-                        sortdb_tx.commit()?;
-
-                        // store in current block if it is the same RC as its parent
-                        if parent_exit_info.block_reward_cycle == current_reward_cycle {
-                            info!("RCPR: cc: storing exit proposal for current");
-                            current_proposal = tallied_proposal;
-                        }
                     }
                 }
             }
