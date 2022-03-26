@@ -98,7 +98,7 @@ pub struct ClarityTestSim {
     fork: u64,
     /// This vec specifies the transitions for each epoch.
     /// It is a list of heights at which the simulated chain transitions
-    /// first to Epoch 2.0, then to Epoch 2.1, etc. If the Epoch 2.0 transition
+    /// first to Epoch 2.0, then to Epoch 2.05, then to Epoch 2.1, etc. If the Epoch 2.0 transition
     /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
     /// begin in Epoch 1.0.
     epoch_bounds: Vec<u64>,
@@ -111,7 +111,7 @@ pub struct TestSimHeadersDB {
 pub struct TestSimBurnStateDB {
     /// This vec specifies the transitions for each epoch.
     /// It is a list of heights at which the simulated chain transitions
-    /// first to Epoch 2.0, then to Epoch 2.1, etc. If the Epoch 2.0 transition
+    /// first to Epoch 2.0, then to Epoch 2.05, then to Epoch 2.1, etc. If the Epoch 2.0 transition
     /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
     /// begin in Epoch 1.0.
     epoch_bounds: Vec<u64>,
@@ -169,10 +169,10 @@ impl ClarityTestSim {
                 pox_constants: PoxConstants::test_default(),
             };
 
-            Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+            let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
 
             let mut block_conn =
-                ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db);
+                ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db, cur_epoch);
             let r = f(&mut block_conn);
             block_conn.commit_block();
 
@@ -201,7 +201,8 @@ impl ClarityTestSim {
                 pox_constants: PoxConstants::test_default(),
             };
 
-            Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+            let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+            debug!("Execute block in epoch {}", &cur_epoch);
 
             let mut owned_env = OwnedEnvironment::new(store.as_clarity_db(&headers_db, &burn_db));
             f(&mut owned_env)
@@ -217,7 +218,7 @@ impl ClarityTestSim {
         store: &mut WritableMarfStore,
         headers_db: &TestSimHeadersDB,
         burn_db: &dyn BurnStateDB,
-    ) {
+    ) -> StacksEpochId {
         let mut clarity_db = store.as_clarity_db(headers_db, burn_db);
         clarity_db.begin();
         let parent_epoch = clarity_db.get_clarity_epoch_version();
@@ -227,10 +228,12 @@ impl ClarityTestSim {
             .epoch_id;
 
         if parent_epoch != sortition_epoch {
+            debug!("Set epoch to {}", &sortition_epoch);
             clarity_db.set_clarity_epoch_version(sortition_epoch);
         }
 
         clarity_db.commit();
+        sortition_epoch
     }
 
     pub fn execute_block_as_fork<F, R>(&mut self, parent_height: u64, f: F) -> R
@@ -333,7 +336,8 @@ impl BurnStateDB for TestSimBurnStateDB {
 
         let epoch_id = match epoch_begin_index {
             0 => StacksEpochId::Epoch20,
-            1 => StacksEpochId::Epoch21,
+            1 => StacksEpochId::Epoch2_05,
+            2 => StacksEpochId::Epoch21,
             _ => panic!("Epoch unknown"),
         };
 
@@ -439,7 +443,7 @@ impl HeadersDB for TestSimHeadersDB {
 #[test]
 fn pox_2_contract_caller_units() {
     let mut sim = ClarityTestSim::new();
-    sim.epoch_bounds = vec![0, 1];
+    sim.epoch_bounds = vec![0, 1, 2];
     let delegator = StacksPrivateKey::new();
 
     let expected_unlock_height = POX_TESTNET_CYCLE_LENGTH * 4;
@@ -662,7 +666,7 @@ fn pox_2_contract_caller_units() {
 #[test]
 fn pox_2_lock_extend_units() {
     let mut sim = ClarityTestSim::new();
-    sim.epoch_bounds = vec![0, 1];
+    sim.epoch_bounds = vec![0, 1, 2];
     let delegator = StacksPrivateKey::new();
 
     let reward_cycle_len = 5;
@@ -907,10 +911,11 @@ fn pox_2_lock_extend_units() {
 #[test]
 fn pox_2_delegate_extend_units() {
     let mut sim = ClarityTestSim::new();
-    sim.epoch_bounds = vec![0, 1];
+    sim.epoch_bounds = vec![0, 1, 2];
     let delegator = StacksPrivateKey::new();
 
     // execute past 2.1 epoch initialization
+    sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
@@ -1436,7 +1441,7 @@ fn pox_2_delegate_extend_units() {
 #[test]
 fn simple_epoch21_test() {
     let mut sim = ClarityTestSim::new();
-    sim.epoch_bounds = vec![0, 3];
+    sim.epoch_bounds = vec![0, 1, 3];
     let delegator = StacksPrivateKey::new();
 
     let clarity_2_0_id =
