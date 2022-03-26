@@ -346,7 +346,7 @@ where
 
 #[apply(clarity_version_template)]
 fn test_simple_naming_system(#[case] version: ClarityVersion) {
-    with_versioned_memory_environment(inner_test_simple_naming_system, version, true);
+    with_versioned_memory_environment(inner_test_simple_naming_system, version, false);
 }
 
 fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
@@ -428,7 +428,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     {
         let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
 
-        assert!(is_err_code(
+        assert!(is_err_code_i128(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "preorder",
@@ -451,7 +451,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
             )
             .unwrap()
         ));
-        assert!(is_err_code(
+        assert!(is_err_code_i128(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "preorder",
@@ -466,7 +466,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     {
         // shouldn't be able to register a name you didn't preorder!
         let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
-        assert!(is_err_code(
+        assert!(is_err_code_i128(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "register",
@@ -504,7 +504,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
             )
             .unwrap()
         ));
-        assert!(is_err_code(
+        assert!(is_err_code_i128(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "register",
@@ -536,7 +536,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
         ));
 
         // preorder must exist!
-        assert!(is_err_code(
+        assert!(is_err_code_i128(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "register",
