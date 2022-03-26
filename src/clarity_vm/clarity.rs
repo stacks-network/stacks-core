@@ -177,6 +177,7 @@ impl ClarityBlockConnection<'_> {
         datastore: WritableMarfStore<'a>,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
+        epoch: StacksEpochId,
     ) -> ClarityBlockConnection<'a> {
         ClarityBlockConnection {
             datastore,
@@ -184,7 +185,7 @@ impl ClarityBlockConnection<'_> {
             burn_state_db,
             cost_track: Some(LimitedCostTracker::new_free()),
             mainnet: false,
-            epoch: StacksEpochId::Epoch20,
+            epoch: epoch,
         }
     }
 
@@ -640,6 +641,7 @@ impl<'a> ClarityBlockConnection<'a> {
 
         self.cost_track.unwrap()
     }
+
     pub fn initialize_epoch_2_05(&mut self) -> Result<StacksTransactionReceipt, Error> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
@@ -658,13 +660,10 @@ impl<'a> ClarityBlockConnection<'a> {
             };
 
             let boot_code_address = boot_code_addr(mainnet);
-
             let boot_code_auth = boot_code_tx_auth(boot_code_address);
-
             let boot_code_nonce = self.with_clarity_db_readonly(|db| {
                 db.get_account_nonce(&boot_code_address.clone().into())
             });
-
             let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
 
             // instantiate costs 2 contract...
@@ -692,6 +691,9 @@ impl<'a> ClarityBlockConnection<'a> {
                         Ok(())
                     })
                     .unwrap();
+
+                // NOTE: we don't set tx_conn.epoch to Epoch2_05 here, even though we probably
+                // should, because doing so risks a chain split.  C'est la vie.
 
                 // initialize with a synthetic transaction
                 let receipt = StacksChainState::process_transaction_payload(
@@ -797,6 +799,9 @@ impl<'a> ClarityBlockConnection<'a> {
                         Ok(())
                     })
                     .unwrap();
+
+                // require 2.1 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch21;
 
                 // initialize with a synthetic transaction
                 let receipt = StacksChainState::process_transaction_payload(
