@@ -772,7 +772,7 @@ impl<
                             "Atlas: {} attachment instances emitted from events",
                             attachments_instances.len()
                         );
-                        match self.attachments_tx.try_send(attachments_instances) {
+                        match self.attachments_tx.send(attachments_instances) {
                             Ok(_) => {}
                             Err(e) => {
                                 error!("Atlas: error dispatching attachments {}", e);
