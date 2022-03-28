@@ -25,29 +25,31 @@ use std::path::PathBuf;
 use std::time;
 use std::time::Duration;
 
-use burnchains::bitcoin::blocks::BitcoinHeaderIPC;
-use burnchains::bitcoin::messages::BitcoinMessageHandler;
-use burnchains::bitcoin::spv::*;
-use burnchains::bitcoin::Error as btc_error;
-use burnchains::indexer::BurnchainIndexer;
-use burnchains::indexer::*;
-use burnchains::Burnchain;
+use crate::burnchains::bitcoin::blocks::BitcoinHeaderIPC;
+use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
+use crate::burnchains::bitcoin::spv::*;
+use crate::burnchains::bitcoin::Error as btc_error;
+use crate::burnchains::indexer::BurnchainIndexer;
+use crate::burnchains::indexer::*;
+use crate::burnchains::Burnchain;
 
-use burnchains::bitcoin::blocks::{BitcoinBlockDownloader, BitcoinBlockParser};
-use burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::bitcoin::blocks::{BitcoinBlockDownloader, BitcoinBlockParser};
+use crate::burnchains::bitcoin::BitcoinNetworkType;
 
+use crate::burnchains::Error as burnchain_error;
+use crate::burnchains::MagicBytes;
+use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use crate::types::chainstate::BurnchainHeaderHash;
-use burnchains::Error as burnchain_error;
-use burnchains::MagicBytes;
-use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 
 use stacks_common::deps_common::bitcoin::blockdata::block::LoneBlockHeader;
 use stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
 use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialization_err;
-use util::log;
+use stacks_common::util::log;
 
-use core::{StacksEpoch, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET};
+use crate::core::{
+    StacksEpoch, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET,
+};
 use std::convert::TryFrom;
 
 pub const USER_AGENT: &'static str = "Stacks/2.0";
@@ -824,10 +826,10 @@ impl BurnchainIndexer for BitcoinIndexer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use burnchains::bitcoin::Error as btc_error;
-    use burnchains::bitcoin::*;
-    use burnchains::Error as burnchain_error;
-    use burnchains::*;
+    use crate::burnchains::bitcoin::Error as btc_error;
+    use crate::burnchains::bitcoin::*;
+    use crate::burnchains::Error as burnchain_error;
+    use crate::burnchains::*;
 
     use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
     use stacks_common::deps_common::bitcoin::network::encodable::VarInt;

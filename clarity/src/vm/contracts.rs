@@ -14,14 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::ast::ContractAST;
+use crate::vm::callables::CallableType;
+use crate::vm::contexts::{ContractContext, Environment, GlobalContext, LocalContext};
+use crate::vm::errors::InterpreterResult as Result;
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::{apply, eval_all, Value};
 use std::convert::TryInto;
-use vm::ast::ContractAST;
-use vm::callables::CallableType;
-use vm::contexts::{ContractContext, Environment, GlobalContext, LocalContext};
-use vm::errors::InterpreterResult as Result;
-use vm::representations::SymbolicExpression;
-use vm::types::QualifiedContractIdentifier;
-use vm::{apply, eval_all, Value};
 
 #[derive(Serialize, Deserialize)]
 pub struct Contract {

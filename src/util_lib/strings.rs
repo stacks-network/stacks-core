@@ -26,16 +26,18 @@ use std::ops::DerefMut;
 use regex::Regex;
 use url;
 
-use codec::Error as codec_error;
+use stacks_common::codec::Error as codec_error;
 
 use crate::codec::MAX_MESSAGE_LEN;
-use util::retry::BoundReader;
-use vm::ast::parser::{lex, LexItem, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
-use vm::errors::RuntimeErrorType;
-use vm::representations::{
+use clarity::vm::ast::parser::{lex, LexItem, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
+use clarity::vm::errors::RuntimeErrorType;
+use clarity::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
 };
-use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
+};
+use stacks_common::util::retry::BoundReader;
 
 use crate::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
 
@@ -335,9 +337,9 @@ impl UrlString {
 mod test {
     use std::error::Error;
 
-    use net::codec::test::check_codec_and_corruption;
-    use net::codec::*;
-    use net::*;
+    use crate::net::codec::test::check_codec_and_corruption;
+    use crate::net::codec::*;
+    use crate::net::*;
 
     use super::*;
 

@@ -17,6 +17,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+use crate::util::hash::to_hex;
 use std::clone::Clone;
 use std::cmp::Eq;
 use std::cmp::Ord;
@@ -28,7 +29,6 @@ use std::hash::{Hash, Hasher};
 /// over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
 use std::ops::Deref;
 use std::ops::DerefMut;
-use util::hash::to_hex;
 
 use ed25519_dalek::Keypair as VRFKeypair;
 use ed25519_dalek::PublicKey as ed25519_PublicKey;
@@ -44,8 +44,8 @@ use sha2::Sha512;
 use std::error;
 use std::fmt;
 
+use crate::util::hash::hex_bytes;
 use rand;
-use util::hash::hex_bytes;
 
 #[derive(Clone)]
 pub struct VRFPublicKey(pub ed25519_PublicKey);
@@ -594,7 +594,7 @@ impl VRF {
 mod tests {
     use super::*;
 
-    use util::hash::hex_bytes;
+    use crate::util::hash::hex_bytes;
 
     use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
 

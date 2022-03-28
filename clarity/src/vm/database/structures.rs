@@ -14,15 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::analysis::ContractAnalysis;
+use crate::vm::contracts::Contract;
+use crate::vm::database::ClarityDatabase;
+use crate::vm::errors::{
+    Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
+};
+use crate::vm::types::{
+    OptionalData, PrincipalData, TupleTypeSignature, TypeSignature, Value, NONE,
+};
 use serde::Deserialize;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 use std::convert::TryInto;
 use std::io::Write;
-use util::hash::{hex_bytes, to_hex};
-use vm::analysis::ContractAnalysis;
-use vm::contracts::Contract;
-use vm::database::ClarityDatabase;
-use vm::errors::{Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
-use vm::types::{OptionalData, PrincipalData, TupleTypeSignature, TypeSignature, Value, NONE};
 
 pub trait ClaritySerializable {
     fn serialize(&self) -> String;

@@ -4,9 +4,9 @@ use std::{
     io::Write,
 };
 
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::SymbolicExpression;
 use serde_json::Value as JsonValue;
-use vm::types::QualifiedContractIdentifier;
-use vm::SymbolicExpression;
 
 use super::functions::define::DefineFunctionsParsed;
 

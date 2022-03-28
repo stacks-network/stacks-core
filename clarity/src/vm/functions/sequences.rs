@@ -14,21 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
-use std::convert::{TryFrom, TryInto};
-use types::StacksEpochId;
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
-use vm::errors::{
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
+use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::types::{
+use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use crate::vm::types::{
     signatures::ListTypeData, CharType, ListData, SequenceData, TypeSignature,
     TypeSignature::BoolType, Value,
 };
-use vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
+use crate::vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
+use stacks_common::types::StacksEpochId;
+use std::cmp;
+use std::convert::{TryFrom, TryInto};
 
 pub fn list_cons(
     args: &[SymbolicExpression],

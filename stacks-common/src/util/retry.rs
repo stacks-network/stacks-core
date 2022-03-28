@@ -21,8 +21,8 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 
-use util::hash::to_hex;
-use util::log;
+use crate::util::hash::to_hex;
+use crate::util::log;
 
 /// Wrap a Read so that we store a copy of what was read.
 /// Used for re-trying reads when we don't know what to expect from the stream.

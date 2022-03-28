@@ -36,62 +36,64 @@ use serde_json;
 use time;
 use url::{form_urlencoded, Url};
 
-use burnchains::{Address, Txid};
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::{StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction};
-use deps::httparse;
-use net::atlas::Attachment;
-use net::ClientError;
-use net::Error as net_error;
-use net::Error::ClarityError;
-use net::ExtendedStacksHeader;
-use net::HttpContentType;
-use net::HttpRequestMetadata;
-use net::HttpRequestPreamble;
-use net::HttpRequestType;
-use net::HttpResponseMetadata;
-use net::HttpResponsePreamble;
-use net::HttpResponseType;
-use net::HttpVersion;
-use net::MemPoolSyncData;
-use net::MessageSequence;
-use net::NeighborAddress;
-use net::PeerAddress;
-use net::PeerHost;
-use net::ProtocolFamily;
-use net::StacksHttpMessage;
-use net::StacksHttpPreamble;
-use net::UnconfirmedTransactionResponse;
-use net::UnconfirmedTransactionStatus;
-use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
-use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
-use net::HTTP_REQUEST_ID_RESERVED;
-use net::MAX_HEADERS;
-use net::MAX_MICROBLOCKS_UNCONFIRMED;
-use net::{CallReadOnlyRequestBody, TipRequest};
-use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
-use util::hash::hex_bytes;
-use util::hash::to_hex;
-use util::hash::Hash160;
-use util::log;
-use util::retry::BoundReader;
-use util::retry::RetryReader;
-use vm::types::{StandardPrincipalData, TraitIdentifier};
-use vm::{
+use crate::burnchains::{Address, Txid};
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::{
+    StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
+};
+use crate::deps::httparse;
+use crate::net::atlas::Attachment;
+use crate::net::ClientError;
+use crate::net::Error as net_error;
+use crate::net::Error::ClarityError;
+use crate::net::ExtendedStacksHeader;
+use crate::net::HttpContentType;
+use crate::net::HttpRequestMetadata;
+use crate::net::HttpRequestPreamble;
+use crate::net::HttpRequestType;
+use crate::net::HttpResponseMetadata;
+use crate::net::HttpResponsePreamble;
+use crate::net::HttpResponseType;
+use crate::net::HttpVersion;
+use crate::net::MemPoolSyncData;
+use crate::net::MessageSequence;
+use crate::net::NeighborAddress;
+use crate::net::PeerAddress;
+use crate::net::PeerHost;
+use crate::net::ProtocolFamily;
+use crate::net::StacksHttpMessage;
+use crate::net::StacksHttpPreamble;
+use crate::net::UnconfirmedTransactionResponse;
+use crate::net::UnconfirmedTransactionStatus;
+use crate::net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
+use crate::net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
+use crate::net::HTTP_REQUEST_ID_RESERVED;
+use crate::net::MAX_HEADERS;
+use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
+use crate::net::{CallReadOnlyRequestBody, TipRequest};
+use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
+use clarity::vm::types::{StandardPrincipalData, TraitIdentifier};
+use clarity::vm::{
     ast::parser::{
         CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX, PRINCIPAL_DATA_REGEX, STANDARD_PRINCIPAL_REGEX,
     },
     types::{PrincipalData, BOUND_VALUE_SERIALIZATION_HEX},
     ClarityName, ContractName, Value,
 };
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::log;
+use stacks_common::util::retry::BoundReader;
+use stacks_common::util::retry::RetryReader;
 
+use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::TransactionPayload;
 use crate::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
 };
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
-use chainstate::stacks::StacksBlockHeader;
 
 use super::FeeRateEstimateRequestBody;
 
@@ -4980,26 +4982,26 @@ mod test {
     use rand;
     use rand::RngCore;
 
-    use burnchains::Txid;
-    use chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
-    use chainstate::stacks::test::make_codec_test_block;
-    use chainstate::stacks::StacksBlock;
-    use chainstate::stacks::StacksMicroblock;
-    use chainstate::stacks::StacksPrivateKey;
-    use chainstate::stacks::StacksTransaction;
-    use chainstate::stacks::TokenTransferMemo;
-    use chainstate::stacks::TransactionAuth;
-    use chainstate::stacks::TransactionPayload;
-    use chainstate::stacks::TransactionPostConditionMode;
-    use chainstate::stacks::TransactionVersion;
-    use net::codec::test::check_codec_and_corruption;
-    use net::test::*;
-    use net::RPCNeighbor;
-    use net::RPCNeighborsInfo;
-    use util::hash::to_hex;
-    use util::hash::Hash160;
-    use util::hash::MerkleTree;
-    use util::hash::Sha512Trunc256Sum;
+    use crate::burnchains::Txid;
+    use crate::chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
+    use crate::chainstate::stacks::test::make_codec_test_block;
+    use crate::chainstate::stacks::StacksBlock;
+    use crate::chainstate::stacks::StacksMicroblock;
+    use crate::chainstate::stacks::StacksPrivateKey;
+    use crate::chainstate::stacks::StacksTransaction;
+    use crate::chainstate::stacks::TokenTransferMemo;
+    use crate::chainstate::stacks::TransactionAuth;
+    use crate::chainstate::stacks::TransactionPayload;
+    use crate::chainstate::stacks::TransactionPostConditionMode;
+    use crate::chainstate::stacks::TransactionVersion;
+    use crate::net::codec::test::check_codec_and_corruption;
+    use crate::net::test::*;
+    use crate::net::RPCNeighbor;
+    use crate::net::RPCNeighborsInfo;
+    use stacks_common::util::hash::to_hex;
+    use stacks_common::util::hash::Hash160;
+    use stacks_common::util::hash::MerkleTree;
+    use stacks_common::util::hash::Sha512Trunc256Sum;
 
     use stacks_common::types::chainstate::StacksAddress;
 

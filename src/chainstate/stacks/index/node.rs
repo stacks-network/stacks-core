@@ -25,17 +25,19 @@ use std::ops::{Deref, DerefMut};
 
 use sha2::Digest;
 
-use chainstate::stacks::index::bits::{
+use crate::chainstate::stacks::index::bits::{
     get_path_byte_len, get_ptrs_byte_len, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
 };
-use chainstate::stacks::index::Error;
-use chainstate::stacks::index::{BlockMap, MarfTrieId, TrieHasher};
-use util::hash::to_hex;
-use util::slice_partialeq;
+use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::{BlockMap, MarfTrieId, TrieHasher};
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::slice_partialeq;
 
+use crate::chainstate::stacks::index::TrieHashExtension;
+use crate::chainstate::stacks::index::{
+    ClarityMarfTrieId, MARFValue, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
+};
 use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
-use chainstate::stacks::index::TrieHashExtension;
-use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieLeaf, MARF_VALUE_ENCODED_SIZE};
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
@@ -1368,13 +1370,13 @@ mod test {
 
     use std::io::Cursor;
 
-    use chainstate::stacks::index::bits::*;
-    use chainstate::stacks::index::marf::*;
-    use chainstate::stacks::index::node::*;
-    use chainstate::stacks::index::proofs::*;
-    use chainstate::stacks::index::storage::*;
-    use chainstate::stacks::index::test::*;
-    use chainstate::stacks::index::trie::*;
+    use crate::chainstate::stacks::index::bits::*;
+    use crate::chainstate::stacks::index::marf::*;
+    use crate::chainstate::stacks::index::node::*;
+    use crate::chainstate::stacks::index::proofs::*;
+    use crate::chainstate::stacks::index::storage::*;
+    use crate::chainstate::stacks::index::test::*;
+    use crate::chainstate::stacks::index::trie::*;
 
     use super::*;
 

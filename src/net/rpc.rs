@@ -31,73 +31,70 @@ use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
 
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::burnchains::*;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::blocks::CheckError;
+use crate::chainstate::stacks::db::{
+    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState, StreamCursor,
+};
+use crate::chainstate::stacks::Error as chain_error;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::ClarityConnection;
 use crate::codec::StacksMessageCodec;
+use crate::core::mempool::*;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::FeeEstimator;
+use crate::monitoring;
+use crate::net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use crate::net::connection::ConnectionHttp;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ReplyHandleHttp;
+use crate::net::db::PeerDB;
+use crate::net::http::*;
+use crate::net::p2p::PeerMap;
+use crate::net::p2p::PeerNetwork;
+use crate::net::relay::Relayer;
 use crate::net::BlocksDatum;
+use crate::net::Error as net_error;
+use crate::net::HttpRequestMetadata;
+use crate::net::HttpRequestType;
+use crate::net::HttpResponseMetadata;
+use crate::net::HttpResponseType;
+use crate::net::MemPoolSyncData;
+use crate::net::MicroblocksData;
+use crate::net::NeighborAddress;
+use crate::net::NeighborsData;
+use crate::net::PeerAddress;
+use crate::net::PeerHost;
+use crate::net::ProtocolFamily;
 use crate::net::RPCFeeEstimate;
 use crate::net::RPCFeeEstimateResponse;
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use burnchains::*;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::blocks::CheckError;
-use chainstate::stacks::db::{
-    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState, StreamCursor,
-};
-use chainstate::stacks::Error as chain_error;
-use chainstate::stacks::*;
-use clarity_vm::clarity::ClarityConnection;
-use core::mempool::*;
-use monitoring;
-use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use net::connection::ConnectionHttp;
-use net::connection::ConnectionOptions;
-use net::connection::ReplyHandleHttp;
-use net::db::PeerDB;
-use net::http::*;
-use net::p2p::PeerMap;
-use net::p2p::PeerNetwork;
-use net::relay::Relayer;
-use net::Error as net_error;
-use net::HttpRequestMetadata;
-use net::HttpRequestType;
-use net::HttpResponseMetadata;
-use net::HttpResponseType;
-use net::MemPoolSyncData;
-use net::MicroblocksData;
-use net::NeighborAddress;
-use net::NeighborsData;
-use net::PeerAddress;
-use net::PeerHost;
-use net::ProtocolFamily;
-use net::StacksHttp;
-use net::StacksHttpMessage;
-use net::StacksMessageType;
-use net::UnconfirmedTransactionResponse;
-use net::UnconfirmedTransactionStatus;
-use net::UrlString;
-use net::HTTP_REQUEST_ID_RESERVED;
-use net::MAX_HEADERS;
-use net::MAX_NEIGHBORS_DATA_LEN;
-use net::{
+use crate::net::StacksHttp;
+use crate::net::StacksHttpMessage;
+use crate::net::StacksMessageType;
+use crate::net::UnconfirmedTransactionResponse;
+use crate::net::UnconfirmedTransactionStatus;
+use crate::net::UrlString;
+use crate::net::HTTP_REQUEST_ID_RESERVED;
+use crate::net::MAX_HEADERS;
+use crate::net::MAX_NEIGHBORS_DATA_LEN;
+use crate::net::{
     AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
     DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
 };
-use net::{BlocksData, GetIsTraitImplementedResponse};
-use net::{ClientError, TipRequest};
-use net::{RPCNeighbor, RPCNeighborsInfo};
-use net::{RPCPeerInfoData, RPCPoxInfoData};
-use util::get_epoch_time_secs;
-use util::hash::Hash160;
-use util::hash::{hex_bytes, to_hex};
-use util_lib::db::DBConn;
-use util_lib::db::Error as db_error;
-use vm::database::clarity_store::make_contract_hash_key;
-use vm::types::TraitIdentifier;
-use vm::{
+use crate::net::{BlocksData, GetIsTraitImplementedResponse};
+use crate::net::{ClientError, TipRequest};
+use crate::net::{RPCNeighbor, RPCNeighborsInfo};
+use crate::net::{RPCPeerInfoData, RPCPoxInfoData};
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use clarity::vm::database::clarity_store::make_contract_hash_key;
+use clarity::vm::types::TraitIdentifier;
+use clarity::vm::{
     analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
@@ -110,19 +107,22 @@ use vm::{
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
 };
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
+use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
-use crate::types::StacksPublicKeyBuffer;
-use chainstate::stacks::StacksBlockHeader;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::StacksPublicKeyBuffer;
 
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
     util::hash::Sha256Sum, version_string,
 };
 
-use util_lib::boot::boot_code_id;
+use crate::util_lib::boot::boot_code_id;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
@@ -3389,32 +3389,32 @@ mod test {
     use std::convert::TryInto;
     use std::iter::FromIterator;
 
-    use address::*;
-    use burnchains::Burnchain;
-    use burnchains::BurnchainView;
-    use burnchains::*;
-    use chainstate::burn::ConsensusHash;
-    use chainstate::stacks::db::blocks::test::*;
-    use chainstate::stacks::db::StacksChainState;
-    use chainstate::stacks::db::StreamCursor;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::Error as chain_error;
-    use chainstate::stacks::*;
-    use net::codec::*;
-    use net::http::*;
-    use net::test::*;
-    use net::*;
-    use util::get_epoch_time_secs;
-    use util::hash::hex_bytes;
-    use util::pipe::*;
-    use vm::types::*;
+    use crate::burnchains::Burnchain;
+    use crate::burnchains::BurnchainView;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::ConsensusHash;
+    use crate::chainstate::stacks::db::blocks::test::*;
+    use crate::chainstate::stacks::db::StacksChainState;
+    use crate::chainstate::stacks::db::StreamCursor;
+    use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::Error as chain_error;
+    use crate::chainstate::stacks::*;
+    use crate::net::codec::*;
+    use crate::net::http::*;
+    use crate::net::test::*;
+    use crate::net::*;
+    use clarity::vm::types::*;
+    use stacks_common::address::*;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::pipe::*;
 
+    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::types::chainstate::BlockHeaderHash;
     use crate::types::chainstate::BurnchainHeaderHash;
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
-    use core::mempool::{BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
+    use crate::core::mempool::{BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
 
     use super::*;
 

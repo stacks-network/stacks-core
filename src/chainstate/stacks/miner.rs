@@ -20,44 +20,44 @@ use std::convert::From;
 use std::fs;
 use std::mem;
 
-use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::CostEstimator;
-use crate::types::StacksPublicKeyBuffer;
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
-use chainstate::burn::operations::*;
-use chainstate::burn::*;
-use chainstate::stacks::db::unconfirmed::UnconfirmedState;
-use chainstate::stacks::db::{
+use crate::burnchains::PrivateKey;
+use crate::burnchains::PublicKey;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::*;
+use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
+use crate::chainstate::stacks::db::{
     blocks::MemPoolRejection, ChainstateTx, ClarityTx, MinerRewardInfo, StacksChainState,
     MINER_REWARD_MATURITY,
 };
-use chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use clarity_vm::clarity::{ClarityConnection, ClarityInstance};
-use core::mempool::*;
-use core::*;
-use net::Error as net_error;
+use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
+use crate::core::mempool::*;
+use crate::core::*;
+use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::CostEstimator;
+use crate::net::Error as net_error;
+use crate::types::StacksPublicKeyBuffer;
+use clarity::vm::database::BurnStateDB;
 use serde::Deserialize;
-use util::get_epoch_time_ms;
-use util::hash::MerkleTree;
-use util::hash::Sha512Trunc256Sum;
-use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
-use util::vrf::*;
-use vm::database::BurnStateDB;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::vrf::*;
 
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::db::blocks::SetupBlockResult;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
-use chainstate::stacks::address::StacksAddressExtensions;
-use chainstate::stacks::db::blocks::SetupBlockResult;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksMicroblockHeader;
-use vm::clarity::TransactionConnection;
+use clarity::vm::clarity::TransactionConnection;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
@@ -2183,26 +2183,26 @@ pub mod test {
     use rand::thread_rng;
     use rand::Rng;
 
-    use address::*;
-    use burnchains::test::*;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::{
+    use crate::burnchains::test::*;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::burn::*;
-    use chainstate::coordinator::Error as CoordinatorError;
-    use chainstate::stacks::db::blocks::test::store_staging_block;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::Error as ChainstateError;
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-    use chainstate::stacks::*;
-    use net::test::*;
-    use util::sleep_ms;
-    use util::vrf::VRFProof;
-    use util_lib::db::Error as db_error;
-    use vm::types::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::coordinator::Error as CoordinatorError;
+    use crate::chainstate::stacks::db::blocks::test::store_staging_block;
+    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::Error as ChainstateError;
+    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+    use crate::chainstate::stacks::*;
+    use crate::net::test::*;
+    use crate::util_lib::db::Error as db_error;
+    use clarity::vm::types::*;
+    use stacks_common::address::*;
+    use stacks_common::util::sleep_ms;
+    use stacks_common::util::vrf::VRFProof;
 
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;

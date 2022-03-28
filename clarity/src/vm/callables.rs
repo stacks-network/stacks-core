@@ -19,18 +19,18 @@ use std::convert::TryInto;
 use std::fmt;
 use std::iter::FromIterator;
 
-use vm::costs::{cost_functions, runtime_cost};
+use crate::vm::costs::{cost_functions, runtime_cost};
 
-use vm::analysis::errors::CheckErrors;
-use vm::contexts::ContractContext;
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::errors::{check_argument_count, Error, InterpreterResult as Result};
-use vm::representations::{ClarityName, SymbolicExpression};
-use vm::types::Value::UInt;
-use vm::types::{
+use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::contexts::ContractContext;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::errors::{check_argument_count, Error, InterpreterResult as Result};
+use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::types::Value::UInt;
+use crate::vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
 };
-use vm::{eval, Environment, LocalContext, Value};
+use crate::vm::{eval, Environment, LocalContext, Value};
 
 use super::costs::CostOverflowingMath;
 
