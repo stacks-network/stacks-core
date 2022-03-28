@@ -1,11 +1,11 @@
+use crate::burnchains::Txid;
+use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::chainstate::stacks::StacksTransaction;
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::StacksAddress;
-use burnchains::Txid;
-use chainstate::stacks::StacksMicroblockHeader;
-use chainstate::stacks::StacksTransaction;
-use vm::analysis::ContractAnalysis;
-use vm::costs::ExecutionCost;
-use vm::types::{
+use clarity::vm::analysis::ContractAnalysis;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 

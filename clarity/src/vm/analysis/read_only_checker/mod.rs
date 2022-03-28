@@ -14,18 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::types::{AnalysisPass, ContractAnalysis};
-use vm::functions::define::DefineFunctionsParsed;
-use vm::functions::tuples;
-use vm::functions::NativeFunctions;
-use vm::representations::SymbolicExpressionType::{
+use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
+use crate::vm::functions::define::DefineFunctionsParsed;
+use crate::vm::functions::tuples;
+use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
-use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use vm::types::{parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSignature, Value};
+use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::types::{
+    parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSignature, Value,
+};
 
+use crate::vm::variables::NativeVariables;
 use std::collections::HashMap;
-use vm::variables::NativeVariables;
 
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
@@ -90,7 +92,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     }
 
     fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
-        use vm::functions::define::DefineFunctionsParsed::*;
+        use crate::vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)? {
             match define_type {
                 // The _arguments_ to Constant, PersistedVariable, FT defines must be checked to ensure that
@@ -168,7 +170,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         function: &NativeFunctions,
         args: &[SymbolicExpression],
     ) -> CheckResult<bool> {
-        use vm::functions::NativeFunctions::*;
+        use crate::vm::functions::NativeFunctions::*;
 
         match function {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater

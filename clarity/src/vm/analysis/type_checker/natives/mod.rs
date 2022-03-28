@@ -17,19 +17,21 @@
 use super::{
     check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypeResult, TypingContext,
 };
-use std::convert::TryFrom;
-use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
-use vm::errors::{Error as InterpError, RuntimeErrorType};
-use vm::functions::{handle_binding_list, NativeFunctions};
-use vm::types::{
+use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
+use crate::vm::functions::{handle_binding_list, NativeFunctions};
+use crate::vm::types::{
     BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
     TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
     MAX_VALUE_SIZE,
 };
-use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use std::convert::TryFrom;
 
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{
+    analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
+};
 
 mod assets;
 mod maps;
@@ -536,7 +538,7 @@ impl TypedNativeFunction {
 
     pub fn type_native_function(function: &NativeFunctions) -> TypedNativeFunction {
         use self::TypedNativeFunction::{Simple, Special};
-        use vm::functions::NativeFunctions::*;
+        use crate::vm::functions::NativeFunctions::*;
         match function {
             Add | Subtract | Divide | Multiply => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticVariadic))

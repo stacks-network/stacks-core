@@ -31,62 +31,62 @@ use rusqlite::Connection;
 use rusqlite::DatabaseName;
 use rusqlite::{Error as sqlite_error, OptionalExtension};
 
-use crate::codec::MAX_MESSAGE_LEN;
-use crate::codec::{read_next, write_next};
-use chainstate::burn::db::sortdb::*;
-use chainstate::burn::operations::*;
-use chainstate::burn::BlockSnapshot;
-use chainstate::stacks::db::accounts::MinerReward;
-use chainstate::stacks::db::transactions::TransactionNonceMismatch;
-use chainstate::stacks::db::*;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use chainstate::stacks::{
+use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::db::accounts::MinerReward;
+use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
+use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
-use core::mempool::MemPoolDB;
-use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
-use core::*;
-use cost_estimates::EstimatorError;
-use net::BlocksInvData;
-use net::Error as net_error;
-use net::ExtendedStacksHeader;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::retry::BoundReader;
-use util_lib::db::u64_to_sql;
-use util_lib::db::Error as db_error;
-use util_lib::db::{
+use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
+use crate::codec::MAX_MESSAGE_LEN;
+use crate::codec::{read_next, write_next};
+use crate::core::mempool::MemPoolDB;
+use crate::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
+use crate::core::*;
+use crate::cost_estimates::EstimatorError;
+use crate::net::BlocksInvData;
+use crate::net::Error as net_error;
+use crate::net::ExtendedStacksHeader;
+use crate::util_lib::db::u64_to_sql;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{
     query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
     tx_busy_handler, DBConn, FromColumn, FromRow,
 };
-use util_lib::strings::StacksString;
-pub use vm::analysis::errors::{CheckError, CheckErrors};
-use vm::analysis::run_analysis;
-use vm::ast::build_ast;
-use vm::clarity::TransactionConnection;
-use vm::contexts::AssetMap;
-use vm::contracts::Contract;
-use vm::costs::LimitedCostTracker;
-use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB};
-use vm::types::{
+use crate::util_lib::strings::StacksString;
+pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
+use clarity::vm::analysis::run_analysis;
+use clarity::vm::ast::build_ast;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::contexts::AssetMap;
+use clarity::vm::contracts::Contract;
+use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB};
+use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::retry::BoundReader;
 
+use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::monitoring::set_last_execution_cost_observed;
+use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
-use chainstate::coordinator::BlockEventDispatcher;
-use chainstate::stacks::address::StacksAddressExtensions;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksMicroblockHeader;
-use monitoring::set_last_execution_cost_observed;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
-use types::chainstate::BurnchainHeaderHash;
-use util_lib::boot::boot_code_id;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -6384,23 +6384,23 @@ pub mod test {
     use rand::thread_rng;
     use rand::Rng;
 
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::*;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::miner::test::*;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::Error as chainstate_error;
-    use chainstate::stacks::*;
-    use core::mempool::*;
-    use net::test::*;
-    use net::ExtendedStacksHeader;
-    use util::hash::*;
-    use util::retry::*;
-    use util_lib::db::Error as db_error;
-    use util_lib::db::*;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::miner::test::*;
+    use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::Error as chainstate_error;
+    use crate::chainstate::stacks::*;
+    use crate::core::mempool::*;
+    use crate::net::test::*;
+    use crate::net::ExtendedStacksHeader;
+    use crate::util_lib::db::Error as db_error;
+    use crate::util_lib::db::*;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::retry::*;
 
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;

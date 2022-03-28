@@ -20,26 +20,26 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
-use chainstate::stacks::db::accounts::*;
-use chainstate::stacks::db::blocks::*;
-use chainstate::stacks::db::*;
-use chainstate::stacks::events::*;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
-use core::*;
-use net::Error as net_error;
-use util_lib::db::Error as db_error;
-use vm::costs::ExecutionCost;
-use vm::database::BurnStateDB;
-use vm::database::HeadersDB;
-use vm::database::NULL_BURN_STATE_DB;
-use vm::database::NULL_HEADER_DB;
+use crate::chainstate::stacks::db::accounts::*;
+use crate::chainstate::stacks::db::blocks::*;
+use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::events::*;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
+use crate::core::*;
+use crate::net::Error as net_error;
+use crate::util_lib::db::Error as db_error;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::BurnStateDB;
+use clarity::vm::database::HeadersDB;
+use clarity::vm::database::NULL_BURN_STATE_DB;
+use clarity::vm::database::NULL_HEADER_DB;
 
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::StacksBlockId;
-use chainstate::burn::db::sortdb::SortitionDB;
-use types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>;
 
@@ -582,23 +582,23 @@ impl StacksChainState {
 mod test {
     use std::fs;
 
-    use burnchains::PublicKey;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::db::*;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::index::marf::*;
-    use chainstate::stacks::index::node::*;
-    use chainstate::stacks::index::*;
-    use chainstate::stacks::miner::test::make_coinbase;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-    use chainstate::stacks::*;
+    use crate::burnchains::PublicKey;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::db::*;
+    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::index::marf::*;
+    use crate::chainstate::stacks::index::node::*;
+    use crate::chainstate::stacks::index::*;
+    use crate::chainstate::stacks::miner::test::make_coinbase;
+    use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+    use crate::chainstate::stacks::*;
+    use crate::core::mempool::*;
+    use crate::core::*;
+    use crate::net::relay::*;
+    use crate::net::test::*;
     use clarity::vm::types::StacksAddressExtensions;
-    use core::mempool::*;
-    use core::*;
-    use net::relay::*;
-    use net::test::*;
 
     use super::*;
 

@@ -21,19 +21,19 @@ use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
-use burnchains::{
+use crate::burnchains::{
     db::{BurnchainBlockData, BurnchainDB},
     Address, Burnchain, BurnchainBlockHeader, Error as BurnchainError, Txid,
 };
-use chainstate::burn::{
+use crate::chainstate::burn::{
     db::sortdb::SortitionDB, operations::leader_block_commit::RewardSetInfo,
     operations::BlockstackOperationType, BlockSnapshot, ConsensusHash,
 };
-use chainstate::coordinator::comm::{
+use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::{
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::{
     db::{
         accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
         StacksHeaderInfo,
@@ -41,11 +41,13 @@ use chainstate::stacks::{
     events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin},
     Error as ChainstateError, StacksBlock, TransactionPayload,
 };
-use core::StacksEpoch;
-use monitoring::{increment_contract_calls_processed, increment_stx_blocks_processed_counter};
-use net::atlas::{AtlasConfig, AttachmentInstance};
-use util_lib::db::Error as DBError;
-use vm::{
+use crate::core::StacksEpoch;
+use crate::monitoring::{
+    increment_contract_calls_processed, increment_stx_blocks_processed_counter,
+};
+use crate::net::atlas::{AtlasConfig, AttachmentInstance};
+use crate::util_lib::db::Error as DBError;
+use clarity::vm::{
     costs::ExecutionCost,
     types::{PrincipalData, QualifiedContractIdentifier},
     Value,
@@ -55,7 +57,7 @@ use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
 };
-use vm::database::BurnStateDB;
+use clarity::vm::database::BurnStateDB;
 
 pub use self::comm::CoordinatorCommunication;
 

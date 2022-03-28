@@ -37,14 +37,14 @@ use stacks_common::deps_common::bitcoin::network::serialize::{RawDecoder, RawEnc
 
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
-use burnchains::bitcoin::indexer::{network_id_to_bytes, BitcoinIndexer};
-use burnchains::bitcoin::messages::BitcoinMessageHandler;
-use burnchains::bitcoin::Error as btc_error;
-use burnchains::bitcoin::PeerMessage;
-use burnchains::indexer::BurnchainIndexer;
+use crate::burnchains::bitcoin::indexer::{network_id_to_bytes, BitcoinIndexer};
+use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
+use crate::burnchains::bitcoin::Error as btc_error;
+use crate::burnchains::bitcoin::PeerMessage;
+use crate::burnchains::indexer::BurnchainIndexer;
 
-use util::get_epoch_time_secs;
-use util::log;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::log;
 
 // Based on Andrew Poelstra's rust-bitcoin library.
 impl BitcoinIndexer {

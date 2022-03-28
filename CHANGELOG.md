@@ -10,6 +10,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed 
 - Updated chains coordinator so that before a Stacks block or a burn block is processed, 
   an event is sent through the event dispatcher. This fixes #3015. 
+- Expose a node's public key and public key hash160 (i.e. what appears in
+  /v2/neighbors) via the /v2/info API endpoint (#3046)
 
 ## [2.05.0.1.0]
 

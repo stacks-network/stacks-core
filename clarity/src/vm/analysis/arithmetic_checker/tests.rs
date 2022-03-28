@@ -14,16 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::{
+use crate::vm::analysis::{
     arithmetic_checker::ArithmeticOnlyChecker, arithmetic_checker::Error,
     arithmetic_checker::Error::*, mem_type_check, ContractAnalysis,
 };
-use vm::ast::parse;
-use vm::costs::LimitedCostTracker;
-use vm::functions::define::DefineFunctions;
-use vm::functions::NativeFunctions;
-use vm::types::QualifiedContractIdentifier;
-use vm::variables::NativeVariables;
+use crate::vm::ast::parse;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::functions::define::DefineFunctions;
+use crate::vm::functions::NativeFunctions;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::variables::NativeVariables;
 
 fn arithmetic_check(contract: &str) -> Result<(), Error> {
     let contract_identifier = QualifiedContractIdentifier::transient();

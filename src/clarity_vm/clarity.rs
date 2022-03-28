@@ -20,8 +20,17 @@ use std::fmt;
 use std::thread;
 
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
+use crate::chainstate::stacks::boot::{
+    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
+    BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
+};
+use crate::chainstate::stacks::db::StacksAccount;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
+use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::Error as ChainstateError;
 use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::chainstate::stacks::TransactionAuth;
 use crate::chainstate::stacks::TransactionPayload;
@@ -29,6 +38,7 @@ use crate::chainstate::stacks::TransactionPublicKeyEncoding;
 use crate::chainstate::stacks::TransactionSmartContract;
 use crate::chainstate::stacks::TransactionSpendingCondition;
 use crate::chainstate::stacks::TransactionVersion;
+use crate::chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
 use crate::core::StacksEpoch;
 use crate::core::FIRST_STACKS_BLOCK_ID;
 use crate::core::GENESIS_EPOCH;
@@ -38,45 +48,35 @@ use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
 use crate::util::secp256k1::MessageSignature;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::util_lib::strings::StacksString;
 use crate::{
     burnchains::Burnchain,
     clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
 };
 use crate::{clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId};
-use chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
-};
-use chainstate::stacks::db::StacksAccount;
-use chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
-use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::Error as ChainstateError;
-use chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
-use types::chainstate::BurnchainHeaderHash;
-use util_lib::strings::StacksString;
-use vm::analysis;
-use vm::analysis::AnalysisDatabase;
-use vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
-use vm::ast;
-use vm::ast::{errors::ParseError, errors::ParseErrors, ContractAST};
-use vm::contexts::{AssetMap, Environment, OwnedEnvironment};
-use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
-use vm::database::{
+use clarity::vm::analysis;
+use clarity::vm::analysis::AnalysisDatabase;
+use clarity::vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
+use clarity::vm::ast;
+use clarity::vm::ast::{errors::ParseError, errors::ParseErrors, ContractAST};
+use clarity::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
+use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
+use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
     STXBalance, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use vm::errors::Error as InterpreterError;
-use vm::representations::SymbolicExpression;
-use vm::types::{
+use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
 };
-use vm::ContractName;
+use clarity::vm::ContractName;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use crate::util_lib::db::Error as DatabaseError;
-pub use vm::clarity::ClarityConnection;
-pub use vm::clarity::Error;
-use vm::clarity::TransactionConnection;
+pub use clarity::vm::clarity::ClarityConnection;
+pub use clarity::vm::clarity::Error;
+use clarity::vm::clarity::TransactionConnection;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -1000,16 +1000,16 @@ mod tests {
 
     use rusqlite::NO_PARAMS;
 
-    use chainstate::stacks::index::storage::TrieFileStorage;
-    use vm::analysis::errors::CheckErrors;
-    use vm::database::{ClarityBackingStore, STXBalance};
-    use vm::types::{StandardPrincipalData, Value};
+    use crate::chainstate::stacks::index::storage::TrieFileStorage;
+    use clarity::vm::analysis::errors::CheckErrors;
+    use clarity::vm::database::{ClarityBackingStore, STXBalance};
+    use clarity::vm::types::{StandardPrincipalData, Value};
 
-    use core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
-    use vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+    use crate::core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
+    use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
+    use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::database::marf::MarfedKV;
-    use chainstate::stacks::index::ClarityMarfTrieId;
 
     use super::*;
 
@@ -1569,11 +1569,11 @@ mod tests {
 
     #[test]
     pub fn test_post_condition_failure_contract_publish() {
-        use chainstate::stacks::db::*;
-        use chainstate::stacks::*;
-        use util::hash::Hash160;
-        use util::secp256k1::MessageSignature;
-        use util_lib::strings::StacksString;
+        use crate::chainstate::stacks::db::*;
+        use crate::chainstate::stacks::*;
+        use crate::util_lib::strings::StacksString;
+        use stacks_common::util::hash::Hash160;
+        use stacks_common::util::secp256k1::MessageSignature;
 
         let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(false, marf);

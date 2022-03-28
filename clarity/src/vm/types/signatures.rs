@@ -20,17 +20,17 @@ use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
-use address::c32;
-use util::hash;
-use vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
-use vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
-use vm::representations::{
+use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
+use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
+use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
 };
-use vm::types::{
+use crate::vm::types::{
     CharType, QualifiedContractIdentifier, SequenceData, SequencedValue, StandardPrincipalData,
     TraitIdentifier, Value, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, WRAPPER_VALUE_SIZE,
 };
+use stacks_common::address::c32;
+use stacks_common::util::hash;
 
 type Result<R> = std::result::Result<R, CheckErrors>;
 
@@ -188,7 +188,7 @@ pub struct FunctionArg {
 #[cfg(test)]
 impl From<&str> for TypeSignature {
     fn from(val: &str) -> Self {
-        use vm::ast::parse;
+        use crate::vm::ast::parse;
         let expr = &parse(&QualifiedContractIdentifier::transient(), val).unwrap()[0];
         TypeSignature::parse_type_repr(expr, &mut ()).unwrap()
     }
@@ -1233,8 +1233,8 @@ impl TupleTypeSignature {
     }
 }
 
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::CostTracker;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::CostTracker;
 
 pub fn parse_name_type_pairs<A: CostTracker>(
     name_type_pairs: &[SymbolicExpression],
@@ -1244,7 +1244,7 @@ pub fn parse_name_type_pairs<A: CostTracker>(
     // the form:
     // ((name1 type1) (name2 type2) (name3 type3) ...)
     // which is a list of 2-length lists of atoms.
-    use vm::representations::SymbolicExpressionType::{Atom, List};
+    use crate::vm::representations::SymbolicExpressionType::{Atom, List};
 
     // step 1: parse it into a vec of symbolicexpression pairs.
     let as_pairs: Result<Vec<_>> = name_type_pairs
@@ -1359,10 +1359,10 @@ impl fmt::Display for FunctionArg {
 mod test {
     use super::CheckErrors::*;
     use super::*;
-    use vm::execute;
+    use crate::vm::execute;
 
     fn fail_parse(val: &str) -> CheckErrors {
-        use vm::ast::parse;
+        use crate::vm::ast::parse;
         let expr = &parse(&QualifiedContractIdentifier::transient(), val).unwrap()[0];
         TypeSignature::parse_type_repr(expr, &mut ()).unwrap_err()
     }
@@ -1434,7 +1434,7 @@ mod test {
         ];
 
         for desc in okay_types.iter() {
-            TypeSignature::from(*desc); // panics on failed types.
+            let _ = TypeSignature::from(*desc); // panics on failed types.
         }
     }
 }

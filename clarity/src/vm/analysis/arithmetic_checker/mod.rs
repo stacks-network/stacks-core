@@ -14,18 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::types::{AnalysisPass, ContractAnalysis};
-use vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
-use vm::functions::tuples;
-use vm::functions::NativeFunctions;
-use vm::representations::SymbolicExpressionType::{
+use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
+use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
+use crate::vm::functions::tuples;
+use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
-use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use vm::types::{parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSignature, Value};
+use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::types::{
+    parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSignature, Value,
+};
 
+use crate::vm::variables::NativeVariables;
 use std::collections::HashMap;
-use vm::variables::NativeVariables;
 
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
@@ -89,7 +91,7 @@ impl ArithmeticOnlyChecker {
     }
 
     fn check_top_levels(&self, expr: &SymbolicExpression) -> Result<(), Error> {
-        use vm::functions::define::DefineFunctionsParsed::*;
+        use crate::vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)
             .map_err(|_| Error::UnexpectedContractStructure)?
         {
@@ -137,7 +139,7 @@ impl ArithmeticOnlyChecker {
     }
 
     fn check_variables_allowed(&self, var_name: &ClarityName) -> Result<(), Error> {
-        use vm::variables::NativeVariables::*;
+        use crate::vm::variables::NativeVariables::*;
         if let Some(native_var) = NativeVariables::lookup_by_name(var_name) {
             match native_var {
                 ContractCaller | TxSender | TotalLiquidMicroSTX | BlockHeight | BurnBlockHeight
@@ -163,7 +165,7 @@ impl ArithmeticOnlyChecker {
         function: NativeFunctions,
         args: &[SymbolicExpression],
     ) -> Result<(), Error> {
-        use vm::functions::NativeFunctions::*;
+        use crate::vm::functions::NativeFunctions::*;
         match function {
             FetchVar | GetBlockInfo | GetTokenBalance | GetAssetOwner | FetchEntry | SetEntry
             | DeleteEntry | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset
