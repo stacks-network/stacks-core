@@ -31,8 +31,8 @@
     "@blockstack/clarity": "^0.3.7",
     "@blockstack/clarity-native-bin": "^0.3.7",
     "@stacks/network": "^1.2.0",
-    "@stacks/stacking": "^1.2.0",
-    "@stacks/transactions": "^1.2.2-alpha.0",
+    "@stacks/stacking": "^2.0.0",
+    "@stacks/transactions": "^2.0.0",
     "bn": "^1.0.5",
     "ripemd160": "^2.0.2",
     "sha.js": "^2.4.11"
