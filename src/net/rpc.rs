@@ -114,6 +114,7 @@ use vm::{
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use crate::types::StacksPublicKeyBuffer;
 use chainstate::stacks::StacksBlockHeader;
 
 use crate::{
@@ -228,6 +229,10 @@ impl RPCPeerInfoData {
             None => (None, None),
         };
 
+        let public_key = StacksPublicKey::from_private(&network.local_peer.private_key);
+        let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
+        let public_key_hash = Hash160::from_node_public_key(&public_key);
+
         RPCPeerInfoData {
             peer_version: network.burnchain.peer_version,
             pox_consensus: network.burnchain_tip.consensus_hash.clone(),
@@ -247,6 +252,8 @@ impl RPCPeerInfoData {
             unanchored_seq: unconfirmed_seq,
             exit_at_block_height: exit_at_block_height.cloned(),
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
+            node_public_key: Some(public_key_buf),
+            node_public_key_hash: Some(public_key_hash),
         }
     }
 }
@@ -3021,6 +3028,10 @@ impl ConversationHttp {
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
                     if req.metadata().canonical_stacks_tip_height.is_some() {
+                        test_debug!(
+                            "Request metadata: canonical stacks tip height is {:?}",
+                            &req.metadata().canonical_stacks_tip_height
+                        );
                         self.canonical_stacks_tip_height =
                             req.metadata().canonical_stacks_tip_height;
                     }
@@ -3040,6 +3051,10 @@ impl ConversationHttp {
                     // Is there someone else waiting for this message?  If so, pass it along.
                     // (this _should_ be our pending_request handle)
                     if resp.metadata().canonical_stacks_tip_height.is_some() {
+                        test_debug!(
+                            "Response metadata: canonical stacks tip height is {:?}",
+                            &resp.metadata().canonical_stacks_tip_height
+                        );
                         self.canonical_stacks_tip_height =
                             resp.metadata().canonical_stacks_tip_height;
                     }
@@ -3814,6 +3829,24 @@ mod test {
         mempool_tx.commit().unwrap();
         peer_2.mempool.replace(mempool);
 
+        let peer_1_sortdb = peer_1.sortdb.take().unwrap();
+        let peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+        let _ = peer_1
+            .network
+            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .unwrap();
+        peer_1.sortdb = Some(peer_1_sortdb);
+        peer_1.stacks_node = Some(peer_1_stacks_node);
+
+        let peer_2_sortdb = peer_2.sortdb.take().unwrap();
+        let peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
+        let _ = peer_2
+            .network
+            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .unwrap();
+        peer_2.sortdb = Some(peer_2_sortdb);
+        peer_2.stacks_node = Some(peer_2_stacks_node);
+
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
 
@@ -3882,6 +3915,11 @@ mod test {
         let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let mut peer_2_mempool = peer_2.mempool.take().unwrap();
 
+        let _ = peer_2
+            .network
+            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .unwrap();
+
         Relayer::setup_unconfirmed_state(&mut peer_2_stacks_node.chainstate, &peer_2_sortdb)
             .unwrap();
 
@@ -3924,6 +3962,11 @@ mod test {
 
         let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+
+        let _ = peer_1
+            .network
+            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
             .unwrap();
@@ -4007,6 +4050,19 @@ mod test {
                 match http_response {
                     HttpResponseType::PeerInfo(response_md, peer_data) => {
                         assert_eq!(Some((*peer_data).clone()), *peer_server_info.borrow());
+                        assert!(peer_data.node_public_key.is_some());
+                        assert!(peer_data.node_public_key_hash.is_some());
+                        assert_eq!(
+                            peer_data.node_public_key_hash,
+                            Some(Hash160::from_node_public_key(
+                                &peer_data
+                                    .node_public_key
+                                    .clone()
+                                    .unwrap()
+                                    .to_public_key()
+                                    .unwrap()
+                            ))
+                        );
                         true
                     }
                     _ => {
@@ -6110,5 +6166,23 @@ mod test {
                 }
             },
         );
+    }
+
+    #[test]
+    fn test_getinfo_compat() {
+        let old_getinfo_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null}"#;
+        let getinfo_no_pubkey_hash_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null,"node_public_key":"029b27d345e7bd2a6627262cefe6e97d9bc482f41ec32ec76a7bec391bb441798d"}"#;
+        let getinfo_no_pubkey_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null,"node_public_key_hash":"046e6f832a83ff0da4a550907d3a44412cc1e4bf"}"#;
+        let getinfo_full_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null,"node_public_key":"029b27d345e7bd2a6627262cefe6e97d9bc482f41ec32ec76a7bec391bb441798d","node_public_key_hash":"046e6f832a83ff0da4a550907d3a44412cc1e4bf"}"#;
+
+        // they all parse
+        for json_obj in &[
+            &old_getinfo_json,
+            &getinfo_no_pubkey_json,
+            &getinfo_no_pubkey_hash_json,
+            &getinfo_full_json,
+        ] {
+            let _v: RPCPeerInfoData = serde_json::from_str(json_obj).unwrap();
+        }
     }
 }
