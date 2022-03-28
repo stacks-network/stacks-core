@@ -1556,6 +1556,7 @@ mod tests {
             initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),
+            exit_contract_id: None,
         };
 
         let leader_key_1 = LeaderKeyRegisterOp {
@@ -2258,6 +2259,7 @@ mod tests {
             initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),
+            exit_contract_id: None,
         };
 
         let epoch_2_05_start = 125;

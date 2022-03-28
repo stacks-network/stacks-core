@@ -495,6 +495,7 @@ pub mod tests {
             initial_reward_start_block: first_block_height,
             first_block_hash: first_burn_hash.clone(),
             first_block_timestamp: 0,
+            exit_contract_id: None,
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();

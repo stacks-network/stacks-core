@@ -716,6 +716,7 @@ impl<
         proposed_exit_rc: u64,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
+        exit_contract_id: &QualifiedContractIdentifier,
     ) -> Result<bool, Error> {
         let stacks_block_id = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         let reward_cycle_length = self.burnchain.pox_constants.reward_cycle_length;
@@ -727,12 +728,10 @@ impl<
         self.chain_state_db
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
                 conn.with_clarity_db_readonly(|db| {
-                    let exit_at_rc_contract = exit_at_reward_cycle_code_id(is_mainnet);
-
                     // from map rc-proposal-vetoes, use key pair (proposed_rc, curr_rc) to get the # of vetos
                     let entry = db
                         .fetch_entry_unknown_descriptor(
-                            &exit_at_rc_contract,
+                            exit_contract_id,
                             "rc-proposal-vetoes",
                             &Value::from(
                                 TupleData::from_data(vec![
@@ -781,6 +780,7 @@ impl<
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         invalid_reward_cycles: Vec<u64>,
+        exit_contract_id: &QualifiedContractIdentifier,
     ) -> Result<(BTreeMap<u64, u128>, u128), Error> {
         let stacks_block_id = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         let mut vote_map = BTreeMap::new();
@@ -816,45 +816,41 @@ impl<
         self.chain_state_db
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
                 conn.with_clarity_db_readonly(|db| {
-                    let exit_at_rc_contract = exit_at_reward_cycle_code_id(is_mainnet);
-
                     for proposed_exit_rc in min_rc..max_rc {
                         if invalid_reward_cycles.contains(&proposed_exit_rc) {
                             continue;
                         }
                         // from map rc-proposal-votes, use key pair (proposed_rc, curr_rc) to get the # of votes
-                        let entry_opt = db
-                            .fetch_entry_unknown_descriptor(
-                                &exit_at_rc_contract,
-                                "rc-proposal-votes",
-                                &Value::from(
-                                    TupleData::from_data(vec![
-                                        (
-                                            "proposed-rc".into(),
-                                            Value::UInt(proposed_exit_rc as u128),
-                                        ),
-                                        ("curr-rc".into(), Value::UInt(rc_cycle_of_vote as u128)),
-                                    ])
-                                    .expect("BUG: failed to construct simple tuple"),
-                                ),
-                            )
-                            .expect("BUG: Failed querying rc-proposal-votes")
-                            .expect_optional();
+                        let entry_res = db.fetch_entry_unknown_descriptor(
+                            &exit_contract_id,
+                            "rc-proposal-votes",
+                            &Value::from(
+                                TupleData::from_data(vec![
+                                    ("proposed-rc".into(), Value::UInt(proposed_exit_rc as u128)),
+                                    ("curr-rc".into(), Value::UInt(rc_cycle_of_vote as u128)),
+                                ])
+                                .expect("BUG: failed to construct simple tuple"),
+                            ),
+                        );
+                        if let Ok(entry) = entry_res {
+                            let entry_opt = entry.expect_optional();
+                            match entry_opt {
+                                Some(entry) => {
+                                    let entry = entry.expect_tuple();
+                                    let num_votes = entry
+                                        .get("votes")
+                                        .expect("BUG: malformed cost proposal tuple")
+                                        .to_owned()
+                                        .expect_u128();
 
-                        match entry_opt {
-                            Some(entry) => {
-                                let entry = entry.expect_tuple();
-                                let num_votes = entry
-                                    .get("votes")
-                                    .expect("BUG: malformed cost proposal tuple")
-                                    .to_owned()
-                                    .expect_u128();
-
-                                vote_map.insert(proposed_exit_rc, num_votes);
-                                total_votes += num_votes;
-                            }
-                            None => {}
-                        };
+                                    vote_map.insert(proposed_exit_rc, num_votes);
+                                    total_votes += num_votes;
+                                }
+                                None => {}
+                            };
+                        } else {
+                            info!("BUG: Unable to load exit contract map: {:?}", entry_res);
+                        }
                     }
                 })
             })
@@ -876,6 +872,7 @@ impl<
         invalid_reward_cycles: Vec<u64>,
         curr_block_hash: &BlockHeaderHash,
         curr_block_consensus_hash: &ConsensusHash,
+        exit_contract_id: &QualifiedContractIdentifier,
     ) -> Result<Option<u64>, Error> {
         let stacks_block_id =
             StacksBlockHeader::make_index_block_hash(curr_block_consensus_hash, curr_block_hash);
@@ -917,6 +914,7 @@ impl<
             curr_block_consensus_hash,
             curr_block_hash,
             invalid_reward_cycles,
+            exit_contract_id,
         )?;
 
         // ensure that there are enough votes for a valid vote
@@ -1015,6 +1013,7 @@ impl<
         block_receipt: &StacksEpochReceipt,
         block_hash: &BlockHeaderHash,
         canonical_sortition_tip: &SortitionId,
+        exit_contract_id: &QualifiedContractIdentifier,
     ) -> Result<(), Error> {
         let current_block_height = block_receipt.header.burn_header_height as u64;
         let current_reward_cycle = self
@@ -1048,16 +1047,7 @@ impl<
                 .map(|rc| *rc)
                 .collect();
 
-            // check if it is time to process
-            // By default, we process the RC preceding block 1 once we are at height
-            // 2 in RC Y (where height is measured in Stacks blocks)
-            // RC X -> block 1 in RC Y ->  block 2 in RC Y
-            //                            | PROCESS RC X |
-            //
-            // This scenario depicts the behavior during an edge case in which some
-            // reward cycles contain only 1 Stacks block in them.
-            // RC P -> block 1 in RC Q ->  block 1 in RC R ->  block 1 in RC S -> block 2 in RC S
-            //                            | PROCESS RC P  |   | PROCESS RC Q |   | PROCESS RC R |
+            // We process the previous reward cycle as soon as we transition to the next one.
             if parent_exit_info.block_reward_cycle < current_reward_cycle {
                 info!("RCPR: cc: ancestor - rc is greater than parent rc");
                 // Check if there is some proposal. If so, need to check for a veto.
@@ -1067,6 +1057,7 @@ impl<
                         curr_exit_proposal,
                         &block_receipt.header.consensus_hash,
                         &block_hash,
+                        exit_contract_id,
                     )?;
                     // if veto fails, record exit block height
                     if !veto_passed {
@@ -1082,6 +1073,7 @@ impl<
                         parent_exit_info.invalid_reward_cycles,
                         &block_hash,
                         &block_receipt.header.consensus_hash,
+                        exit_contract_id,
                     )?;
                     if let Some(exit_proposal) = current_proposal {
                         info!("RCPR: storing proposal info for {:?}", exit_proposal);
@@ -1236,11 +1228,14 @@ impl<
                     }
 
                     // compute and store information relating to exiting at a reward cycle
-                    self.process_exit_reward_cycle(
-                        &block_receipt,
-                        &block_hash,
-                        &canonical_sortition_tip,
-                    )?;
+                    if let Some(exit_contract_id) = self.burnchain.exit_contract_id.clone() {
+                        self.process_exit_reward_cycle(
+                            &block_receipt,
+                            &block_hash,
+                            &canonical_sortition_tip,
+                            &exit_contract_id,
+                        )?;
+                    }
 
                     if let Some(dispatcher) = self.dispatcher {
                         let metadata = &block_receipt.header;

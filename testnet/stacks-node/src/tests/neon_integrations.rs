@@ -10,12 +10,13 @@ use std::{env, thread};
 
 use rusqlite::types::ToSql;
 
-use crate::util::boot::boot_code_id;
+use crate::util::boot::{boot_code_addr, boot_code_id};
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+use stacks::chainstate::stacks::boot::BOOT_CODE_EXIT_AT_RC_TESTNET;
 use stacks::clarity::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
@@ -34,7 +35,7 @@ use stacks::util::hash::{bytes_to_hex, hex_bytes, to_hex};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::vm::database::ClarityDeserializable;
-use stacks::vm::types::PrincipalData;
+use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use stacks::vm::Value;
 use stacks::{
     burnchains::db::BurnchainDB,
@@ -6725,6 +6726,7 @@ fn exit_at_rc_integration_test() {
     let (spender_sk, spender_stacks_addr, spender_addr) = generate_spender_info();
     let (spender_2_sk, _, spender_2_addr) = generate_spender_info();
     let (spender_3_sk, _, spender_3_addr) = generate_spender_info();
+    let (spender_4_sk, spender_4_stacks_addr, spender_4_addr) = generate_spender_info();
 
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
@@ -6763,6 +6765,11 @@ fn exit_at_rc_integration_test() {
         amount: total_bal,
     });
 
+    conf.initial_balances.push(InitialBalance {
+        address: spender_4_addr.clone(),
+        amount: 15000,
+    });
+
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
@@ -6787,6 +6794,10 @@ fn exit_at_rc_integration_test() {
     burnchain_config
         .exit_contract_constants
         .absolute_minimum_exit_rc = 25;
+    burnchain_config.exit_contract_id = Some(QualifiedContractIdentifier::new(
+        spender_4_stacks_addr.into(),
+        "exit-at-rc".into(),
+    ));
 
     let btc_should_keep_running = Arc::new(AtomicBool::new(true));
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
@@ -6823,6 +6834,74 @@ fn exit_at_rc_integration_test() {
 
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let publish = make_contract_publish(
+        &spender_4_sk,
+        0,
+        12000,
+        "exit-at-rc",
+        &BOOT_CODE_EXIT_AT_RC_TESTNET,
+    );
+    submit_tx(&http_origin, &publish);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    let param_tx = make_contract_call(
+        &spender_4_sk,
+        1,
+        500,
+        &spender_4_stacks_addr,
+        "exit-at-rc",
+        "set-burnchain-parameters",
+        &[Value::UInt(0), Value::UInt(15), Value::UInt(25)],
+    );
+    submit_tx(&http_origin, &param_tx);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let blocks_observed = test_observer::get_blocks();
+    assert!(
+        blocks_observed.len() >= 1,
+        "Blocks observed {} should be >= 2",
+        blocks_observed.len()
+    );
+
+    // look up the return value of our stacking operations...
+    let mut contract_published = false;
+    let mut set_params = false;
+    for block in blocks_observed {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+                if tsc.name.to_string().find("exit-at-rc").is_some() {
+                    contract_published = true;
+                    break;
+                }
+            } else if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                if contract_call.function_name.as_str() == "set-burnchain-parameters" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed =
+                        <Value as ClarityDeserializable<Value>>::deserialize(&raw_result[2..]);
+                    assert_eq!(parsed.to_string(), "(ok true)");
+                    set_params = true;
+                }
+            }
+        }
+    }
+
+    assert!(
+        contract_published,
+        "exit-at-rc contract should be published"
+    );
+    assert!(set_params, "exit-at-rc contract parameters should be set");
+
+    test_observer::clear();
 
     let sort_height = channel.get_sortitions_processed();
 
@@ -6919,7 +6998,7 @@ fn exit_at_rc_integration_test() {
             sk,
             1,
             260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &spender_4_stacks_addr,
             "exit-at-rc",
             "vote-for-exit-rc",
             &[Value::UInt(27)],
@@ -7081,7 +7160,7 @@ fn exit_at_rc_integration_test() {
             sk,
             3,
             260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &spender_4_stacks_addr,
             "exit-at-rc",
             "vote-for-exit-rc",
             &[Value::UInt(30)],
@@ -7166,7 +7245,7 @@ fn exit_at_rc_integration_test() {
             sk,
             3,
             260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &spender_4_stacks_addr,
             "exit-at-rc",
             "vote-for-exit-rc",
             &[Value::UInt(30)],
@@ -7247,7 +7326,7 @@ fn exit_at_rc_integration_test() {
                 &miner_privk,
                 nonce,
                 260,
-                &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                &spender_4_stacks_addr,
                 "exit-at-rc",
                 "veto-exit-rc",
                 &[Value::UInt(30), Value::UInt(block_height)],
@@ -7292,7 +7371,7 @@ fn exit_at_rc_integration_test() {
             sk,
             4,
             260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &spender_4_stacks_addr,
             "exit-at-rc",
             "vote-for-exit-rc",
             &[Value::UInt(32)],
@@ -7453,7 +7532,7 @@ fn exit_at_rc_integration_test() {
             sk,
             6,
             260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &spender_4_stacks_addr,
             "exit-at-rc",
             "vote-for-exit-rc",
             &[Value::UInt(30)],
@@ -7531,7 +7610,7 @@ fn exit_at_rc_integration_test() {
             sk,
             7,
             260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &spender_4_stacks_addr,
             "exit-at-rc",
             "vote-for-exit-rc",
             &[Value::UInt(59)],
@@ -7608,7 +7687,7 @@ fn exit_at_rc_integration_test() {
             sk,
             8,
             260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &spender_4_stacks_addr,
             "exit-at-rc",
             "vote-for-exit-rc",
             &[Value::UInt((48 + i) as u128)],
@@ -7797,7 +7876,7 @@ fn exit_at_rc_integration_test() {
             sk,
             10,
             260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &spender_4_stacks_addr,
             "exit-at-rc",
             "vote-for-exit-rc",
             &[Value::UInt(47)],
@@ -7967,7 +8046,7 @@ fn exit_at_rc_integration_test() {
             sk,
             12,
             260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &spender_4_stacks_addr,
             "exit-at-rc",
             "vote-for-exit-rc",
             &[Value::UInt(53)],
@@ -8042,7 +8121,7 @@ fn exit_at_rc_integration_test() {
             &miner_privk,
             nonce,
             260,
-            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            &spender_4_stacks_addr,
             "exit-at-rc",
             "veto-exit-rc",
             &[Value::UInt(53), Value::UInt(block_height)],

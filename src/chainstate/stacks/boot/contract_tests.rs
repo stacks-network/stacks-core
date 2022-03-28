@@ -1782,15 +1782,14 @@ fn test_miner_veto_for_exit_rc() {
     });
 
     sim.execute_next_block(|env| {
-        let burn_height = env.eval_raw("burn-block-height").unwrap().0;
-
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0.expect_u128();
         // veto from non-miner should error with `ERR_UNAUTHORIZED_CALLER`
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0].clone()).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
                 "veto-exit-rc",
-                &symbols_from_values(vec![Value::UInt(25)])
+                &symbols_from_values(vec![Value::UInt(25), Value::UInt(burn_height - 1)])
             )
             .unwrap()
             .0,
@@ -1806,7 +1805,7 @@ fn test_miner_veto_for_exit_rc() {
                 (&MINER_KEY.clone()).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
                 "veto-exit-rc",
-                &symbols_from_values(vec![Value::UInt(25)])
+                &symbols_from_values(vec![Value::UInt(25), Value::UInt(burn_height - 1)])
             )
             .unwrap()
             .0,
@@ -1816,13 +1815,13 @@ fn test_miner_veto_for_exit_rc() {
             })
         );
 
-        // get error `ERR_ALREADY_VETOED` if the miner already vetoed in this block
+        // get error `ERR_ALREADY_VETOED` if the miner already sent a veto corresponding to the same mined block
         assert_eq!(
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
                 "veto-exit-rc",
-                &symbols_from_values(vec![Value::UInt(25)])
+                &symbols_from_values(vec![Value::UInt(25), Value::UInt(burn_height - 1)])
             )
             .unwrap()
             .0,
@@ -1834,13 +1833,15 @@ fn test_miner_veto_for_exit_rc() {
     });
 
     sim.execute_next_block(|env| {
+        let burn_height = env.eval_raw("burn-block-height").unwrap().0.expect_u128();
+
         // miner veto should work in the subsequent block
         assert_eq!(
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
                 "veto-exit-rc",
-                &symbols_from_values(vec![Value::UInt(25)])
+                &symbols_from_values(vec![Value::UInt(25), Value::UInt(burn_height - 1)])
             )
             .unwrap()
             .0,
