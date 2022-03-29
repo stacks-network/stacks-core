@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
 ## [Unreleased]
+
+### Changed 
+- Updated chains coordinator so that before a Stacks block or a burn block is processed, 
+  an event is sent through the event dispatcher. This fixes #3015. 
 - Expose a node's public key and public key hash160 (i.e. what appears in
   /v2/neighbors) via the /v2/info API endpoint (#3046)
 

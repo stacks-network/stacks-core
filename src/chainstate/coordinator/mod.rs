@@ -115,13 +115,13 @@ impl RewardCycleInfo {
 pub trait BlockEventDispatcher {
     fn announce_block(
         &self,
-        block: StacksBlock,
-        metadata: StacksHeaderInfo,
-        receipts: Vec<StacksTransactionReceipt>,
+        block: &StacksBlock,
+        metadata: &StacksHeaderInfo,
+        receipts: &Vec<StacksTransactionReceipt>,
         parent: &StacksBlockId,
         winner_txid: Txid,
-        matured_rewards: Vec<MinerReward>,
-        matured_rewards_info: Option<MinerRewardInfo>,
+        matured_rewards: &Vec<MinerReward>,
+        matured_rewards_info: Option<&MinerRewardInfo>,
         parent_burn_block_hash: BurnchainHeaderHash,
         parent_burn_block_height: u32,
         parent_burn_block_timestamp: u64,
@@ -611,7 +611,9 @@ impl<
             // at this point, we need to figure out if the sortition we are
             //  about to process is the first block in reward cycle.
             let reward_cycle_info = self.get_reward_cycle_info(&header)?;
-            let (next_snapshot, _, reward_set_info) = self
+            // bind a reference here to avoid tripping up the borrow-checker
+            let dispatcher_ref = &self.dispatcher;
+            let (next_snapshot, _) = self
                 .sortition_db
                 .evaluate_sortition(
                     &header,
@@ -619,15 +621,21 @@ impl<
                     &self.burnchain,
                     &last_processed_ancestor,
                     reward_cycle_info,
+                    |reward_set_info| {
+                        if let Some(dispatcher) = dispatcher_ref {
+                            dispatcher_announce_burn_ops(
+                                *dispatcher,
+                                &header,
+                                paid_rewards,
+                                reward_set_info,
+                            );
+                        }
+                    },
                 )
                 .map_err(|e| {
                     error!("ChainsCoordinator: unable to evaluate sortition {:?}", e);
                     Error::FailedToProcessSortition(e)
                 })?;
-
-            if let Some(dispatcher) = self.dispatcher {
-                dispatcher_announce_burn_ops(dispatcher, &header, paid_rewards, reward_set_info);
-            }
 
             let sortition_id = next_snapshot.sortition_id;
 
@@ -693,7 +701,9 @@ impl<
         );
 
         let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
-        let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
+        let mut processed_blocks =
+            self.chain_state_db
+                .process_blocks(sortdb_handle, 1, self.dispatcher)?;
 
         while let Some(block_result) = processed_blocks.pop() {
             if let (Some(block_receipt), _) = block_result {
@@ -799,50 +809,6 @@ impl<
                         }
                     }
 
-                    if let Some(dispatcher) = self.dispatcher {
-                        let metadata = &block_receipt.header;
-                        let winner_txid = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                            &self.sortition_db.index_conn(),
-                            canonical_sortition_tip,
-                            &block_hash,
-                        )
-                        .expect("FAIL: could not find block snapshot for winning block hash")
-                        .expect("FAIL: could not find block snapshot for winning block hash")
-                        .winning_block_txid;
-
-                        let block: StacksBlock = {
-                            let block_path = StacksChainState::get_block_path(
-                                &self.chain_state_db.blocks_path,
-                                &metadata.consensus_hash,
-                                &block_hash,
-                            )
-                            .unwrap();
-                            StacksChainState::consensus_load(&block_path).unwrap()
-                        };
-                        let stacks_block =
-                            StacksBlockId::new(&metadata.consensus_hash, &block_hash);
-
-                        let parent = self
-                            .chain_state_db
-                            .get_parent(&stacks_block)
-                            .expect("BUG: failed to get parent for processed block");
-
-                        dispatcher.announce_block(
-                            block,
-                            block_receipt.header,
-                            block_receipt.tx_receipts,
-                            &parent,
-                            winner_txid,
-                            block_receipt.matured_rewards,
-                            block_receipt.matured_rewards_info,
-                            block_receipt.parent_burn_block_hash,
-                            block_receipt.parent_burn_block_height,
-                            block_receipt.parent_burn_block_timestamp,
-                            &block_receipt.anchored_block_cost,
-                            &block_receipt.parent_microblocks_cost,
-                        );
-                    }
-
                     // if, just after processing the block, we _know_ that this block is a pox anchor, that means
                     //   that sortitions have already begun processing that didn't know about this pox anchor.
                     //   we need to trigger an unwind
@@ -858,7 +824,10 @@ impl<
             // TODO: do something with a poison result
 
             let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
-            processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
+            // Right before a block is set to processed, the event dispatcher will emit a new block event
+            processed_blocks =
+                self.chain_state_db
+                    .process_blocks(sortdb_handle, 1, self.dispatcher)?;
         }
 
         Ok(None)

@@ -390,7 +390,7 @@ pub struct StacksMicroblockBuilder<'a> {
     anchor_block_consensus_hash: ConsensusHash,
     anchor_block_height: u64,
     header_reader: StacksChainState,
-    clarity_tx: Option<ClarityTx<'a>>,
+    clarity_tx: Option<ClarityTx<'a, 'a>>,
     unconfirmed: bool,
     runtime: MicroblockMinerRuntime,
     settings: BlockBuilderSettings,
@@ -626,7 +626,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     /// # Error Handling
     /// - If the error when processing a tx is `CostOverflowError`, reset the cost of the block.
     fn mine_next_transaction(
-        clarity_tx: &mut ClarityTx<'a>,
+        clarity_tx: &mut ClarityTx,
         tx: StacksTransaction,
         tx_len: u64,
         bytes_so_far: u64,
@@ -789,9 +789,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                         == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                     {
                                         test_debug!(
-                                            "Stop mining anchored block due to limit exceeded"
+                                            "Stop mining microblock block due to limit exceeded"
                                         );
-                                        block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                                         break;
                                     }
                                 }
@@ -1399,9 +1398,9 @@ impl StacksBlockBuilder {
     /// Append a transaction if doing so won't exceed the epoch data size.
     /// Does not check for errors
     #[cfg(test)]
-    pub fn force_mine_tx<'a>(
+    pub fn force_mine_tx(
         &mut self,
-        clarity_tx: &mut ClarityTx<'a>,
+        clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
     ) -> Result<(), Error> {
         let mut tx_bytes = vec![];
@@ -1712,7 +1711,7 @@ impl StacksBlockBuilder {
         &mut self,
         burn_dbconn: &'a SortitionDBConn,
         info: &'b mut MinerEpochInfo<'a>,
-    ) -> Result<(ClarityTx<'b>, ExecutionCost), Error> {
+    ) -> Result<(ClarityTx<'b, 'b>, ExecutionCost), Error> {
         let SetupBlockResult {
             clarity_tx,
             microblock_execution_cost,
@@ -2676,7 +2675,7 @@ pub mod test {
             return None;
         }
 
-        pub fn get_miner_balance<'a>(clarity_tx: &mut ClarityTx<'a>, addr: &StacksAddress) -> u128 {
+        pub fn get_miner_balance(clarity_tx: &mut ClarityTx, addr: &StacksAddress) -> u128 {
             clarity_tx.with_clarity_db_readonly(|db| {
                 db.get_account_stx_balance(&StandardPrincipalData::from(addr.clone()).into())
                     .amount_unlocked
@@ -2963,8 +2962,8 @@ pub mod test {
     }
 
     /// Verify that the miner got the expected block reward
-    fn check_mining_reward<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    fn check_mining_reward(
+        clarity_tx: &mut ClarityTx,
         miner: &mut TestMiner,
         block_height: u64,
         prev_block_rewards: &Vec<Vec<MinerPaymentSchedule>>,
@@ -5810,8 +5809,8 @@ pub mod test {
         tx_coinbase_signed
     }
 
-    pub fn mine_empty_anchored_block<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_empty_anchored_block(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -5840,8 +5839,8 @@ pub mod test {
         (stacks_block, vec![])
     }
 
-    pub fn mine_empty_anchored_block_with_burn_height_pubkh<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_empty_anchored_block_with_burn_height_pubkh(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -5876,8 +5875,8 @@ pub mod test {
         (stacks_block, vec![])
     }
 
-    pub fn mine_empty_anchored_block_with_stacks_height_pubkh<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_empty_anchored_block_with_stacks_height_pubkh(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -6022,8 +6021,8 @@ pub mod test {
     }
 
     /// Mine invalid token transfers
-    pub fn mine_invalid_token_transfers_block<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_invalid_token_transfers_block(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -6100,8 +6099,8 @@ pub mod test {
 
     /// mine a smart contract in an anchored block, and mine a contract-call in the same anchored
     /// block
-    pub fn mine_smart_contract_contract_call_block<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_smart_contract_contract_call_block(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -6150,8 +6149,8 @@ pub mod test {
     }
 
     /// mine a smart contract in an anchored block, and mine some contract-calls to it in a microblock tail
-    pub fn mine_smart_contract_block_contract_call_microblock<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_smart_contract_block_contract_call_microblock(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -6236,8 +6235,8 @@ pub mod test {
     /// mine a smart contract in an anchored block, and mine a contract-call to it in a microblock.
     /// Make it so all microblocks throw a runtime exception, but confirm that they are still mined
     /// anyway.
-    pub fn mine_smart_contract_block_contract_call_microblock_exception<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_smart_contract_block_contract_call_microblock_exception(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,

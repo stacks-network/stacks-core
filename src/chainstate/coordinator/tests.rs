@@ -302,13 +302,13 @@ pub struct NullEventDispatcher;
 impl BlockEventDispatcher for NullEventDispatcher {
     fn announce_block(
         &self,
-        _block: StacksBlock,
-        _metadata: StacksHeaderInfo,
-        _receipts: Vec<StacksTransactionReceipt>,
+        _block: &StacksBlock,
+        _metadata: &StacksHeaderInfo,
+        _receipts: &Vec<StacksTransactionReceipt>,
         _parent: &StacksBlockId,
         _winner_txid: Txid,
-        _rewards: Vec<MinerReward>,
-        _rewards_info: Option<MinerRewardInfo>,
+        _rewards: &Vec<MinerReward>,
+        _rewards_info: Option<&MinerRewardInfo>,
         _parent_burn_block_hash: BurnchainHeaderHash,
         _parent_burn_block_height: u32,
         _parent_burn_block_timestamp: u64,

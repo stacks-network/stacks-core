@@ -2744,6 +2744,9 @@ impl SortitionDB {
         Ok(Some((snapshot, transition_ops)))
     }
 
+    /// Evaluate the sortition (SIP-001 miner block election) in the burnchain block defined by
+    /// `burn_header`. Returns the new snapshot and burnchain state
+    /// transition.
     ///
     /// # Arguments
     /// * `burn_header` - the burnchain block header to process sortition for
@@ -2751,22 +2754,17 @@ impl SortitionDB {
     /// * `burnchain` - a reference to the burnchain information struct
     /// * `from_tip` - tip of the "sortition chain" that is being built on
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
-    ///
-    pub fn evaluate_sortition(
+    /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
+    ///                   commits its results. This is used to post the calculated reward set to an event observer.
+    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>) -> ()>(
         &mut self,
         burn_header: &BurnchainBlockHeader,
         ops: Vec<BlockstackOperationType>,
         burnchain: &Burnchain,
         from_tip: &SortitionId,
         next_pox_info: Option<RewardCycleInfo>,
-    ) -> Result<
-        (
-            BlockSnapshot,
-            BurnchainStateTransition,
-            Option<RewardSetInfo>,
-        ),
-        BurnchainError,
-    > {
+        announce_to: F,
+    ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
             .ok_or_else(|| {
@@ -2825,9 +2823,13 @@ impl SortitionDB {
 
         sortition_db_handle.store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
 
+        announce_to(reward_set_info);
+
         // commit everything!
-        sortition_db_handle.commit()?;
-        Ok((new_snapshot.0, new_snapshot.1, reward_set_info))
+        sortition_db_handle.commit().expect(
+            "Failed to commit to sortition db after announcing reward set info, state corrupted.",
+        );
+        Ok((new_snapshot.0, new_snapshot.1))
     }
 
     #[cfg(test)]

@@ -2332,13 +2332,13 @@ pub mod test {
     impl BlockEventDispatcher for TestEventObserver {
         fn announce_block(
             &self,
-            block: StacksBlock,
-            metadata: StacksHeaderInfo,
-            receipts: Vec<events::StacksTransactionReceipt>,
+            block: &StacksBlock,
+            metadata: &StacksHeaderInfo,
+            receipts: &Vec<events::StacksTransactionReceipt>,
             parent: &StacksBlockId,
             winner_txid: Txid,
-            matured_rewards: Vec<accounts::MinerReward>,
-            matured_rewards_info: Option<MinerRewardInfo>,
+            matured_rewards: &Vec<accounts::MinerReward>,
+            matured_rewards_info: Option<&MinerRewardInfo>,
             parent_burn_block_hash: BurnchainHeaderHash,
             parent_burn_block_height: u32,
             parent_burn_block_timestamp: u64,
@@ -2346,13 +2346,13 @@ pub mod test {
             _confirmed_mblock_cost: &ExecutionCost,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
-                block,
-                metadata,
-                receipts,
+                block: block.clone(),
+                metadata: metadata.clone(),
+                receipts: receipts.clone(),
                 parent: parent.clone(),
                 winner_txid,
-                matured_rewards,
-                matured_rewards_info,
+                matured_rewards: matured_rewards.clone(),
+                matured_rewards_info: matured_rewards_info.map(|info| info.clone()),
             })
         }
 

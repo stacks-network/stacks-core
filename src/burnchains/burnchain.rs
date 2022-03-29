@@ -893,8 +893,17 @@ impl Burnchain {
 
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
-        db.evaluate_sortition(&header, blockstack_txs, burnchain, &sortition_tip, None)
-            .map(|(snapshot, transition, _)| (snapshot, transition))
+        // Do not emit sortition/burn block events to event observer in this method, because this
+        // method is deprecated and only used in defunct helium nodes
+
+        db.evaluate_sortition(
+            &header,
+            blockstack_txs,
+            burnchain,
+            &sortition_tip,
+            None,
+            |_| {},
+        )
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.

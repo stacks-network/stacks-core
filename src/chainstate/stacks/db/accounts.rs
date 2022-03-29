@@ -153,8 +153,8 @@ impl StacksChainState {
         })
     }
 
-    pub fn get_account_ft<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn get_account_ft(
+        clarity_tx: &mut ClarityTx,
         contract_id: &QualifiedContractIdentifier,
         token_name: &str,
         principal: &PrincipalData,
@@ -168,8 +168,8 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
-    pub fn get_account_nft<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn get_account_nft(
+        clarity_tx: &mut ClarityTx,
         contract_id: &QualifiedContractIdentifier,
         token_name: &str,
         token_value: &Value,
@@ -660,8 +660,8 @@ impl StacksChainState {
 
     /// Find the latest miner reward to mature, assuming that there are mature rewards.
     /// Returns a list of payments to make to each address -- miners and user-support burners.
-    pub fn find_mature_miner_rewards<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn find_mature_miner_rewards(
+        clarity_tx: &mut ClarityTx,
         tip: &StacksHeaderInfo,
         mut latest_matured_miners: Vec<MinerPaymentSchedule>,
         parent_miner: MinerPaymentSchedule,

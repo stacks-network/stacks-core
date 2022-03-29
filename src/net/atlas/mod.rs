@@ -45,6 +45,10 @@ pub mod download;
 
 pub const MAX_ATTACHMENT_INV_PAGES_PER_REQUEST: usize = 8;
 pub const MAX_RETRY_DELAY: u64 = 600; // seconds
+/// This is the maximum number of pending attachments batches allowed
+///  in the synchronized channel before the coordinator will stall
+///  waiting for attachments to be processed.
+pub const ATTACHMENTS_CHANNEL_SIZE: usize = 5;
 
 lazy_static! {
     pub static ref BNS_CHARS_REGEX: Regex = Regex::new("^([a-z0-9]|[-_])*$").unwrap();
