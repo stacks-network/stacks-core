@@ -56,7 +56,7 @@ use burnchains::Txid;
 use burnchains::{ExitContractConstants, PoxConstants};
 
 use chainstate::stacks::boot::{
-    exit_at_reward_cycle_code_id, STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET,
+    exit_at_reward_cycle_test_id, STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET,
 };
 use util::boot::{boot_code_addr, boot_code_id};
 
@@ -717,7 +717,8 @@ fn consume_arg(
     }
 }
 
-// Only called by `invoke_command` in clarity.rs
+/// Only called by `invoke_command` in clarity.rs.
+/// Uses the test version of "exit-at-rc" contract.
 fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) {
     let mainnet = header_db.is_mainnet();
     let boot_code = if mainnet {
@@ -786,7 +787,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         )
         .unwrap();
 
-    let exit_at_rc_contract = exit_at_reward_cycle_code_id(mainnet);
+    let exit_at_rc_contract = exit_at_reward_cycle_test_id();
     let sender = PrincipalData::from(exit_at_rc_contract.clone());
     let exit_params = if mainnet {
         ExitContractConstants::mainnet_default()

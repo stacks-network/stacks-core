@@ -5,8 +5,8 @@ use std::convert::TryInto;
 use address::AddressHashMode;
 use chainstate::burn::ConsensusHash;
 use chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_EXIT_AT_RC_TESTNET,
-    BOOT_CODE_POX_TESTNET,
+    exit_at_reward_cycle_test_id, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
+    BOOT_CODE_EXIT_AT_RC_TESTNET, BOOT_CODE_POX_TESTNET,
 };
 use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
 use chainstate::stacks::index::MarfTrieId;
@@ -56,9 +56,8 @@ lazy_static! {
     static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
     static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
-    // TODO (#3034): update contract ID
     pub static ref EXIT_AT_RC_CONTRACT_TESTNET: QualifiedContractIdentifier =
-        boot_code_id("exit-at-rc", false);
+        exit_at_reward_cycle_test_id();
     static ref USER_KEYS: Vec<StacksPrivateKey> =
         (0..50).map(|_| StacksPrivateKey::new()).collect();
     static ref POX_ADDRS: Vec<Value> = (0..50u64)

@@ -2397,6 +2397,7 @@ mod test {
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 
     use super::*;
+    use chainstate::stacks::boot::exit_at_reward_cycle_test_id;
 
     fn make_test_chain_dbs(
         testname: &str,
@@ -2607,6 +2608,7 @@ mod test {
             first_block_timestamp: 0,
             pox_constants: PoxConstants::test_default(),
             exit_contract_constants: ExitContractConstants::mainnet_default(),
+            exit_contract_id: Some(exit_at_reward_cycle_test_id()),
         }
     }
 

@@ -297,6 +297,9 @@ pub struct Burnchain {
     pub first_block_timestamp: u32,
     pub pox_constants: PoxConstants,
     pub exit_contract_constants: ExitContractConstants,
+    /// The contract ID of the 'exit-at-rc' contract. For tests, this contract ID is
+    /// boot_code_addr("exit-at-rc", false). For mainnet, this should be set to the
+    /// contract deployed on Stacks mainnet.
     pub exit_contract_id: Option<QualifiedContractIdentifier>,
     pub initial_reward_start_block: u64,
 }

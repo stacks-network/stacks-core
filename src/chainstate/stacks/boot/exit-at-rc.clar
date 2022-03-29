@@ -112,10 +112,10 @@
     )
 )
 
-
+;; TODO: Update pox address for mainnet.
 (define-private (can-vote-for-exit-rc? (proposed-exit-rc uint))
     (let (
-        (stacker-info (unwrap! (contract-call? .pox get-stacker-info tx-sender) (err ERR_VOTER_NOT_STACKING)))
+        (stacker-info (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox get-stacker-info tx-sender) (err ERR_VOTER_NOT_STACKING)))
         (amount-stacked (get amount-ustx stacker-info))
         (stacking-expiration (+ (get lock-period stacker-info) (get first-reward-cycle stacker-info)))
         (current-reward-cycle (unwrap-panic (current-pox-reward-cycle)))
@@ -172,7 +172,6 @@
     )
 )
 
-;; TODO (#3034) - fill in real address for contract-call once known
 ;; A stacking voter with no outstanding vote can call this function with their proposed exit reward cycle to vote for it.
 ;; This function enforces bounds on the vote (can't be above/below specific values).
 ;; If a vote is accepted, the voter can only re-vote when they stack again.

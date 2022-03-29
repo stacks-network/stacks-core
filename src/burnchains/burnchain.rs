@@ -58,6 +58,7 @@ use chainstate::burn::operations::{
 };
 use chainstate::burn::{BlockSnapshot, Opcodes};
 use chainstate::coordinator::comm::CoordinatorChannels;
+use chainstate::stacks::boot::exit_at_reward_cycle_test_id;
 use chainstate::stacks::StacksPublicKey;
 use core::MINING_COMMITMENT_WINDOW;
 use core::NETWORK_ID_MAINNET;
@@ -423,6 +424,7 @@ impl Burnchain {
                     PoxConstants::mainnet_default(),
                     PEER_VERSION_MAINNET,
                     ExitContractConstants::mainnet_default(),
+                    // TODO (#3034): Update once exit contract is deployed on mainnet.
                     None,
                 ),
                 ("bitcoin", "testnet") => (
@@ -430,14 +432,14 @@ impl Burnchain {
                     PoxConstants::testnet_default(),
                     PEER_VERSION_TESTNET,
                     ExitContractConstants::testnet_default(),
-                    Some(QualifiedContractIdentifier::transient()),
+                    Some(exit_at_reward_cycle_test_id()),
                 ),
                 ("bitcoin", "regtest") => (
                     BurnchainParameters::bitcoin_regtest(),
                     PoxConstants::regtest_default(),
                     PEER_VERSION_TESTNET,
                     ExitContractConstants::testnet_default(),
-                    None,
+                    Some(exit_at_reward_cycle_test_id()),
                 ),
                 (_, _) => {
                     return Err(burnchain_error::UnsupportedBurnchain);
@@ -458,6 +460,7 @@ impl Burnchain {
             first_block_timestamp: params.first_block_timestamp,
             pox_constants,
             exit_contract_constants,
+            exit_contract_id,
         })
     }
 
@@ -1545,6 +1548,7 @@ pub mod tests {
             initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
             first_block_hash: BurnchainHeaderHash::zero(),
+            exit_contract_id: None,
         };
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000123",
@@ -2384,6 +2388,7 @@ pub mod tests {
             first_block_hash: first_burn_hash,
             first_block_height,
             initial_reward_start_block: first_block_height,
+            exit_contract_id: None,
         };
 
         let mut leader_private_keys = vec![];

@@ -61,8 +61,6 @@ pub const BOOT_CODE_COSTS_2_TESTNET: &'static str = std::include_str!("costs-2-t
 const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
 const BOOT_CODE_EXIT_AT_RC_TESTNET_CONSTS: &'static str =
     std::include_str!("exit-at-rc-testnet.clar");
-const BOOT_CODE_EXIT_AT_RC_MAINNET_CONSTS: &'static str =
-    std::include_str!("exit-at-rc-mainnet.clar");
 const BOOT_CODE_EXIT_AT_RC: &'static str = std::include_str!("exit-at-rc.clar");
 const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
 const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
@@ -74,26 +72,21 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, BOOT_CODE_POX_BODY);
     pub static ref BOOT_CODE_POX_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, BOOT_CODE_POX_BODY);
-    // TODO (#3034) - replace when exit contract is published
-    static ref BOOT_CODE_EXIT_AT_RC_MAINNET: String =
-        format!("{}\n{}", BOOT_CODE_EXIT_AT_RC_MAINNET_CONSTS, BOOT_CODE_EXIT_AT_RC);
+    /// The node does not store the mainnet version of the "exit-at-rc" contract.
     pub static ref BOOT_CODE_EXIT_AT_RC_TESTNET: String =
         format!("{}\n{}", BOOT_CODE_EXIT_AT_RC_TESTNET_CONSTS, BOOT_CODE_EXIT_AT_RC);
 
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
-    // TODO (#3034): remove exit-at-rc once deployed
-    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 7] = [
+    pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
-        ("exit-at-rc", &BOOT_CODE_EXIT_AT_RC_MAINNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
         ("bns", &BOOT_CODE_BNS),
         ("genesis", &BOOT_CODE_GENESIS),
     ];
-    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 7] = [
+    pub static ref STACKS_BOOT_CODE_TESTNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
-        ("exit-at-rc", &BOOT_CODE_EXIT_AT_RC_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
         ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
@@ -102,9 +95,9 @@ lazy_static! {
     ];
 }
 
-// TODO (#3034): get correct contract ID once contract is published
-pub fn exit_at_reward_cycle_code_id(mainnet: bool) -> QualifiedContractIdentifier {
-    let addr = boot_code_addr(mainnet);
+/// This function returns the exit-at-rc contract's ID for tests.
+pub fn exit_at_reward_cycle_test_id() -> QualifiedContractIdentifier {
+    let addr = boot_code_addr(false);
     QualifiedContractIdentifier::new(
         addr.into(),
         ContractName::try_from(String::from("exit-at-rc")).unwrap(),

@@ -64,7 +64,7 @@ use vm::database::BurnStateDB;
 
 pub use self::comm::CoordinatorCommunication;
 use chainstate::burn::db::sortdb::{SortitionDBConn, SortitionHandleTx};
-use chainstate::stacks::boot::exit_at_reward_cycle_code_id;
+use chainstate::stacks::boot::exit_at_reward_cycle_test_id;
 use chainstate::stacks::db::StacksEpochReceipt;
 use chainstate::stacks::index::marf::MarfConnection;
 use chainstate::stacks::Error::PoxNoRewardCycle;

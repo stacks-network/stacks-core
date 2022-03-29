@@ -59,6 +59,7 @@ use crate::types::proof::TrieHash;
 use crate::{types, util};
 use chainstate::stacks::boot::COSTS_2_NAME;
 use rand::RngCore;
+use util::boot::boot_code_addr;
 use vm::database::BurnStateDB;
 
 lazy_static! {
@@ -282,8 +283,7 @@ pub fn setup_states(
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
 
-            // TODO (#3034): update contract identifier
-            let contract = exit_at_reward_cycle_code_id(false);
+            let contract = exit_at_reward_cycle_test_id();
             let sender = PrincipalData::from(contract.clone());
             clarity_tx.connection().as_transaction(|conn| {
                 conn.run_contract_call(
@@ -3971,10 +3971,6 @@ fn test_check_chainstate_db_versions() {
 }
 
 /// This tests the exit-at-rc contract with a fork.
-/// The contract data from the previous reward cycle is typically evaluated at the second Stacks block in a reward cycle.
-/// In the case there is only 1 Stacks block in a particular reward cycle Q, the data from the previous reward cycle P
-/// is evaluated in the following block (so the first Stacks block in reward cycle R).
-/// This test checks that this behavior works as intended.
 #[test]
 fn test_exit_at_rc_short_reward_cycle() {
     let path = "/tmp/stacks-blockchain.test.exit_at_rc_short_reward_cycle";
@@ -4028,11 +4024,13 @@ fn test_exit_at_rc_short_reward_cycle() {
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
     let mut reward_recipients = HashSet::new();
 
-    // setup:
-    // STACKS BLOCK HEIGHT IN CYCLE:    5    1    2    3    4    5
-    // BLOCK NUMBER (ix):           .. 47 - 48 - 49 - 50 - 51 - 52
-    //                                       \_  53 _ 54
-    // STACKS BLOCK HEIGHT IN CYCLE:             1    2
+    // Setup: Vote for exit at 33 sent in block 44.
+    //          - Exit proposal should be set in block 48.
+    //          - Confirmed exit should be set in 53 and 54, since those occur a reward cycle after block 48
+    // STACKS BLOCK HEIGHT IN CYCLE:  2     5    1    2    3    4    5
+    // BLOCK NUMBER (ix):             44 .. 47 - 48 - 49 - 50 - 51 - 52
+    //                                            \_  53 _ 54
+    // STACKS BLOCK HEIGHT IN CYCLE:                  1    2
     for (ix, (vrf_key, miner)) in vrf_keys.iter().zip(committers.iter()).enumerate() {
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let mut chainstate = get_chainstate(path);
@@ -4082,12 +4080,11 @@ fn test_exit_at_rc_short_reward_cycle() {
             // create block with vote transaction
             let tx_auth = TransactionAuth::from_p2pkh(&stacker_pk).unwrap();
 
-            // TODO (#3034): update contract ID
             let mut tx = StacksTransaction::new(
                 TransactionVersion::Testnet,
                 tx_auth,
                 TransactionPayload::ContractCall(TransactionContractCall {
-                    address: StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                    address: boot_code_addr(false),
                     contract_name: "exit-at-rc".into(),
                     function_name: "vote-for-exit-rc".into(),
                     function_args: vec![Value::UInt(33)],
@@ -4212,15 +4209,22 @@ fn test_exit_at_rc_short_reward_cycle() {
         // handle the stacks block
         coord.handle_new_stacks_block().unwrap();
 
-        if ix == 49 || ix == 53 || ix == 54 {
+        // Setup: Vote for exit at 33 sent in block 44.
+        //          - Exit proposal should be set in block 48.
+        //          - Confirmed exit should be set in 53 and 54, since those occur a reward cycle after block 48
+        // STACKS BLOCK HEIGHT IN CYCLE:  2     5    1    2    3    4    5
+        // BLOCK NUMBER (ix):             44 .. 47 - 48 - 49 - 50 - 51 - 52
+        //                                            \_  53 _ 54
+        // STACKS BLOCK HEIGHT IN CYCLE:                  1    2
+        if ix == 48 || ix == 53 || ix == 54 {
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&tip.consensus_hash, &block.block_hash());
             let exit_rc_info =
                 SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
                     .unwrap()
                     .unwrap();
-            let expected_proposal = if ix == 49 { Some(33) } else { None };
-            let expected_exit = if ix == 49 || ix == 53 { None } else { Some(33) };
+            let expected_proposal = if ix == 48 { Some(33) } else { None };
+            let expected_exit = if ix == 48 { None } else { Some(33) };
             assert_eq!(exit_rc_info.curr_exit_proposal, expected_proposal);
             assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, expected_exit);
         }

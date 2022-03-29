@@ -1041,6 +1041,33 @@ impl StacksChainState {
         return principal;
     }
 
+    fn install_boot_contract(
+        clarity_tx: &mut ClarityTx,
+        boot_code_name: &str,
+        boot_code_contract: &str,
+        tx_version: &TransactionVersion,
+        boot_code_auth: &TransactionAuth,
+        boot_code_account: &StacksAccount,
+    ) -> Result<StacksTransactionReceipt, Error> {
+        let smart_contract = TransactionPayload::SmartContract(TransactionSmartContract {
+            name: ContractName::try_from(boot_code_name.to_string())
+                .expect("FATAL: invalid boot-code contract name"),
+            code_body: StacksString::from_str(boot_code_contract)
+                .expect("FATAL: invalid boot code body"),
+        });
+
+        let boot_code_smart_contract =
+            StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), smart_contract);
+
+        clarity_tx.connection().as_transaction(|clarity| {
+            StacksChainState::process_transaction_payload(
+                clarity,
+                &boot_code_smart_contract,
+                &boot_code_account,
+            )
+        })
+    }
+
     /// Install the boot code into the chain history.
     fn install_boot_code(
         chainstate: &mut StacksChainState,
@@ -1084,26 +1111,28 @@ impl StacksChainState {
                     boot_code_contract.len()
                 );
 
-                let smart_contract = TransactionPayload::SmartContract(TransactionSmartContract {
-                    name: ContractName::try_from(boot_code_name.to_string())
-                        .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(boot_code_contract)
-                        .expect("FATAL: invalid boot code body"),
-                });
+                let tx_receipt = StacksChainState::install_boot_contract(
+                    &mut clarity_tx,
+                    boot_code_name,
+                    boot_code_contract,
+                    &tx_version,
+                    &boot_code_auth,
+                    &boot_code_account,
+                )?;
+                receipts.push(tx_receipt);
 
-                let boot_code_smart_contract = StacksTransaction::new(
-                    tx_version.clone(),
-                    boot_code_auth.clone(),
-                    smart_contract,
-                );
+                boot_code_account.nonce += 1;
+            }
 
-                let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
-                    StacksChainState::process_transaction_payload(
-                        clarity,
-                        &boot_code_smart_contract,
-                        &boot_code_account,
-                    )
-                })?;
+            if !mainnet {
+                let tx_receipt = StacksChainState::install_boot_contract(
+                    &mut clarity_tx,
+                    "exit-at-rc",
+                    &BOOT_CODE_EXIT_AT_RC_TESTNET,
+                    &tx_version,
+                    &boot_code_auth,
+                    &boot_code_account,
+                )?;
                 receipts.push(tx_receipt);
 
                 boot_code_account.nonce += 1;
@@ -1398,7 +1427,6 @@ impl StacksChainState {
 
             // Setup burnchain parameters for pox contract
             let pox_constants = &boot_data.pox_constants;
-            // TODO: update once exit contract is deployed
             let contract = util::boot::boot_code_id("pox", mainnet);
             let sender = PrincipalData::from(contract.clone());
             let params = vec![
@@ -1418,25 +1446,27 @@ impl StacksChainState {
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
 
-            // Setup burnchain parameters for exit-at-rc contract
-            let exit_contract_constants = &boot_data.exit_contract_constants;
-            let contract = exit_at_reward_cycle_code_id(mainnet);
-            let sender = PrincipalData::from(contract.clone());
-            let params = vec![
-                Value::UInt(boot_data.first_burnchain_block_height as u128),
-                Value::UInt(pox_constants.reward_cycle_length as u128),
-                Value::UInt(exit_contract_constants.absolute_minimum_exit_rc as u128),
-            ];
-            clarity_tx.connection().as_transaction(|conn| {
-                conn.run_contract_call(
-                    &sender,
-                    &contract,
-                    "set-burnchain-parameters",
-                    &params,
-                    |_, _| false,
-                )
-                .expect("Failed to set burnchain parameters in Exit at RC contract");
-            });
+            if !mainnet {
+                // Setup burnchain parameters for exit-at-rc contract
+                let exit_contract_constants = &boot_data.exit_contract_constants;
+                let contract = exit_at_reward_cycle_test_id();
+                let sender = PrincipalData::from(contract.clone());
+                let params = vec![
+                    Value::UInt(boot_data.first_burnchain_block_height as u128),
+                    Value::UInt(pox_constants.reward_cycle_length as u128),
+                    Value::UInt(exit_contract_constants.absolute_minimum_exit_rc as u128),
+                ];
+                clarity_tx.connection().as_transaction(|conn| {
+                    conn.run_contract_call(
+                        &sender,
+                        &contract,
+                        "set-burnchain-parameters",
+                        &params,
+                        |_, _| false,
+                    )
+                    .expect("Failed to set burnchain parameters in Exit at RC contract");
+                });
+            }
 
             clarity_tx
                 .connection()
