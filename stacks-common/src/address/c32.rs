@@ -148,28 +148,29 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
     if !input_str.is_ascii() {
         return Err(Error::InvalidCrockford32);
     }
-    c32_decode_ascii(input_str)
+    c32_decode_ascii(input_str.as_bytes())
 }
 
-fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
-    let mut result = vec![];
+fn c32_decode_ascii(input_str: &[u8]) -> Result<Vec<u8>, Error> {
+    // let initial_capacity = 1 + ((input_str.len() * 5) / 8);
+    let initial_capacity = input_str.len();
+    let mut result = Vec::with_capacity(initial_capacity);
     let mut carry: u16 = 0;
     let mut carry_bits = 0; // can be up to 5
 
-    let iter_c32_digits: Vec<u8> = input_str
-        .as_bytes()
-        .iter()
-        .rev()
-        .filter_map(|x| C32_CHARACTERS_MAP.get(*x as usize))
-        .filter_map(|v| u8::try_from(*v).ok())
-        .collect();
+    let mut c32_digits = vec![0u8; input_str.len()];
 
-    if input_str.len() != iter_c32_digits.len() {
-        // at least one char was None
-        return Err(Error::InvalidCrockford32);
+    for (i, x) in input_str.iter().rev().enumerate() {
+        c32_digits[i] = match C32_CHARACTERS_MAP.get(*x as usize) {
+            Some(v) => match u8::try_from(*v) {
+                Ok(v) => Ok(v),
+                Err(_) => Err(Error::InvalidCrockford32),
+            },
+            None => Err(Error::InvalidCrockford32),
+        }?;
     }
 
-    for current_5bit in &iter_c32_digits {
+    for current_5bit in &c32_digits {
         carry += (*current_5bit as u16) << carry_bits;
         carry_bits += 5;
 
@@ -185,15 +186,14 @@ fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
     }
 
     // remove leading zeros from Vec<u8> encoding
-    while let Some(v) = result.pop() {
-        if v != 0 {
-            result.push(v);
-            break;
-        }
+    let mut i = result.len();
+    while i > 0 && result[i - 1] == 0 {
+        i -= 1;
+        result.truncate(i);
     }
 
     // add leading zeros from input.
-    for current_value in iter_c32_digits.iter().rev() {
+    for current_value in c32_digits.iter().rev() {
         if *current_value == 0 {
             result.push(0);
         } else {
@@ -203,11 +203,6 @@ fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
 
     result.reverse();
     Ok(result)
-}
-
-fn double_sha256_checksum(data: &[u8]) -> Vec<u8> {
-    let tmp = Sha256::digest(Sha256::digest(data));
-    tmp[0..4].to_vec()
 }
 
 fn c32_check_encode_prefixed(version: u8, data: &[u8], prefix: u8) -> Result<String, Error> {
@@ -248,7 +243,8 @@ fn c32_check_decode(check_data_unsanitized: &str) -> Result<(u8, Vec<u8>), Error
         return Err(Error::InvalidCrockford32);
     }
 
-    let (version, data) = check_data_unsanitized.split_at(1);
+    let ascii_bytes = check_data_unsanitized.as_bytes();
+    let (version, data) = ascii_bytes.split_first().unwrap();
 
     let data_sum_bytes = c32_decode_ascii(data)?;
     if data_sum_bytes.len() < 4 {
@@ -256,12 +252,20 @@ fn c32_check_decode(check_data_unsanitized: &str) -> Result<(u8, Vec<u8>), Error
     }
 
     let (data_bytes, expected_sum) = data_sum_bytes.split_at(data_sum_bytes.len() - 4);
-
-    let mut check_data = c32_decode_ascii(version)?;
-    check_data.extend_from_slice(data_bytes);
-
-    let computed_sum = double_sha256_checksum(&check_data);
-    if computed_sum != expected_sum {
+    let decoded_version = c32_decode_ascii(&[*version]).unwrap();
+    let computed_sum = Sha256::digest(
+        Sha256::new()
+            .chain_update(&decoded_version)
+            .chain_update(&data_bytes)
+            .finalize(),
+    );
+    let checksum_ok = {
+        computed_sum[0] == expected_sum[0]
+            && computed_sum[1] == expected_sum[1]
+            && computed_sum[2] == expected_sum[2]
+            && computed_sum[3] == expected_sum[3]
+    };
+    if !checksum_ok {
         let computed_sum_u32 = (computed_sum[0] as u32)
             | ((computed_sum[1] as u32) << 8)
             | ((computed_sum[2] as u32) << 16)
@@ -275,7 +279,7 @@ fn c32_check_decode(check_data_unsanitized: &str) -> Result<(u8, Vec<u8>), Error
         return Err(Error::BadChecksum(computed_sum_u32, expected_sum_u32));
     }
 
-    let version = check_data[0];
+    let version = decoded_version[0];
     let data = data_bytes.to_vec();
     Ok((version, data))
 }
