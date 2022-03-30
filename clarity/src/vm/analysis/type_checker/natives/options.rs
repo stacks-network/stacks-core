@@ -117,8 +117,11 @@ pub fn check_special_default_to(
 
     if let TypeSignature::OptionalType(input_type) = input {
         let contained_type = *input_type;
-        TypeSignature::least_supertype(&default, &contained_type)
-            .map_err(|_| CheckErrors::DefaultTypesMustMatch(default, contained_type).into())
+
+        TypeSignature::least_supertype(default, contained_type).map_err(|e| match e {
+            CheckErrors::TypeError(a, b) => CheckErrors::DefaultTypesMustMatch(a, b).into(),
+            e => e.into(),
+        })
     } else {
         return Err(CheckErrors::ExpectedOptionalType(input).into());
     }
@@ -324,8 +327,10 @@ fn check_special_match_opt(
 
     analysis_typecheck_cost(checker, &some_branch_type, &none_branch_type)?;
 
-    TypeSignature::least_supertype(&some_branch_type, &none_branch_type)
-        .map_err(|_| CheckErrors::MatchArmsMustMatch(some_branch_type, none_branch_type).into())
+    TypeSignature::least_supertype(some_branch_type, none_branch_type).map_err(|e| match e {
+        CheckErrors::TypeError(a, b) => CheckErrors::MatchArmsMustMatch(a, b).into(),
+        e => e.into(),
+    })
 }
 
 fn check_special_match_resp(
@@ -363,8 +368,13 @@ fn check_special_match_resp(
 
     analysis_typecheck_cost(checker, &ok_branch_type, &err_branch_type)?;
 
-    TypeSignature::least_supertype(&ok_branch_type, &err_branch_type)
-        .map_err(|_| CheckErrors::MatchArmsMustMatch(ok_branch_type, err_branch_type).into())
+    match TypeSignature::least_supertype(ok_branch_type, err_branch_type) {
+        Ok(r) => Ok(r),
+        Err(e) => match e {
+            CheckErrors::TypeError(a, b) => Err(CheckErrors::MatchArmsMustMatch(a, b).into()),
+            e => Err(e.into()),
+        },
+    }
 }
 
 pub fn check_special_match(

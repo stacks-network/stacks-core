@@ -201,8 +201,10 @@ pub fn check_special_concat(
                     let (rhs_entry_type, rhs_max_len) =
                         (rhs_list.get_list_item_type(), rhs_list.get_max_len());
 
-                    let list_entry_type =
-                        TypeSignature::least_supertype(lhs_entry_type, rhs_entry_type)?;
+                    let list_entry_type = TypeSignature::least_supertype(
+                        lhs_entry_type.clone(),
+                        rhs_entry_type.clone(),
+                    )?;
                     let new_len = lhs_max_len
                         .checked_add(rhs_max_len)
                         .ok_or(CheckErrors::MaxLengthOverflow)?;
@@ -254,7 +256,7 @@ pub fn check_special_append(
 
             analysis_typecheck_cost(checker, &lhs_entry_type, &rhs_type)?;
 
-            let list_entry_type = TypeSignature::least_supertype(&lhs_entry_type, &rhs_type)?;
+            let list_entry_type = TypeSignature::least_supertype(lhs_entry_type, rhs_type)?;
             let new_len = lhs_max_len
                 .checked_add(1)
                 .ok_or(CheckErrors::MaxLengthOverflow)?;

@@ -59,7 +59,7 @@ fn check_special_list_cons(
             type_arg.type_size()?,
         )?;
     }
-    TypeSignature::parent_list_type(&typed_args)
+    TypeSignature::parent_list_type(typed_args)
         .map_err(|x| x.into())
         .map(TypeSignature::from)
 }
@@ -321,8 +321,7 @@ fn check_special_equals(
     let mut arg_type = arg_types[0].clone();
     for x_type in arg_types.drain(..) {
         analysis_typecheck_cost(checker, &x_type, &arg_type)?;
-        arg_type = TypeSignature::least_supertype(&x_type, &arg_type)
-            .map_err(|_| CheckErrors::TypeError(x_type, arg_type))?;
+        arg_type = TypeSignature::least_supertype(x_type, arg_type)?;
     }
 
     Ok(TypeSignature::BoolType)
@@ -337,15 +336,17 @@ fn check_special_if(
 
     checker.type_check_expects(&args[0], context, &TypeSignature::BoolType)?;
 
-    let arg_types = checker.type_check_all(&args[1..], context)?;
+    let mut arg_types = checker.type_check_all(&args[1..], context)?;
 
-    let expr1 = &arg_types[0];
-    let expr2 = &arg_types[1];
+    let expr1 = arg_types.remove(0);
+    let expr2 = arg_types.remove(0);
 
-    analysis_typecheck_cost(checker, expr1, expr2)?;
+    analysis_typecheck_cost(checker, &expr1, &expr2)?;
 
-    TypeSignature::least_supertype(expr1, expr2)
-        .map_err(|_| CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone()).into())
+    TypeSignature::least_supertype(expr1, expr2).map_err(|e| match e {
+        CheckErrors::TypeError(a, b) => CheckErrors::IfArmsMustMatch(a, b).into(),
+        e => e.into(),
+    })
 }
 
 fn check_contract_call(

@@ -738,7 +738,7 @@ impl Value {
         //     (e.g., from a (map...) call, or a (list...) call.
         //     this is a problem _if_ the static analyzer cannot already prevent
         //     this case. This applies to all the constructor size checks.
-        let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
+        let type_sig = TypeSignature::construct_parent_list_type(list_data.clone())?;
         Ok(Value::Sequence(SequenceData::List(ListData {
             data: list_data,
             type_signature: type_sig,
@@ -992,7 +992,8 @@ impl ListData {
     fn append(&mut self, other_seq: &mut ListData) -> Result<()> {
         let entry_type_a = self.type_signature.get_list_item_type();
         let entry_type_b = other_seq.type_signature.get_list_item_type();
-        let entry_type = TypeSignature::factor_out_no_type(&entry_type_a, &entry_type_b)?;
+        let entry_type =
+            TypeSignature::factor_out_no_type(entry_type_a.clone(), entry_type_b.clone())?;
         let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
         self.type_signature = ListTypeData::new_list(entry_type, max_len)?;
         self.data.append(&mut other_seq.data);

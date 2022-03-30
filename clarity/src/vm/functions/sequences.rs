@@ -196,16 +196,21 @@ pub fn special_append(
                 assert_eq!(size, 0);
                 return Value::list_from(vec![element]);
             }
-            if let Ok(next_entry_type) = TypeSignature::least_supertype(&entry_type, &element_type)
-            {
-                let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
-                data.push(element);
-                Ok(Value::Sequence(SequenceData::List(ListData {
-                    type_signature: next_type_signature,
-                    data,
-                })))
-            } else {
-                Err(CheckErrors::TypeValueError(entry_type, element).into())
+            match TypeSignature::least_supertype(entry_type, element_type) {
+                Ok(next_entry_type) => {
+                    let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
+                    data.push(element);
+                    Ok(Value::Sequence(SequenceData::List(ListData {
+                        type_signature: next_type_signature,
+                        data,
+                    })))
+                }
+                Err(e) => match e {
+                    CheckErrors::TypeError(a, _) => {
+                        Err(CheckErrors::TypeValueError(a, element).into())
+                    }
+                    e => Err(e.into()),
+                },
             }
         }
         _ => Err(CheckErrors::ExpectedListApplication.into()),

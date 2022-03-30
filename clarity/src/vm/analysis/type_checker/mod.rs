@@ -344,14 +344,18 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
         match self.function_return_tracker {
             Some(ref mut tracker) => {
-                let new_type = match tracker.take() {
-                    Some(expected_type) => {
-                        TypeSignature::least_supertype(&expected_type, &return_type).map_err(
-                            |_| CheckErrors::ReturnTypesMustMatch(expected_type, return_type),
-                        )?
-                    }
-                    None => return_type,
-                };
+                let new_type =
+                    match tracker.take() {
+                        Some(expected_type) => TypeSignature::least_supertype(
+                            expected_type,
+                            return_type,
+                        )
+                        .map_err(|e| match e {
+                            CheckErrors::TypeError(a, b) => CheckErrors::ReturnTypesMustMatch(a, b),
+                            e => e,
+                        })?,
+                        None => return_type,
+                    };
 
                 tracker.replace(new_type);
                 Ok(())
@@ -557,12 +561,17 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             }
             Ok(return_type) => {
                 let return_type = {
-                    if let Some(Some(ref expected)) = self.function_return_tracker {
+                    if let Some(Some(expected)) = &self.function_return_tracker {
                         // check if the computed return type matches the return type
                         //   of any early exits from the call graph (e.g., (expects ...) calls)
-                        TypeSignature::least_supertype(expected, &return_type).map_err(|_| {
-                            CheckErrors::ReturnTypesMustMatch(expected.clone(), return_type)
-                        })?
+                        TypeSignature::least_supertype(expected.clone(), return_type).map_err(
+                            |e| match e {
+                                CheckErrors::TypeError(a, b) => {
+                                    CheckErrors::ReturnTypesMustMatch(a, b)
+                                }
+                                e => e,
+                            },
+                        )?
                     } else {
                         return_type
                     }

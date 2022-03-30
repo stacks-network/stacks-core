@@ -662,11 +662,11 @@ impl TypeSignature {
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)
-    pub fn factor_out_no_type(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+    pub fn factor_out_no_type(a: TypeSignature, b: TypeSignature) -> Result<TypeSignature> {
         if a.is_no_type() {
-            Ok(b.clone())
+            Ok(b)
         } else if b.is_no_type() {
-            Ok(a.clone())
+            Ok(a)
         } else {
             Self::least_supertype(a, b)
         }
@@ -693,19 +693,31 @@ impl TypeSignature {
     ///  For ints, uints, principals, bools:
     ///      least_supertype(A, B) := if A != B, error, else A
     ///
-    pub fn least_supertype(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+    pub fn least_supertype(a: TypeSignature, b: TypeSignature) -> Result<TypeSignature> {
         match (a, b) {
             (
                 TupleType(TupleTypeSignature { type_map: types_a }),
-                TupleType(TupleTypeSignature { type_map: types_b }),
+                TupleType(TupleTypeSignature {
+                    type_map: mut types_b,
+                }),
             ) => {
+                if !types_a.keys().eq(types_b.keys()) {
+                    Err(CheckErrors::TypeError(
+                        TupleType(TupleTypeSignature {
+                            type_map: types_a.clone(),
+                        }),
+                        TupleType(TupleTypeSignature {
+                            type_map: types_b.clone(),
+                        }),
+                    ))?
+                }
                 let mut type_map_out = BTreeMap::new();
-                for (name, entry_a) in types_a.iter() {
-                    let entry_b = types_b
-                        .get(name)
-                        .ok_or(CheckErrors::TypeError(a.clone(), b.clone()))?;
+                for (name, entry_a) in types_a.into_iter() {
+                    let entry_b = types_b.remove(&name).expect(
+                        "ERR: least_supertype failed to correctly check for matching tuple keys",
+                    );
                     let entry_out = Self::least_supertype(entry_a, entry_b)?;
-                    type_map_out.insert(name.clone(), entry_out);
+                    type_map_out.insert(name, entry_out);
                 }
                 Ok(TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
                    .expect("ERR: least_supertype attempted to construct a too-large supertype of two types"))
@@ -720,48 +732,46 @@ impl TypeSignature {
                     entry_type: entry_b,
                 })),
             ) => {
-                let entry_type = if *len_a == 0 {
-                    *(entry_b.clone())
-                } else if *len_b == 0 {
-                    *(entry_a.clone())
+                let entry_type = if len_a == 0 {
+                    *entry_b
+                } else if len_b == 0 {
+                    *entry_a
                 } else {
-                    Self::least_supertype(entry_a, entry_b)?
+                    Self::least_supertype(*entry_a, *entry_b)?
                 };
                 let max_len = cmp::max(len_a, len_b);
-                Ok(Self::list_of(entry_type, *max_len)
+                Ok(Self::list_of(entry_type, max_len)
                    .expect("ERR: least_supertype attempted to construct a too-large supertype of two types"))
             }
             (ResponseType(resp_a), ResponseType(resp_b)) => {
-                let ok_type = Self::factor_out_no_type(&resp_a.0, &resp_b.0)?;
-                let err_type = Self::factor_out_no_type(&resp_a.1, &resp_b.1)?;
+                let ok_type = Self::factor_out_no_type(resp_a.0, resp_b.0)?;
+                let err_type = Self::factor_out_no_type(resp_a.1, resp_b.1)?;
                 Ok(Self::new_response(ok_type, err_type)?)
             }
             (OptionalType(some_a), OptionalType(some_b)) => {
-                let some_type = Self::factor_out_no_type(some_a, some_b)?;
+                let some_type = Self::factor_out_no_type(*some_a, *some_b)?;
                 Ok(Self::new_option(some_type)?)
             }
             (
                 SequenceType(SequenceSubtype::BufferType(buff_a)),
                 SequenceType(SequenceSubtype::BufferType(buff_b)),
             ) => {
-                let buff_len = if u32::from(buff_a) > u32::from(buff_b) {
+                let buff_len = if u32::from(&buff_a) > u32::from(&buff_b) {
                     buff_a
                 } else {
                     buff_b
-                }
-                .clone();
+                };
                 Ok(SequenceType(SequenceSubtype::BufferType(buff_len)))
             }
             (
                 SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(string_a))),
                 SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(string_b))),
             ) => {
-                let str_len = if u32::from(string_a) > u32::from(string_b) {
+                let str_len = if u32::from(&string_a) > u32::from(&string_b) {
                     string_a
                 } else {
                     string_b
-                }
-                .clone();
+                };
                 Ok(SequenceType(SequenceSubtype::StringType(
                     StringSubtype::ASCII(str_len),
                 )))
@@ -770,22 +780,21 @@ impl TypeSignature {
                 SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(string_a))),
                 SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(string_b))),
             ) => {
-                let str_len = if u32::from(string_a) > u32::from(string_b) {
+                let str_len = if u32::from(&string_a) > u32::from(&string_b) {
                     string_a
                 } else {
                     string_b
-                }
-                .clone();
+                };
                 Ok(SequenceType(SequenceSubtype::StringType(
                     StringSubtype::UTF8(str_len),
                 )))
             }
-            (NoType, x) | (x, NoType) => Ok(x.clone()),
+            (NoType, x) | (x, NoType) => Ok(x),
             (x, y) => {
                 if x == y {
-                    Ok(x.clone())
+                    Ok(x)
                 } else {
-                    Err(CheckErrors::TypeError(a.clone(), b.clone()))
+                    Err(CheckErrors::TypeError(x.clone(), y.clone()))
                 }
             }
         }
@@ -822,21 +831,61 @@ impl TypeSignature {
         }
     }
 
+    pub fn type_of_owned(x: Value) -> TypeSignature {
+        match x {
+            Value::Principal(_) => PrincipalType,
+            Value::Int(_v) => IntType,
+            Value::UInt(_v) => UIntType,
+            Value::Bool(_v) => BoolType,
+            Value::Tuple(v) => TupleType(v.type_signature),
+            Value::Sequence(SequenceData::List(list_data)) => {
+                TypeSignature::SequenceType(SequenceSubtype::ListType(list_data.type_signature))
+            }
+            Value::Sequence(SequenceData::Buffer(buff_data)) => buff_data.type_signature(),
+            Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => {
+                ascii_data.type_signature()
+            }
+            Value::Sequence(SequenceData::String(CharType::UTF8(utf8_data))) => {
+                utf8_data.type_signature()
+            }
+            Value::Optional(v) => match v.data {
+                Some(v) => TypeSignature::new_option(TypeSignature::type_of_owned(*v)),
+                None => TypeSignature::new_option(TypeSignature::NoType),
+            }
+            .unwrap(),
+            Value::Response(v) => match v.committed {
+                true => TypeSignature::new_response(
+                    TypeSignature::type_of_owned(*v.data),
+                    TypeSignature::NoType,
+                ),
+                false => TypeSignature::new_response(
+                    TypeSignature::NoType,
+                    TypeSignature::type_of_owned(*v.data),
+                ),
+            }
+            .unwrap(),
+        }
+    }
+
     // Checks if resulting type signature is of valid size.
-    pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData> {
-        let children_types: Vec<_> = args.iter().map(|x| TypeSignature::type_of(x)).collect();
-        TypeSignature::parent_list_type(&children_types)
+    pub fn construct_parent_list_type(args: Vec<Value>) -> Result<ListTypeData> {
+        let children_types: Vec<_> = args
+            .into_iter()
+            .map(|x| TypeSignature::type_of_owned(x))
+            .collect();
+        TypeSignature::parent_list_type(children_types)
     }
 
     pub fn parent_list_type(
-        children: &[TypeSignature],
+        mut children: Vec<TypeSignature>,
     ) -> std::result::Result<ListTypeData, CheckErrors> {
-        if let Some((first, rest)) = children.split_first() {
-            let mut current_entry_type = first.clone();
-            for next_entry in rest.iter() {
-                current_entry_type = Self::least_supertype(&current_entry_type, next_entry)?;
+        let children_len = children.len();
+        if children_len > 0 {
+            let mut current_entry_type = children.remove(0);
+            for next_entry in children.into_iter() {
+                current_entry_type = Self::least_supertype(current_entry_type, next_entry)?;
             }
-            let len = u32::try_from(children.len()).map_err(|_| CheckErrors::ValueTooLarge)?;
+            let len = u32::try_from(children_len).map_err(|_| CheckErrors::ValueTooLarge)?;
             ListTypeData::new_list(current_entry_type, len)
         } else {
             Ok(TypeSignature::empty_list())
