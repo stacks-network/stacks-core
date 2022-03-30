@@ -52,49 +52,95 @@ const C32_CHARACTERS_MAP: [i8; 128] = [
 ];
 
 fn c32_encode(input_bytes: &[u8]) -> String {
-    let mut result = vec![];
+    let capacity = get_max_c32_encode_output_len(input_bytes.len());
+    let mut buffer: Vec<u8> = vec![0; capacity];
+    let bytes_written = c32_encode_to_buffer(input_bytes, &mut buffer).unwrap();
+    buffer.truncate(bytes_written);
+    String::from_utf8(buffer).unwrap()
+}
+
+/// Calculate the maximum C32 encoded output size given an input size.
+/// Each C32 character encodes 5 bits.
+fn get_max_c32_encode_output_len(input_len: usize) -> usize {
+    let capacity = (input_len as f64 + (input_len % 5) as f64) / 5.0 * 8.0;
+    capacity as usize
+}
+
+/// C32 encodes input bytes into an output buffer. Returns the number of bytes written to the
+/// output buffer.
+/// # Arguments
+/// * `output_buffer` - A mutable slice where the C32 encoded bytes are written. An error
+/// result is returned if the length is smaller than the maximum possible output length. Each
+/// C32 character encodes 5 bits; use `get_max_c32_encode_output_len` to easily determine the
+/// minimum length.
+///
+/// # Examples
+///
+/// ```no_run
+/// let input_bytes = b"hello world";
+/// let capacity = get_max_c32_encode_output_len(input_bytes.len());
+/// let mut buffer: Vec<u8> = vec![0; capacity];
+/// let bytes_written = c32_encode_to_buffer(input_bytes, &mut buffer).unwrap();
+/// buffer.truncate(bytes_written);
+/// String::from_utf8(buffer)
+/// ```
+fn c32_encode_to_buffer(input_bytes: &[u8], output_buffer: &mut [u8]) -> Result<usize, Error> {
+    let min_len = get_max_c32_encode_output_len(input_bytes.len());
+    if output_buffer.len() < min_len {
+        Err(Error::Other(format!(
+            "C32 encode output buffer is too small, given size {}, need minimum size {}",
+            output_buffer.len(),
+            min_len
+        )))?
+    }
     let mut carry = 0;
     let mut carry_bits = 0;
+    let mut position = 0;
 
     for current_value in input_bytes.iter().rev() {
         let low_bits_to_take = 5 - carry_bits;
         let low_bits = current_value & ((1 << low_bits_to_take) - 1);
         let c32_value = (low_bits << carry_bits) + carry;
-        result.push(C32_CHARACTERS[c32_value as usize]);
+
+        output_buffer[position] = C32_CHARACTERS[c32_value as usize];
+        position += 1;
+
         carry_bits = (8 + carry_bits) - 5;
         carry = current_value >> (8 - carry_bits);
 
         if carry_bits >= 5 {
             let c32_value = carry & ((1 << 5) - 1);
-            result.push(C32_CHARACTERS[c32_value as usize]);
+
+            output_buffer[position] = C32_CHARACTERS[c32_value as usize];
+            position += 1;
+
             carry_bits = carry_bits - 5;
             carry = carry >> 5;
         }
     }
 
     if carry_bits > 0 {
-        result.push(C32_CHARACTERS[carry as usize]);
+        output_buffer[position] = C32_CHARACTERS[carry as usize];
+        position += 1;
     }
 
     // remove leading zeros from c32 encoding
-    while let Some(v) = result.pop() {
-        if v != C32_CHARACTERS[0] {
-            result.push(v);
-            break;
-        }
+    while position > 0 && output_buffer[position - 1] == C32_CHARACTERS[0] {
+        position -= 1;
     }
 
     // add leading zeros from input.
     for current_value in input_bytes.iter() {
         if *current_value == 0 {
-            result.push(C32_CHARACTERS[0]);
+            output_buffer[position] = C32_CHARACTERS[0];
+            position += 1;
         } else {
             break;
         }
     }
 
-    let result: Vec<u8> = result.drain(..).rev().collect();
-    String::from_utf8(result).unwrap()
+    output_buffer[..position].reverse();
+    Ok(position)
 }
 
 fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
@@ -164,24 +210,32 @@ fn double_sha256_checksum(data: &[u8]) -> Vec<u8> {
     tmp[0..4].to_vec()
 }
 
-fn c32_check_encode(version: u8, data: &[u8]) -> Result<String, Error> {
+fn c32_check_encode_prefixed(version: u8, data: &[u8], prefix: u8) -> Result<String, Error> {
     if version >= 32 {
         return Err(Error::InvalidVersion(version));
     }
 
-    let mut check_data = vec![version];
-    check_data.extend_from_slice(data);
-    let checksum = double_sha256_checksum(&check_data);
+    let data_len = data.len();
+    let mut buffer: Vec<u8> = vec![0; data_len + 4];
 
-    let mut encoding_data = data.to_vec();
-    encoding_data.extend_from_slice(&checksum);
+    let checksum_buffer = Sha256::digest({
+        Sha256::new()
+            .chain_update(&[version])
+            .chain_update(data)
+            .finalize()
+    });
 
-    // working with ascii strings is awful.
-    let mut c32_string = c32_encode(&encoding_data).into_bytes();
-    let version_char = C32_CHARACTERS[version as usize];
-    c32_string.insert(0, version_char);
+    buffer[..data_len].copy_from_slice(data);
+    buffer[data_len..(data_len + 4)].copy_from_slice(&checksum_buffer[0..4]);
 
-    Ok(String::from_utf8(c32_string).unwrap())
+    let capacity = get_max_c32_encode_output_len(buffer.len()) + 2;
+    let mut result: Vec<u8> = vec![0; capacity];
+
+    result[0] = prefix;
+    result[1] = C32_CHARACTERS[version as usize];
+    let bytes_written = c32_encode_to_buffer(&buffer, &mut result[2..])?;
+    result.truncate(bytes_written + 2);
+    Ok(String::from_utf8(result).unwrap())
 }
 
 fn c32_check_decode(check_data_unsanitized: &str) -> Result<(u8, Vec<u8>), Error> {
@@ -197,7 +251,7 @@ fn c32_check_decode(check_data_unsanitized: &str) -> Result<(u8, Vec<u8>), Error
     let (version, data) = check_data_unsanitized.split_at(1);
 
     let data_sum_bytes = c32_decode_ascii(data)?;
-    if data_sum_bytes.len() < 5 {
+    if data_sum_bytes.len() < 4 {
         return Err(Error::InvalidCrockford32);
     }
 
@@ -235,19 +289,40 @@ pub fn c32_address_decode(c32_address_str: &str) -> Result<(u8, Vec<u8>), Error>
 }
 
 pub fn c32_address(version: u8, data: &[u8]) -> Result<String, Error> {
-    let c32_string = c32_check_encode(version, data)?;
-    Ok(format!("S{}", c32_string))
+    c32_check_encode_prefixed(version, data, b'S')
 }
 
 #[cfg(test)]
 mod test {
+    use super::super::c32_old::{
+        c32_address as c32_address_old, c32_address_decode as c32_address_decode_old,
+    };
     use super::*;
-    use rand::Rng;
+    use rand::{Rng, RngCore};
     use util::hash::hex_bytes;
-    use super::super::c32_old::{c32_address as c32_address_old, c32_address_decode as c32_address_decode_old};
 
     #[test]
-    fn old_c32_validation() {
+    fn c32_encode_validate_legacy() {
+        for n in 0..5000 {
+            // random version
+            let random_version: u8 = rand::thread_rng().gen_range(0, 31);
+
+            // random length
+            let input_len: usize = rand::thread_rng().gen_range(0, 500);
+
+            // random bytes
+            let mut random_bytes = vec![0u8; input_len];
+            rand::thread_rng().fill_bytes(&mut random_bytes);
+
+            let addr_new = c32_address(random_version, &random_bytes).unwrap();
+            let addr_old = c32_address_old(random_version, &random_bytes).unwrap();
+
+            assert_eq!(addr_new, addr_old);
+        }
+    }
+
+    #[test]
+    fn c32_decode_validate_legacy() {
         for n in 0..5000 {
             // random version
             let random_version: u8 = rand::thread_rng().gen_range(0, 31);

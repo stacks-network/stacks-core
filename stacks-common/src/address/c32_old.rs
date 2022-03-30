@@ -190,7 +190,7 @@ fn c32_check_decode(check_data_unsanitized: &str) -> Result<(u8, Vec<u8>), Error
     let (version, data) = check_data.split_at(1);
 
     let data_sum_bytes = c32_decode(data)?;
-    if data_sum_bytes.len() < 5 {
+    if data_sum_bytes.len() < 4 {
         return Err(Error::InvalidCrockford32);
     }
 
