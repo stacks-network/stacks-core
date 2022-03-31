@@ -1,4 +1,5 @@
 use std::convert::TryInto;
+use std::fmt::Formatter;
 
 use burnchains::Txid;
 use serde::de::Error as DeserError;
@@ -19,7 +20,7 @@ use super::StacksHyperOpType;
 
 /// Parsing struct for the transaction event types of the
 /// `stacks-node` events API
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum TxEventType {
     ContractEvent,
     Other,
@@ -27,7 +28,7 @@ pub enum TxEventType {
 
 /// Parsing struct for the contract_event field in transaction events
 /// of the `stacks-node` events API
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct ContractEvent {
     #[serde(deserialize_with = "deser_contract_identifier")]
     pub contract_identifier: QualifiedContractIdentifier,
@@ -38,7 +39,7 @@ pub struct ContractEvent {
 
 /// Parsing struct for the transaction events of the `stacks-node`
 /// events API
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct NewBlockTxEvent {
     #[serde(deserialize_with = "deser_txid")]
     pub txid: Txid,
@@ -61,6 +62,20 @@ pub struct NewBlock {
     #[serde(deserialize_with = "deser_stacks_block_id")]
     pub parent_index_block_hash: StacksBlockId,
     pub events: Vec<NewBlockTxEvent>,
+}
+
+impl std::fmt::Debug for NewBlock {
+    /// Shortened debug string, for logging.
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "NewBlock(hash={:?}, parent_hash={:?}, block_height={}, num_events={})",
+            &self.index_block_hash,
+            &self.parent_index_block_hash,
+            self.block_height,
+            self.events.len()
+        )
+    }
 }
 
 /// Method for deserializing a ClarityValue from the `raw_value` field of contract

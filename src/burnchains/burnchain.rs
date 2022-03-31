@@ -180,7 +180,16 @@ impl Burnchain {
                 PoxConstants::mainnet_default(),
                 PEER_VERSION_MAINNET,
             ),
+            ("stacks_layer_1", "hyperchain") => (
+                BurnchainParameters::hyperchain_mocknet(),
+                PoxConstants::mainnet_default(),
+                PEER_VERSION_MAINNET,
+            ),
             (_, _) => {
+                warn!(
+                    "Burnchain parameters not supported. chain_name: {}, network_name: {}",
+                    &chain_name, &network_name
+                );
                 return Err(burnchain_error::UnsupportedBurnchain);
             }
         };
@@ -631,7 +640,7 @@ impl Burnchain {
         let total = sync_height - self.first_block_height;
         let progress = (end_block - self.first_block_height) as f32 / total as f32 * 100.;
         info!(
-            "Syncing Bitcoin blocks: {:.1}% ({} to {} out of {})",
+            "Syncing STACKS MAINCHAIN blocks: {:.1}% ({} to {} out of {})",
             progress, start_block, end_block, sync_height
         );
 

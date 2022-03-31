@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use rand::RngCore;
 
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
@@ -29,12 +30,19 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
+use crate::burnchains::l1_events::L1Controller;
+use crate::burnchains::mock_events::MockController;
+use crate::BurnchainController;
+
 const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
 const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
+
+pub const BURNCHAIN_NAME_STACKS_L1: &str = "stacks_layer_1";
+pub const BURNCHAIN_NAME_MOCKSTACK: &str = "mockstack";
 
 #[derive(Clone, Deserialize, Default)]
 pub struct ConfigFile {
@@ -982,6 +990,11 @@ impl Default for BurnchainConfig {
 }
 
 impl BurnchainConfig {
+    /// Does this configuration need a L1 observer to be spawned?
+    pub fn spawn_l1_observer(&self) -> bool {
+        self.chain == BURNCHAIN_NAME_STACKS_L1
+    }
+
     pub fn get_rpc_url(&self) -> String {
         let scheme = match self.rpc_ssl {
             true => "https://",
@@ -1183,6 +1196,27 @@ impl From<FeeEstimationConfigFile> for FeeEstimationConfig {
 }
 
 impl Config {
+    /// Factory function based on `self.burnchain.chain`.
+    pub fn make_burnchain_controller(
+        &self,
+        coordinator: CoordinatorChannels,
+    ) -> Option<Box<dyn BurnchainController + Send>> {
+        match self.burnchain.chain.as_str() {
+            BURNCHAIN_NAME_MOCKSTACK => {
+                Some(Box::new(MockController::new(self.clone(), coordinator)))
+            }
+            BURNCHAIN_NAME_STACKS_L1 => {
+                Some(Box::new(L1Controller::new(self.clone(), coordinator)))
+            }
+            _ => {
+                warn!(
+                    "No matching controller for `chain`: {}",
+                    self.burnchain.chain.as_str()
+                );
+                None
+            }
+        }
+    }
     pub fn make_cost_estimator(&self) -> Option<Box<dyn CostEstimator>> {
         let cost_estimator: Box<dyn CostEstimator> =
             match self.estimation.cost_estimator.as_ref()? {

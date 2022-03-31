@@ -1,9 +1,11 @@
 use super::operations::BurnchainOpSigner;
 
 use std::fmt;
+use std::sync::Arc;
 use std::time::Instant;
 
 use stacks::burnchains;
+use stacks::burnchains::events::NewBlock;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -16,6 +18,9 @@ use stacks::core::StacksEpoch;
 /// commitments, and uses them to produce the next simulated
 /// burnchain block.
 pub mod mock_events;
+
+/// This module is for production, it's driven by the L1 chain.
+pub mod l1_events;
 
 #[derive(Debug)]
 pub enum Error {
@@ -38,9 +43,36 @@ impl From<burnchains::Error> for Error {
     }
 }
 
+pub trait BurnchainChannel: Send + Sync {
+    /// Push a block into the channel.
+    fn push_block(&self, new_block: NewBlock);
+
+    /// Get a single block according to `fetch_height`.
+    /// TODO: What is `fetch_height` relative to?
+    fn get_block(&self, fetch_height: u64) -> Option<NewBlock>;
+
+    /// Fill `into` according to the relative heights.
+    /// If `end_block` is None, fill until the heighest block.
+    fn fill_blocks(
+        &self,
+        into: &mut Vec<NewBlock>,
+        start_block: u64,
+        end_block: Option<u64>,
+    ) -> Result<(), stacks::burnchains::Error>;
+
+    /// Get the height of the latest block.
+    /// TODO: Is this right?
+    fn highest_block(&self) -> u64;
+}
+/// The `BurnchainController` manages overall relations with the underlying burnchain.
+/// In the case of a hyper-chain, the burnchain is the Stacks L1 chain.
 pub trait BurnchainController {
     fn start(&mut self, target_block_height_opt: Option<u64>)
         -> Result<(BurnchainTip, u64), Error>;
+
+    /// Returns a copy of the channel used to push
+    fn get_channel(&self) -> Arc<dyn BurnchainChannel>;
+
     fn submit_operation(
         &mut self,
         operation: BlockstackOperationType,
@@ -84,6 +116,9 @@ impl BurnchainController for PanicController {
         _target_block_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), Error> {
         panic!()
+    }
+    fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
+        panic!("tbd")
     }
 
     fn submit_operation(

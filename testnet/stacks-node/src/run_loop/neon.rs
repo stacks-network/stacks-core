@@ -24,6 +24,8 @@ use stacks::chainstate::coordinator::{
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, AttachmentInstance};
 
+use crate::run_loop::l1_observer;
+
 use crate::burnchains::mock_events::MockController;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::StacksNode;
@@ -278,10 +280,12 @@ impl RunLoop {
         &mut self,
         _burnchain_opt: Option<Burnchain>,
         coordinator_senders: CoordinatorChannels,
-    ) -> MockController {
+    ) -> Box<dyn BurnchainController> {
         // Initialize and start the burnchain.
-        let mut burnchain_controller =
-            MockController::new(self.config.clone(), coordinator_senders);
+        let mut burnchain_controller = self
+            .config
+            .make_burnchain_controller(coordinator_senders)
+            .expect("couldn't create burnchain controller");
 
         let burnchain_config = burnchain_controller.get_burnchain();
         let epochs = burnchain_controller.get_stacks_epochs();
@@ -298,7 +302,7 @@ impl RunLoop {
             panic!();
         }
 
-        info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
+        info!("Start syncing STACKS L1 HEADERS, feel free to grab a cup of coffee, this can take a while");
 
         let target_burnchain_block_height = match burnchain_config
             .get_highest_burnchain_block()
@@ -511,6 +515,12 @@ impl RunLoop {
         let sortdb = burnchain.sortdb_mut();
         let mut sortition_db_height = RunLoop::get_sortition_db_height(&sortdb, &burnchain_config);
 
+        let l1_observer_signal = if self.config.burnchain.spawn_l1_observer() {
+            Some(l1_observer::spawn(burnchain.get_channel()))
+        } else {
+            None
+        };
+
         // Start the runloop
         debug!("Begin run loop");
         self.start_prometheus();
@@ -543,6 +553,7 @@ impl RunLoop {
 
                 coordinator_senders.stop_chains_coordinator();
                 coordinator_thread_handle.join().unwrap();
+                l1_observer_signal.map(|signal| signal.send(()).unwrap());
                 node.join();
 
                 info!("Exiting stacks-node");
