@@ -52,6 +52,9 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 
 pub mod leader_block_commit;
 pub mod deposit_ft;
+pub mod deposit_nft;
+pub mod withdraw_ft;
+pub mod withdraw_nft;
 
 /// This module contains all burn-chain operations
 
@@ -222,12 +225,69 @@ pub struct DepositFtOp {
     /// Hash of the base chain block that produced this commit op.
     pub burn_header_hash: BurnchainHeaderHash,
 
-    // TODO(#13): add docs
+    // Contract ID on L1 chain for this fungible token
     pub l1_contract_id: QualifiedContractIdentifier,
+    // Contract ID on hyperchain for this fungible token
     pub hc_contract_id: QualifiedContractIdentifier,
+    // Name of fungible token
     pub ft_name: String,
+    // Amount of the fungible token that was deposited
     pub amount: u128,
+    // The principal that performed the deposit
     pub sender: PrincipalData,
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct DepositNftOp {
+    /// Transaction ID of this commit op
+    pub txid: Txid,
+    /// Hash of the base chain block that produced this commit op.
+    pub burn_header_hash: BurnchainHeaderHash,
+
+    // Contract ID on L1 chain for this NFT
+    pub l1_contract_id: QualifiedContractIdentifier,
+    // Contract ID on hyperchain for this NFT
+    pub hc_contract_id: QualifiedContractIdentifier,
+    // The ID of the NFT transferred
+    pub id: u128,
+    // The principal that performed the deposit
+    pub sender: PrincipalData,
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct WithdrawFtOp {
+    /// Transaction ID of this commit op
+    pub txid: Txid,
+    /// Hash of the base chain block that produced this commit op.
+    pub burn_header_hash: BurnchainHeaderHash,
+
+    // Contract ID on L1 chain for this fungible token
+    pub l1_contract_id: QualifiedContractIdentifier,
+    // Contract ID on hyperchain for this fungible token
+    pub hc_contract_id: QualifiedContractIdentifier,
+    // The name of the fungible token
+    pub ft_name: String,
+    // Amount of the fungible token that was deposited
+    pub amount: u128,
+    // The principal the contract is sending the fungible token to
+    pub recipient: PrincipalData,
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct WithdrawNftOp {
+    /// Transaction ID of this commit op
+    pub txid: Txid,
+    /// Hash of the base chain block that produced this commit op.
+    pub burn_header_hash: BurnchainHeaderHash,
+
+    // Contract ID on L1 chain for this NFT
+    pub l1_contract_id: QualifiedContractIdentifier,
+    // Contract ID on hyperchain for this NFT
+    pub hc_contract_id: QualifiedContractIdentifier,
+    // The ID of the NFT being withdrawn
+    pub id: u128,
+    // The principal the contract is sending the NFT to
+    pub recipient: PrincipalData,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
@@ -266,8 +326,9 @@ pub struct UserBurnSupportOp {
 pub enum BlockstackOperationType {
     LeaderBlockCommit(LeaderBlockCommitOp),
     DepositFt(DepositFtOp),
-    // TODO(#13)
-    // DepositNft(DepositNftOp)
+    DepositNft(DepositNftOp),
+    WithdrawFt(WithdrawFtOp),
+    WithdrawNft(WithdrawNftOp)
 }
 
 impl From<LeaderBlockCommitOp> for BlockstackOperationType {
@@ -282,6 +343,24 @@ impl From<DepositFtOp> for BlockstackOperationType {
     }
 }
 
+impl From<DepositNftOp> for BlockstackOperationType {
+    fn from(op: DepositNftOp) -> Self {
+        BlockstackOperationType::DepositNft(op)
+    }
+}
+
+impl From<WithdrawFtOp> for BlockstackOperationType {
+    fn from(op: WithdrawFtOp) -> Self {
+        BlockstackOperationType::WithdrawFt(op)
+    }
+}
+
+impl From<WithdrawNftOp> for BlockstackOperationType {
+    fn from(op: WithdrawNftOp) -> Self {
+        BlockstackOperationType::WithdrawNft(op)
+    }
+}
+
 impl BlockstackOperationType {
     pub fn txid(&self) -> Txid {
         self.txid_ref().clone()
@@ -291,7 +370,9 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderBlockCommit(ref data) => &data.txid,
             BlockstackOperationType::DepositFt(ref data) => &data.txid,
-            // TODO(#13)
+            BlockstackOperationType::DepositNft(ref data) => &data.txid,
+            BlockstackOperationType::WithdrawFt(ref data) => &data.txid,
+            BlockstackOperationType::WithdrawNft(ref data) => &data.txid,
         }
     }
 
@@ -307,6 +388,9 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::DepositFt(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::DepositNft(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::WithdrawFt(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::WithdrawNft(ref data) => data.burn_header_hash.clone(),
 
         }
     }
@@ -320,7 +404,15 @@ impl BlockstackOperationType {
             BlockstackOperationType::DepositFt(ref mut data) => {
                 data.set_burn_height(height)
             }
-
+            BlockstackOperationType::DepositNft(ref mut data) => {
+                data.set_burn_height(height)
+            }
+            BlockstackOperationType::WithdrawFt(ref mut data) => {
+                data.set_burn_height(height)
+            }
+            BlockstackOperationType::WithdrawNft(ref mut data) => {
+                data.set_burn_height(height)
+            }
         };
     }
 
@@ -333,6 +425,15 @@ impl BlockstackOperationType {
             BlockstackOperationType::DepositFt(ref mut data) => {
                 data.burn_header_hash = hash
             }
+            BlockstackOperationType::DepositNft(ref mut data) => {
+                data.burn_header_hash = hash
+            }
+            BlockstackOperationType::WithdrawFt(ref mut data) => {
+                data.burn_header_hash = hash
+            }
+            BlockstackOperationType::WithdrawNft(ref mut data) => {
+                data.burn_header_hash = hash
+            }
         };
     }
 }
@@ -342,6 +443,9 @@ impl fmt::Display for BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderBlockCommit(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::DepositFt(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::DepositNft(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::WithdrawFt(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::WithdrawNft(ref op) => write!(f, "{:?}", op),
         }
     }
 }

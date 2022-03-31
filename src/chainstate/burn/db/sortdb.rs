@@ -2865,10 +2865,55 @@ impl<'a> SortitionHandleTx<'a> {
                     "sender" => %op.sender,
                 );
 
-                // TODO(#13) - store operation!
+                // TODO(hyperchains) - store operation!
                 Ok(())
             }
-            // TODO(#13)
+            BlockstackOperationType::DepositNft(ref op) => {
+                info!(
+                    "ACCEPTED burnchain operation";
+                    "op" => "deposit_nft",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "l1_contract_id" => %op.l1_contract_id,
+                    "hc_contract_id" => %op.hc_contract_id,
+                    "id" => %op.id,
+                    "sender" => %op.sender,
+                );
+
+                // TODO(hyperchains) - store operation!
+                Ok(())
+            }
+            BlockstackOperationType::WithdrawFt(ref op) => {
+                info!(
+                    "ACCEPTED burnchain operation";
+                    "op" => "withdraw_ft",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "l1_contract_id" => %op.l1_contract_id,
+                    "hc_contract_id" => %op.hc_contract_id,
+                    "ft_name" => %op.ft_name,
+                    "amount" => %op.amount,
+                    "recipient" => %op.recipient,
+                );
+
+                // TODO(hyperchains) - store operation!
+                Ok(())
+            }
+            BlockstackOperationType::WithdrawNft(ref op) => {
+                info!(
+                    "ACCEPTED burnchain operation";
+                    "op" => "withdraw_nft",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "l1_contract_id" => %op.l1_contract_id,
+                    "hc_contract_id" => %op.hc_contract_id,
+                    "id" => %op.id,
+                    "recipient" => %op.recipient,
+                );
+
+                // TODO(hyperchains) - store operation!
+                Ok(())
+            }
         }
     }
 

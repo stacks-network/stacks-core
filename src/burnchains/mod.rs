@@ -204,14 +204,25 @@ pub enum StacksHyperOpType {
         amount: u128,
         sender: PrincipalData,
     },
-    // TODO(#13)
-    // DepositNft {
-    //     l1_contract_id: QualifiedContractIdentifier,
-    //     hc_contract_id: QualifiedContractIdentifier,
-    //     nft_name: String,
-    //     id: u128,
-    //     sender: PrincipalData,
-    // }
+    DepositNft {
+        l1_contract_id: QualifiedContractIdentifier,
+        hc_contract_id: QualifiedContractIdentifier,
+        id: u128,
+        sender: PrincipalData,
+    },
+    WithdrawFt {
+        l1_contract_id: QualifiedContractIdentifier,
+        hc_contract_id: QualifiedContractIdentifier,
+        name: String,
+        amount: u128,
+        recipient: PrincipalData,
+    },
+    WithdrawNft {
+        l1_contract_id: QualifiedContractIdentifier,
+        hc_contract_id: QualifiedContractIdentifier,
+        id: u128,
+        recipient: PrincipalData,
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]

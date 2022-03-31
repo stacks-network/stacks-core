@@ -75,7 +75,52 @@ impl<'a> SortitionHandleTx<'a> {
                     BurnchainError::OpError(e)
                 })
             }
-            // TODO(#13)
+            BlockstackOperationType::DepositNft(ref op) => {
+                op.check(burnchain, self, reward_info).map_err(|e| {
+                    warn!(
+                        "REJECTED burnchain operation";
+                        "op" => "deposit_nft",
+                        "l1_stacks_block_id" => %op.burn_header_hash,
+                        "txid" => %op.txid,
+                        "l1_contract_id" => %op.l1_contract_id,
+                        "hc_contract_id" => %op.hc_contract_id,
+                        "id" => %op.id,
+                        "sender" => %op.sender,
+                    );
+                    BurnchainError::OpError(e)
+                })
+            }
+            BlockstackOperationType::WithdrawFt(ref op) => {
+                op.check(burnchain, self, reward_info).map_err(|e| {
+                    warn!(
+                        "REJECTED burnchain operation";
+                        "op" => "withdraw_ft",
+                        "l1_stacks_block_id" => %op.burn_header_hash,
+                        "txid" => %op.txid,
+                        "l1_contract_id" => %op.l1_contract_id,
+                        "hc_contract_id" => %op.hc_contract_id,
+                        "ft_name" => %op.ft_name,
+                        "amount" => %op.amount,
+                        "recipient" => %op.recipient,
+                    );
+                    BurnchainError::OpError(e)
+                })
+            }
+            BlockstackOperationType::WithdrawNft(ref op) => {
+                op.check(burnchain, self, reward_info).map_err(|e| {
+                    warn!(
+                        "REJECTED burnchain operation";
+                        "op" => "withdraw_nft",
+                        "l1_stacks_block_id" => %op.burn_header_hash,
+                        "txid" => %op.txid,
+                        "l1_contract_id" => %op.l1_contract_id,
+                        "hc_contract_id" => %op.hc_contract_id,
+                        "id" => %op.id,
+                        "recipient" => %op.recipient,
+                    );
+                    BurnchainError::OpError(e)
+                })
+            }
         }
     }
 

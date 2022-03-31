@@ -105,6 +105,7 @@ Clarinet.test({
                     types.uint(1),
                     types.principal(charlie.address),
                     types.principal(nft_contract.contract_id),
+                    types.principal(nft_contract.contract_id),
                 ],
                 charlie.address),
         ]);
@@ -139,6 +140,7 @@ Clarinet.test({
                     types.uint(1),
                     types.principal(charlie.address),
                     types.principal(nft_contract.contract_id),
+                    types.principal(nft_contract.contract_id),
                 ],
                 charlie.address),
         ]);
@@ -159,6 +161,7 @@ Clarinet.test({
                     types.uint(1),
                     types.principal(charlie.address),
                     types.principal(nft_contract.contract_id),
+                    types.principal(nft_contract.contract_id),
                 ],
                 charlie.address),
         ]);
@@ -172,6 +175,7 @@ Clarinet.test({
                 [
                     types.uint(1),
                     types.principal(bob.address),
+                    types.principal(nft_contract.contract_id),
                     types.principal(nft_contract.contract_id),
                 ],
                 charlie.address),
@@ -187,6 +191,7 @@ Clarinet.test({
                     types.uint(1),
                     types.principal(bob.address),
                     types.principal(nft_contract.contract_id),
+                    types.principal(nft_contract.contract_id),
                 ],
                 bob.address),
         ]);
@@ -200,6 +205,7 @@ Clarinet.test({
                 [
                     types.uint(1),
                     types.principal(bob.address),
+                    types.principal(nft_contract.contract_id),
                     types.principal(nft_contract.contract_id),
                 ],
                 alice.address),
@@ -216,12 +222,13 @@ Clarinet.test({
                     types.uint(1),
                     types.principal(bob.address),
                     types.principal(nft_contract.contract_id),
+                    types.principal(nft_contract.contract_id),
                 ],
                 alice.address),
         ]);
         block.receipts[0].result
             .expectErr()
-            .expectInt(4);
+            .expectInt(5);
 
     },
 });
@@ -344,6 +351,7 @@ Clarinet.test({
                     types.principal(bob.address),
                     types.none(),
                     types.principal(ft_contract.contract_id),
+                    types.principal(ft_contract.contract_id),
                 ],
                 charlie.address),
         ]);
@@ -359,6 +367,7 @@ Clarinet.test({
                     types.principal(bob.address),
                     types.none(),
                     types.principal(ft_contract.contract_id),
+                    types.principal(ft_contract.contract_id),
                 ],
                 bob.address),
         ]);
@@ -373,6 +382,7 @@ Clarinet.test({
                     types.uint(2),
                     types.principal(bob.address),
                     types.none(),
+                    types.principal(ft_contract.contract_id),
                     types.principal(ft_contract.contract_id),
                 ],
                 alice.address),
@@ -390,12 +400,13 @@ Clarinet.test({
                     types.principal(bob.address),
                     types.none(),
                     types.principal(ft_contract.contract_id),
+                    types.principal(ft_contract.contract_id),
                 ],
                 alice.address),
         ]);
         block.receipts[0].result
             .expectErr()
-            .expectInt(4);
+            .expectInt(5);
 
     },
 });
