@@ -48,8 +48,11 @@ use util_lib::db::DBTx;
 use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::BurnchainHeaderHash;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 
 pub mod leader_block_commit;
+pub mod deposit_ft;
+
 /// This module contains all burn-chain operations
 
 #[derive(Debug)]
@@ -213,6 +216,21 @@ pub struct LeaderBlockCommitOp {
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct DepositFtOp {
+    /// Transaction ID of this commit op
+    pub txid: Txid,
+    /// Hash of the base chain block that produced this commit op.
+    pub burn_header_hash: BurnchainHeaderHash,
+
+    // TODO(#13): add docs
+    pub l1_contract_id: QualifiedContractIdentifier,
+    pub hc_contract_id: QualifiedContractIdentifier,
+    pub ft_name: String,
+    pub amount: u128,
+    pub sender: PrincipalData,
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct LeaderKeyRegisterOp {
     pub consensus_hash: ConsensusHash, // consensus hash at time of issuance
     pub public_key: VRFPublicKey,      // EdDSA public key
@@ -247,11 +265,20 @@ pub struct UserBurnSupportOp {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BlockstackOperationType {
     LeaderBlockCommit(LeaderBlockCommitOp),
+    DepositFt(DepositFtOp),
+    // TODO(#13)
+    // DepositNft(DepositNftOp)
 }
 
 impl From<LeaderBlockCommitOp> for BlockstackOperationType {
     fn from(op: LeaderBlockCommitOp) -> Self {
         BlockstackOperationType::LeaderBlockCommit(op)
+    }
+}
+
+impl From<DepositFtOp> for BlockstackOperationType {
+    fn from(op: DepositFtOp) -> Self {
+        BlockstackOperationType::DepositFt(op)
     }
 }
 
@@ -263,6 +290,8 @@ impl BlockstackOperationType {
     pub fn txid_ref(&self) -> &Txid {
         match *self {
             BlockstackOperationType::LeaderBlockCommit(ref data) => &data.txid,
+            BlockstackOperationType::DepositFt(ref data) => &data.txid,
+            // TODO(#13)
         }
     }
 
@@ -277,6 +306,8 @@ impl BlockstackOperationType {
     pub fn burn_header_hash(&self) -> BurnchainHeaderHash {
         match *self {
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::DepositFt(ref data) => data.burn_header_hash.clone(),
+
         }
     }
 
@@ -286,6 +317,10 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
                 data.set_burn_height(height)
             }
+            BlockstackOperationType::DepositFt(ref mut data) => {
+                data.set_burn_height(height)
+            }
+
         };
     }
 
@@ -293,6 +328,9 @@ impl BlockstackOperationType {
     pub fn set_burn_header_hash(&mut self, hash: BurnchainHeaderHash) {
         match self {
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
+                data.burn_header_hash = hash
+            }
+            BlockstackOperationType::DepositFt(ref mut data) => {
                 data.burn_header_hash = hash
             }
         };
@@ -303,6 +341,7 @@ impl fmt::Display for BlockstackOperationType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             BlockstackOperationType::LeaderBlockCommit(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::DepositFt(ref op) => write!(f, "{:?}", op),
         }
     }
 }

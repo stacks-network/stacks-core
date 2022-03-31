@@ -59,6 +59,23 @@ impl<'a> SortitionHandleTx<'a> {
                     BurnchainError::OpError(e)
                 })
             }
+            BlockstackOperationType::DepositFt(ref op) => {
+                op.check(burnchain, self, reward_info).map_err(|e| {
+                    warn!(
+                        "REJECTED burnchain operation";
+                        "op" => "deposit_ft",
+                        "l1_stacks_block_id" => %op.burn_header_hash,
+                        "txid" => %op.txid,
+                        "l1_contract_id" => %op.l1_contract_id,
+                        "hc_contract_id" => %op.hc_contract_id,
+                        "ft_name" => %op.ft_name,
+                        "amount" => %op.amount,
+                        "sender" => %op.sender,
+                    );
+                    BurnchainError::OpError(e)
+                })
+            }
+            // TODO(#13)
         }
     }
 
@@ -102,8 +119,11 @@ impl<'a> SortitionHandleTx<'a> {
         let block_commits: Vec<_> = this_block_ops
             .iter()
             .filter_map(|op| {
-                let BlockstackOperationType::LeaderBlockCommit(ref commit_op) = op;
-                Some(commit_op.clone())
+                if let BlockstackOperationType::LeaderBlockCommit(ref commit_op) = op {
+                    Some(commit_op.clone())
+                } else {
+                    None
+                }
             })
             .collect();
 

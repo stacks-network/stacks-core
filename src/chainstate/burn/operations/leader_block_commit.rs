@@ -65,15 +65,18 @@ impl TryFrom<&StacksHyperOp> for LeaderBlockCommitOp {
     type Error = op_error;
 
     fn try_from(value: &StacksHyperOp) -> Result<Self, Self::Error> {
-        let StacksHyperOpType::BlockCommit {
+        if let StacksHyperOpType::BlockCommit {
             ref subnet_block_hash,
-        } = value.event;
-        Ok(LeaderBlockCommitOp {
-            block_header_hash: subnet_block_hash.clone(),
-            txid: value.txid.clone(),
-            // use the StacksBlockId in the L1 event as the burnchain header hash
-            burn_header_hash: BurnchainHeaderHash(value.in_block.0.clone()),
-        })
+        } = value.event {
+            Ok(LeaderBlockCommitOp {
+                block_header_hash: subnet_block_hash.clone(),
+                txid: value.txid.clone(),
+                // use the StacksBlockId in the L1 event as the burnchain header hash
+                burn_header_hash: BurnchainHeaderHash(value.in_block.0.clone()),
+            })
+        } else {
+            Err(op_error::InvalidInput)
+        }
     }
 }
 

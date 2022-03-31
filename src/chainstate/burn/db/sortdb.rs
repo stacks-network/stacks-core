@@ -2852,6 +2852,23 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_block_commit(op, sort_id)
             }
+            BlockstackOperationType::DepositFt(ref op) => {
+                info!(
+                    "ACCEPTED burnchain operation";
+                    "op" => "deposit_ft",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "l1_contract_id" => %op.l1_contract_id,
+                    "hc_contract_id" => %op.hc_contract_id,
+                    "ft_name" => %op.ft_name,
+                    "amount" => %op.amount,
+                    "sender" => %op.sender,
+                );
+
+                // TODO(#13) - store operation!
+                Ok(())
+            }
+            // TODO(#13)
         }
     }
 

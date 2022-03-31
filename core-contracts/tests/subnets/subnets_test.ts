@@ -260,6 +260,7 @@ Clarinet.test({
                     types.principal(charlie.address),
                     types.none(),
                     types.principal(ft_contract.contract_id),
+                    types.principal(ft_contract.contract_id),
                 ],
                 charlie.address),
         ]);
@@ -295,6 +296,7 @@ Clarinet.test({
                     types.principal(charlie.address),
                     types.none(),
                     types.principal(ft_contract.contract_id),
+                    types.principal(ft_contract.contract_id),
                 ],
                 charlie.address),
         ]);
@@ -310,6 +312,7 @@ Clarinet.test({
                     types.principal(charlie.address),
                     types.none(),
                     types.principal(ft_contract.contract_id),
+                    types.principal(ft_contract.contract_id),
                 ],
                 charlie.address),
         ]);
@@ -324,6 +327,7 @@ Clarinet.test({
                     types.uint(1),
                     types.principal(charlie.address),
                     types.none(),
+                    types.principal(ft_contract.contract_id),
                     types.principal(ft_contract.contract_id),
                 ],
                 charlie.address),

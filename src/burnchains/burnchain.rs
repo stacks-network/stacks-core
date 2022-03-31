@@ -45,10 +45,7 @@ use burnchains::{
     BurnchainStateTransition, BurnchainTransaction, Error as burnchain_error, PoxConstants,
 };
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
-use chainstate::burn::operations::{
-    leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
-};
+use chainstate::burn::operations::{leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp, DepositFtOp};
 use chainstate::burn::{BlockSnapshot, Opcodes};
 use chainstate::coordinator::comm::CoordinatorChannels;
 use chainstate::stacks::StacksPublicKey;
@@ -99,6 +96,12 @@ impl BurnchainStateTransition {
                     // the burn distribution, so just account for them for now.
                     accepted_ops.push(op.clone().into());
                 }
+                BlockstackOperationType::DepositFt(op) => {
+                    // we don't yet know which fungible token deposits are going to be accepted, so
+                    // just account for them for now.
+                    accepted_ops.push(op.clone().into());
+                }
+                // TODO(#13)
             };
         }
 
@@ -384,22 +387,36 @@ impl Burnchain {
         _block_header: &BurnchainBlockHeader,
         burn_tx: &BurnchainTransaction,
     ) -> Option<BlockstackOperationType> {
-        let result = match burn_tx {
+        match burn_tx {
             BurnchainTransaction::StacksBase(ref event) => match event.event {
-                StacksHyperOpType::BlockCommit { .. } => LeaderBlockCommitOp::try_from(event),
+                StacksHyperOpType::BlockCommit { .. } => {
+                    match LeaderBlockCommitOp::try_from(event) {
+                        Ok(op) => Some(BlockstackOperationType::from(op)),
+                        Err(e) => {
+                            warn!(
+                                "Failed to parse subnet block operation";
+                                "txid" => %burn_tx.txid(),
+                                "error" => ?e,
+                            );
+                            None
+                        }
+                    }
+                }
+                StacksHyperOpType::DepositFt { .. } => {
+                    match DepositFtOp::try_from(event) {
+                        Ok(op) => Some(BlockstackOperationType::from(op)),
+                        Err(e) => {
+                            warn!(
+                                "Failed to parse deposit fungible token operation";
+                                "txid" => %burn_tx.txid(),
+                                "error" => ?e,
+                            );
+                            None
+                        }
+                    }
+                }
+                // TODO(#13) - add nft
             },
-        };
-
-        match result {
-            Ok(op) => Some(BlockstackOperationType::from(op)),
-            Err(e) => {
-                warn!(
-                    "Failed to parse subnet block operation";
-                    "txid" => %burn_tx.txid(),
-                    "error" => ?e,
-                );
-                None
-            }
         }
     }
 

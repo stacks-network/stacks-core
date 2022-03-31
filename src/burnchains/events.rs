@@ -5,7 +5,7 @@ use serde::de::Error as DeserError;
 use serde::Deserialize;
 use serde::Deserializer;
 use util::HexError;
-use vm::types::QualifiedContractIdentifier;
+use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 use vm::types::Value as ClarityValue;
 
 use crate::types::chainstate::BlockHeaderHash;
@@ -16,6 +16,7 @@ use crate::vm::types::SequenceData;
 use super::StacksHyperBlock;
 use super::StacksHyperOp;
 use super::StacksHyperOpType;
+use clarity::vm::types::PrincipalData;
 
 /// Parsing struct for the transaction event types of the
 /// `stacks-node` events API
@@ -179,6 +180,50 @@ impl StacksHyperOp {
                     },
                 })
             }
+            "\"deposit-ft\"" => {
+                let ft_amount = tuple
+                    .get("ft-amount")
+                    .map_err(|_| "No 'ft-amount' field in Clarity tuple")?.clone().expect_u128();
+                // check that this is a valid way of getting the ID of the L1 contract.
+                let l1_contract_id = tuple
+                    .get("l1_contract_id")
+                    .map_err(|_| "No 'l1_contract_id' field in Clarity tuple")?.clone().expect_principal();
+                let l1_contract_id =
+                    if let PrincipalData::Contract(id) = l1_contract_id {
+                        Ok(id)
+                    } else { Err("Expected 'l1_contract_id' to be a contract principal")}?;
+                let hc_contract_id = tuple
+                    .get("hc-contract-id")
+                    .map_err(|_| "No 'hc-contract-id' field in Clarity tuple")?.clone().expect_principal();
+                let hc_contract_id =
+                    if let PrincipalData::Contract(id) = hc_contract_id {
+                        Ok(id)
+                    } else { Err("Expected 'hc-contract-id' to be a contract principal")}?;
+                let ft_name = tuple
+                    .get("ft_name")
+                    .map_err(|_| "No 'ft_name' field in Clarity tuple")?.clone().expect_ascii();
+                let sender = tuple
+                    .get("sender")
+                    .map_err(|_| "No 'sender' field in Clarity tuple")?.clone().expect_principal();
+
+                Ok(Self {
+                    txid,
+                    event_index,
+                    in_block: in_block.clone(),
+                    opcode: 1,
+                    event: StacksHyperOpType::DepositFt {
+                        l1_contract_id,
+                        hc_contract_id,
+                        ft_name,
+                        amount: ft_amount,
+                        sender
+                    },
+                })
+
+            }
+            // TODO(#13)
+            // "\"deposit-nft\"" => {
+            // }
             event_type => Err(format!("Unexpected 'event' string: {}", event_type)),
         }
     }

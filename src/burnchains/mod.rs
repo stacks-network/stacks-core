@@ -44,6 +44,8 @@ use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 
 pub use types::{Address, PrivateKey, PublicKey};
+use vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::types::PrincipalData;
 
 pub mod burnchain;
 pub mod db;
@@ -195,6 +197,21 @@ pub struct BurnchainRecipient {
 /// containing any operation specific data.
 pub enum StacksHyperOpType {
     BlockCommit { subnet_block_hash: BlockHeaderHash },
+    DepositFt {
+        l1_contract_id: QualifiedContractIdentifier,
+        hc_contract_id: QualifiedContractIdentifier,
+        ft_name: String,
+        amount: u128,
+        sender: PrincipalData,
+    },
+    // TODO(#13)
+    // DepositNft {
+    //     l1_contract_id: QualifiedContractIdentifier,
+    //     hc_contract_id: QualifiedContractIdentifier,
+    //     nft_name: String,
+    //     id: u128,
+    //     sender: PrincipalData,
+    // }
 }
 
 #[derive(Debug, PartialEq, Clone)]
