@@ -112,7 +112,7 @@ Clarinet.test({
             .expectErr()
             .expectInt(6);
 
-        // Invalid miner can't allow assets
+        // Invalid miner can't setup allowed assets
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "setup-allowed-contracts",
                 [],
@@ -122,7 +122,7 @@ Clarinet.test({
             .expectErr()
             .expectInt(2);
 
-        // Miner allows assets
+        // Miner sets up allowed assets
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "setup-allowed-contracts",
                 [],
@@ -252,6 +252,41 @@ Clarinet.test({
         ]);
         block.receipts[0].result.expectOk().expectBool(true);
 
+        // // User should not be able to deposit FT assets if they are not allowed
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "deposit-ft-asset",
+                [
+                    types.uint(2),
+                    types.principal(charlie.address),
+                    types.none(),
+                    types.principal(ft_contract.contract_id),
+                ],
+                charlie.address),
+        ]);
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(6);
+
+        // Invalid miner can't setup allowed assets
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "setup-allowed-contracts",
+                [],
+                bob.address),
+        ]);
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(2);
+
+        // Miner sets up allowed assets
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "setup-allowed-contracts",
+                [],
+                alice.address),
+        ]);
+        block.receipts[0].result
+            .expectOk()
+            .expectBool(true);
+
         // User should not be able to deposit a larger quantity than they own
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "deposit-ft-asset",
@@ -265,7 +300,7 @@ Clarinet.test({
         ]);
         block.receipts[0].result
             .expectErr()
-            .expectInt(4);
+            .expectInt(5);
 
         // User should be able to deposit FT asset
         block = chain.mineBlock([
@@ -295,7 +330,7 @@ Clarinet.test({
         ]);
         block.receipts[0].result
             .expectErr()
-            .expectInt(4);
+            .expectInt(5);
 
         // User should not be able to withdraw FT asset
         block = chain.mineBlock([
