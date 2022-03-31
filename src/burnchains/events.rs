@@ -186,12 +186,12 @@ impl StacksHyperOp {
                     .map_err(|_| "No 'ft-amount' field in Clarity tuple")?.clone().expect_u128();
                 // check that this is a valid way of getting the ID of the L1 contract.
                 let l1_contract_id = tuple
-                    .get("l1_contract_id")
-                    .map_err(|_| "No 'l1_contract_id' field in Clarity tuple")?.clone().expect_principal();
+                    .get("l1-contract-id")
+                    .map_err(|_| "No 'l1-contract-id' field in Clarity tuple")?.clone().expect_principal();
                 let l1_contract_id =
                     if let PrincipalData::Contract(id) = l1_contract_id {
                         Ok(id)
-                    } else { Err("Expected 'l1_contract_id' to be a contract principal")}?;
+                    } else { Err("Expected 'l1-contract-id' to be a contract principal")}?;
                 let hc_contract_id = tuple
                     .get("hc-contract-id")
                     .map_err(|_| "No 'hc-contract-id' field in Clarity tuple")?.clone().expect_principal();
@@ -200,8 +200,8 @@ impl StacksHyperOp {
                         Ok(id)
                     } else { Err("Expected 'hc-contract-id' to be a contract principal")}?;
                 let ft_name = tuple
-                    .get("ft_name")
-                    .map_err(|_| "No 'ft_name' field in Clarity tuple")?.clone().expect_ascii();
+                    .get("ft-name")
+                    .map_err(|_| "No 'ft-name' field in Clarity tuple")?.clone().expect_ascii();
                 let sender = tuple
                     .get("sender")
                     .map_err(|_| "No 'sender' field in Clarity tuple")?.clone().expect_principal();
@@ -235,7 +235,7 @@ impl StacksHyperBlock {
     /// the hyperchain and parse out the `StacksHyperOp`s from the
     /// block, producing a `StacksHyperBlock` struct.
     pub fn from_new_block_event(
-        subnets_contract: &QualifiedContractIdentifier,
+        hyperchain_contract: &QualifiedContractIdentifier,
         b: NewBlock,
     ) -> Self {
         let NewBlock {
@@ -272,7 +272,7 @@ impl StacksHyperBlock {
                     }?;
 
                     if let Some(contract_event) = contract_event {
-                        if &contract_event.contract_identifier != subnets_contract {
+                        if &contract_event.contract_identifier != hyperchain_contract {
                             None
                         } else {
                             match StacksHyperOp::try_from_clar_value(

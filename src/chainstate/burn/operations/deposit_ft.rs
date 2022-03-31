@@ -44,4 +44,7 @@ impl DepositFtOp {
         // good to go!
         Ok(())
     }
+
+    #[cfg(test)]
+    pub fn set_burn_height(&mut self, height: u64) {}
 }

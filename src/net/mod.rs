@@ -2061,6 +2061,21 @@ pub mod test {
                     .unwrap();
                     Ok(())
                 }
+                BlockstackOperationType::DepositFt(ref op) => {
+                    serde_json::to_writer(
+                        fd,
+                        &json!({
+                            "op": "deposit_ft",
+                            "amount": op.amount,
+                            "sender": op.sender,
+                            "l1_contract_id": op.l1_contract_id,
+                            "hc_contract_id": op.hc_contract_id,
+                            "name": op.ft_name
+                        }),
+                    )
+                        .unwrap();
+                    Ok(())
+                }
             }
         }
 
