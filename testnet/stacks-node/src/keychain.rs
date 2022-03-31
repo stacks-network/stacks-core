@@ -52,6 +52,12 @@ impl Keychain {
         }
     }
 
+    /// Instantiate a keychain where the BurnchainOpSigner is a
+    /// single-sig P2PKH address
+    pub fn single_signer(secret_key: StacksPrivateKey) -> Keychain {
+        Keychain::new(vec![secret_key], 1, AddressHashMode::SerializeP2PKH)
+    }
+
     pub fn default(seed: Vec<u8>) -> Keychain {
         let mut re_hashed_seed = seed;
         let secret_key = loop {

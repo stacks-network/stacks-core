@@ -4,13 +4,13 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 
+use reqwest::Error as ReqwestError;
 use stacks::burnchains;
 use stacks::burnchains::events::NewBlock;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
-
 use stacks::core::StacksEpoch;
 
 /// This module implements a burnchain controller that
@@ -26,14 +26,24 @@ pub mod l1_events;
 pub enum Error {
     CoordinatorClosed,
     IndexerError(burnchains::Error),
+    RPCError(String),
+    BadCommitment,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::CoordinatorClosed => write!(f, "ChainsCoordinator closed"),
-            Error::IndexerError(ref e) => write!(f, "Indexer error: {:?}", e),
+            Error::CoordinatorClosed => write!(f, "ControllerError(ChainsCoordinator closed)"),
+            Error::IndexerError(ref e) => write!(f, "ControllerError(Indexer Error: {:?})", e),
+            Error::RPCError(ref e) => write!(f, "ControllerError(RPCError: {})", e),
+            Error::BadCommitment => write!(f, "ControllerError(BadCommitment))"),
         }
+    }
+}
+
+impl From<ReqwestError> for Error {
+    fn from(e: ReqwestError) -> Self {
+        Error::RPCError(e.to_string())
     }
 }
 

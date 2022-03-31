@@ -7,7 +7,7 @@
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
 (define-constant miners (list 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY
-    'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5))
+    'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP))
 
 ;; Testing info for 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5:
 ;;      secret_key: 7287ba251d44a4d3fd9276c88ce34c5c52a038955511cccaf77e61068649c17801
@@ -49,8 +49,8 @@
 )
 
 ;; Subnets miners call this to commit a block at a particular height
-(define-public (commit-block (block (buff 32)) (commit-block-height uint))
-    (begin
+(define-public (commit-block (block (buff 32)))
+    (let ((commit-block-height block-height))
         (unwrap! (can-commit-block? commit-block-height) (err ERR_VALIDATION_FAILED))
         (inner-commit-block block commit-block-height)
     )

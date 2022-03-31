@@ -8,9 +8,13 @@ use rand::RngCore;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
+use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::chainstate::stacks::TransactionAnchorMode;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::StacksEpoch;
+use stacks::core::NETWORK_ID_MAINNET;
+use stacks::core::NETWORK_ID_TESTNET;
 use stacks::core::{
     CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
@@ -380,6 +384,7 @@ impl Config {
                         .pox_sync_sample_secs
                         .unwrap_or(default_node_config.pox_sync_sample_secs),
                     use_test_genesis_chainstate: node.use_test_genesis_chainstate,
+                    ..default_node_config
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -956,6 +961,8 @@ pub struct BurnchainConfig {
     pub epochs: Option<Vec<StacksEpoch>>,
     /// The layer 1 contract that the hyperchain will watch for Stacks events.
     pub contract_identifier: QualifiedContractIdentifier,
+    /// The anchor mode for any transactions submitted to L1
+    pub anchor_mode: TransactionAnchorMode,
 }
 
 impl Default for BurnchainConfig {
@@ -985,6 +992,7 @@ impl Default for BurnchainConfig {
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
             contract_identifier: QualifiedContractIdentifier::transient(),
+            anchor_mode: TransactionAnchorMode::Any,
         }
     }
 }
@@ -993,6 +1001,11 @@ impl BurnchainConfig {
     /// Does this configuration need a L1 observer to be spawned?
     pub fn spawn_l1_observer(&self) -> bool {
         self.chain == BURNCHAIN_NAME_STACKS_L1
+    }
+
+    /// Is the L1 chain itself mainnet or testnet?
+    pub fn is_mainnet(&self) -> bool {
+        self.chain_id == CHAIN_ID_MAINNET
     }
 
     pub fn get_rpc_url(&self) -> String {
@@ -1040,6 +1053,7 @@ pub struct BurnchainConfigFile {
 #[derive(Clone, Debug, Default)]
 pub struct NodeConfig {
     pub name: String,
+    /// Value to initialize the keychain, only used if `mining_key` is not set.
     pub seed: Vec<u8>,
     pub working_dir: String,
     pub rpc_bind: String,
@@ -1058,6 +1072,8 @@ pub struct NodeConfig {
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: u64,
     pub use_test_genesis_chainstate: Option<bool>,
+    /// Used to specify the keychain signing key exactly
+    pub mining_key: Option<StacksPrivateKey>,
 }
 
 #[derive(Clone, Debug)]
@@ -1350,6 +1366,7 @@ impl NodeConfig {
             prometheus_bind: None,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
+            mining_key: None,
         }
     }
 

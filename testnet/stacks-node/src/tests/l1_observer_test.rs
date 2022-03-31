@@ -1,9 +1,13 @@
 use std;
 use std::process::{Child, Command, Stdio};
-use std::thread;
+use std::thread::{self, JoinHandle};
 
 use crate::neon;
+use crate::tests::neon_integrations::submit_tx;
+use crate::tests::{make_contract_publish, to_addr};
 use stacks::burnchains::Burnchain;
+use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::vm::types::QualifiedContractIdentifier;
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::time::Duration;
@@ -19,15 +23,28 @@ type SubprocessResult<T> = Result<T, SubprocessError>;
 pub struct StacksL1Controller {
     sub_process: Option<Child>,
     config_path: String,
-    out_reader: Option<BufReader<std::process::ChildStdout>>,
+    printer_handle: Option<JoinHandle<()>>,
+    log_process: bool,
+}
+
+lazy_static! {
+    pub static ref MOCKNET_PRIVATE_KEY_1: StacksPrivateKey = StacksPrivateKey::from_hex(
+        "aaf57b4730f713cf942bc63f0801c4a62abe5a6ac8e3da10389f9ca3420b0dc701"
+    )
+    .unwrap();
+    pub static ref MOCKNET_PRIVATE_KEY_2: StacksPrivateKey = StacksPrivateKey::from_hex(
+        "0916e2eb04b5702e0e946081829cee67d3bb76e1792af506646843db9252ff4101"
+    )
+    .unwrap();
 }
 
 impl StacksL1Controller {
-    pub fn new(config_path: String) -> StacksL1Controller {
+    pub fn new(config_path: String, log_process: bool) -> StacksL1Controller {
         StacksL1Controller {
             sub_process: None,
             config_path,
-            out_reader: None,
+            printer_handle: None,
+            log_process,
         }
     }
 
@@ -41,7 +58,7 @@ impl StacksL1Controller {
         };
         let mut command = Command::new(&binary);
         command
-            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .arg("start")
             .arg("--config=".to_owned() + &self.config_path);
 
@@ -52,24 +69,26 @@ impl StacksL1Controller {
             Err(e) => return Err(SubprocessError::SpawnFailed(format!("{:?}", e))),
         };
 
+        let printer_handle = if self.log_process {
+            let child_out = process.stderr.take().unwrap();
+            Some(thread::spawn(|| {
+                let buffered_out = BufReader::new(child_out);
+                for line in buffered_out.lines() {
+                    let line = match line {
+                        Ok(x) => x,
+                        Err(e) => return,
+                    };
+                    println!("L1: {}", line);
+                }
+            }))
+        } else {
+            None
+        };
+
         info!("stacks-node mainchain spawned, waiting for startup");
-        let mut out_reader = BufReader::new(process.stdout.take().unwrap());
-
-        let mut line = String::new();
-        while let Ok(bytes_read) = out_reader.read_line(&mut line) {
-            if bytes_read == 0 {
-                return Err(SubprocessError::SpawnFailed(
-                    "Stacks L1 closed before spawning network".into(),
-                ));
-            }
-            info!("{:?}", &line);
-            break;
-        }
-
-        info!("Stacks L1 startup finished");
 
         self.sub_process = Some(process);
-        self.out_reader = Some(out_reader);
+        self.printer_handle = printer_handle;
 
         Ok(())
     }
@@ -77,6 +96,9 @@ impl StacksL1Controller {
     pub fn kill_process(&mut self) {
         if let Some(mut sub_process) = self.sub_process.take() {
             sub_process.kill().unwrap();
+        }
+        if let Some(handle) = self.printer_handle.take() {
+            println!("Joining print handler: {:?}", handle.join());
         }
     }
 }
@@ -97,7 +119,7 @@ fn l1_observer_test() {
 
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
-    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string());
+    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
     let _stacks_res = stacks_l1_controller
         .start_process()
         .expect("stacks l1 controller didn't start");
@@ -106,12 +128,96 @@ fn l1_observer_test() {
     let mut config = super::new_test_conf();
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
+    config.burnchain.rpc_ssl = false;
+    config.burnchain.rpc_port = 20443;
+    config.burnchain.peer_host = "127.0.0.1".into();
+
     let mut run_loop = neon::RunLoop::new(config.clone());
     let channel = run_loop.get_coordinator_channel().unwrap();
     thread::spawn(move || run_loop.start(None, 0));
 
     // Sleep to give the run loop time to listen to blocks.
     thread::sleep(Duration::from_millis(45000));
+
+    // The burnchain should have registered what the listener recorded.
+    let burnchain = Burnchain::new(
+        &config.get_burn_db_path(),
+        &config.burnchain.chain,
+        &config.burnchain.mode,
+    )
+    .unwrap();
+    let (_, burndb) = burnchain.open_db(true).unwrap();
+    let tip = burndb
+        .get_canonical_chain_tip()
+        .expect("couldn't get chain tip");
+    info!("burnblock chain tip is {:?}", &tip);
+
+    // Ensure that the tip height has moved beyond height 0.
+    // We check that we have moved past 3 just to establish we are reliably getting blocks.
+    assert!(tip.block_height > 3);
+
+    channel.stop_chains_coordinator();
+    stacks_l1_controller.kill_process();
+}
+
+#[test]
+fn l1_integration_test() {
+    // running locally:
+    // STACKS_BASE_DIR=~/devel/stacks-blockchain/target/release/stacks-node STACKS_NODE_TEST=1 cargo test --workspace l1_integration_test
+    if env::var("STACKS_NODE_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // Start Stacks L1.
+    let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
+    let l1_rpc_origin = "http://127.0.0.1:20443";
+
+    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), false);
+    let _stacks_res = stacks_l1_controller
+        .start_process()
+        .expect("stacks l1 controller didn't start");
+
+    // Start the L2 run loop.
+    let mut config = super::new_test_conf();
+    config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
+
+    config.burnchain.chain = "stacks_layer_1".to_string();
+    config.burnchain.mode = "hyperchain".to_string();
+    config.burnchain.rpc_ssl = false;
+    config.burnchain.rpc_port = 20443;
+    config.burnchain.peer_host = "127.0.0.1".into();
+    config.node.wait_time_for_microblocks = 10_000;
+
+    config.burnchain.contract_identifier = QualifiedContractIdentifier::new(
+        to_addr(&MOCKNET_PRIVATE_KEY_1).into(),
+        "hyperchain-controller".into(),
+    );
+
+    config.node.miner = true;
+
+    let mut run_loop = neon::RunLoop::new(config.clone());
+    let channel = run_loop.get_coordinator_channel().unwrap();
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // Sleep to give the L1 chain time to start
+    thread::sleep(Duration::from_millis(10_000));
+
+    // Publish the default hyperchains contract on the L1 chain
+    let contract_content = include_str!("../../../../core-contracts/contracts/subnets.clar");
+    let hc_contract_publish = make_contract_publish(
+        &MOCKNET_PRIVATE_KEY_1,
+        0,
+        1_000_000,
+        config.burnchain.contract_identifier.name.as_str(),
+        &contract_content,
+    );
+
+    submit_tx(l1_rpc_origin, &hc_contract_publish);
+
+    println!("Submitted contract!");
+
+    // Sleep to give the run loop time to listen to blocks.
+    thread::sleep(Duration::from_millis(60000));
 
     // The burnchain should have registered what the listener recorded.
     let burnchain = Burnchain::new(

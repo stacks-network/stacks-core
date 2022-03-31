@@ -31,19 +31,28 @@ async fn handle_new_block(
     Ok(warp::http::StatusCode::OK)
 }
 
+async fn handle_any() -> Result<impl warp::Reply, Infallible> {
+    Ok(warp::http::StatusCode::OK)
+}
+
 /// Define and run the `warp` server.
 async fn serve(
     signal_receiver: Receiver<()>,
     channel: Arc<dyn BurnchainChannel>,
 ) -> Result<(), JoinError> {
-    let first_part = warp::path!("new_block")
+    let new_blocks = warp::path!("new_block")
         .and(warp::post())
         .and(warp::body::json())
-        .and(with_db(channel));
-    let new_blocks = first_part.and_then(handle_new_block);
+        .and(with_db(channel))
+        .and_then(handle_new_block);
+
+    // create a fall-through handler so that if any of the
+    // other endpoints are invoked, the observer just returns 200
+    // to the dispatcher
+    let all = new_blocks.or(warp::post().and_then(handle_any));
 
     info!("Binding warp server.");
-    let (_addr, server) = warp::serve(new_blocks).bind_with_graceful_shutdown(
+    let (_addr, server) = warp::serve(all).bind_with_graceful_shutdown(
         ([127, 0, 0, 1], EVENT_OBSERVER_PORT),
         async {
             signal_receiver.await.ok();
