@@ -11,7 +11,7 @@ RUN CC=musl-gcc \
     CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
     cargo build --release --target x86_64-unknown-linux-musl
 
-FROM alpine
+FROM alpine:3.15.3
 WORKDIR /
 COPY --from=builder /src/target/x86_64-unknown-linux-musl/release/puppet-chain /bin/
 COPY config.toml.default /etc/puppet-chain/Config.toml
