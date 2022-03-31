@@ -1,4 +1,4 @@
-;; The .subnets contract
+;; The .hyperchains contract
 
 (define-constant CONTRACT_ADDRESS (as-contract tx-sender))
 
@@ -75,6 +75,7 @@
 ;; FOR NFT ASSET TRANSFERS
 
 ;; A user calls this function to deposit an NFT into the contract.
+;; The function emits a print with details of this event.
 ;; Returns response<int, bool>
 (define-public (deposit-nft-asset (id uint) (sender principal) (nft-contract <nft-trait>))
     (let (
@@ -105,6 +106,7 @@
 
 ;; An authorized miner can call this function to withdraw an NFT asset from the contract and
 ;; send it to a recipient.
+;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
 (define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>))
     (begin
@@ -119,6 +121,7 @@
 ;; FOR FUNGIBLE TOKEN ASSET TRANSFERS
 
 ;; A user calls this function to deposit a fungible token into the contract.
+;; The function emits a print with details of this event.
 ;; Returns response<int, bool>
 (define-public (deposit-ft-asset (amount uint) (sender principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
     (let (
@@ -149,6 +152,7 @@
 
 ;; An authorized miner can call this function to withdraw a fungible token asset from the contract and
 ;; send it to a recipient.
+;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
 (define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
     (begin

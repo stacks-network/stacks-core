@@ -18,6 +18,6 @@ depends_on = []
 path = "contracts/helper/simple-ft.clar"
 depends_on = ["ft-trait-standard"]
 
-[contracts.subnets]
-path = "contracts/subnets.clar"
+[contracts.hyperchains]
+path = "contracts/hyperchains.clar"
 depends_on = ["nft-trait-standard", "ft-trait-standard"]

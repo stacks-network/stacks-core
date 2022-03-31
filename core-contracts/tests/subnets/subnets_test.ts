@@ -14,7 +14,7 @@ Clarinet.test({
 
         // Successfully commit block at height 0 with alice.
         let block = chain.mineBlock([
-            Tx.contractCall("subnets", "commit-block",
+            Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
                     types.uint(0),
@@ -29,7 +29,7 @@ Clarinet.test({
 
         // Try and fail to commit a different block, but again at height 0.
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "commit-block",
+            Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
                     types.uint(0),
@@ -44,7 +44,7 @@ Clarinet.test({
 
         // Try and fail to commit a block at height 1 with an invalid miner.
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "commit-block",
+            Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
                     types.uint(1),
@@ -58,7 +58,7 @@ Clarinet.test({
 
         // Successfully commit block at height 1 with valid miner.
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "commit-block",
+            Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
                     types.uint(1),
@@ -86,16 +86,21 @@ Clarinet.test({
 
         // nft contract id
         const nft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-nft")!;
+        const hyperchain_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.hyperchains")!;
 
         // User should be able to mint an NFT
         let block = chain.mineBlock([
             Tx.contractCall("simple-nft", "test-mint", [types.principal(charlie.address)], charlie.address),
         ]);
         block.receipts[0].result.expectOk().expectBool(true);
+        // Check that user owns NFT
+        let assets = chain.getAssetsMaps().assets[".simple-nft.nft"];
+        let nft_amount = assets[charlie.address];
+        assertEquals(nft_amount, 1);
 
         // User should be able to deposit NFT asset
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "deposit-nft-asset",
+            Tx.contractCall("hyperchains", "deposit-nft-asset",
                 [
                     types.uint(1),
                     types.principal(charlie.address),
@@ -107,10 +112,16 @@ Clarinet.test({
         block.receipts[0].result
             .expectOk()
             .expectBool(true);
+        // Check that contract owns NFT, and that the user does not
+        assets = chain.getAssetsMaps().assets[".simple-nft.nft"];
+        nft_amount = assets[charlie.address];
+        assertEquals(nft_amount, 0);
+        nft_amount = assets[hyperchain_contract.contract_id];
+        assertEquals(nft_amount, 1);
 
         // User should not be able to deposit an NFT asset they don't own
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "deposit-nft-asset",
+            Tx.contractCall("hyperchains", "deposit-nft-asset",
                 [
                     types.uint(1),
                     types.principal(charlie.address),
@@ -124,7 +135,7 @@ Clarinet.test({
 
         // User should not be able to withdraw NFT asset
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "withdraw-nft-asset",
+            Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
                     types.uint(1),
                     types.principal(bob.address),
@@ -138,7 +149,7 @@ Clarinet.test({
 
         // Invalid miner should not be able to withdraw NFT asset
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "withdraw-nft-asset",
+            Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
                     types.uint(1),
                     types.principal(bob.address),
@@ -152,7 +163,7 @@ Clarinet.test({
 
         // Miner should be able to withdraw NFT asset
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "withdraw-nft-asset",
+            Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
                     types.uint(1),
                     types.principal(bob.address),
@@ -167,7 +178,7 @@ Clarinet.test({
 
         // Miner should not be able to withdraw NFT asset a second time
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "withdraw-nft-asset",
+            Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
                     types.uint(1),
                     types.principal(bob.address),
@@ -210,7 +221,7 @@ Clarinet.test({
 
         // User should not be able to deposit a larger quantity than they own
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "deposit-ft-asset",
+            Tx.contractCall("hyperchains", "deposit-ft-asset",
                 [
                     types.uint(3),
                     types.principal(charlie.address),
@@ -225,7 +236,7 @@ Clarinet.test({
 
         // User should be able to deposit FT asset
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "deposit-ft-asset",
+            Tx.contractCall("hyperchains", "deposit-ft-asset",
                 [
                     types.uint(2),
                     types.principal(charlie.address),
@@ -240,7 +251,7 @@ Clarinet.test({
 
         // User should not be able to deposit an FT asset they don't own
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "deposit-ft-asset",
+            Tx.contractCall("hyperchains", "deposit-ft-asset",
                 [
                     types.uint(1),
                     types.principal(charlie.address),
@@ -255,7 +266,7 @@ Clarinet.test({
 
         // User should not be able to withdraw FT asset
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "withdraw-ft-asset",
+            Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
                     types.uint(1),
                     types.principal(bob.address),
@@ -270,7 +281,7 @@ Clarinet.test({
 
         // Invalid miner should not be able to withdraw FT asset
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "withdraw-ft-asset",
+            Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
                     types.uint(1),
                     types.principal(bob.address),
@@ -285,7 +296,7 @@ Clarinet.test({
 
         // Miner should be able to withdraw FT asset
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "withdraw-ft-asset",
+            Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
                     types.uint(2),
                     types.principal(bob.address),
@@ -301,7 +312,7 @@ Clarinet.test({
 
         // Miner should not be able to withdraw FT asset a second time
         block = chain.mineBlock([
-            Tx.contractCall("subnets", "withdraw-ft-asset",
+            Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
                     types.uint(1),
                     types.principal(bob.address),
