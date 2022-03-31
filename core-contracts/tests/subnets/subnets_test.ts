@@ -98,6 +98,40 @@ Clarinet.test({
         let nft_amount = assets[charlie.address];
         assertEquals(nft_amount, 1);
 
+        // User should not be able to deposit NFT asset before miner allows the asset
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "deposit-nft-asset",
+                [
+                    types.uint(1),
+                    types.principal(charlie.address),
+                    types.principal(nft_contract.contract_id),
+                ],
+                charlie.address),
+        ]);
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(6);
+
+        // Invalid miner can't allow assets
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "setup-allowed-contracts",
+                [],
+                bob.address),
+        ]);
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(2);
+
+        // Miner allows assets
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "setup-allowed-contracts",
+                [],
+                alice.address),
+        ]);
+        block.receipts[0].result
+            .expectOk()
+            .expectBool(true);
+
         // User should be able to deposit NFT asset
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "deposit-nft-asset",
@@ -108,7 +142,6 @@ Clarinet.test({
                 ],
                 charlie.address),
         ]);
-        assertEquals(block.height, 3);
         block.receipts[0].result
             .expectOk()
             .expectBool(true);
@@ -131,7 +164,7 @@ Clarinet.test({
         ]);
         block.receipts[0].result
             .expectErr()
-            .expectInt(4);
+            .expectInt(5);
 
         // User should not be able to withdraw NFT asset
         block = chain.mineBlock([
