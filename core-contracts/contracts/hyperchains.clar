@@ -43,7 +43,6 @@
     )
 )
 
-
 ;; Helper function for fold: if a == b, return none; else return b
 (define-private (is-principal-eq (miner-a principal) (search-for (optional principal)))
     (if (is-eq (some miner-a) search-for)
@@ -86,8 +85,6 @@
         (inner-commit-block block commit-block-height)
     )
 )
-
-
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

@@ -1284,7 +1284,7 @@ fn create_stacks_event_block_for_deposit_ft() {
             // this is the good event
             NewBlockTxEvent {
                 txid: Txid([1; 32]),
-                event_index: 1,
+                event_index: 2,
                 committed: true,
                 event_type: TxEventType::ContractEvent,
                 contract_event: Some(
@@ -1298,7 +1298,7 @@ fn create_stacks_event_block_for_deposit_ft() {
             },
             NewBlockTxEvent {
                 txid: Txid([2; 32]),
-                event_index: 2,
+                event_index: 3,
                 committed: true,
                 event_type: TxEventType::ContractEvent,
                 contract_event: Some(
@@ -1371,7 +1371,7 @@ fn create_stacks_event_block_for_deposit_nft() {
             // this is the good event
             NewBlockTxEvent {
                 txid: Txid([1; 32]),
-                event_index: 1,
+                event_index: 2,
                 committed: true,
                 event_type: TxEventType::ContractEvent,
                 contract_event: Some(
@@ -1385,7 +1385,7 @@ fn create_stacks_event_block_for_deposit_nft() {
             },
             NewBlockTxEvent {
                 txid: Txid([2; 32]),
-                event_index: 2,
+                event_index: 3,
                 committed: true,
                 event_type: TxEventType::ContractEvent,
                 contract_event: Some(
@@ -1458,7 +1458,7 @@ fn create_stacks_event_block_for_withdraw_ft() {
             // this is the good event
             NewBlockTxEvent {
                 txid: Txid([1; 32]),
-                event_index: 1,
+                event_index: 2,
                 committed: true,
                 event_type: TxEventType::ContractEvent,
                 contract_event: Some(
@@ -1472,7 +1472,7 @@ fn create_stacks_event_block_for_withdraw_ft() {
             },
             NewBlockTxEvent {
                 txid: Txid([2; 32]),
-                event_index: 2,
+                event_index: 3,
                 committed: true,
                 event_type: TxEventType::ContractEvent,
                 contract_event: Some(
@@ -1545,7 +1545,7 @@ fn create_stacks_event_block_for_withdraw_nft() {
             // this is the good event
             NewBlockTxEvent {
                 txid: Txid([1; 32]),
-                event_index: 1,
+                event_index: 2,
                 committed: true,
                 event_type: TxEventType::ContractEvent,
                 contract_event: Some(
@@ -1559,7 +1559,7 @@ fn create_stacks_event_block_for_withdraw_nft() {
             },
             NewBlockTxEvent {
                 txid: Txid([2; 32]),
-                event_index: 2,
+                event_index: 3,
                 committed: true,
                 event_type: TxEventType::ContractEvent,
                 contract_event: Some(
