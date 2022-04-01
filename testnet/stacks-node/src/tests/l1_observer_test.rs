@@ -3,7 +3,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread::{self, JoinHandle};
 
 use crate::neon;
-use crate::tests::neon_integrations::submit_tx;
+use crate::tests::neon_integrations::{get_account, submit_tx};
 use crate::tests::{make_contract_publish, to_addr};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::StacksPrivateKey;
@@ -180,6 +180,7 @@ fn l1_integration_test() {
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
+    let miner_account = to_addr(&MOCKNET_PRIVATE_KEY_2);
 
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
@@ -187,6 +188,9 @@ fn l1_integration_test() {
     config.burnchain.rpc_port = 20443;
     config.burnchain.peer_host = "127.0.0.1".into();
     config.node.wait_time_for_microblocks = 10_000;
+    config.node.rpc_bind = "127.0.0.1:30443".into();
+    config.node.p2p_bind = "127.0.0.1:30444".into();
+    let l2_rpc_origin = format!("http://{}", &config.node.rpc_bind);
 
     config.burnchain.contract_identifier = QualifiedContractIdentifier::new(
         to_addr(&MOCKNET_PRIVATE_KEY_1).into(),
@@ -216,7 +220,8 @@ fn l1_integration_test() {
 
     println!("Submitted contract!");
 
-    // Sleep to give the run loop time to listen to blocks.
+    // Sleep to give the run loop time to listen to blocks,
+    //  and start mining L2 blocks
     thread::sleep(Duration::from_millis(60000));
 
     // The burnchain should have registered what the listener recorded.
@@ -235,6 +240,17 @@ fn l1_integration_test() {
     // Ensure that the tip height has moved beyond height 0.
     // We check that we have moved past 3 just to establish we are reliably getting blocks.
     assert!(tip.block_height > 3);
+
+    eprintln!("Miner account: {}", miner_account);
+
+    // test the miner's nonce has incremented: this shows that L2 blocks have
+    //  been mined (because the coinbase transactions bump the miner's nonce)
+    let account = get_account(&l2_rpc_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert!(
+        account.nonce >= 2,
+        "Miner should have produced at least 2 coinbase transactions"
+    );
 
     channel.stop_chains_coordinator();
     stacks_l1_controller.kill_process();
