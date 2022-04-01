@@ -230,7 +230,7 @@ pub struct DepositFtOp {
     // Contract ID on hyperchain for this fungible token
     pub hc_contract_id: QualifiedContractIdentifier,
     // Name of fungible token
-    pub ft_name: String,
+    pub name: String,
     // Amount of the fungible token that was deposited
     pub amount: u128,
     // The principal that performed the deposit
@@ -266,7 +266,7 @@ pub struct WithdrawFtOp {
     // Contract ID on hyperchain for this fungible token
     pub hc_contract_id: QualifiedContractIdentifier,
     // The name of the fungible token
-    pub ft_name: String,
+    pub name: String,
     // Amount of the fungible token that was deposited
     pub amount: u128,
     // The principal the contract is sending the fungible token to

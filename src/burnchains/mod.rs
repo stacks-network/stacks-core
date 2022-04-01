@@ -200,7 +200,7 @@ pub enum StacksHyperOpType {
     DepositFt {
         l1_contract_id: QualifiedContractIdentifier,
         hc_contract_id: QualifiedContractIdentifier,
-        ft_name: String,
+        name: String,
         amount: u128,
         sender: PrincipalData,
     },

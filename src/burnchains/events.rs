@@ -182,7 +182,7 @@ impl StacksHyperOp {
             }
             "\"deposit-ft\"" => {
                 // Parse 5 fields: ft-amount, ft-name, l1-contract-id, hc-contract-id, and sender
-                let ft_amount = tuple
+                let amount = tuple
                     .get("ft-amount")
                     .map_err(|_| "No 'ft-amount' field in Clarity tuple")?.clone().expect_u128();
                 let l1_contract_id = tuple
@@ -199,7 +199,7 @@ impl StacksHyperOp {
                     if let PrincipalData::Contract(id) = hc_contract_id {
                         Ok(id)
                     } else { Err("Expected 'hc-contract-id' to be a contract principal")}?;
-                let ft_name = tuple
+                let name = tuple
                     .get("ft-name")
                     .map_err(|_| "No 'ft-name' field in Clarity tuple")?.clone().expect_ascii();
                 let sender = tuple
@@ -214,8 +214,8 @@ impl StacksHyperOp {
                     event: StacksHyperOpType::DepositFt {
                         l1_contract_id,
                         hc_contract_id,
-                        ft_name,
-                        amount: ft_amount,
+                        name,
+                        amount,
                         sender
                     },
                 })
@@ -277,7 +277,7 @@ impl StacksHyperOp {
                     if let PrincipalData::Contract(id) = hc_contract_id {
                         Ok(id)
                     } else { Err("Expected 'hc-contract-id' to be a contract principal")}?;
-                let ft_name = tuple
+                let name = tuple
                     .get("ft-name")
                     .map_err(|_| "No 'ft-name' field in Clarity tuple")?.clone().expect_ascii();
                 let recipient = tuple
@@ -292,7 +292,7 @@ impl StacksHyperOp {
                     event: StacksHyperOpType::WithdrawFt {
                         l1_contract_id,
                         hc_contract_id,
-                        name: ft_name,
+                        name,
                         amount,
                         recipient
                     },

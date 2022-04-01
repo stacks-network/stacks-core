@@ -2070,7 +2070,7 @@ pub mod test {
                             "sender": op.sender,
                             "l1_contract_id": op.l1_contract_id,
                             "hc_contract_id": op.hc_contract_id,
-                            "name": op.ft_name
+                            "name": op.name
                         }),
                     ).unwrap();
                     Ok(())
@@ -2097,7 +2097,7 @@ pub mod test {
                             "recipient": op.recipient,
                             "l1_contract_id": op.l1_contract_id,
                             "hc_contract_id": op.hc_contract_id,
-                            "name": op.ft_name
+                            "name": op.name
                         }),
                     ).unwrap();
                     Ok(())

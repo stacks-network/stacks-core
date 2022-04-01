@@ -13,7 +13,7 @@ impl TryFrom<&StacksHyperOp> for WithdrawFtOp {
         if let StacksHyperOpType::WithdrawFt {
             ref l1_contract_id,
             ref hc_contract_id,
-            name: ref ft_name,
+            ref name,
             ref amount,
             ref recipient,
         } = value.event {
@@ -23,7 +23,7 @@ impl TryFrom<&StacksHyperOp> for WithdrawFtOp {
                 burn_header_hash: BurnchainHeaderHash(value.in_block.0.clone()),
                 l1_contract_id: l1_contract_id.clone(),
                 hc_contract_id: hc_contract_id.clone(),
-                ft_name: ft_name.clone(),
+                name: name.clone(),
                 amount: amount.clone(),
                 recipient: recipient.clone()
             })

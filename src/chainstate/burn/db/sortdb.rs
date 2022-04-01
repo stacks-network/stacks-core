@@ -2860,7 +2860,7 @@ impl<'a> SortitionHandleTx<'a> {
                     "txid" => %op.txid,
                     "l1_contract_id" => %op.l1_contract_id,
                     "hc_contract_id" => %op.hc_contract_id,
-                    "ft_name" => %op.ft_name,
+                    "name" => %op.name,
                     "amount" => %op.amount,
                     "sender" => %op.sender,
                 );
@@ -2891,7 +2891,7 @@ impl<'a> SortitionHandleTx<'a> {
                     "txid" => %op.txid,
                     "l1_contract_id" => %op.l1_contract_id,
                     "hc_contract_id" => %op.hc_contract_id,
-                    "ft_name" => %op.ft_name,
+                    "name" => %op.name,
                     "amount" => %op.amount,
                     "recipient" => %op.recipient,
                 );
