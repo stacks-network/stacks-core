@@ -207,7 +207,7 @@ fn l1_integration_test() {
     thread::sleep(Duration::from_millis(10_000));
 
     // Publish the default hyperchains contract on the L1 chain
-    let contract_content = include_str!("../../../../core-contracts/contracts/subnets.clar");
+    let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
         0,
