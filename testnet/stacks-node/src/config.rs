@@ -13,8 +13,6 @@ use stacks::chainstate::stacks::TransactionAnchorMode;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::StacksEpoch;
-use stacks::core::NETWORK_ID_MAINNET;
-use stacks::core::NETWORK_ID_TESTNET;
 use stacks::core::{
     CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };

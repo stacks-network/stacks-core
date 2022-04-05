@@ -27,6 +27,7 @@ pub struct PoxSyncWatchdogComms {
     /// how many times have we done a download pass?
     download_passes: Arc<AtomicU64>,
     /// What's the burnchain tip we last saw?
+    #[allow(dead_code)]
     burnchain_tip_height: Arc<AtomicU64>,
     /// What's our last IBD status?
     last_ibd: Arc<AtomicBool>,

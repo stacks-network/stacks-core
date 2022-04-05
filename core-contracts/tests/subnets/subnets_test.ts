@@ -21,6 +21,10 @@ Clarinet.test({
                 alice.address),
           // Try and fail to commit a different block, but again at height 0.
           Tx.contractCall("hyperchains", "commit-block",
+                [
+                    types.buff(new Uint8Array([0, 2, 2, 2, 2])),
+                ],
+                alice.address),
         ]);
         assertEquals(block.height, 2);
         block.receipts[0].result

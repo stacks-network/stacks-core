@@ -26,7 +26,6 @@ use stacks::net::atlas::{AtlasConfig, AttachmentInstance};
 
 use crate::run_loop::l1_observer;
 
-use crate::burnchains::mock_events::MockController;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::StacksNode;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};

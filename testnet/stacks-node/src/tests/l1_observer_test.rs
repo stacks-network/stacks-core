@@ -171,8 +171,10 @@ fn l1_integration_test() {
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
     let l1_rpc_origin = "http://127.0.0.1:20443";
+    let nft_trait_name = "nft-trait-standard";
+    let ft_trait_name = "ft-trait-standard";
 
-    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), false);
+    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
     let _stacks_res = stacks_l1_controller
         .start_process()
         .expect("stacks l1 controller didn't start");
@@ -206,23 +208,49 @@ fn l1_integration_test() {
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
 
+    // Publish the NFT/FT traits
+    let ft_trait_content =
+        include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
+    let ft_trait_publish = make_contract_publish(
+        &MOCKNET_PRIVATE_KEY_1,
+        0,
+        1_000_000,
+        &ft_trait_name,
+        &ft_trait_content,
+    );
+    let nft_trait_content =
+        include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
+    let nft_trait_publish = make_contract_publish(
+        &MOCKNET_PRIVATE_KEY_1,
+        1,
+        1_000_000,
+        &nft_trait_name,
+        &nft_trait_content,
+    );
+
     // Publish the default hyperchains contract on the L1 chain
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
-        0,
+        2,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
         &contract_content,
     );
 
+    submit_tx(l1_rpc_origin, &ft_trait_publish);
+    submit_tx(l1_rpc_origin, &nft_trait_publish);
+    // Because the nonce ensures that the FT contract and NFT contract
+    // are published before the HC contract, we can broadcast them
+    // all at once, even though the HC contract depends on those
+    // contracts.
     submit_tx(l1_rpc_origin, &hc_contract_publish);
 
-    println!("Submitted contract!");
+    println!("Submitted FT, NFT, and Hyperchain contracts!");
 
     // Sleep to give the run loop time to listen to blocks,
     //  and start mining L2 blocks
-    thread::sleep(Duration::from_millis(60000));
+    thread::sleep(Duration::from_secs(60));
 
     // The burnchain should have registered what the listener recorded.
     let burnchain = Burnchain::new(

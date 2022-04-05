@@ -211,6 +211,7 @@ pub trait RewardSetProvider {
 /// TODO: Delete this class once baseline subnet system is stable.
 pub struct OnChainRewardSetProvider();
 impl RewardSetProvider for OnChainRewardSetProvider {
+    #[allow(unused_variables)]
     fn get_reward_set(
         &self,
         current_burn_height: u64,
@@ -383,6 +384,7 @@ pub fn get_next_recipients<U: RewardSetProvider>(
 ///                     in our current sortition view:
 ///           * PoX anchor block
 ///           * Was PoX anchor block known?
+#[allow(unused_variables)]
 pub fn get_reward_cycle_info<U: RewardSetProvider>(
     burn_height: u64,
     parent_bhh: &BurnchainHeaderHash,

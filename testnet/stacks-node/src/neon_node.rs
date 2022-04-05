@@ -8,7 +8,6 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::{thread, thread::JoinHandle};
 
-use crate::burnchains::mock_events::MockController;
 use crate::burnchains::BurnchainController;
 use stacks::burnchains::{BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;

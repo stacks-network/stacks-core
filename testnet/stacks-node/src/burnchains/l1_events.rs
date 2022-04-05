@@ -78,6 +78,7 @@ pub struct L1BlockDownloader {
 #[derive(Deserialize)]
 struct RpcAccountResponse {
     nonce: u64,
+    #[allow(dead_code)]
     balance: String,
 }
 

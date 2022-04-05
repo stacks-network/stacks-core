@@ -1349,6 +1349,7 @@ impl PeerNetwork {
     ///
     /// Unlike the mainchain function of the same name, here, there is no notion of "disagreeing"
     /// about the PoX history, because there is no PoX in the subnet.
+    #[allow(unused_variables)]
     fn get_getblocksinv_num_blocks(
         &self,
         sortdb: &SortitionDB,
@@ -1795,6 +1796,7 @@ impl PeerNetwork {
     /// Refresh our cached PoX bitvector, and invalidate any PoX state if we have since learned
     /// about a new reward cycle.
     /// Call right after PeerNetwork::refresh_burnchain_view()
+    #[allow(unused_variables)]
     pub fn refresh_sortition_view(&mut self, sortdb: &SortitionDB) -> Result<(), net_error> {
         if self.inv_state.is_none() {
             self.init_inv_sync(sortdb);

@@ -20,6 +20,7 @@ pub struct Keychain {
     microblocks_secret_keys: Vec<StacksPrivateKey>,
     vrf_secret_keys: Vec<VRFPrivateKey>,
     vrf_map: HashMap<VRFPublicKey, VRFPrivateKey>,
+    #[allow(dead_code)]
     rotations: u64,
 }
 
