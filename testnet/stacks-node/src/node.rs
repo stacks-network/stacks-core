@@ -225,14 +225,6 @@ fn spawn_peer(
                 }
             };
 
-            let mut expected_attachments = match attachments_rx.try_recv() {
-                Ok(expected_attachments) => expected_attachments,
-                _ => {
-                    debug!("Atlas: attachment channel is empty");
-                    HashSet::new()
-                }
-            };
-
             let net_result = this
                 .run(
                     &sortdb,
@@ -243,7 +235,6 @@ fn spawn_peer(
                     false,
                     poll_timeout,
                     &handler_args,
-                    &mut expected_attachments,
                 )
                 .unwrap();
             if net_result.has_transactions() {

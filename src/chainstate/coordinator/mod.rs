@@ -45,7 +45,7 @@ use crate::core::StacksEpoch;
 use crate::monitoring::{
     increment_contract_calls_processed, increment_stx_blocks_processed_counter,
 };
-use crate::net::atlas::{AtlasConfig, AttachmentInstance};
+use crate::net::atlas::{AtlasConfig, AtlasDB, AttachmentInstance};
 use crate::util_lib::db::Error as DBError;
 use clarity::vm::{
     costs::ExecutionCost,
@@ -160,7 +160,7 @@ pub struct ChainsCoordinator<
     chain_state_db: StacksChainState,
     sortition_db: SortitionDB,
     burnchain: Burnchain,
-    attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
+    atlas_db: Option<AtlasDB>,
     dispatcher: Option<&'a T>,
     cost_estimator: Option<&'a mut CE>,
     fee_estimator: Option<&'a mut FE>,
@@ -264,12 +264,12 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
     pub fn run(
         chain_state_db: StacksChainState,
         burnchain: Burnchain,
-        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         dispatcher: &'a mut T,
         comms: CoordinatorReceivers,
         atlas_config: AtlasConfig,
         cost_estimator: Option<&mut CE>,
         fee_estimator: Option<&mut FE>,
+        atlas_db: AtlasDB,
     ) where
         T: BlockEventDispatcher,
     {
@@ -296,13 +296,13 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
             chain_state_db,
             sortition_db,
             burnchain,
-            attachments_tx,
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
             reward_set_provider: OnChainRewardSetProvider(),
             cost_estimator,
             fee_estimator,
             atlas_config,
+            atlas_db: Some(atlas_db),
         };
 
         loop {
@@ -355,7 +355,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
         chain_id: u32,
         path: &str,
         reward_set_provider: U,
-        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
+        _attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         dispatcher: Option<&'a T>,
     ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
         let burnchain = burnchain.clone();
@@ -388,8 +388,8 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             fee_estimator: None,
             reward_set_provider,
             notifier: (),
-            attachments_tx,
             atlas_config: AtlasConfig::default(false),
+            atlas_db: None,
         }
     }
 }
@@ -769,15 +769,27 @@ impl<
                     }
                     if !attachments_instances.is_empty() {
                         info!(
-                            "Atlas: {} attachment instances emitted from events",
-                            attachments_instances.len()
+                            "Atlas: New attachment instances emitted by block";
+                            "attachments_count" => attachments_instances.len(),
+                            "index_block_hash" => %block_receipt.header.index_block_hash(),
+                            "stacks_height" => block_receipt.header.stacks_block_height,
                         );
-                        match self.attachments_tx.send(attachments_instances) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!("Atlas: error dispatching attachments {}", e);
+                        if let Some(atlas_db) = self.atlas_db.as_mut() {
+                            for new_attachment in attachments_instances.into_iter() {
+                                if let Err(e) = atlas_db.queue_attachment_instance(&new_attachment)
+                                {
+                                    warn!(
+                                        "Atlas: Error writing attachment instance to DB";
+                                        "err" => ?e,
+                                        "index_block_hash" => %new_attachment.index_block_hash,
+                                        "contract_id" => %new_attachment.contract_id,
+                                        "attachment_index" => %new_attachment.attachment_index,
+                                    );
+                                }
                             }
-                        };
+                        } else {
+                            warn!("Atlas: attempted to write attachments, but stacks-node not configured with Atlas DB");
+                        }
                     }
 
                     if let Some(ref mut estimator) = self.cost_estimator {

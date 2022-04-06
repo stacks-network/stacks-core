@@ -24,7 +24,9 @@ use stacks::chainstate::coordinator::{
     check_chainstate_db_versions, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
-use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE};
+use stacks::net::atlas::{
+    AtlasConfig, AtlasDB, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE,
+};
 use stx_genesis::GenesisData;
 
 use crate::monitoring::start_serving_monitoring_metrics;
@@ -438,7 +440,14 @@ impl RunLoop {
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
         let mut coordinator_dispatcher = self.event_dispatcher.clone();
-        let (attachments_tx, attachments_rx) = sync_channel(ATTACHMENTS_CHANNEL_SIZE);
+        let (_attachments_tx, attachments_rx) = sync_channel(ATTACHMENTS_CHANNEL_SIZE);
+
+        let atlas_db = AtlasDB::connect(
+            moved_atlas_config.clone(),
+            &self.config.get_atlas_db_file_path(),
+            true,
+        )
+        .expect("Failed to connect Atlas DB during startup");
 
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
@@ -449,12 +458,12 @@ impl RunLoop {
                 ChainsCoordinator::run(
                     chain_state_db,
                     moved_burnchain_config,
-                    attachments_tx,
                     &mut coordinator_dispatcher,
                     coordinator_receivers,
                     moved_atlas_config,
                     cost_estimator.as_deref_mut(),
                     fee_estimator.as_deref_mut(),
+                    atlas_db,
                 );
             })
             .expect("FATAL: failed to start chains coordinator thread");

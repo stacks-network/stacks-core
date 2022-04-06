@@ -711,14 +711,6 @@ fn spawn_peer(
                     cmp::min(poll_timeout, config.node.microblock_frequency)
                 };
 
-                let mut expected_attachments = match attachments_rx.try_recv() {
-                    Ok(expected_attachments) => expected_attachments,
-                    _ => {
-                        debug!("Atlas: attachment channel is empty");
-                        HashSet::new()
-                    }
-                };
-
                 let _ = Relayer::setup_unconfirmed_state_readonly(&mut chainstate, &sortdb);
                 recv_unconfirmed_txs(&mut chainstate, unconfirmed_txs.clone());
 
@@ -731,7 +723,6 @@ fn spawn_peer(
                     ibd,
                     poll_ms,
                     &handler_args,
-                    &mut expected_attachments,
                 ) {
                     Ok(network_result) => {
                         if num_p2p_state_machine_passes < network_result.num_state_machine_passes {

@@ -113,12 +113,7 @@ impl AttachmentsDownloader {
 
         // Handle initial batch
         if self.initial_batch.len() > 0 {
-            let mut batch = HashSet::new();
-            for attachment_instance in self.initial_batch.drain(..) {
-                batch.insert(attachment_instance);
-            }
-            let mut resolved =
-                self.enqueue_new_attachments(&mut batch, &mut network.atlasdb, true)?;
+            let mut resolved = self.enqueue_initial_attachments(&mut network.atlasdb)?;
             resolved_attachments.append(&mut resolved);
         }
 
@@ -235,74 +230,57 @@ impl AttachmentsDownloader {
         Ok((resolved_attachments, events_to_deregister))
     }
 
-    pub fn enqueue_new_attachments(
+    fn check_attachment_instances<F, G>(
         &mut self,
-        new_attachments: &mut HashSet<AttachmentInstance>,
-        atlasdb: &mut AtlasDB,
-        initial_batch: bool,
-    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error> {
-        if new_attachments.is_empty() {
-            return Ok(vec![]);
-        }
-
+        atlas_db: &mut AtlasDB,
+        iterator: Vec<AttachmentInstance>,
+        do_if_found: F,
+        do_if_not_found: G,
+    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error>
+    where
+        F: Fn(&mut AtlasDB, &AttachmentInstance) -> Result<(), net_error>,
+        G: Fn(&mut AtlasDB, &AttachmentInstance) -> Result<(), net_error>,
+    {
         let mut attachments_batches: HashMap<StacksBlockId, AttachmentsBatch> = HashMap::new();
         let mut resolved_attachments = vec![];
-        for attachment_instance in new_attachments.drain() {
-            // Are we dealing with an empty hash - allowed for undoing onchain binding
+        for attachment_instance in iterator {
             if attachment_instance.content_hash == Hash160::empty() {
-                // todo(ludo) insert or update ?
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
-                    .map_err(|e| net_error::DBError(e))?;
+                // Are we dealing with an empty hash - allowed for undoing onchain binding
+                do_if_found(atlas_db, &attachment_instance)?;
                 debug!("Atlas: inserting and pairing new attachment instance with empty hash");
                 resolved_attachments.push((attachment_instance, Attachment::empty()));
-                continue;
-            }
-
-            // Do we already have a matching validated attachment
-            if let Ok(Some(entry)) = atlasdb.find_attachment(&attachment_instance.content_hash) {
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
-                    .map_err(|e| net_error::DBError(e))?;
+            } else if let Ok(Some(entry)) =
+                atlas_db.find_attachment(&attachment_instance.content_hash)
+            {
+                // Do we already have a matching validated attachment
+                do_if_found(atlas_db, &attachment_instance)?;
                 debug!(
                     "Atlas: inserting and pairing new attachment instance to existing attachment"
                 );
                 resolved_attachments.push((attachment_instance, entry));
-                continue;
-            }
-
-            // Do we already have a matching inboxed attachment
-            if let Ok(Some(attachment)) =
-                atlasdb.find_uninstantiated_attachment(&attachment_instance.content_hash)
+            } else if let Ok(Some(attachment)) =
+                atlas_db.find_uninstantiated_attachment(&attachment_instance.content_hash)
             {
-                atlasdb
-                    .insert_instantiated_attachment(&attachment)
-                    .map_err(|e| net_error::DBError(e))?;
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
-                    .map_err(|e| net_error::DBError(e))?;
+                // Do we already have a matching inboxed attachment
+                atlas_db.insert_instantiated_attachment(&attachment)?;
+                do_if_found(atlas_db, &attachment_instance)?;
                 debug!("Atlas: inserting and pairing new attachment instance to inboxed attachment, now validated");
                 resolved_attachments.push((attachment_instance, attachment));
-                continue;
-            }
+            } else {
+                // This attachment refers to an unknown attachment.
+                // Let's append it to the batch being constructed in this routine.
+                match attachments_batches.entry(attachment_instance.index_block_hash) {
+                    Entry::Occupied(entry) => {
+                        entry.into_mut().track_attachment(&attachment_instance);
+                    }
+                    Entry::Vacant(v) => {
+                        let mut batch = AttachmentsBatch::new();
+                        batch.track_attachment(&attachment_instance);
+                        v.insert(batch);
+                    }
+                };
 
-            // This attachment in refering to an unknown attachment.
-            // Let's append it to the batch being constructed in this routine.
-            match attachments_batches.entry(attachment_instance.index_block_hash) {
-                Entry::Occupied(entry) => {
-                    entry.into_mut().track_attachment(&attachment_instance);
-                }
-                Entry::Vacant(v) => {
-                    let mut batch = AttachmentsBatch::new();
-                    batch.track_attachment(&attachment_instance);
-                    v.insert(batch);
-                }
-            };
-
-            if !initial_batch {
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, false)
-                    .map_err(|e| net_error::DBError(e))?;
+                do_if_not_found(atlas_db, &attachment_instance)?;
             }
         }
 
@@ -311,6 +289,61 @@ impl AttachmentsDownloader {
         }
 
         Ok(resolved_attachments)
+    }
+
+    /// Check any queued attachment instances to see if we already have data for them,
+    ///  returning a vector of (instance, attachment) pairs for any of the queued attachments
+    ///  which already had the associated data
+    /// Marks any processed attachments as checked
+    pub fn check_queued_attachment_instances(
+        &mut self,
+        atlas_db: &mut AtlasDB,
+    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error> {
+        let new_attachments = atlas_db.queued_attachments()?;
+
+        self.check_attachment_instances(
+            atlas_db,
+            new_attachments,
+            |atlas_db, attachment_instance| {
+                atlas_db
+                    .mark_attachment_instance_checked(&attachment_instance, true)
+                    .map_err(net_error::from)
+            },
+            |atlas_db, attachment_instance| {
+                atlas_db
+                    .mark_attachment_instance_checked(&attachment_instance, false)
+                    .map_err(net_error::from)
+            },
+        )
+    }
+
+    /// Insert the initial attachments set. Only add the attachment instance if associated data
+    ///  was found.
+    pub fn enqueue_initial_attachments(
+        &mut self,
+        atlas_db: &mut AtlasDB,
+    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error> {
+        if self.initial_batch.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // we're draining the initial batch, so to avoid angering The Borrow Checker
+        //  use mem replace to just take the whole vec.
+        let initial_batch = std::mem::replace(&mut self.initial_batch, vec![]);
+
+        self.check_attachment_instances(
+            atlas_db,
+            initial_batch,
+            |atlas_db, attachment_instance| {
+                atlas_db
+                    .insert_initial_attachment_instance(&attachment_instance)
+                    .map_err(net_error::from)
+            },
+            |_atlas_db, _attachment_instance| {
+                // If attachment not found, don't insert attachment instance
+                Ok(())
+            },
+        )
     }
 }
 

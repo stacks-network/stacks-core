@@ -1003,7 +1003,7 @@ fn test_evict_expired_unresolved_attachment_instances() {
     };
     let mut atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
 
-    // Insert some uninstanciated attachments
+    // Insert some uninstantiated attachments
     let uninstantiated_attachment_instances = [
         new_attachment_instance_from(&new_attachment_from("facade11"), 0, 1),
         new_attachment_instance_from(&new_attachment_from("facade12"), 1, 1),
@@ -1016,7 +1016,10 @@ fn test_evict_expired_unresolved_attachment_instances() {
     ];
     for attachment_instance in uninstantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, false)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, false)
             .unwrap();
     }
 
@@ -1029,7 +1032,10 @@ fn test_evict_expired_unresolved_attachment_instances() {
     ];
     for attachment_instance in instantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, true)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, true)
             .unwrap();
     }
 
@@ -1043,7 +1049,10 @@ fn test_evict_expired_unresolved_attachment_instances() {
     ];
     for attachment_instance in uninstantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, false)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, false)
             .unwrap();
     }
 
@@ -1092,7 +1101,7 @@ fn test_bit_vectors() {
 
     let mut atlas_db = AtlasDB::connect_memory(atlas_config).unwrap();
 
-    // Insert some uninstanciated attachments
+    // Insert some uninstantiated attachments
     let uninstantiated_attachment_instances = [
         new_attachment_instance_from(&new_attachment_from("facade11"), 0, 1),
         new_attachment_instance_from(&new_attachment_from("facade12"), 1, 1),
@@ -1101,7 +1110,10 @@ fn test_bit_vectors() {
     ];
     for attachment_instance in uninstantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, false)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, false)
             .unwrap();
     }
     let block_id_1 = uninstantiated_attachment_instances[0].index_block_hash;
@@ -1118,7 +1130,10 @@ fn test_bit_vectors() {
     ];
     for attachment_instance in uninstantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, false)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, false)
             .unwrap();
     }
     let bit_vector = atlas_db
@@ -1134,7 +1149,10 @@ fn test_bit_vectors() {
     ];
     for attachment_instance in instantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, true)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, true)
             .unwrap();
     }
 
@@ -1160,7 +1178,10 @@ fn test_bit_vectors() {
     let block_id_2 = instantiated_attachment_instances[0].index_block_hash;
     for attachment_instance in instantiated_attachment_instances.iter() {
         atlas_db
-            .insert_uninstantiated_attachment_instance(attachment_instance, true)
+            .queue_attachment_instance(attachment_instance)
+            .unwrap();
+        atlas_db
+            .mark_attachment_instance_checked(attachment_instance, true)
             .unwrap();
     }
 

@@ -2835,7 +2835,6 @@ pub mod test {
                 false,
                 100,
                 &RPCHandlerArgs::default(),
-                &mut HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);
@@ -2859,7 +2858,6 @@ pub mod test {
                 false,
                 100,
                 &RPCHandlerArgs::default(),
-                &mut HashSet::new(),
             );
 
             self.sortdb = Some(sortdb);
