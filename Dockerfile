@@ -18,7 +18,7 @@ RUN cd testnet/puppet-chain && cargo build --release
 RUN cp target/release/stacks-node /out
 RUN cp target/release/puppet-chain /out
 
-FROM alpine:3.15.3
+FROM alpine:latest
 
 COPY --from=build /out/ /bin/
 
