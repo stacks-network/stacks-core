@@ -233,7 +233,7 @@ pub fn new_test_conf() -> Config {
 
     let mut conf = Config::default();
     conf.node.working_dir = format!(
-        "/tmp/stacks-node-tests/integrations-neon/{}-{}",
+        "/tmp/hyperchain-node-tests/integrations-neon/{}-{}",
         to_hex(&buf),
         get_epoch_time_secs()
     );

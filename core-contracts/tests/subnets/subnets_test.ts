@@ -12,12 +12,17 @@ Clarinet.test({
         const bob = accounts.get("wallet_2")!;
         const charlie = accounts.get("wallet_3")!;
 
-        // Successfully commit block at height 0 with alice.
         let block = chain.mineBlock([
-            Tx.contractCall("hyperchains", "commit-block",
+          // Successfully commit block at height 0 with alice.
+          Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                    types.uint(0),
+                ],
+                alice.address),
+          // Try and fail to commit a different block, but again at height 0.
+          Tx.contractCall("hyperchains", "commit-block",
+                [
+                    types.buff(new Uint8Array([0, 2, 2, 2, 2])),
                 ],
                 alice.address),
         ]);
@@ -25,19 +30,7 @@ Clarinet.test({
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
-
-
-        // Try and fail to commit a different block, but again at height 0.
-        block = chain.mineBlock([
-            Tx.contractCall("hyperchains", "commit-block",
-                [
-                    types.buff(new Uint8Array([0, 2, 2, 2, 2])),
-                    types.uint(0),
-                ],
-                alice.address),
-        ]);
-        assertEquals(block.height, 3);
-        block.receipts[0].result
+        block.receipts[1].result
             .expectErr()
             .expectInt(3);
 
@@ -47,11 +40,10 @@ Clarinet.test({
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
-                    types.uint(1),
                 ],
                 bob.address),
         ]);
-        assertEquals(block.height, 4);
+        assertEquals(block.height, 3);
         block.receipts[0].result
             .expectErr()
             .expectInt(3);
@@ -61,11 +53,10 @@ Clarinet.test({
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
-                    types.uint(1),
                 ],
                 alice.address),
         ]);
-        assertEquals(block.height, 5);
+        assertEquals(block.height, 4);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 2, 2, 2, 2]));

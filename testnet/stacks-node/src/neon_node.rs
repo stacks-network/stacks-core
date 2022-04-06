@@ -8,7 +8,6 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::{thread, thread::JoinHandle};
 
-use crate::burnchains::mock_events::MockController;
 use crate::burnchains::BurnchainController;
 use stacks::burnchains::{BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -408,7 +407,7 @@ fn try_mine_microblock(
                             next_microblock = Some(microblock);
                         }
                         Err(ChainstateError::NoTransactionsToMine) => {
-                            info!("Will keep polling mempool for transactions to include in a microblock");
+                            debug!("Will keep polling mempool for transactions to include in a microblock");
                         }
                         Err(e) => {
                             warn!("Failed to mine one microblock: {:?}", &e);
@@ -478,7 +477,7 @@ fn run_microblock_tenure(
             .map(|ref unconfirmed| unconfirmed.num_microblocks())
             .unwrap_or(0);
 
-        info!(
+        debug!(
             "Mined one microblock: {} seq {} (total processed: {})",
             &microblock_hash, next_microblock.header.sequence, num_mblocks
         );
@@ -640,7 +639,7 @@ fn spawn_peer(
                 let mut expected_attachments = match attachments_rx.try_recv() {
                     Ok(expected_attachments) => expected_attachments,
                     _ => {
-                        debug!("Atlas: attachment channel is empty");
+                        trace!("Atlas: attachment channel is empty");
                         HashSet::new()
                     }
                 };
@@ -686,7 +685,7 @@ fn spawn_peer(
                         // only do this on the Ok() path, even if we're mining, because an error in
                         // network dispatching is likely due to resource exhaustion
                         if mblock_deadline < get_epoch_time_ms() {
-                            debug!("P2P: schedule microblock tenure");
+                            info!("P2P: schedule microblock tenure");
                             results_with_data.push_back(RelayerDirective::RunMicroblockTenure(
                                 this.burnchain_tip.clone(),
                                 get_epoch_time_ms(),
@@ -707,7 +706,7 @@ fn spawn_peer(
                     // have blocks, microblocks, and/or transactions (don't care about anything else),
                     // or a directive to mine microblocks
                     if let Err(e) = relay_channel.try_send(next_result) {
-                        debug!(
+                        info!(
                             "P2P: {:?}: download backpressure detected",
                             &this.local_peer
                         );
@@ -730,13 +729,13 @@ fn spawn_peer(
                             }
                         }
                     } else {
-                        debug!("P2P: Dispatched result to Relayer!");
+                        info!("P2P: Dispatched result to Relayer!");
                     }
                 }
             }
 
             relay_channel.try_send(RelayerDirective::Exit).unwrap();
-            debug!("P2P thread exit!");
+            info!("P2P thread exit!");
         })
         .unwrap();
 
@@ -891,7 +890,7 @@ fn spawn_miner_relayer(
                                 // we won!
                                 let reward_block_height = mined_block.header.total_work.work + MINER_REWARD_MATURITY;
                                 info!("Won sortition! Mining reward will be received in {} blocks (block #{})", MINER_REWARD_MATURITY, reward_block_height);
-                                debug!("Won sortition!";
+                                info!("Won sortition!";
                                       "stacks_header" => %block_header_hash,
                                       "burn_hash" => %mined_burn_hash,
                                 );
@@ -1132,7 +1131,10 @@ impl StacksNode {
         let miner = runloop.is_miner();
         let burnchain = runloop.get_burnchain();
         let atlas_config = AtlasConfig::default(config.is_mainnet());
-        let keychain = Keychain::default(config.node.seed.clone());
+        let keychain = match config.node.mining_key.clone() {
+            Some(key) => Keychain::single_signer(key),
+            None => Keychain::default(config.node.seed.clone()),
+        };
 
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -1152,7 +1154,7 @@ impl StacksNode {
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
         let initial_neighbors = config.node.bootstrap_node.clone();
         if initial_neighbors.len() > 0 {
-            info!(
+            debug!(
                 "Will bootstrap from peers {}",
                 VecDisplay(&initial_neighbors)
             );
@@ -1457,7 +1459,7 @@ impl StacksNode {
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
         if burn_chain_tip.consensus_hash != check_burn_block.consensus_hash {
-            info!(
+            debug!(
                 "New canonical burn chain tip detected. Will not try to mine.";
                 "new_consensus_hash" => %burn_chain_tip.consensus_hash,
                 "old_consensus_hash" => %check_burn_block.consensus_hash,
@@ -1530,7 +1532,7 @@ impl StacksNode {
             )
             .ok()?
         } else {
-            debug!("No Stacks chain tip known, will return a genesis block");
+            info!("No Stacks chain tip known, will return a genesis block");
             let burnchain_params =
                 // TODO(hyperchains): set burnchain parameters with hyperchain configuration
                 BurnchainParameters::from_params(&config.burnchain.chain, "mainnet")
@@ -1771,7 +1773,7 @@ impl StacksNode {
             Ok(block) => block,
             Err(ChainstateError::InvalidStacksMicroblock(msg, mblock_header_hash)) => {
                 // part of the parent microblock stream is invalid, so try again
-                info!("Parent microblock stream is invalid; trying again without the offender {} (msg: {})", &mblock_header_hash, &msg);
+                debug!("Parent microblock stream is invalid; trying again without the offender {} (msg: {})", &mblock_header_hash, &msg);
 
                 // truncate the stream
                 stacks_parent_header.microblock_tail = match microblock_info_opt {
@@ -1874,7 +1876,7 @@ impl StacksNode {
         }
 
         let mut op_signer = keychain.generate_op_signer();
-        debug!(
+        info!(
             "Submit block-commit";
             "block_hash" => %anchored_block.block_hash(),
             "tx_count" => anchored_block.txs.len(),

@@ -25,11 +25,15 @@ impl BurnchainOpSigner {
         stacks::address::b58::check_encode_slice(&as_bytes)
     }
 
+    pub fn get_sk(&self) -> &Secp256k1PrivateKey {
+        &self.secret_key
+    }
+
     pub fn get_sk_as_hex(&self) -> String {
         self.secret_key.to_hex()
     }
 
-    pub fn get_public_key(&mut self) -> Secp256k1PublicKey {
+    pub fn get_public_key(&self) -> Secp256k1PublicKey {
         let public_key = Secp256k1PublicKey::from_private(&self.secret_key);
         public_key
     }

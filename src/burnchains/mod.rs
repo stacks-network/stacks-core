@@ -101,7 +101,9 @@ pub struct BurnchainParameters {
 impl BurnchainParameters {
     pub fn from_params(chain: &str, network: &str) -> Option<BurnchainParameters> {
         match (chain, network) {
-            ("mockstack", "mainnet") => Some(BurnchainParameters::hyperchain_mocknet()),
+            ("stacks_layer_1", "mainnet") | ("mockstack", "mainnet") => {
+                Some(BurnchainParameters::hyperchain_mocknet())
+            }
             ("bitcoin", "mainnet") => Some(BurnchainParameters::bitcoin_mainnet()),
             ("bitcoin", "testnet") => Some(BurnchainParameters::bitcoin_testnet()),
             ("bitcoin", "regtest") => Some(BurnchainParameters::bitcoin_regtest()),
