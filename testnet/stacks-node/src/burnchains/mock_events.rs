@@ -351,6 +351,22 @@ impl BurnchainController for MockController {
 
                 true
             }
+            BlockstackOperationType::DepositFt(_op) =>{
+                debug!("Submitted deposit ft operation");
+                true
+            }
+            BlockstackOperationType::DepositNft(_op) =>{
+                debug!("Submitted deposit nft operation");
+                true
+            }
+            BlockstackOperationType::WithdrawFt(_op) =>{
+                debug!("Submitted withdraw ft operation");
+                true
+            }
+            BlockstackOperationType::WithdrawNft(_op) =>{
+                debug!("Submitted withdraw nft operation");
+                true
+            }
         }
     }
 

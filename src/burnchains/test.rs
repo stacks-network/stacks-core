@@ -1018,7 +1018,7 @@ fn create_stacks_events_failures_deposit_ft() {
             "Expected 'hc-contract-id' to be a contract principal",
         ),
     ];
-    
+
     for (test_input, expected_err) in inputs.iter() {
         let value = execute(test_input).unwrap().unwrap();
         let err_str =
