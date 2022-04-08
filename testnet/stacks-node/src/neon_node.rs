@@ -6,6 +6,7 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
+use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
 use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
@@ -808,8 +809,11 @@ fn spawn_peer(
                 }
             }
 
-            relay_channel.try_send(RelayerDirective::Exit).unwrap();
-            debug!("P2P thread exit!");
+            while let Err(TrySendError::Full(_)) = relay_channel.try_send(RelayerDirective::Exit) {
+                warn!("Failed to direct relayer thread to exit, sleeping and trying again");
+                thread::sleep(Duration::from_secs(5));
+            }
+            info!("P2P thread exit!");
         })
         .unwrap();
 

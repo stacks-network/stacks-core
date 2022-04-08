@@ -16,8 +16,8 @@
 
 use std::{error, fmt, str};
 
-use address::Error;
-use util::hash::DoubleSha256;
+use crate::address::Error;
+use crate::util::hash::DoubleSha256;
 
 static BASE58_CHARS: &'static [u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
@@ -292,7 +292,7 @@ pub fn check_encode_slice_to_fmt(fmt: &mut fmt::Formatter, data: &[u8]) -> fmt::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use util::hash::hex_bytes as hex_decode;
+    use crate::util::hash::hex_bytes as hex_decode;
 
     #[test]
     fn test_base58_encode() {

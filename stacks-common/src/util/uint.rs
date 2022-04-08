@@ -452,8 +452,8 @@ impl Uint512 {
 
 #[cfg(test)]
 mod tests {
-    use util::uint::BitArray;
-    use util::uint::Uint256;
+    use crate::util::uint::BitArray;
+    use crate::util::uint::Uint256;
 
     #[test]
     pub fn uint256_bits_test() {

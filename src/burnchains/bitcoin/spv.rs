@@ -30,26 +30,26 @@ use stacks_common::deps_common::bitcoin::network::serialize::{
 };
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
-use util::uint::Uint256;
+use stacks_common::util::uint::Uint256;
 
-use burnchains::bitcoin::indexer::BitcoinIndexer;
-use burnchains::bitcoin::messages::BitcoinMessageHandler;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::bitcoin::Error as btc_error;
-use burnchains::bitcoin::PeerMessage;
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::bitcoin::Error as btc_error;
+use crate::burnchains::bitcoin::PeerMessage;
 
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
-use util::get_epoch_time_secs;
-use util::hash::{hex_bytes, to_hex};
-use util::log;
-use util_lib::db::{
+use crate::util_lib::db::{
     query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn,
     DBTx, Error as db_error, FromColumn, FromRow,
 };
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::log;
 
 const BLOCK_HEADER_SIZE: u64 = 81;
 
@@ -932,8 +932,8 @@ impl BitcoinMessageHandler for SpvClient {
 mod test {
 
     use super::*;
-    use burnchains::bitcoin::Error as btc_error;
-    use burnchains::bitcoin::*;
+    use crate::burnchains::bitcoin::Error as btc_error;
+    use crate::burnchains::bitcoin::*;
 
     use std::fs::*;
 
@@ -943,7 +943,7 @@ mod test {
     };
     use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
-    use util::log;
+    use stacks_common::util::log;
 
     use std::env;
 

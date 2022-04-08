@@ -11,6 +11,7 @@ description = "Reference implementation of the Stacks 2.0 Blockchain"
 keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
 resolver = "2"
+edition = "2021"
 
 [profile.release]
 debug = true

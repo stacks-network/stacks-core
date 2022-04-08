@@ -23,6 +23,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::{cmp, fmt, fs, str::FromStr};
 
+use clarity::vm::costs::ExecutionCost;
 use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;
@@ -31,55 +32,56 @@ use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
 use sha2::{Digest, Sha512_256};
-use vm::costs::ExecutionCost;
 
-use address::AddressHashMode;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::{Address, PublicKey, Txid};
-use burnchains::{
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::{Address, PublicKey, Txid};
+use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
     BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView, Error as BurnchainError,
     PoxConstants,
 };
-use chainstate::burn::operations::{
+use crate::chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
     TransferStxOp, UserBurnSupportOp,
 };
-use chainstate::burn::Opcodes;
-use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
-use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
-use chainstate::stacks::index::marf::MarfConnection;
-use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::{Error as MARFError, MarfTrieId};
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::*;
-use chainstate::ChainstateDB;
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
-use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use net::{Error as NetError, Error};
-use util::get_epoch_time_secs;
-use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-use util::log;
-use util::secp256k1::MessageSignature;
-use util::vrf::*;
-use util_lib::db::tx_begin_immediate;
-use util_lib::db::tx_busy_handler;
-use util_lib::db::Error as db_error;
-use util_lib::db::{
+use crate::chainstate::burn::Opcodes;
+use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+use crate::chainstate::coordinator::{
+    Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
+};
+use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::index::marf::MarfConnection;
+use crate::chainstate::stacks::index::marf::MARF;
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::{Error as MARFError, MarfTrieId};
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::*;
+use crate::chainstate::ChainstateDB;
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::net::{Error as NetError, Error};
+use crate::util_lib::db::tx_begin_immediate;
+use crate::util_lib::db::tx_busy_handler;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{
     db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
     u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
-use vm::representations::{ClarityName, ContractName};
-use vm::types::Value;
+use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::types::Value;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::*;
 
-use chainstate::burn::ConsensusHashExtensions;
-use chainstate::stacks::address::StacksAddressExtensions;
-use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
+use crate::chainstate::burn::ConsensusHashExtensions;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
@@ -2130,7 +2132,7 @@ impl SortitionDB {
         first_block_height: u64,
         first_burn_hash: &BurnchainHeaderHash,
     ) -> Result<SortitionDB, db_error> {
-        use core::StacksEpochExtension;
+        use crate::core::StacksEpochExtension;
 
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
@@ -2827,6 +2829,9 @@ impl SortitionDB {
         Ok(Some((snapshot, transition_ops)))
     }
 
+    /// Evaluate the sortition (SIP-001 miner block election) in the burnchain block defined by
+    /// `burn_header`. Returns the new snapshot and burnchain state
+    /// transition.
     ///
     /// # Arguments
     /// * `burn_header` - the burnchain block header to process sortition for
@@ -2834,22 +2839,17 @@ impl SortitionDB {
     /// * `burnchain` - a reference to the burnchain information struct
     /// * `from_tip` - tip of the "sortition chain" that is being built on
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
-    ///
-    pub fn evaluate_sortition(
+    /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
+    ///                   commits its results. This is used to post the calculated reward set to an event observer.
+    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>) -> ()>(
         &mut self,
         burn_header: &BurnchainBlockHeader,
         ops: Vec<BlockstackOperationType>,
         burnchain: &Burnchain,
         from_tip: &SortitionId,
         next_pox_info: Option<RewardCycleInfo>,
-    ) -> Result<
-        (
-            BlockSnapshot,
-            BurnchainStateTransition,
-            Option<RewardSetInfo>,
-        ),
-        BurnchainError,
-    > {
+        announce_to: F,
+    ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
             .ok_or_else(|| {
@@ -2908,9 +2908,13 @@ impl SortitionDB {
 
         sortition_db_handle.store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
 
+        announce_to(reward_set_info);
+
         // commit everything!
-        sortition_db_handle.commit()?;
-        Ok((new_snapshot.0, new_snapshot.1, reward_set_info))
+        sortition_db_handle.commit().expect(
+            "Failed to commit to sortition db after announcing reward set info, state corrupted.",
+        );
+        Ok((new_snapshot.0, new_snapshot.1))
     }
 
     #[cfg(test)]
@@ -4372,27 +4376,27 @@ impl ChainstateDB for SortitionDB {
 
 #[cfg(test)]
 pub mod tests {
-    use chainstate::stacks::index::TrieHashExtension;
-    use core::StacksEpochExtension;
+    use crate::chainstate::stacks::index::TrieHashExtension;
+    use crate::core::StacksEpochExtension;
     use std::sync::mpsc::sync_channel;
     use std::thread;
 
-    use address::AddressHashMode;
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::*;
-    use chainstate::burn::operations::{
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::operations::{
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
         LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::burn::ConsensusHash;
-    use chainstate::stacks::StacksPublicKey;
-    use core::*;
-    use util::get_epoch_time_secs;
-    use util::hash::{hex_bytes, Hash160};
-    use util::vrf::*;
-    use util_lib::db::Error as db_error;
+    use crate::chainstate::burn::ConsensusHash;
+    use crate::chainstate::stacks::StacksPublicKey;
+    use crate::core::*;
+    use crate::util_lib::db::Error as db_error;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::{hex_bytes, Hash160};
+    use stacks_common::util::vrf::*;
 
     use crate::types::chainstate::StacksAddress;
     use crate::types::chainstate::{BlockHeaderHash, VRFSeed};

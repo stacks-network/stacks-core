@@ -4,18 +4,18 @@ use time::Instant;
 use rand::seq::SliceRandom;
 use rand::Rng;
 
-use cost_estimates::metrics::CostMetric;
-use cost_estimates::{EstimatorError, FeeEstimator};
-use vm::costs::ExecutionCost;
+use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::{EstimatorError, FeeEstimator};
+use clarity::vm::costs::ExecutionCost;
 
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use chainstate::stacks::StacksBlockHeader;
-use types::chainstate::TrieHash;
-use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
-use util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
-use util::vrf::VRFProof;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::StacksBlockHeader;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
+use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::vrf::VRFProof;
 
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,
@@ -28,7 +28,7 @@ use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
 
-use cost_estimates::tests::common::make_block_receipt;
+use crate::cost_estimates::tests::common::make_block_receipt;
 
 fn instantiate_test_db<CM: CostMetric>(m: CM) -> ScalarFeeRateEstimator<CM> {
     let mut path = env::temp_dir();

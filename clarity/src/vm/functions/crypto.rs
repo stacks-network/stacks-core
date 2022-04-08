@@ -14,29 +14,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use address::AddressHashMode;
-use stacks_common::address::{
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use util::hash;
-use util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
-use vm::callables::{CallableType, NativeHandle};
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{
+use crate::vm::callables::{CallableType, NativeHandle};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
 };
-use vm::errors::{
+use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
 };
-use vm::representations::SymbolicExpressionType::{Atom, List};
-use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use vm::types::StacksAddressExtensions;
-use vm::types::{
+use crate::vm::representations::SymbolicExpressionType::{Atom, List};
+use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::types::StacksAddressExtensions;
+use crate::vm::types::{
     BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
     BUFF_33, BUFF_65,
 };
-use vm::{eval, Environment, LocalContext};
+use crate::vm::{eval, Environment, LocalContext};
+use stacks_common::address::AddressHashMode;
+use stacks_common::address::{
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stacks_common::util::hash;
+use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
 
 use crate::types::chainstate::StacksAddress;
 

@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+WARNING: Please be aware that using this node on chainstate prior to this release will cause
+the node to spend up to 30 minutes migrating the data to a new schema.
+
 ## [Unreleased]
 
 ### Changed
@@ -12,6 +15,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   magnitude, by avoiding a slew of expensive database reads (#3045).  WARNING:
 applying this change to an existing chainstate directory will take a few
 minutes when the node starts up.
+- Updated chains coordinator so that before a Stacks block or a burn block is processed, 
+  an event is sent through the event dispatcher. This fixes #3015. 
+- Expose a node's public key and public key hash160 (i.e. what appears in
+  /v2/neighbors) via the /v2/info API endpoint (#3046)
 
 ## [2.05.0.1.0]
 
