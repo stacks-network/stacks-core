@@ -54,6 +54,15 @@ use super::{AtlasConfig, Attachment, AttachmentInstance};
 
 pub const ATLASDB_VERSION: &'static str = "2";
 
+/// The maximum number of atlas attachment instances that should be
+/// checked at once (this is used to limit the return size of
+/// `queued_attachments`). Because these checks will sometimes surface
+/// existing attachment data associated with those instances, the
+/// memory impact of these checks is not limited to the
+/// AttachmentInstance size (which is small), but can include the
+/// Attachment as well (which is larger).
+pub const MAX_PROCESS_PER_ROUND: u32 = 1_000;
+
 const ATLASDB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
     CREATE TABLE attachments(
@@ -588,12 +597,12 @@ impl AtlasDB {
         self.insert_attachment_instance(attachment, AttachmentInstanceStatus::Checked, true)
     }
 
-    /// Return all the queued attachment instances
+    /// Return all the queued attachment instances, limited by `MAX_PROCESS_PER_ROUND`
     pub fn queued_attachments(&self) -> Result<Vec<AttachmentInstance>, db_error> {
         query_rows(
             &self.conn,
-            "SELECT * FROM attachment_instances WHERE status = ?1",
-            &[&AttachmentInstanceStatus::Queued],
+            "SELECT * FROM attachment_instances WHERE status = ?1 LIMIT ?2",
+            rusqlite::params![&AttachmentInstanceStatus::Queued, MAX_PROCESS_PER_ROUND],
         )
     }
 
@@ -605,7 +614,7 @@ impl AtlasDB {
     ) -> Result<(), db_error> {
         self.conn.execute(
             "UPDATE attachment_instances SET status = ?1, is_available = ?2
-              WHERE index_block_hash = ?3, contract_id = ?4, attachment_index = ?5",
+              WHERE index_block_hash = ?3 AND contract_id = ?4 AND attachment_index = ?5",
             rusqlite::params![
                 &AttachmentInstanceStatus::Checked,
                 &is_available,

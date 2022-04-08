@@ -92,7 +92,6 @@ pub struct Node {
     last_sortitioned_block: Option<BurnchainTip>,
     event_dispatcher: EventDispatcher,
     nonce: u64,
-    attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
 }
 
 pub fn get_account_lockups(
@@ -165,8 +164,8 @@ fn spawn_peer(
     exit_at_block_height: Option<u64>,
     genesis_chainstate_hash: Sha256Sum,
     poll_timeout: u64,
-    attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     config: Config,
+    atlas_db: AtlasDB,
 ) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
@@ -263,11 +262,7 @@ pub fn use_test_genesis_chainstate(config: &Config) -> bool {
 
 impl Node {
     /// Instantiate and initialize a new node, given a config
-    pub fn new(
-        config: Config,
-        boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>,
-        attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
-    ) -> Self {
+    pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx) -> ()>) -> Self {
         let use_test_genesis_data = if config.burnchain.mode == "mocknet" {
             use_test_genesis_chainstate(&config)
         } else {
@@ -354,7 +349,6 @@ impl Node {
             burnchain_tip: None,
             nonce: 0,
             event_dispatcher,
-            attachments_tx,
         }
     }
 
@@ -384,7 +378,6 @@ impl Node {
             Err(_e) => panic!(),
         };
 
-        let (attachments_tx, attachments_rx) = sync_channel(1);
         let mut node = Node {
             active_registered_key: None,
             bootstraping_chain: false,
@@ -396,10 +389,9 @@ impl Node {
             burnchain_tip: None,
             nonce: 0,
             event_dispatcher,
-            attachments_tx,
         };
 
-        node.spawn_peer_server(attachments_rx);
+        node.spawn_peer_server();
 
         loop {
             let sortdb =
@@ -422,7 +414,20 @@ impl Node {
         node
     }
 
-    pub fn spawn_peer_server(&mut self, attachments_rx: Receiver<HashSet<AttachmentInstance>>) {
+    fn make_atlas_config() -> AtlasConfig {
+        AtlasConfig::default(false)
+    }
+
+    pub fn make_atlas_db(&self) -> AtlasDB {
+        AtlasDB::connect(
+            Self::make_atlas_config(),
+            &self.config.get_atlas_db_file_path(),
+            true,
+        )
+        .unwrap()
+    }
+
+    pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let sortdb = SortitionDB::open(&self.config.get_burn_db_file_path(), true)
@@ -503,9 +508,9 @@ impl Node {
             }
             tx.commit().unwrap();
         }
-        let atlas_config = AtlasConfig::default(false);
-        let atlasdb =
-            AtlasDB::connect(atlas_config, &self.config.get_atlas_db_file_path(), true).unwrap();
+        let atlas_config = Self::make_atlas_config();
+        let atlasdb = self.make_atlas_db();
+        let peer_atlasdb = self.make_atlas_db();
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -537,8 +542,8 @@ impl Node {
             exit_at_block_height,
             Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
-            attachments_rx,
             self.config.clone(),
+            peer_atlasdb,
         )
         .unwrap();
 
@@ -750,6 +755,7 @@ impl Node {
         consensus_hash: &ConsensusHash,
         microblocks: Vec<StacksMicroblock>,
         db: &mut SortitionDB,
+        atlas_db: &mut AtlasDB,
     ) -> ChainTip {
         let parent_consensus_hash = {
             // look up parent consensus hash
@@ -826,7 +832,7 @@ impl Node {
                 }
             };
 
-        let atlas_config = AtlasConfig::default(false);
+        let atlas_config = Self::make_atlas_config();
         let mut processed_blocks = vec![];
         loop {
             let mut process_blocks_at_tip = {
@@ -846,13 +852,19 @@ impl Node {
                                     let attachments_instances =
                                         self.get_attachment_instances(epoch_receipt, &atlas_config);
                                     if !attachments_instances.is_empty() {
-                                        match self.attachments_tx.send(attachments_instances) {
-                                            Ok(_) => {}
-                                            Err(e) => {
-                                                error!("Error dispatching attachments {}", e);
-                                                panic!();
+                                        for new_attachment in attachments_instances.into_iter() {
+                                            if let Err(e) =
+                                                atlas_db.queue_attachment_instance(&new_attachment)
+                                            {
+                                                warn!(
+                                                    "Atlas: Error writing attachment instance to DB";
+                                                    "err" => ?e,
+                                                    "index_block_hash" => %new_attachment.index_block_hash,
+                                                    "contract_id" => %new_attachment.contract_id,
+                                                    "attachment_index" => %new_attachment.attachment_index,
+                                                );
                                             }
-                                        };
+                                        }
                                     }
                                 }
                                 _ => {}

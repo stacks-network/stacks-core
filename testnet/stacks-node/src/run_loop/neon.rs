@@ -386,7 +386,7 @@ impl RunLoop {
         &mut self,
         burnchain_config: &Burnchain,
         coordinator_receivers: CoordinatorReceivers,
-    ) -> (JoinHandle<()>, Receiver<HashSet<AttachmentInstance>>) {
+    ) -> JoinHandle<()> {
         let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
 
         // load up genesis balances
@@ -440,7 +440,6 @@ impl RunLoop {
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
         let mut coordinator_dispatcher = self.event_dispatcher.clone();
-        let (_attachments_tx, attachments_rx) = sync_channel(ATTACHMENTS_CHANNEL_SIZE);
 
         let atlas_db = AtlasDB::connect(
             moved_atlas_config.clone(),
@@ -468,7 +467,7 @@ impl RunLoop {
             })
             .expect("FATAL: failed to start chains coordinator thread");
 
-        (coordinator_thread_handle, attachments_rx)
+        coordinator_thread_handle
     }
 
     /// Instantiate the PoX watchdog
@@ -548,7 +547,7 @@ impl RunLoop {
         self.is_miner = Some(is_miner);
 
         // have headers; boot up the chains coordinator and instantiate the chain state
-        let (coordinator_thread_handle, attachments_rx) =
+        let coordinator_thread_handle =
             self.spawn_chains_coordinator(&burnchain_config, coordinator_receivers);
         self.instantiate_pox_watchdog();
 
@@ -568,7 +567,6 @@ impl RunLoop {
             self,
             Some(burnchain_tip.clone()),
             coordinator_senders.clone(),
-            attachments_rx,
         );
         let sortdb = burnchain.sortdb_mut();
         let mut sortition_db_height = RunLoop::get_sortition_db_height(&sortdb, &burnchain_config);

@@ -624,7 +624,6 @@ fn spawn_peer(
     rpc_sock: &SocketAddr,
     poll_timeout: u64,
     relay_channel: SyncSender<RelayerDirective>,
-    attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
 ) -> Result<JoinHandle<()>, NetError> {
     let config = runloop.config().clone();
@@ -1212,7 +1211,6 @@ impl StacksNode {
         runloop: &RunLoop,
         last_burn_block: Option<BurnchainTip>,
         coord_comms: CoordinatorChannels,
-        attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     ) -> StacksNode {
         let config = runloop.config().clone();
         let miner = runloop.is_miner();
@@ -1427,7 +1425,6 @@ impl StacksNode {
             &rpc_sock,
             5000,
             relay_send.clone(),
-            attachments_rx,
             shared_unconfirmed_txs,
         )
         .expect("Failed to initialize p2p thread");
