@@ -103,6 +103,13 @@ const ATLASDB_SCHEMA_2: &'static [&'static str] = &[
 const ATLASDB_INDEXES: &'static [&'static str] =
     &["CREATE INDEX IF NOT EXISTS index_was_instantiated ON attachments(was_instantiated);"];
 
+/// Attachment instances pass through different states once written to the AtlasDB.
+/// These instances are initially written as a new Stacks block is processed, and marked
+/// as `Queued`. These queued instances contain all the data of the new attachment instance,
+/// but they have not yet been checked against the AtlasDB to determine if there is extant
+/// Attachment content/data associated with them. The network run loop (`p2p` thread) checks
+/// for any queued attachment instances on each pass, and performs that check. Once the check
+/// is completed, any checked instances are updated to `Checked`.
 pub enum AttachmentInstanceStatus {
     /// This variant indicates that the attachments instance has been written,
     /// but the downloader has not yet checked that the attachment matched
