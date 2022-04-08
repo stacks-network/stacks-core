@@ -2849,6 +2849,68 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_block_commit(op, sort_id)
             }
+            BlockstackOperationType::DepositFt(ref op) => {
+                info!(
+                    "ACCEPTED burnchain operation";
+                    "op" => "deposit_ft",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "l1_contract_id" => %op.l1_contract_id,
+                    "hc_contract_id" => %op.hc_contract_id,
+                    "name" => %op.name,
+                    "amount" => %op.amount,
+                    "sender" => %op.sender,
+                );
+
+                // TODO(hyperchains) - store operation!
+                Ok(())
+            }
+            BlockstackOperationType::DepositNft(ref op) => {
+                info!(
+                    "ACCEPTED burnchain operation";
+                    "op" => "deposit_nft",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "l1_contract_id" => %op.l1_contract_id,
+                    "hc_contract_id" => %op.hc_contract_id,
+                    "id" => %op.id,
+                    "sender" => %op.sender,
+                );
+
+                // TODO(hyperchains) - store operation!
+                Ok(())
+            }
+            BlockstackOperationType::WithdrawFt(ref op) => {
+                info!(
+                    "ACCEPTED burnchain operation";
+                    "op" => "withdraw_ft",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "l1_contract_id" => %op.l1_contract_id,
+                    "hc_contract_id" => %op.hc_contract_id,
+                    "name" => %op.name,
+                    "amount" => %op.amount,
+                    "recipient" => %op.recipient,
+                );
+
+                // TODO(hyperchains) - store operation!
+                Ok(())
+            }
+            BlockstackOperationType::WithdrawNft(ref op) => {
+                info!(
+                    "ACCEPTED burnchain operation";
+                    "op" => "withdraw_nft",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "l1_contract_id" => %op.l1_contract_id,
+                    "hc_contract_id" => %op.hc_contract_id,
+                    "id" => %op.id,
+                    "recipient" => %op.recipient,
+                );
+
+                // TODO(hyperchains) - store operation!
+                Ok(())
+            }
         }
     }
 

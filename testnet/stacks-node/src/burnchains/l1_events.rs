@@ -445,6 +445,22 @@ impl BurnchainController for L1Controller {
             BlockstackOperationType::LeaderBlockCommit(op) => {
                 self.submit_commit_operation(op, op_signer, attempt)
             }
+            BlockstackOperationType::DepositFt(_op) => {
+                debug!("Submitting deposit ft operation to be implemented.");
+                true
+            }
+            BlockstackOperationType::DepositNft(_op) => {
+                debug!("Submitting deposit nft operation to be implemented.");
+                true
+            }
+            BlockstackOperationType::WithdrawFt(_op) => {
+                debug!("Submitting withdraw ft operation to be implemented.");
+                true
+            }
+            BlockstackOperationType::WithdrawNft(_op) => {
+                debug!("Submitting withdraw nft operation to be implemented.");
+                true
+            }
         }
     }
 

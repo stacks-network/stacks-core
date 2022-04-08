@@ -43,7 +43,9 @@ use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 
+use clarity::vm::types::PrincipalData;
 pub use types::{Address, PrivateKey, PublicKey};
+use vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 
 pub mod burnchain;
 pub mod db;
@@ -197,7 +199,35 @@ pub struct BurnchainRecipient {
 /// This is the inner type of the Layer-1 Stacks event,
 /// containing any operation specific data.
 pub enum StacksHyperOpType {
-    BlockCommit { subnet_block_hash: BlockHeaderHash },
+    BlockCommit {
+        subnet_block_hash: BlockHeaderHash,
+    },
+    DepositFt {
+        l1_contract_id: QualifiedContractIdentifier,
+        hc_contract_id: QualifiedContractIdentifier,
+        name: String,
+        amount: u128,
+        sender: PrincipalData,
+    },
+    DepositNft {
+        l1_contract_id: QualifiedContractIdentifier,
+        hc_contract_id: QualifiedContractIdentifier,
+        id: u128,
+        sender: PrincipalData,
+    },
+    WithdrawFt {
+        l1_contract_id: QualifiedContractIdentifier,
+        hc_contract_id: QualifiedContractIdentifier,
+        name: String,
+        amount: u128,
+        recipient: PrincipalData,
+    },
+    WithdrawNft {
+        l1_contract_id: QualifiedContractIdentifier,
+        hc_contract_id: QualifiedContractIdentifier,
+        id: u128,
+        recipient: PrincipalData,
+    },
 }
 
 #[derive(Debug, PartialEq, Clone)]

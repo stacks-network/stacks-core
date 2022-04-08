@@ -43,7 +43,6 @@
     )
 )
 
-
 ;; Helper function for fold: if a == b, return none; else return b
 (define-private (is-principal-eq (miner-a principal) (search-for (optional principal)))
     (if (is-eq (some miner-a) search-for)
@@ -88,8 +87,6 @@
 )
 
 
-
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; FOR NFT ASSET TRANSFERS
 
@@ -109,7 +106,7 @@
 ;; A user calls this function to deposit an NFT into the contract.
 ;; The function emits a print with details of this event.
 ;; Returns response<int, bool>
-(define-public (deposit-nft-asset (id uint) (sender principal) (nft-contract <nft-trait>))
+(define-public (deposit-nft-asset (id uint) (sender principal) (nft-contract <nft-trait>) (hc-contract-id principal))
     (begin
         ;; Check that the asset belongs to the allowed-contracts map
         (asserts! (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET)) (err ERR_DISALLOWED_ASSET))
@@ -118,7 +115,7 @@
         (asserts! (unwrap! (inner-deposit-nft-asset id sender nft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event - the node consumes this
-        (print { event: "deposit-nft", nft-id: id, nft-trait: nft-contract })
+        (print { event: "deposit-nft", nft-id: id, l1-contract-id: nft-contract, hc-contract-id: hc-contract-id, sender: sender })
 
         (ok true)
     )
@@ -133,9 +130,6 @@
         ;; Check that the transfer succeeded
         (asserts! transfer-result (err ERR_TRANSFER_FAILED))
 
-        ;; Emit a print event - the node consumes this
-        (print { event: "withdraw-nft", nft-id: id, nft-trait: nft-contract })
-
         (ok true)
     )
 )
@@ -144,7 +138,7 @@
 ;; send it to a recipient.
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
-(define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>))
+(define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (hc-contract-id principal))
     (begin
         ;; Verify that tx-sender is an authorized miner
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
@@ -152,7 +146,12 @@
         ;; Check that the asset belongs to the allowed-contracts map
         (asserts! (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET)) (err ERR_DISALLOWED_ASSET))
 
-        (inner-withdraw-nft-asset id recipient nft-contract)
+        (asserts! (unwrap! (inner-withdraw-nft-asset id recipient nft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+
+        ;; Emit a print event - the node consumes this
+        (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, hc-contract-id: hc-contract-id, recipient: recipient })
+
+        (ok true)
     )
 )
 
@@ -175,16 +174,22 @@
 ;; A user calls this function to deposit a fungible token into the contract.
 ;; The function emits a print with details of this event.
 ;; Returns response<int, bool>
-(define-public (deposit-ft-asset (amount uint) (sender principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
+(define-public (deposit-ft-asset (amount uint) (sender principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (hc-contract-id principal))
     (begin
+
         ;; Check that the asset belongs to the allowed-contracts map
         (asserts! (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET)) (err ERR_DISALLOWED_ASSET))
 
         ;; Try to transfer the FT to this contract
         (asserts! (unwrap! (inner-deposit-ft-asset amount sender memo ft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
-        ;; Emit a print event - the node consumes this
-        (print { event: "deposit-ft", ft-amount: amount, ft-trait: ft-contract })
+        (let (
+                (ft-name (contract-call? ft-contract get-name))
+            )
+            ;; Emit a print event - the node consumes this
+            (print { event: "deposit-ft", ft-amount: amount, l1-contract-id: ft-contract,
+                        ft-name: ft-name, hc-contract-id: hc-contract-id, sender: sender })
+        )
 
         (ok true)
     )
@@ -199,9 +204,6 @@
         ;; Check that the transfer succeeded
         (asserts! transfer-result (err ERR_TRANSFER_FAILED))
 
-        ;; Emit a print event - the node consumes this
-        (print { event: "withdraw-ft", ft-amount: amount, ft-trait: ft-contract })
-
         (ok true)
     )
 )
@@ -210,7 +212,7 @@
 ;; send it to a recipient.
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
-(define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
+(define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (hc-contract-id principal))
     (begin
         ;; Verify that tx-sender is an authorized miner
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
@@ -218,6 +220,15 @@
         ;; Check that the asset belongs to the allowed-contracts map
         (asserts! (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET)) (err ERR_DISALLOWED_ASSET))
 
-        (inner-withdraw-ft-asset amount recipient memo ft-contract)
+        (asserts! (unwrap! (inner-withdraw-ft-asset amount recipient memo ft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+
+        (let (
+                (ft-name (contract-call? ft-contract get-name))
+            )
+            ;; Emit a print event - the node consumes this
+            (print { event: "withdraw-ft", ft-amount: amount, l1-contract-id: ft-contract, hc-contract-id: hc-contract-id, recipient: recipient, ft-name: ft-name })
+        )
+
+        (ok true)
     )
 )

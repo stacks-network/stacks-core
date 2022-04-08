@@ -2061,6 +2061,64 @@ pub mod test {
                     .unwrap();
                     Ok(())
                 }
+                BlockstackOperationType::DepositFt(ref op) => {
+                    serde_json::to_writer(
+                        fd,
+                        &json!({
+                            "op": "deposit_ft",
+                            "amount": op.amount,
+                            "sender": op.sender,
+                            "l1_contract_id": op.l1_contract_id,
+                            "hc_contract_id": op.hc_contract_id,
+                            "name": op.name
+                        }),
+                    )
+                    .unwrap();
+                    Ok(())
+                }
+                BlockstackOperationType::DepositNft(ref op) => {
+                    serde_json::to_writer(
+                        fd,
+                        &json!({
+                            "op": "deposit_nft",
+                            "id": op.id,
+                            "sender": op.sender,
+                            "l1_contract_id": op.l1_contract_id,
+                            "hc_contract_id": op.hc_contract_id,
+                        }),
+                    )
+                    .unwrap();
+                    Ok(())
+                }
+                BlockstackOperationType::WithdrawFt(ref op) => {
+                    serde_json::to_writer(
+                        fd,
+                        &json!({
+                            "op": "withdraw_ft",
+                            "amount": op.amount,
+                            "recipient": op.recipient,
+                            "l1_contract_id": op.l1_contract_id,
+                            "hc_contract_id": op.hc_contract_id,
+                            "name": op.name
+                        }),
+                    )
+                    .unwrap();
+                    Ok(())
+                }
+                BlockstackOperationType::WithdrawNft(ref op) => {
+                    serde_json::to_writer(
+                        fd,
+                        &json!({
+                            "op": "withdraw_nft",
+                            "id": op.id,
+                            "recipient": op.recipient,
+                            "l1_contract_id": op.l1_contract_id,
+                            "hc_contract_id": op.hc_contract_id,
+                        }),
+                    )
+                    .unwrap();
+                    Ok(())
+                }
             }
         }
 

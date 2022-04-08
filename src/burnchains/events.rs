@@ -6,8 +6,8 @@ use serde::de::Error as DeserError;
 use serde::Deserialize;
 use serde::Deserializer;
 use util::HexError;
-use vm::types::QualifiedContractIdentifier;
 use vm::types::Value as ClarityValue;
+use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
@@ -17,6 +17,7 @@ use crate::vm::types::SequenceData;
 use super::StacksHyperBlock;
 use super::StacksHyperOp;
 use super::StacksHyperOpType;
+use clarity::vm::types::PrincipalData;
 
 /// Parsing struct for the transaction event types of the
 /// `stacks-node` events API
@@ -194,6 +195,205 @@ impl StacksHyperOp {
                     },
                 })
             }
+            "\"deposit-ft\"" => {
+                // Parse 5 fields: ft-amount, ft-name, l1-contract-id, hc-contract-id, and sender
+                let amount = tuple
+                    .get("ft-amount")
+                    .map_err(|_| "No 'ft-amount' field in Clarity tuple")?
+                    .clone()
+                    .expect_u128();
+                let l1_contract_id = tuple
+                    .get("l1-contract-id")
+                    .map_err(|_| "No 'l1-contract-id' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+                let l1_contract_id = if let PrincipalData::Contract(id) = l1_contract_id {
+                    Ok(id)
+                } else {
+                    Err("Expected 'l1-contract-id' to be a contract principal")
+                }?;
+                let hc_contract_id = tuple
+                    .get("hc-contract-id")
+                    .map_err(|_| "No 'hc-contract-id' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+                let hc_contract_id = if let PrincipalData::Contract(id) = hc_contract_id {
+                    Ok(id)
+                } else {
+                    Err("Expected 'hc-contract-id' to be a contract principal")
+                }?;
+                let name = tuple
+                    .get("ft-name")
+                    .map_err(|_| "No 'ft-name' field in Clarity tuple")?
+                    .clone()
+                    .expect_ascii();
+                let sender = tuple
+                    .get("sender")
+                    .map_err(|_| "No 'sender' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+
+                Ok(Self {
+                    txid,
+                    event_index,
+                    in_block: in_block.clone(),
+                    opcode: 1,
+                    event: StacksHyperOpType::DepositFt {
+                        l1_contract_id,
+                        hc_contract_id,
+                        name,
+                        amount,
+                        sender,
+                    },
+                })
+            }
+            "\"deposit-nft\"" => {
+                // Parse 4 fields: nft-id, l1-contract-id, hc-contract-id, and sender
+                let id = tuple
+                    .get("nft-id")
+                    .map_err(|_| "No 'nft-id' field in Clarity tuple")?
+                    .clone()
+                    .expect_u128();
+                // check that this is a valid way of getting the ID of the L1 contract.
+                let l1_contract_id = tuple
+                    .get("l1-contract-id")
+                    .map_err(|_| "No 'l1-contract-id' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+                let l1_contract_id = if let PrincipalData::Contract(id) = l1_contract_id {
+                    Ok(id)
+                } else {
+                    Err("Expected 'l1-contract-id' to be a contract principal")
+                }?;
+                let hc_contract_id = tuple
+                    .get("hc-contract-id")
+                    .map_err(|_| "No 'hc-contract-id' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+                let hc_contract_id = if let PrincipalData::Contract(id) = hc_contract_id {
+                    Ok(id)
+                } else {
+                    Err("Expected 'hc-contract-id' to be a contract principal")
+                }?;
+                let sender = tuple
+                    .get("sender")
+                    .map_err(|_| "No 'sender' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+
+                Ok(Self {
+                    txid,
+                    event_index,
+                    in_block: in_block.clone(),
+                    opcode: 2,
+                    event: StacksHyperOpType::DepositNft {
+                        l1_contract_id,
+                        hc_contract_id,
+                        id,
+                        sender,
+                    },
+                })
+            }
+            "\"withdraw-ft\"" => {
+                // Parse 5 fields: ft-amount, ft-name, l1-contract-id, hc-contract-id, and recipient
+                let amount = tuple
+                    .get("ft-amount")
+                    .map_err(|_| "No 'ft-amount' field in Clarity tuple")?
+                    .clone()
+                    .expect_u128();
+                // check that this is a valid way of getting the ID of the L1 contract.
+                let l1_contract_id = tuple
+                    .get("l1-contract-id")
+                    .map_err(|_| "No 'l1-contract-id' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+                let l1_contract_id = if let PrincipalData::Contract(id) = l1_contract_id {
+                    Ok(id)
+                } else {
+                    Err("Expected 'l1-contract-id' to be a contract principal")
+                }?;
+                let hc_contract_id = tuple
+                    .get("hc-contract-id")
+                    .map_err(|_| "No 'hc-contract-id' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+                let hc_contract_id = if let PrincipalData::Contract(id) = hc_contract_id {
+                    Ok(id)
+                } else {
+                    Err("Expected 'hc-contract-id' to be a contract principal")
+                }?;
+                let name = tuple
+                    .get("ft-name")
+                    .map_err(|_| "No 'ft-name' field in Clarity tuple")?
+                    .clone()
+                    .expect_ascii();
+                let recipient = tuple
+                    .get("recipient")
+                    .map_err(|_| "No 'recipient' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+
+                Ok(Self {
+                    txid,
+                    event_index,
+                    in_block: in_block.clone(),
+                    opcode: 3,
+                    event: StacksHyperOpType::WithdrawFt {
+                        l1_contract_id,
+                        hc_contract_id,
+                        name,
+                        amount,
+                        recipient,
+                    },
+                })
+            }
+            "\"withdraw-nft\"" => {
+                // Parse 4 fields: nft-id, l1-contract-id, hc-contract-id, and recipient
+                let id = tuple
+                    .get("nft-id")
+                    .map_err(|_| "No 'nft-id' field in Clarity tuple")?
+                    .clone()
+                    .expect_u128();
+                // check that this is a valid way of getting the ID of the L1 contract.
+                let l1_contract_id = tuple
+                    .get("l1-contract-id")
+                    .map_err(|_| "No 'l1-contract-id' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+                let l1_contract_id = if let PrincipalData::Contract(id) = l1_contract_id {
+                    Ok(id)
+                } else {
+                    Err("Expected 'l1-contract-id' to be a contract principal")
+                }?;
+                let hc_contract_id = tuple
+                    .get("hc-contract-id")
+                    .map_err(|_| "No 'hc-contract-id' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+                let hc_contract_id = if let PrincipalData::Contract(id) = hc_contract_id {
+                    Ok(id)
+                } else {
+                    Err("Expected 'hc-contract-id' to be a contract principal")
+                }?;
+                let recipient = tuple
+                    .get("recipient")
+                    .map_err(|_| "No 'recipient' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+
+                Ok(Self {
+                    txid,
+                    event_index,
+                    in_block: in_block.clone(),
+                    opcode: 4,
+                    event: StacksHyperOpType::WithdrawNft {
+                        l1_contract_id,
+                        hc_contract_id,
+                        id,
+                        recipient,
+                    },
+                })
+            }
             event_type => Err(format!("Unexpected 'event' string: {}", event_type)),
         }
     }
@@ -205,7 +405,7 @@ impl StacksHyperBlock {
     /// the hyperchain and parse out the `StacksHyperOp`s from the
     /// block, producing a `StacksHyperBlock` struct.
     pub fn from_new_block_event(
-        subnets_contract: &QualifiedContractIdentifier,
+        hyperchain_contract: &QualifiedContractIdentifier,
         b: NewBlock,
     ) -> Self {
         let NewBlock {
@@ -242,7 +442,7 @@ impl StacksHyperBlock {
                     }?;
 
                     if let Some(contract_event) = contract_event {
-                        if &contract_event.contract_identifier != subnets_contract {
+                        if &contract_event.contract_identifier != hyperchain_contract {
                             None
                         } else {
                             match StacksHyperOp::try_from_clar_value(
