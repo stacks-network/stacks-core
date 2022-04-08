@@ -50,9 +50,9 @@ use util_lib::db::Error as db_error;
 use crate::types::chainstate::BurnchainHeaderHash;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 
-pub mod leader_block_commit;
 pub mod deposit_ft;
 pub mod deposit_nft;
+pub mod leader_block_commit;
 pub mod withdraw_ft;
 pub mod withdraw_nft;
 
@@ -328,7 +328,7 @@ pub enum BlockstackOperationType {
     DepositFt(DepositFtOp),
     DepositNft(DepositNftOp),
     WithdrawFt(WithdrawFtOp),
-    WithdrawNft(WithdrawNftOp)
+    WithdrawNft(WithdrawNftOp),
 }
 
 impl From<LeaderBlockCommitOp> for BlockstackOperationType {
@@ -391,7 +391,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::DepositNft(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::WithdrawFt(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::WithdrawNft(ref data) => data.burn_header_hash.clone(),
-
         }
     }
 
@@ -401,18 +400,10 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
                 data.set_burn_height(height)
             }
-            BlockstackOperationType::DepositFt(ref mut data) => {
-                data.set_burn_height(height)
-            }
-            BlockstackOperationType::DepositNft(ref mut data) => {
-                data.set_burn_height(height)
-            }
-            BlockstackOperationType::WithdrawFt(ref mut data) => {
-                data.set_burn_height(height)
-            }
-            BlockstackOperationType::WithdrawNft(ref mut data) => {
-                data.set_burn_height(height)
-            }
+            BlockstackOperationType::DepositFt(ref mut data) => data.set_burn_height(height),
+            BlockstackOperationType::DepositNft(ref mut data) => data.set_burn_height(height),
+            BlockstackOperationType::WithdrawFt(ref mut data) => data.set_burn_height(height),
+            BlockstackOperationType::WithdrawNft(ref mut data) => data.set_burn_height(height),
         };
     }
 
@@ -422,18 +413,10 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
                 data.burn_header_hash = hash
             }
-            BlockstackOperationType::DepositFt(ref mut data) => {
-                data.burn_header_hash = hash
-            }
-            BlockstackOperationType::DepositNft(ref mut data) => {
-                data.burn_header_hash = hash
-            }
-            BlockstackOperationType::WithdrawFt(ref mut data) => {
-                data.burn_header_hash = hash
-            }
-            BlockstackOperationType::WithdrawNft(ref mut data) => {
-                data.burn_header_hash = hash
-            }
+            BlockstackOperationType::DepositFt(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::DepositNft(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::WithdrawFt(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::WithdrawNft(ref mut data) => data.burn_header_hash = hash,
         };
     }
 }

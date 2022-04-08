@@ -1,10 +1,10 @@
-use chainstate::burn::operations::DepositFtOp;
-use burnchains::{StacksHyperOp, StacksHyperOpType, Burnchain};
-use std::convert::TryFrom;
-use chainstate::burn::operations::Error as op_error;
-use clarity::types::chainstate::BurnchainHeaderHash;
+use burnchains::{Burnchain, StacksHyperOp, StacksHyperOpType};
 use chainstate::burn::db::sortdb::SortitionHandleTx;
 use chainstate::burn::operations::leader_block_commit::RewardSetInfo;
+use chainstate::burn::operations::DepositFtOp;
+use chainstate::burn::operations::Error as op_error;
+use clarity::types::chainstate::BurnchainHeaderHash;
+use std::convert::TryFrom;
 
 impl TryFrom<&StacksHyperOp> for DepositFtOp {
     type Error = op_error;
@@ -16,7 +16,8 @@ impl TryFrom<&StacksHyperOp> for DepositFtOp {
             ref name,
             ref amount,
             ref sender,
-        } = value.event {
+        } = value.event
+        {
             Ok(DepositFtOp {
                 txid: value.txid.clone(),
                 // use the StacksBlockId in the L1 event as the burnchain header hash
@@ -25,14 +26,13 @@ impl TryFrom<&StacksHyperOp> for DepositFtOp {
                 hc_contract_id: hc_contract_id.clone(),
                 name: name.clone(),
                 amount: amount.clone(),
-                sender: sender.clone()
+                sender: sender.clone(),
             })
         } else {
             Err(op_error::InvalidInput)
         }
     }
 }
-
 
 impl DepositFtOp {
     pub fn check(

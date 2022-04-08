@@ -67,7 +67,8 @@ impl TryFrom<&StacksHyperOp> for LeaderBlockCommitOp {
     fn try_from(value: &StacksHyperOp) -> Result<Self, Self::Error> {
         if let StacksHyperOpType::BlockCommit {
             ref subnet_block_hash,
-        } = value.event {
+        } = value.event
+        {
             Ok(LeaderBlockCommitOp {
                 block_header_hash: subnet_block_hash.clone(),
                 txid: value.txid.clone(),

@@ -45,7 +45,11 @@ use burnchains::{
     BurnchainStateTransition, BurnchainTransaction, Error as burnchain_error, PoxConstants,
 };
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
-use chainstate::burn::operations::{leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp, DepositFtOp, DepositNftOp, WithdrawFtOp, WithdrawNftOp};
+use chainstate::burn::operations::{
+    leader_block_commit::MissedBlockCommit, BlockstackOperationType, DepositFtOp, DepositNftOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
+    UserBurnSupportOp, WithdrawFtOp, WithdrawNftOp,
+};
 use chainstate::burn::{BlockSnapshot, Opcodes};
 use chainstate::coordinator::comm::CoordinatorChannels;
 use chainstate::stacks::StacksPublicKey;
@@ -417,58 +421,50 @@ impl Burnchain {
                         }
                     }
                 }
-                StacksHyperOpType::DepositFt { .. } => {
-                    match DepositFtOp::try_from(event) {
-                        Ok(op) => Some(BlockstackOperationType::from(op)),
-                        Err(e) => {
-                            warn!(
-                                "Failed to parse deposit fungible token operation";
-                                "txid" => %burn_tx.txid(),
-                                "error" => ?e,
-                            );
-                            None
-                        }
+                StacksHyperOpType::DepositFt { .. } => match DepositFtOp::try_from(event) {
+                    Ok(op) => Some(BlockstackOperationType::from(op)),
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse deposit fungible token operation";
+                            "txid" => %burn_tx.txid(),
+                            "error" => ?e,
+                        );
+                        None
                     }
-                }
-                StacksHyperOpType::DepositNft { .. } => {
-                    match DepositNftOp::try_from(event) {
-                        Ok(op) => Some(BlockstackOperationType::from(op)),
-                        Err(e) => {
-                            warn!(
-                                "Failed to parse deposit NFT operation";
-                                "txid" => %burn_tx.txid(),
-                                "error" => ?e,
-                            );
-                            None
-                        }
+                },
+                StacksHyperOpType::DepositNft { .. } => match DepositNftOp::try_from(event) {
+                    Ok(op) => Some(BlockstackOperationType::from(op)),
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse deposit NFT operation";
+                            "txid" => %burn_tx.txid(),
+                            "error" => ?e,
+                        );
+                        None
                     }
-                }
-                StacksHyperOpType::WithdrawFt { .. } => {
-                    match WithdrawFtOp::try_from(event) {
-                        Ok(op) => Some(BlockstackOperationType::from(op)),
-                        Err(e) => {
-                            warn!(
-                                "Failed to parse withdraw fungible token operation";
-                                "txid" => %burn_tx.txid(),
-                                "error" => ?e,
-                            );
-                            None
-                        }
+                },
+                StacksHyperOpType::WithdrawFt { .. } => match WithdrawFtOp::try_from(event) {
+                    Ok(op) => Some(BlockstackOperationType::from(op)),
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse withdraw fungible token operation";
+                            "txid" => %burn_tx.txid(),
+                            "error" => ?e,
+                        );
+                        None
                     }
-                }
-                StacksHyperOpType::WithdrawNft { .. } => {
-                    match WithdrawNftOp::try_from(event) {
-                        Ok(op) => Some(BlockstackOperationType::from(op)),
-                        Err(e) => {
-                            warn!(
-                                "Failed to parse withdraw NFT operation";
-                                "txid" => %burn_tx.txid(),
-                                "error" => ?e,
-                            );
-                            None
-                        }
+                },
+                StacksHyperOpType::WithdrawNft { .. } => match WithdrawNftOp::try_from(event) {
+                    Ok(op) => Some(BlockstackOperationType::from(op)),
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse withdraw NFT operation";
+                            "txid" => %burn_tx.txid(),
+                            "error" => ?e,
+                        );
+                        None
                     }
-                }
+                },
             },
         }
     }

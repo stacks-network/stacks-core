@@ -2072,7 +2072,8 @@ pub mod test {
                             "hc_contract_id": op.hc_contract_id,
                             "name": op.name
                         }),
-                    ).unwrap();
+                    )
+                    .unwrap();
                     Ok(())
                 }
                 BlockstackOperationType::DepositNft(ref op) => {
@@ -2085,7 +2086,8 @@ pub mod test {
                             "l1_contract_id": op.l1_contract_id,
                             "hc_contract_id": op.hc_contract_id,
                         }),
-                    ).unwrap();
+                    )
+                    .unwrap();
                     Ok(())
                 }
                 BlockstackOperationType::WithdrawFt(ref op) => {
@@ -2099,7 +2101,8 @@ pub mod test {
                             "hc_contract_id": op.hc_contract_id,
                             "name": op.name
                         }),
-                    ).unwrap();
+                    )
+                    .unwrap();
                     Ok(())
                 }
                 BlockstackOperationType::WithdrawNft(ref op) => {
@@ -2112,7 +2115,8 @@ pub mod test {
                             "l1_contract_id": op.l1_contract_id,
                             "hc_contract_id": op.hc_contract_id,
                         }),
-                    ).unwrap();
+                    )
+                    .unwrap();
                     Ok(())
                 }
             }

@@ -1,10 +1,10 @@
-use chainstate::burn::operations::DepositNftOp;
-use burnchains::{StacksHyperOp, StacksHyperOpType, Burnchain};
-use std::convert::TryFrom;
-use chainstate::burn::operations::Error as op_error;
-use clarity::types::chainstate::BurnchainHeaderHash;
+use burnchains::{Burnchain, StacksHyperOp, StacksHyperOpType};
 use chainstate::burn::db::sortdb::SortitionHandleTx;
 use chainstate::burn::operations::leader_block_commit::RewardSetInfo;
+use chainstate::burn::operations::DepositNftOp;
+use chainstate::burn::operations::Error as op_error;
+use clarity::types::chainstate::BurnchainHeaderHash;
+use std::convert::TryFrom;
 
 impl TryFrom<&StacksHyperOp> for DepositNftOp {
     type Error = op_error;
@@ -15,7 +15,8 @@ impl TryFrom<&StacksHyperOp> for DepositNftOp {
             ref hc_contract_id,
             ref id,
             ref sender,
-        } = value.event {
+        } = value.event
+        {
             Ok(DepositNftOp {
                 txid: value.txid.clone(),
                 // use the StacksBlockId in the L1 event as the burnchain header hash
@@ -23,14 +24,13 @@ impl TryFrom<&StacksHyperOp> for DepositNftOp {
                 l1_contract_id: l1_contract_id.clone(),
                 hc_contract_id: hc_contract_id.clone(),
                 id: id.clone(),
-                sender: sender.clone()
+                sender: sender.clone(),
             })
         } else {
             Err(op_error::InvalidInput)
         }
     }
 }
-
 
 impl DepositNftOp {
     pub fn check(
