@@ -20,6 +20,7 @@ pub struct Keychain {
     microblocks_secret_keys: Vec<StacksPrivateKey>,
     vrf_secret_keys: Vec<VRFPrivateKey>,
     vrf_map: HashMap<VRFPublicKey, VRFPrivateKey>,
+    #[allow(dead_code)]
     rotations: u64,
 }
 
@@ -50,6 +51,12 @@ impl Keychain {
             vrf_secret_keys: vec![],
             vrf_map: HashMap::new(),
         }
+    }
+
+    /// Instantiate a keychain where the BurnchainOpSigner is a
+    /// single-sig P2PKH address
+    pub fn single_signer(secret_key: StacksPrivateKey) -> Keychain {
+        Keychain::new(vec![secret_key], 1, AddressHashMode::SerializeP2PKH)
     }
 
     pub fn default(seed: Vec<u8>) -> Keychain {

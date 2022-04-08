@@ -3,44 +3,51 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use stacks::address::AddressHashMode;
 use stacks::burnchains::db::BurnchainDB;
-use stacks::burnchains::events::{ContractEvent, NewBlockTxEvent};
-use stacks::burnchains::events::{NewBlock, TxEventType};
+use stacks::burnchains::events::NewBlock;
 use stacks::burnchains::indexer::{
-    BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
+    BurnBlockIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
 use stacks::burnchains::{
     Burnchain, BurnchainBlock, Error as BurnchainError, StacksHyperBlock, Txid,
 };
-
-use stacks::burnchains;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::index::ClarityMarfTrieId;
+use stacks::chainstate::stacks::{
+    StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner, TransactionAuth,
+    TransactionContractCall, TransactionPostConditionMode, TransactionSpendingCondition,
+    TransactionVersion,
+};
+use stacks::clarity::vm::Value as ClarityValue;
+use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
-use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
+use stacks::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
+};
+use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
-use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
-use stacks::vm::Value as ClarityValue;
+use stacks::vm::types::QualifiedContractIdentifier;
+use stacks::vm::ClarityName;
 
+use super::mock_events::BlockIPC;
+use super::{BurnchainChannel, Error};
+use crate::burnchains::mock_events::MockHeader;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
 
-use super::{BurnchainChannel, Error};
-
 #[derive(Clone)]
-pub struct MockChannel {
+pub struct L1Channel {
     blocks: Arc<Mutex<Vec<NewBlock>>>,
     minimum_recorded_height: Arc<Mutex<u64>>,
 }
 
-pub struct MockController {
-    /// This is the simulated contract identifier
-    contract_identifier: QualifiedContractIdentifier,
+pub struct L1Controller {
     burnchain: Option<Burnchain>,
     config: Config,
-    indexer: MockIndexer,
+    indexer: L1Indexer,
 
     db: Option<SortitionDB>,
     burnchain_db: Option<BurnchainDB>,
@@ -49,15 +56,11 @@ pub struct MockController {
 
     coordinator: CoordinatorChannels,
     chain_tip: Option<BurnchainTip>,
-
-    /// This will be a unique number for the next burn block. Starts at 1
-    next_burn_block: Arc<Mutex<u64>>,
-    next_commit: Arc<Mutex<Option<BlockHeaderHash>>>,
 }
 
-pub struct MockIndexer {
+pub struct L1Indexer {
     /// This is the channel that new mocked L1 blocks are fed into
-    incoming_channel: Arc<MockChannel>,
+    incoming_channel: Arc<L1Channel>,
     /// This is the Layer 1 contract that is watched for hyperchain events.
     watch_contract: QualifiedContractIdentifier,
     blocks: Vec<NewBlock>,
@@ -66,32 +69,50 @@ pub struct MockIndexer {
     minimum_recorded_height: u64,
 }
 
-pub struct MockBlockDownloader {
-    channel: Arc<MockChannel>,
+pub struct L1BlockDownloader {
+    channel: Arc<L1Channel>,
 }
 
+/// Represents the returned JSON
+///  from the L1 /v2/accounts endpoint
+#[derive(Deserialize)]
+struct RpcAccountResponse {
+    nonce: u64,
+    #[allow(dead_code)]
+    balance: String,
+}
+
+impl L1Channel {
+    /// Creates a channel with a single block with hash from `make_mock_byte_string`.
+    pub fn single_block() -> L1Channel {
+        L1Channel {
+            blocks: Arc::new(Mutex::new(vec![NewBlock {
+                block_height: 0,
+                burn_block_time: 0,
+                index_block_hash: StacksBlockId(make_mock_byte_string_for_first_l1_block()),
+                parent_index_block_hash: StacksBlockId::sentinel(),
+                events: vec![],
+            }])),
+            minimum_recorded_height: Arc::new(Mutex::new(0)),
+        }
+    }
+}
 lazy_static! {
-    static ref MOCK_EVENTS_STREAM: Arc<MockChannel> = Arc::new(MockChannel {
-        blocks: Arc::new(Mutex::new(vec![NewBlock {
-            block_height: 0,
-            burn_block_time: 0,
-            index_block_hash: StacksBlockId(make_mock_byte_string(0)),
-            parent_index_block_hash: StacksBlockId::sentinel(),
-            events: vec![],
-        }])),
-        minimum_recorded_height: Arc::new(Mutex::new(0)),
-    });
+    pub static ref STATIC_EVENTS_STREAM: Arc<L1Channel> = Arc::new(L1Channel::single_block());
     static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
-    static ref NEXT_COMMIT: Arc<Mutex<Option<BlockHeaderHash>>> = Arc::new(Mutex::new(None));
 }
 
-fn make_mock_byte_string(from: u64) -> [u8; 32] {
-    let mut output = [1; 32];
-    output[0..8].copy_from_slice(&from.to_be_bytes());
-    output
+/// This outputs a hard-coded value for the hash of the first block created by the
+/// Stacks L1 chain. For some reason, this seems stable.
+fn make_mock_byte_string_for_first_l1_block() -> [u8; 32] {
+    let mut bytes_1 = [0u8; 32];
+    let bytes_vec = hex_bytes("55c9861be5cff984a20ce6d99d4aa65941412889bdc665094136429b84f8c2ee")
+        .expect("hex value problem");
+    bytes_1.copy_from_slice(&bytes_vec[0..32]);
+    bytes_1
 }
 
-impl BurnchainChannel for MockChannel {
+impl BurnchainChannel for L1Channel {
     fn push_block(&self, new_block: NewBlock) {
         let mut blocks = self.blocks.lock().unwrap();
         blocks.push(new_block)
@@ -119,7 +140,7 @@ impl BurnchainChannel for MockChannel {
         into: &mut Vec<NewBlock>,
         start_block: u64,
         end_block: Option<u64>,
-    ) -> Result<(), burnchains::Error> {
+    ) -> Result<(), BurnchainError> {
         let minimum_recorded_height = self.minimum_recorded_height.lock().unwrap();
         let blocks = self.blocks.lock().unwrap();
 
@@ -149,7 +170,7 @@ impl BurnchainChannel for MockChannel {
     }
 }
 
-impl MockBlockDownloader {
+impl L1BlockDownloader {
     fn fill_blocks(
         &self,
         into: &mut Vec<NewBlock>,
@@ -160,12 +181,11 @@ impl MockBlockDownloader {
     }
 }
 
-impl MockController {
-    pub fn new(config: Config, coordinator: CoordinatorChannels) -> MockController {
+impl L1Controller {
+    pub fn new(config: Config, coordinator: CoordinatorChannels) -> L1Controller {
         let contract_identifier = config.burnchain.contract_identifier.clone();
-        let indexer = MockIndexer::new(contract_identifier.clone());
-        MockController {
-            contract_identifier,
+        let indexer = L1Indexer::new(contract_identifier.clone());
+        L1Controller {
             burnchain: None,
             config,
             indexer,
@@ -174,67 +194,7 @@ impl MockController {
             should_keep_running: Some(Arc::new(AtomicBool::new(true))),
             coordinator,
             chain_tip: None,
-            next_burn_block: NEXT_BURN_BLOCK.clone(),
-            next_commit: NEXT_COMMIT.clone(),
         }
-    }
-
-    /// Produce the next mocked layer-1 block. If `next_commit` is staged,
-    /// this mocked block will contain that commitment.
-    pub fn next_block(&mut self) {
-        let mut next_burn_block = self.next_burn_block.lock().unwrap();
-        let mut next_commit = self.next_commit.lock().unwrap();
-
-        let tx_event = next_commit.take().map(|next_commit| {
-            let mocked_txid = Txid(next_commit.0.clone());
-            let topic = "print".into();
-            let contract_identifier = self.contract_identifier.clone();
-            let value = TupleData::from_data(vec![
-                (
-                    "event".into(),
-                    ClarityValue::string_ascii_from_bytes("block-commit".as_bytes().to_vec())
-                        .unwrap(),
-                ),
-                (
-                    "block-commit".into(),
-                    ClarityValue::buff_from(next_commit.0.to_vec()).unwrap(),
-                ),
-            ])
-            .expect("Should be a legal Clarity tuple")
-            .into();
-
-            let contract_event = Some(ContractEvent {
-                topic,
-                contract_identifier,
-                value,
-            });
-
-            NewBlockTxEvent {
-                txid: mocked_txid,
-                event_index: 0,
-                committed: true,
-                event_type: TxEventType::ContractEvent,
-                contract_event,
-            }
-        });
-
-        let parent_index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block - 1));
-
-        let index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block));
-
-        let new_block = NewBlock {
-            block_height: *next_burn_block,
-            burn_block_time: *next_burn_block,
-            index_block_hash,
-            parent_index_block_hash,
-            events: tx_event.into_iter().collect(),
-        };
-
-        *next_burn_block += 1;
-
-        info!("Layer 1 block mined");
-
-        MOCK_EVENTS_STREAM.push_block(new_block);
     }
 
     fn receive_blocks(
@@ -321,9 +281,145 @@ impl MockController {
             _ => true,
         }
     }
+
+    fn l1_rpc_interface(&self) -> String {
+        self.config.burnchain.get_rpc_url()
+    }
+
+    fn l1_get_nonce(&self, address: &StacksAddress) -> Result<u64, Error> {
+        let url = format!(
+            "{}/v2/accounts/{}?proof=0",
+            self.l1_rpc_interface(),
+            address
+        );
+        let response_json: RpcAccountResponse = reqwest::blocking::get(url)?.json()?;
+        Ok(response_json.nonce)
+    }
+
+    fn l1_submit_tx(&self, tx: StacksTransaction) -> Result<Txid, Error> {
+        let client = reqwest::blocking::Client::new();
+        let url = format!("{}/v2/transactions", self.l1_rpc_interface());
+        let res = client
+            .post(url)
+            .header("Content-Type", "application/octet-stream")
+            .body(tx.serialize_to_vec())
+            .send()?;
+
+        if res.status().is_success() {
+            let res: String = res.json().unwrap();
+            Txid::from_hex(&res).map_err(|e| Error::RPCError(e.to_string()))
+        } else {
+            Err(Error::RPCError(res.text()?))
+        }
+    }
+
+    fn l1_addr_from_signer(&self, signer: &BurnchainOpSigner) -> StacksAddress {
+        let hash_mode = AddressHashMode::SerializeP2PKH;
+        let addr_version = if self.config.burnchain.is_mainnet() {
+            hash_mode.to_version_mainnet()
+        } else {
+            hash_mode.to_version_testnet()
+        };
+        StacksAddress::from_public_keys(addr_version, &hash_mode, 1, &vec![signer.get_public_key()])
+            .unwrap()
+    }
+
+    fn make_mine_contract_call(
+        &self,
+        sender: &StacksPrivateKey,
+        sender_nonce: u64,
+        tx_fee: u64,
+        commit_to: BlockHeaderHash,
+    ) -> Result<StacksTransaction, Error> {
+        let QualifiedContractIdentifier {
+            issuer: contract_addr,
+            name: contract_name,
+        } = self.config.burnchain.contract_identifier.clone();
+        let version = if self.config.burnchain.is_mainnet() {
+            TransactionVersion::Mainnet
+        } else {
+            TransactionVersion::Testnet
+        };
+        let committed_block = commit_to.as_bytes().to_vec();
+        let payload = TransactionContractCall {
+            address: contract_addr.into(),
+            contract_name,
+            function_name: ClarityName::from("commit-block"),
+            function_args: vec![
+                ClarityValue::buff_from(committed_block).map_err(|_| Error::BadCommitment)?
+            ],
+        };
+
+        let mut sender_spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+            StacksPublicKey::from_private(sender),
+        )
+        .expect("Failed to create p2pkh spending condition from public key.");
+        sender_spending_condition.set_nonce(sender_nonce);
+        sender_spending_condition.set_tx_fee(tx_fee);
+        let auth = TransactionAuth::Standard(sender_spending_condition);
+
+        let mut unsigned_tx = StacksTransaction::new(version, auth, payload.into());
+        unsigned_tx.anchor_mode = self.config.burnchain.anchor_mode.clone();
+        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+        unsigned_tx.chain_id = self.config.burnchain.chain_id;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(sender).unwrap();
+
+        Ok(tx_signer
+            .get_tx()
+            .expect("Failed to get signed transaction from signer"))
+    }
+
+    fn submit_commit_operation(
+        &self,
+        op: LeaderBlockCommitOp,
+        op_signer: &mut BurnchainOpSigner,
+        attempt: u64,
+    ) -> bool {
+        // todo: think about enabling replace-by-nonce?
+        if attempt > 1 {
+            return false;
+        }
+        // step 1: figure out the miner's nonce
+        let miner_address = self.l1_addr_from_signer(op_signer);
+        let nonce = match self.l1_get_nonce(&miner_address) {
+            Ok(x) => x,
+            Err(e) => {
+                error!("Failed to obtain miner nonce: {}", e);
+                return false;
+            }
+        };
+
+        // step 2: fee estimate (todo: #issue)
+        let fee = 100_000;
+        let contract_call = match self.make_mine_contract_call(
+            op_signer.get_sk(),
+            nonce,
+            fee,
+            op.block_header_hash,
+        ) {
+            Ok(x) => x,
+            Err(e) => {
+                error!("Failed to construct contract call operation: {}", e);
+                return false;
+            }
+        };
+
+        match self.l1_submit_tx(contract_call) {
+            Ok(x) => {
+                info!("Submitted miner commitment L1 transaction"; "txid" => %x);
+                true
+            }
+            Err(e) => {
+                error!("Failed to submit miner commitment L1 transaction: {}", e);
+                false
+            }
+        }
+    }
 }
 
-impl BurnchainController for MockController {
+impl BurnchainController for L1Controller {
     fn start(
         &mut self,
         target_block_height_opt: Option<u64>,
@@ -334,41 +430,20 @@ impl BurnchainController for MockController {
         )
     }
     fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
-        MOCK_EVENTS_STREAM.clone()
+        STATIC_EVENTS_STREAM.clone()
     }
+
     fn submit_operation(
         &mut self,
         operation: BlockstackOperationType,
-        _op_signer: &mut BurnchainOpSigner,
-        _attempt: u64,
+        op_signer: &mut BurnchainOpSigner,
+        attempt: u64,
     ) -> bool {
-        match operation {
-            BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-                block_header_hash,
-                ..
-            }) => {
-                let mut next_commit = self.next_commit.lock().unwrap();
-                if let Some(prior_commit) = next_commit.replace(block_header_hash) {
-                    warn!("Mocknet controller replaced a staged commit"; "prior_commit" => %prior_commit);
-                }
+        info!("Submitting operation: {}", operation);
 
-                true
-            }
-            BlockstackOperationType::DepositFt(_op) =>{
-                debug!("Submitted deposit ft operation");
-                true
-            }
-            BlockstackOperationType::DepositNft(_op) =>{
-                debug!("Submitted deposit nft operation");
-                true
-            }
-            BlockstackOperationType::WithdrawFt(_op) =>{
-                debug!("Submitted withdraw ft operation");
-                true
-            }
-            BlockstackOperationType::WithdrawNft(_op) =>{
-                debug!("Submitted withdraw nft operation");
-                true
+        match operation {
+            BlockstackOperationType::LeaderBlockCommit(op) => {
+                self.submit_commit_operation(op, op_signer, attempt)
             }
         }
     }
@@ -475,68 +550,16 @@ impl BurnchainController for MockController {
     }
 
     #[cfg(test)]
-    fn bootstrap_chain(&mut self, _blocks_count: u64) {
+    fn bootstrap_chain(&mut self, blocks_count: u64) {
         todo!()
     }
 }
 
-pub struct MockParser {
+pub struct L1Parser {
     watch_contract: QualifiedContractIdentifier,
 }
 
-#[derive(Clone)]
-pub struct MockHeader {
-    pub height: u64,
-    pub index_hash: StacksBlockId,
-    pub parent_index_hash: StacksBlockId,
-}
-#[derive(Clone)]
-pub struct BlockIPC(pub NewBlock);
-
-impl BurnHeaderIPC for MockHeader {
-    type H = Self;
-
-    fn height(&self) -> u64 {
-        self.height
-    }
-
-    fn header(&self) -> Self::H {
-        self.clone()
-    }
-
-    fn header_hash(&self) -> [u8; 32] {
-        self.index_hash.0.clone()
-    }
-}
-
-impl From<&NewBlock> for MockHeader {
-    fn from(b: &NewBlock) -> Self {
-        MockHeader {
-            index_hash: b.index_block_hash.clone(),
-            parent_index_hash: b.parent_index_block_hash.clone(),
-            height: b.block_height,
-        }
-    }
-}
-
-impl BurnBlockIPC for BlockIPC {
-    type H = MockHeader;
-    type B = NewBlock;
-
-    fn height(&self) -> u64 {
-        self.0.block_height
-    }
-
-    fn header(&self) -> Self::H {
-        MockHeader::from(&self.0)
-    }
-
-    fn block(&self) -> Self::B {
-        self.0.clone()
-    }
-}
-
-impl BurnchainBlockDownloader for MockBlockDownloader {
+impl BurnchainBlockDownloader for L1BlockDownloader {
     type B = BlockIPC;
 
     fn download(&mut self, header: &MockHeader) -> Result<BlockIPC, BurnchainError> {
@@ -549,7 +572,7 @@ impl BurnchainBlockDownloader for MockBlockDownloader {
     }
 }
 
-impl BurnchainBlockParser for MockParser {
+impl BurnchainBlockParser for L1Parser {
     type B = BlockIPC;
 
     fn parse(&mut self, block: &BlockIPC) -> Result<BurnchainBlock, BurnchainError> {
@@ -559,10 +582,10 @@ impl BurnchainBlockParser for MockParser {
     }
 }
 
-impl MockIndexer {
-    pub fn new(watch_contract: QualifiedContractIdentifier) -> MockIndexer {
-        MockIndexer {
-            incoming_channel: MOCK_EVENTS_STREAM.clone(),
+impl L1Indexer {
+    pub fn new(watch_contract: QualifiedContractIdentifier) -> L1Indexer {
+        L1Indexer {
+            incoming_channel: STATIC_EVENTS_STREAM.clone(),
             watch_contract,
             blocks: vec![],
             minimum_recorded_height: 0,
@@ -570,10 +593,10 @@ impl MockIndexer {
     }
 }
 
-impl BurnchainIndexer for MockIndexer {
-    type P = MockParser;
+impl BurnchainIndexer for L1Indexer {
+    type P = L1Parser;
     type B = BlockIPC;
-    type D = MockBlockDownloader;
+    type D = L1BlockDownloader;
 
     fn connect(&mut self) -> Result<(), BurnchainError> {
         Ok(())
@@ -584,7 +607,9 @@ impl BurnchainIndexer for MockIndexer {
     }
 
     fn get_first_block_header_hash(&self) -> Result<BurnchainHeaderHash, BurnchainError> {
-        Ok(BurnchainHeaderHash(make_mock_byte_string(0)))
+        Ok(BurnchainHeaderHash(
+            make_mock_byte_string_for_first_l1_block(),
+        ))
     }
 
     fn get_first_block_header_timestamp(&self) -> Result<u64, BurnchainError> {
@@ -670,14 +695,14 @@ impl BurnchainIndexer for MockIndexer {
         Ok(headers)
     }
 
-    fn downloader(&self) -> MockBlockDownloader {
-        MockBlockDownloader {
+    fn downloader(&self) -> L1BlockDownloader {
+        L1BlockDownloader {
             channel: self.incoming_channel.clone(),
         }
     }
 
-    fn parser(&self) -> MockParser {
-        MockParser {
+    fn parser(&self) -> L1Parser {
+        L1Parser {
             watch_contract: self.watch_contract.clone(),
         }
     }

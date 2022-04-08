@@ -1,5 +1,5 @@
 [package]
-name = "stacks-node"
+name = "hyperchain-node"
 version = "0.1.0"
 authors = ["Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2018"
@@ -23,19 +23,19 @@ libc = "0.2"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 clarity = { package = "clarity", path = "../../clarity/." }
 stacks_common = { package = "stacks-common", path = "../../stacks-common/." }
+tokio = { version = "=1.15.0", features = ["full"] }
+reqwest = { version = "0.11", features = ["blocking", "json", "rustls"] }
+warp = "0.3"
 
 [dev-dependencies]
 ring = "0.16.19"
-warp = "0.3"
-tokio = "1.15"
-reqwest = { version = "0.11", features = ["blocking", "json", "rustls"] }
 
 [dev-dependencies.rusqlite]
 version = "=0.24.2"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [[bin]]
-name = "stacks-node"
+name = "hyperchain-node"
 path = "src/main.rs"
 
 [features]

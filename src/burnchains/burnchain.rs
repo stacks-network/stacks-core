@@ -189,7 +189,16 @@ impl Burnchain {
                 PoxConstants::mainnet_default(),
                 PEER_VERSION_MAINNET,
             ),
+            ("stacks_layer_1", "hyperchain") => (
+                BurnchainParameters::hyperchain_mocknet(),
+                PoxConstants::mainnet_default(),
+                PEER_VERSION_MAINNET,
+            ),
             (_, _) => {
+                warn!(
+                    "Burnchain parameters not supported. chain_name: {}, network_name: {}",
+                    &chain_name, &network_name
+                );
                 return Err(burnchain_error::UnsupportedBurnchain);
             }
         };
@@ -495,29 +504,6 @@ impl Burnchain {
         Ok(header)
     }
 
-    /// Hand off the block to the ChainsCoordinator _and_ process the sortition
-    ///   *only* to be used by legacy stacks node interfaces, like the Helium node
-    pub fn process_block_and_sortition_deprecated(
-        db: &mut SortitionDB,
-        burnchain_db: &mut BurnchainDB,
-        burnchain: &Burnchain,
-        block: &BurnchainBlock,
-    ) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
-        debug!(
-            "Process block {} {}",
-            block.block_height(),
-            &block.block_hash()
-        );
-
-        let header = block.header();
-        let blockstack_txs = burnchain_db.store_new_burnchain_block(burnchain, &block)?;
-
-        let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
-
-        db.evaluate_sortition(&header, blockstack_txs, burnchain, &sortition_tip, None)
-            .map(|(snapshot, transition, _)| (snapshot, transition))
-    }
-
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
     /// Return the new chain tip and a boolean signaling the presence of a reorg
     fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<(u64, bool), burnchain_error> {
@@ -715,7 +701,7 @@ impl Burnchain {
         let total = sync_height - self.first_block_height;
         let progress = (end_block - self.first_block_height) as f32 / total as f32 * 100.;
         info!(
-            "Syncing Bitcoin blocks: {:.1}% ({} to {} out of {})",
+            "Syncing STACKS MAINCHAIN blocks: {:.1}% ({} to {} out of {})",
             progress, start_block, end_block, sync_height
         );
 
