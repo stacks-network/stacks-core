@@ -113,6 +113,7 @@ pub struct StacksChainState {
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
     pub unconfirmed_state: Option<UnconfirmedState>,
+    marf_opts: Option<MARFOpenOpts>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1506,22 +1507,20 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None)
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, marf_opts)
     }
 
     /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
     /// parameters
     pub fn reopen(&self) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open(self.mainnet, self.chain_id, &self.root_path)
-    }
-
-    pub fn open_testnet<F>(
-        chain_id: u32,
-        path_str: &str,
-        boot_data: Option<&mut ChainStateBootData>,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(false, chain_id, path_str, boot_data)
+        StacksChainState::open(
+            self.mainnet,
+            self.chain_id,
+            &self.root_path,
+            self.marf_opts.clone(),
+        )
     }
 
     pub fn blocks_path(mut path: PathBuf) -> PathBuf {
@@ -1569,6 +1568,7 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::make_chainstate_dirs(path_str)?;
         let path = PathBuf::from(path_str);
@@ -1611,6 +1611,7 @@ impl StacksChainState {
                 &MINER_BLOCK_CONSENSUS_HASH,
                 &MINER_BLOCK_HEADER_HASH,
             )),
+            marf_opts.clone(),
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
@@ -1626,6 +1627,7 @@ impl StacksChainState {
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
             unconfirmed_state: None,
+            marf_opts: marf_opts,
         };
 
         let mut receipts = vec![];
@@ -2235,14 +2237,16 @@ pub mod test {
             get_bulk_initial_namespaces: None,
         };
 
-        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data))
+        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data), None)
             .unwrap()
             .0
     }
 
     pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
         let path = chainstate_path(test_name);
-        StacksChainState::open(mainnet, chain_id, &path).unwrap().0
+        StacksChainState::open(mainnet, chain_id, &path, None)
+            .unwrap()
+            .0
     }
 
     pub fn chainstate_path(test_name: &str) -> String {
@@ -2336,7 +2340,7 @@ pub mod test {
         };
 
         let mut chainstate =
-            StacksChainState::open_and_exec(false, 0x80000000, &path, Some(&mut boot_data))
+            StacksChainState::open_and_exec(false, 0x80000000, &path, Some(&mut boot_data), None)
                 .unwrap()
                 .0;
 
@@ -2426,7 +2430,7 @@ pub mod test {
         };
 
         let mut chainstate =
-            StacksChainState::open_and_exec(true, 0x000000001, &path, Some(&mut boot_data))
+            StacksChainState::open_and_exec(true, 0x000000001, &path, Some(&mut boot_data), None)
                 .unwrap()
                 .0;
 

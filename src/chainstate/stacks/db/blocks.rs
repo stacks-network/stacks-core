@@ -10389,7 +10389,7 @@ pub mod test {
             .burnchain
             .block_height_to_reward_cycle(last_stacks_block_height)
             .unwrap();
-        let mut chainstate = StacksChainState::open(false, 0x80000000, &chainstate_path)
+        let mut chainstate = StacksChainState::open(false, 0x80000000, &chainstate_path, None)
             .unwrap()
             .0;
 
