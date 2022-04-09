@@ -2481,6 +2481,7 @@ mod test {
             network_id,
             &chainstate_path,
             Some(&mut boot_data),
+            None,
         )
         .unwrap();
 

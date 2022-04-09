@@ -35,7 +35,11 @@ pub struct MarfedKV {
 }
 
 impl MarfedKV {
-    fn setup_db(path_str: &str, unconfirmed: bool) -> InterpreterResult<MARF<StacksBlockId>> {
+    fn setup_db(
+        path_str: &str,
+        unconfirmed: bool,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> InterpreterResult<MARF<StacksBlockId>> {
         let mut path = PathBuf::from(path_str);
 
         std::fs::create_dir_all(&path)
@@ -47,7 +51,7 @@ impl MarfedKV {
             .ok_or_else(|| InterpreterError::BadFileName)?
             .to_string();
 
-        let mut marf_opts = MARFOpenOpts::default();
+        let mut marf_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         marf_opts.external_blobs = true;
 
         let mut marf: MARF<StacksBlockId> = if unconfirmed {
@@ -74,8 +78,12 @@ impl MarfedKV {
         Ok(marf)
     }
 
-    pub fn open(path_str: &str, miner_tip: Option<&StacksBlockId>) -> InterpreterResult<MarfedKV> {
-        let marf = MarfedKV::setup_db(path_str, false)?;
+    pub fn open(
+        path_str: &str,
+        miner_tip: Option<&StacksBlockId>,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> InterpreterResult<MarfedKV> {
+        let marf = MarfedKV::setup_db(path_str, false, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(ref miner_tip) => *miner_tip.clone(),
             None => StacksBlockId::sentinel(),
@@ -87,8 +95,9 @@ impl MarfedKV {
     pub fn open_unconfirmed(
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> InterpreterResult<MarfedKV> {
-        let marf = MarfedKV::setup_db(path_str, true)?;
+        let marf = MarfedKV::setup_db(path_str, true, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(ref miner_tip) => *miner_tip.clone(),
             None => StacksBlockId::sentinel(),
@@ -111,6 +120,7 @@ impl MarfedKV {
             path.to_str()
                 .expect("Inexplicably non-UTF-8 character in filename"),
             false,
+            None,
         )
         .unwrap();
 

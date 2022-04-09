@@ -240,7 +240,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
         let chain_id = CHAIN_ID_MAINNET;
-        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
+        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
@@ -287,7 +287,7 @@ check if the associated microblocks can be downloaded
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
         let chain_id = CHAIN_ID_MAINNET;
-        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
+        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
@@ -468,7 +468,7 @@ simulating a miner.
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
         let chain_id = CHAIN_ID_MAINNET;
-        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
+        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
@@ -738,7 +738,7 @@ simulating a miner.
     if argv[1] == "process-block" {
         let path = &argv[2];
         let sort_path = &argv[3];
-        let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, path).unwrap();
+        let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, path, None).unwrap();
         let mut sortition_db = SortitionDB::open(sort_path, true).unwrap();
         let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn())
             .unwrap()
@@ -762,7 +762,7 @@ simulating a miner.
         let burnchain_db_path = &argv[6];
 
         let (old_chainstate, _) =
-            StacksChainState::open(false, 0x80000000, old_chainstate_path).unwrap();
+            StacksChainState::open(false, 0x80000000, old_chainstate_path, None).unwrap();
         let old_sortition_db = SortitionDB::open(old_sort_path, true).unwrap();
 
         // initial argon balances -- see testnet/stacks-node/conf/testnet-follower-conf.toml
@@ -851,6 +851,7 @@ simulating a miner.
             0x80000000,
             new_chainstate_path,
             Some(&mut boot_data),
+            None,
         )
         .unwrap();
 
@@ -913,7 +914,7 @@ simulating a miner.
             )
             .unwrap();
         let (mut p2p_chainstate, _) =
-            StacksChainState::open(false, 0x80000000, new_chainstate_path).unwrap();
+            StacksChainState::open(false, 0x80000000, new_chainstate_path, None).unwrap();
 
         let _ = thread::spawn(move || {
             loop {
