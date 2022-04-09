@@ -693,7 +693,8 @@ impl<'a> ClarityBlockConnection<'a> {
                     .unwrap();
 
                 // NOTE: we don't set tx_conn.epoch to Epoch2_05 here, even though we probably
-                // should, because doing so risks a chain split.  C'est la vie.
+                // should, because doing so risks a chain split.  Same for self.epoch.
+                // C'est la vie.
 
                 // initialize with a synthetic transaction
                 let receipt = StacksChainState::process_transaction_payload(
@@ -844,6 +845,8 @@ impl<'a> ClarityBlockConnection<'a> {
                 );
             }
 
+            // upgrade epoch here as well
+            self.epoch = StacksEpochId::Epoch21;
             (old_cost_tracker, Ok(initialization_receipt))
         })
     }
