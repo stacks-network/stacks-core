@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::stacks::index::marf::*;
-use chainstate::stacks::index::test::*;
-use chainstate::stacks::index::*;
+use crate::chainstate::stacks::index::marf::*;
+use crate::chainstate::stacks::index::test::*;
+use crate::chainstate::stacks::index::*;
 
 use super::*;
 

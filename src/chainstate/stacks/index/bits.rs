@@ -28,9 +28,7 @@ use crate::chainstate::stacks::index::node::{
     TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
 };
 use crate::chainstate::stacks::index::node::{TrieNode, TRIEPATH_MAX_LEN};
-use crate::chainstate::stacks::index::storage::{
-    fseek, ftell, TrieFileStorage, TrieStorageConnection,
-};
+use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::index::TrieLeaf;
 use crate::chainstate::stacks::index::{BlockMap, MarfTrieId};

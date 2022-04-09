@@ -31,7 +31,9 @@ use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode, TrieNode16,
     TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
-use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
+use crate::chainstate::stacks::index::storage::{
+    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
+};
 use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::index::{MarfTrieId, TrieHasher};
 use stacks_common::util::hash::to_hex;

@@ -17,9 +17,9 @@
 use std::collections::VecDeque;
 use std::fs;
 
-use chainstate::stacks::index::marf::*;
-use chainstate::stacks::index::node::*;
-use chainstate::stacks::index::*;
+use crate::chainstate::stacks::index::marf::*;
+use crate::chainstate::stacks::index::node::*;
+use crate::chainstate::stacks::index::*;
 
 use rand::thread_rng;
 use rand::Rng;

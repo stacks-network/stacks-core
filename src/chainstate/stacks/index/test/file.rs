@@ -14,16 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::stacks::index::cache::test::make_test_insert_data;
-use chainstate::stacks::index::cache::*;
-use chainstate::stacks::index::file::*;
-use chainstate::stacks::index::marf::*;
-use chainstate::stacks::index::storage::*;
-use chainstate::stacks::index::*;
+use crate::chainstate::stacks::index::cache::test::make_test_insert_data;
+use crate::chainstate::stacks::index::cache::*;
+use crate::chainstate::stacks::index::file::*;
+use crate::chainstate::stacks::index::marf::*;
+use crate::chainstate::stacks::index::storage::*;
+use crate::chainstate::stacks::index::*;
+use crate::util_lib::db::*;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
 use std::fs;
-use util_lib::db::*;
 
 use super::*;
 

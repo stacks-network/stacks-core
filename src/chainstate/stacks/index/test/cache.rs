@@ -14,10 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::stacks::index::marf::*;
-use chainstate::stacks::index::node::*;
-use chainstate::stacks::index::storage::*;
-use chainstate::stacks::index::*;
+use crate::chainstate::stacks::index::marf::*;
+use crate::chainstate::stacks::index::node::*;
+use crate::chainstate::stacks::index::storage::*;
+use crate::chainstate::stacks::index::*;
 use std::cmp;
 use std::collections::VecDeque;
 use std::fs;

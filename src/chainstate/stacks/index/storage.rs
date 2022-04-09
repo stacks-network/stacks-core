@@ -50,15 +50,20 @@ use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
 };
+use crate::chainstate::stacks::index::profile::TrieBenchmark;
+use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::TrieHasher;
 use crate::chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
 use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::tx_busy_handler;
 use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::SQLITE_MMAP_SIZE;
 use crate::util_lib::db::SQLITE_MARF_PAGE_SIZE;
+use crate::util_lib::db::SQLITE_MMAP_SIZE;
+
+use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 
 use crate::chainstate::stacks::index::TrieHashExtension;

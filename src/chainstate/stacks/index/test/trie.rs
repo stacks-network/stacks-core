@@ -19,15 +19,15 @@
 
 use std::io::Cursor;
 
-use chainstate::stacks::index::bits::*;
-use chainstate::stacks::index::marf::*;
-use chainstate::stacks::index::node::*;
-use chainstate::stacks::index::proofs::*;
-use chainstate::stacks::index::storage::*;
-use chainstate::stacks::index::test::*;
-use chainstate::stacks::index::trie::*;
-use chainstate::stacks::index::ClarityMarfTrieId;
-use chainstate::stacks::index::*;
+use crate::chainstate::stacks::index::bits::*;
+use crate::chainstate::stacks::index::marf::*;
+use crate::chainstate::stacks::index::node::*;
+use crate::chainstate::stacks::index::proofs::*;
+use crate::chainstate::stacks::index::storage::*;
+use crate::chainstate::stacks::index::test::*;
+use crate::chainstate::stacks::index::trie::*;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::*;
 
 use super::*;
 

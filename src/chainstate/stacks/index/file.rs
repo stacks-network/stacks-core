@@ -38,27 +38,27 @@ use rusqlite::{
     Transaction, NO_PARAMS,
 };
 
-use chainstate::stacks::index::bits::{
+use crate::chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
     read_nodetype, read_nodetype_at_head, read_nodetype_at_head_nohash, read_root_hash,
     write_nodetype_bytes,
 };
-use chainstate::stacks::index::node::{
+use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
 };
-use chainstate::stacks::index::storage::NodeHashReader;
-use chainstate::stacks::index::storage::TrieStorageConnection;
-use chainstate::stacks::index::Error;
-use chainstate::stacks::index::TrieLeaf;
-use chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, MarfTrieId};
+use crate::chainstate::stacks::index::storage::NodeHashReader;
+use crate::chainstate::stacks::index::storage::TrieStorageConnection;
+use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::TrieLeaf;
+use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, MarfTrieId};
 
-use util_lib::db::sql_pragma;
-use util_lib::db::sqlite_open;
-use util_lib::db::tx_begin_immediate;
-use util_lib::db::tx_busy_handler;
-use util_lib::db::Error as db_error;
-use util_lib::db::SQLITE_MMAP_SIZE;
+use crate::util_lib::db::sql_pragma;
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::tx_begin_immediate;
+use crate::util_lib::db::tx_busy_handler;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::SQLITE_MMAP_SIZE;
 
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;

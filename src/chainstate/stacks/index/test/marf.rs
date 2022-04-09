@@ -20,16 +20,15 @@
 use std::fs;
 use std::io::Cursor;
 
-use chainstate::stacks::index::bits::*;
-use chainstate::stacks::index::marf::*;
-use chainstate::stacks::index::node::*;
-use chainstate::stacks::index::proofs::*;
-use chainstate::stacks::index::storage::*;
-use chainstate::stacks::index::test::*;
-use chainstate::stacks::index::trie::*;
-use chainstate::stacks::index::*;
-use util::get_epoch_time_ms;
-use util::hash::to_hex;
+use crate::chainstate::stacks::index::bits::*;
+use crate::chainstate::stacks::index::marf::*;
+use crate::chainstate::stacks::index::node::*;
+use crate::chainstate::stacks::index::proofs::*;
+use crate::chainstate::stacks::index::storage::*;
+use crate::chainstate::stacks::index::test::*;
+use crate::chainstate::stacks::index::trie::*;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::to_hex;
 
 use crate::types::chainstate::StacksBlockId;
 

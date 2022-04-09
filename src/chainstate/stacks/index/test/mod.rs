@@ -19,21 +19,22 @@
 
 use std::fs;
 
-use chainstate::stacks::index::bits::*;
-use chainstate::stacks::index::marf::*;
-use chainstate::stacks::index::node::*;
-use chainstate::stacks::index::proofs::*;
-use chainstate::stacks::index::storage::*;
-use chainstate::stacks::index::trie::*;
-use chainstate::stacks::index::*;
 use std::collections::HashMap;
 use std::io::{Cursor, Seek, SeekFrom};
+
+use crate::chainstate::stacks::index::bits::*;
+use crate::chainstate::stacks::index::marf::*;
+use crate::chainstate::stacks::index::node::*;
+use crate::chainstate::stacks::index::proofs::*;
+use crate::chainstate::stacks::index::storage::*;
+use crate::chainstate::stacks::index::trie::*;
+
 use util::get_epoch_time_ms;
 use util::hash::to_hex;
 
+use crate::chainstate::stacks::BlockHeaderHash;
+use crate::chainstate::stacks::TrieHash;
 use crate::types::chainstate::StacksBlockId;
-use chainstate::stacks::BlockHeaderHash;
-use chainstate::stacks::TrieHash;
 
 pub mod cache;
 pub mod file;
