@@ -1329,6 +1329,7 @@ fn bitcoind_resubmission_test() {
             false,
             conf.burnchain.chain_id,
             &conf.get_chainstate_path_str(),
+            None,
         )
         .unwrap();
         let mut tx = chainstate.db_tx_begin().unwrap();
@@ -1729,9 +1730,13 @@ fn microblock_integration_test() {
         let privk =
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
                 .unwrap();
-        let (mut chainstate, _) =
-            StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path_str())
-                .unwrap();
+        let (mut chainstate, _) = StacksChainState::open(
+            false,
+            CHAIN_ID_TESTNET,
+            &conf.get_chainstate_path_str(),
+            None,
+        )
+        .unwrap();
 
         chainstate
             .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
@@ -7041,8 +7046,13 @@ fn use_latest_tip_integration_test() {
     let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
     let tip_hash =
         StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-    let (mut chainstate, _) =
-        StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path_str()).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        false,
+        CHAIN_ID_TESTNET,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
 
     // Initialize the unconfirmed state.
     chainstate

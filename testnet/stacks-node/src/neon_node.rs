@@ -644,6 +644,7 @@ fn spawn_peer(
         is_mainnet,
         config.burnchain.chain_id,
         &stacks_chainstate_path,
+        Some(config.node.get_marf_opts()),
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
@@ -711,7 +712,10 @@ fn spawn_peer(
                 };
 
                 let mut expected_attachments = match attachments_rx.try_recv() {
-                    Ok(expected_attachments) => expected_attachments,
+                    Ok(expected_attachments) => {
+                        debug!("Atlas: received attachments: {:?}", &expected_attachments);
+                        expected_attachments
+                    }
                     _ => {
                         debug!("Atlas: attachment channel is empty");
                         HashSet::new()
@@ -877,8 +881,13 @@ fn spawn_miner_relayer(
     //   should address via #1449
     let mut sortdb = SortitionDB::open(&burn_db_path, true).map_err(NetError::DBError)?;
 
-    let (mut chainstate, _) = StacksChainState::open(is_mainnet, chain_id, &stacks_chainstate_path)
-        .map_err(|e| NetError::ChainstateError(e.to_string()))?;
+    let (mut chainstate, _) = StacksChainState::open(
+        is_mainnet,
+        chain_id,
+        &stacks_chainstate_path,
+        Some(config.node.get_marf_opts()),
+    )
+    .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
     let mut last_mined_blocks: HashMap<
         BurnchainHeaderHash,

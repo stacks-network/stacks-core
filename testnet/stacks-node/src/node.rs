@@ -198,15 +198,19 @@ fn spawn_peer(
                     continue;
                 }
             };
-            let (mut chainstate, _) =
-                match StacksChainState::open(is_mainnet, chain_id, &stacks_chainstate_path) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        warn!("Error while connecting chainstate db in peer loop: {}", e);
-                        thread::sleep(time::Duration::from_secs(1));
-                        continue;
-                    }
-                };
+            let (mut chainstate, _) = match StacksChainState::open(
+                is_mainnet,
+                chain_id,
+                &stacks_chainstate_path,
+                Some(config.node.get_marf_opts()),
+            ) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting chainstate db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                }
+            };
 
             let estimator = Box::new(UnitEstimator);
             let metric = Box::new(UnitMetric);
@@ -321,6 +325,7 @@ impl Node {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
+            Some(config.node.get_marf_opts()),
         );
 
         let (chain_state, receipts) = match chain_state_result {
@@ -389,6 +394,7 @@ impl Node {
             config.is_mainnet(),
             config.burnchain.chain_id,
             &chainstate_path,
+            Some(config.node.get_marf_opts()),
         ) {
             Ok(x) => x,
             Err(_e) => panic!(),

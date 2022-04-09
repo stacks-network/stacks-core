@@ -429,6 +429,7 @@ impl RunLoop {
             self.config.burnchain.chain_id,
             &self.config.get_chainstate_path_str(),
             Some(&mut boot_data),
+            Some(self.config.node.get_marf_opts()),
         )
         .unwrap();
         self.event_dispatcher.dispatch_boot_receipts(receipts);
@@ -464,17 +465,8 @@ impl RunLoop {
 
     /// Instantiate the PoX watchdog
     fn instantiate_pox_watchdog(&mut self) {
-        let pox_watchdog = PoxSyncWatchdog::new(
-            self.config.is_mainnet(),
-            self.config.burnchain.chain_id,
-            self.config.get_chainstate_path_str(),
-            self.config.burnchain.poll_time_secs,
-            self.config.connection_options.timeout,
-            self.config.node.pox_sync_sample_secs,
-            self.config.node.pox_sync_sample_secs == 0,
-            self.should_keep_running.clone(),
-        )
-        .expect("FATAL: failed to instantiate PoX sync watchdog");
+        let pox_watchdog = PoxSyncWatchdog::new(&self.config, self.should_keep_running.clone())
+            .expect("FATAL: failed to instantiate PoX sync watchdog");
         self.pox_watchdog = Some(pox_watchdog);
     }
 
