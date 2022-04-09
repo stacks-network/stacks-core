@@ -11,20 +11,22 @@ use rusqlite::{
 };
 use serde_json::Value as JsonValue;
 
-use chainstate::stacks::TransactionPayload;
-use util_lib::db::{sql_pragma, sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql};
+use crate::chainstate::stacks::TransactionPayload;
+use crate::util_lib::db::{
+    sql_pragma, sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql,
+};
 
-use vm::costs::ExecutionCost;
+use clarity::vm::costs::ExecutionCost;
 
-use chainstate::stacks::db::StacksEpochReceipt;
-use chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::db::StacksEpochReceipt;
+use crate::chainstate::stacks::events::TransactionOrigin;
 
 use super::metrics::CostMetric;
 use super::FeeRateEstimate;
 use super::{EstimatorError, FeeEstimator};
 
 use super::metrics::PROPORTION_RESOLUTION;
-use cost_estimates::StacksTransactionReceipt;
+use crate::cost_estimates::StacksTransactionReceipt;
 
 const CREATE_TABLE: &'static str = "
 CREATE TABLE median_fee_estimator (

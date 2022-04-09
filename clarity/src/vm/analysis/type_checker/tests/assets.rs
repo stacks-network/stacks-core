@@ -14,12 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::{mem_type_check, AnalysisDatabase};
+use crate::vm::ast::parse;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::{
+    QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
+};
 use std::convert::TryInto;
-use vm::analysis::errors::CheckErrors;
-use vm::analysis::{mem_type_check, AnalysisDatabase};
-use vm::ast::parse;
-use vm::database::MemoryBackingStore;
-use vm::types::{QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature};
 
 fn string_ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
@@ -102,7 +104,7 @@ const ASSET_NAMES: &str = "(define-constant burn-address 'SP00000000000000000000
 
 #[test]
 fn test_names_tokens_contracts() {
-    use vm::analysis::type_check;
+    use crate::vm::analysis::type_check;
 
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
     let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
@@ -121,7 +123,7 @@ fn test_names_tokens_contracts() {
 
 #[test]
 fn test_bad_asset_usage() {
-    use vm::analysis::type_check;
+    use crate::vm::analysis::type_check;
 
     let bad_scripts = [
         "(ft-get-balance stackoos tx-sender)",

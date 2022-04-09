@@ -235,7 +235,7 @@ pub fn c32_address(version: u8, data: &[u8]) -> Result<String, Error> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use util::hash::hex_bytes;
+    use crate::util::hash::hex_bytes;
 
     #[test]
     fn test_addresses() {

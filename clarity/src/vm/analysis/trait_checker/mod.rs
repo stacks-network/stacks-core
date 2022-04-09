@@ -16,14 +16,14 @@
 
 use std::collections::HashMap;
 
-use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
-use vm::analysis::types::{AnalysisPass, ContractAnalysis};
-use vm::analysis::AnalysisDatabase;
-use vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
-use vm::functions::NativeFunctions;
-use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List, LiteralValue};
-use vm::representations::{ClarityName, SymbolicExpression};
-use vm::types::{FunctionType, TraitIdentifier, TypeSignature, Value};
+use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
+use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
+use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::SymbolicExpressionType::{Atom, AtomValue, List, LiteralValue};
+use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::types::{FunctionType, TraitIdentifier, TypeSignature, Value};
 
 pub struct TraitChecker {}
 

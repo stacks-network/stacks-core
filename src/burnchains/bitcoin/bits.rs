@@ -17,29 +17,29 @@
 use sha2::Digest;
 use sha2::Sha256;
 
-use address::public_keys_to_address_hash;
-use address::AddressHashMode;
-use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::bitcoin::Error as btc_error;
-use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
-use burnchains::PublicKey;
-use burnchains::Txid;
+use crate::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::bitcoin::Error as btc_error;
+use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
+use crate::burnchains::PublicKey;
+use crate::burnchains::Txid;
+use stacks_common::address::public_keys_to_address_hash;
+use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::Class;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Instruction, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::TxIn as BtcTxIn;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut as BtcTxOut;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
-use util::hash::Hash160;
-use util::log;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::log;
 
-use crate::types::chainstate::BurnchainHeaderHash;
-use chainstate::stacks::{
+use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use crate::types::chainstate::BurnchainHeaderHash;
 
 /// Parse a script into its structured constituant opcodes and data and collect them
 pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
@@ -568,14 +568,14 @@ impl BitcoinTxOutput {
 
 #[cfg(test)]
 mod tests {
-    use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinInputType;
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::Txid;
+    use crate::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::bitcoin::BitcoinInputType;
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::Txid;
     use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
-    use util::hash::hex_bytes;
-    use util::log;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::log;
 
     use super::parse_script;
     use super::BitcoinTxInput;

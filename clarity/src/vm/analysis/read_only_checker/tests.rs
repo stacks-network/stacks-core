@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::mem_type_check;
-use vm::analysis::type_check;
-use vm::analysis::{CheckError, CheckErrors};
-use vm::ast::parse;
-use vm::database::MemoryBackingStore;
-use vm::types::QualifiedContractIdentifier;
+use crate::vm::analysis::mem_type_check;
+use crate::vm::analysis::type_check;
+use crate::vm::analysis::{CheckError, CheckErrors};
+use crate::vm::ast::parse;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::QualifiedContractIdentifier;
 
 #[test]
 fn test_argument_count_violations() {

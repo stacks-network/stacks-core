@@ -1,4 +1,4 @@
-use cost_estimates::FeeRateEstimate;
+use crate::cost_estimates::FeeRateEstimate;
 
 pub mod common;
 pub mod cost_estimators;

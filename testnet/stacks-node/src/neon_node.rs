@@ -6,6 +6,7 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
+use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
 use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
@@ -808,8 +809,11 @@ fn spawn_peer(
                 }
             }
 
-            relay_channel.try_send(RelayerDirective::Exit).unwrap();
-            debug!("P2P thread exit!");
+            while let Err(TrySendError::Full(_)) = relay_channel.try_send(RelayerDirective::Exit) {
+                warn!("Failed to direct relayer thread to exit, sleeping and trying again");
+                thread::sleep(Duration::from_secs(5));
+            }
+            info!("P2P thread exit!");
         })
         .unwrap();
 
@@ -1083,7 +1087,8 @@ fn spawn_miner_relayer(
                         // no burnchain change, so only re-run block tenure every so often in order
                         // to give microblocks a chance to collect
                         if issue_timestamp_ms < last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128) {
-                            debug!("Relayer: will NOT run tenure since issuance at {} is too fresh (wait until {} + {} = {})", issue_timestamp_ms / 1000, last_tenure_issue_time / 1000, config.node.wait_time_for_microblocks / 1000, (last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128)) / 1000);
+                            debug!("Relayer: will NOT run tenure since issuance at {} is too fresh (wait until {} + {} = {})",
+                                    issue_timestamp_ms / 1000, last_tenure_issue_time / 1000, config.node.wait_time_for_microblocks / 1000, (last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128)) / 1000);
                             continue;
                         }
                     }

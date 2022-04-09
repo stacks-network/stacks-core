@@ -33,8 +33,8 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::{mem, u32};
 
-use deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
-use deps_common::bitcoin::util::hash::Sha256dHash;
+use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
+use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 
 /// Maximum size, in bytes, of a vector we are allowed to decode
 pub const MAX_VEC_SIZE: usize = 32 * 1024 * 1024;
@@ -450,7 +450,7 @@ where
 mod tests {
     use super::{CheckedData, VarInt};
 
-    use deps_common::bitcoin::network::serialize::{deserialize, serialize, Error};
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize, Error};
 
     #[test]
     fn serialize_int_test() {

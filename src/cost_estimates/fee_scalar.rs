@@ -9,15 +9,15 @@ use rusqlite::{
 };
 use serde_json::Value as JsonValue;
 
-use chainstate::stacks::TransactionPayload;
-use util_lib::db::sqlite_open;
-use util_lib::db::tx_begin_immediate_sqlite;
-use util_lib::db::u64_to_sql;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::tx_begin_immediate_sqlite;
+use crate::util_lib::db::u64_to_sql;
 
-use vm::costs::ExecutionCost;
+use clarity::vm::costs::ExecutionCost;
 
-use chainstate::stacks::db::StacksEpochReceipt;
-use chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::db::StacksEpochReceipt;
+use crate::chainstate::stacks::events::TransactionOrigin;
 
 use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::table_exists;

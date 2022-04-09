@@ -1,15 +1,15 @@
 use std::convert::TryFrom;
 
-use chainstate::stacks::db::StacksAccount;
-use chainstate::stacks::{
+use crate::chainstate::stacks::db::StacksAccount;
+use crate::chainstate::stacks::{
     SinglesigHashMode, SinglesigSpendingCondition, TransactionAuth, TransactionPublicKeyEncoding,
     TransactionSpendingCondition,
 };
-use types::chainstate::StacksAddress;
-use util::secp256k1::MessageSignature;
-use vm::database::STXBalance;
-use vm::types::{PrincipalData, QualifiedContractIdentifier};
-use vm::ContractName;
+use clarity::vm::database::STXBalance;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::ContractName;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::secp256k1::MessageSignature;
 
 pub fn boot_code_id(name: &str, mainnet: bool) -> QualifiedContractIdentifier {
     let addr = boot_code_addr(mainnet);

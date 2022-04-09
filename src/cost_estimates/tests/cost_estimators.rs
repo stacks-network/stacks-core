@@ -4,19 +4,19 @@ use time::Instant;
 use rand::seq::SliceRandom;
 use rand::Rng;
 
-use cost_estimates::metrics::CostMetric;
-use cost_estimates::{EstimatorError, FeeEstimator};
-use vm::costs::ExecutionCost;
+use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::{EstimatorError, FeeEstimator};
+use clarity::vm::costs::ExecutionCost;
 
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
-use chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
 
-use util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
-use util::vrf::VRFProof;
+use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::vrf::VRFProof;
 
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::{
@@ -24,14 +24,14 @@ use crate::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::StacksEpochId;
+use crate::core::BLOCK_LIMIT_MAINNET_20;
 use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
+use crate::cost_estimates::tests::common::*;
 use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::cost_estimates::PessimisticEstimator;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
-use core::BLOCK_LIMIT_MAINNET_20;
-use cost_estimates::tests::common::*;
 
 fn instantiate_test_db() -> PessimisticEstimator {
     let mut path = env::temp_dir();

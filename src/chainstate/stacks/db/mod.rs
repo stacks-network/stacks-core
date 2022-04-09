@@ -29,67 +29,70 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
-use chainstate::burn::db::sortdb::BlockHeaderCache;
-use chainstate::burn::db::sortdb::*;
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::boot::*;
-use chainstate::stacks::db::accounts::*;
-use chainstate::stacks::db::blocks::*;
-use chainstate::stacks::db::unconfirmed::UnconfirmedState;
-use chainstate::stacks::events::*;
-use chainstate::stacks::index::marf::{
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
+use crate::chainstate::burn::db::sortdb::BlockHeaderCache;
+use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::boot::*;
+use crate::chainstate::stacks::db::accounts::*;
+use crate::chainstate::stacks::db::blocks::*;
+use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
+use crate::chainstate::stacks::events::*;
+use crate::chainstate::stacks::index::marf::{
     MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
 };
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use chainstate::stacks::{
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use clarity::vm::events::*;
-use clarity_vm::clarity::{
+use crate::clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
     Error as clarity_error,
 };
-use core::*;
-use net::atlas::BNS_CHARS_REGEX;
-use net::Error as net_error;
-use net::MemPoolSyncData;
-use util::hash::to_hex;
-use util_lib::db::Error as db_error;
-use util_lib::db::{
+use crate::core::*;
+use crate::monitoring;
+use crate::net::atlas::BNS_CHARS_REGEX;
+use crate::net::Error as net_error;
+use crate::net::MemPoolSyncData;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{
     query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, FromColumn, FromRow,
     IndexDBConn, IndexDBTx,
 };
-use vm::analysis::analysis_db::AnalysisDatabase;
-use vm::analysis::run_analysis;
-use vm::ast::build_ast;
-use vm::clarity::TransactionConnection;
-use vm::contexts::OwnedEnvironment;
-use vm::costs::{ExecutionCost, LimitedCostTracker};
-use vm::database::{
+use clarity::vm::analysis::analysis_db::AnalysisDatabase;
+use clarity::vm::analysis::run_analysis;
+use clarity::vm::ast::build_ast;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
 };
-use vm::representations::ClarityName;
-use vm::representations::ContractName;
-use vm::types::TupleData;
-use {monitoring, util};
 
+use crate::clarity_vm::clarity::PreCommitClarityBlock;
+use clarity::vm::events::*;
+use clarity::vm::representations::ClarityName;
+use clarity::vm::representations::ContractName;
+use clarity::vm::types::TupleData;
+use stacks_common::util;
+use stacks_common::util::hash::to_hex;
+
+use crate::chainstate::burn::ConsensusHashExtensions;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
-use chainstate::burn::ConsensusHashExtensions;
-use chainstate::stacks::address::StacksAddressExtensions;
-use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksMicroblockHeader;
+use clarity::vm::Value;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
-use vm::Value;
 pub mod accounts;
 pub mod blocks;
 pub mod contracts;
@@ -289,12 +292,12 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
 pub type StacksDBTx<'a> = IndexDBTx<'a, (), StacksBlockId>;
 pub type StacksDBConn<'a> = IndexDBConn<'a, (), StacksBlockId>;
 
-pub struct ClarityTx<'a> {
-    block: ClarityBlockConnection<'a>,
+pub struct ClarityTx<'a, 'b> {
+    block: ClarityBlockConnection<'a, 'b>,
     pub config: DBConfig,
 }
 
-impl ClarityConnection for ClarityTx<'_> {
+impl<'a, 'b> ClarityConnection for ClarityTx<'a, 'b> {
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
@@ -314,7 +317,7 @@ impl ClarityConnection for ClarityTx<'_> {
     }
 }
 
-impl<'a> ClarityTx<'a> {
+impl<'a, 'b> ClarityTx<'a, 'b> {
     pub fn get_root_hash(&mut self) -> TrieHash {
         self.block.get_root_hash()
     }
@@ -372,6 +375,15 @@ impl<'a> ClarityTx<'a> {
         self.block.commit_to_block(&index_block_hash);
     }
 
+    pub fn precommit_to_block(
+        self,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
+    ) -> PreCommitClarityBlock<'a> {
+        let index_block_hash = StacksBlockId::new(consensus_hash, block_hash);
+        self.block.precommit_to_block(index_block_hash)
+    }
+
     pub fn commit_unconfirmed(self) -> () {
         self.block.commit_unconfirmed();
     }
@@ -388,7 +400,7 @@ impl<'a> ClarityTx<'a> {
         self.block.reset_block_cost(cost);
     }
 
-    pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a> {
+    pub fn connection(&mut self) -> &mut ClarityBlockConnection<'a, 'b> {
         &mut self.block
     }
 
@@ -669,7 +681,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     CREATE TABLE staging_blocks(anchored_block_hash TEXT NOT NULL,
                                 parent_anchored_block_hash TEXT NOT NULL,
                                 consensus_hash TEXT NOT NULL,
-                                -- parent_consensus_hash is the consensus hash of the parent sortition of the sortition that chose this block
+                                -- parent_consensus_hash is the consensus hash of the sortition that chose the parent Stacks block.
                                 parent_consensus_hash TEXT NOT NULL,
                                 parent_microblock_hash TEXT NOT NULL,
                                 parent_microblock_seq INT NOT NULL,
@@ -680,7 +692,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
                                 processed INT NOT NULL,
                                 commit_burn INT NOT NULL,
                                 sortition_burn INT NOT NULL,
-                                index_block_hash TEXT NOT NULL,           -- used internally; hash of consensus hash and block header
+                                index_block_hash TEXT NOT NULL,           -- used internally; hash of consensus hash and anchored_block_hash
                                 download_time INT NOT NULL,               -- how long the block was in-flight
                                 arrival_time INT NOT NULL,                -- when this block was stored
                                 processed_time INT NOT NULL,              -- when this block was processed
@@ -729,6 +741,7 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash ON staging_microblocks(index_block_hash);",
     "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash_processed ON staging_microblocks(index_block_hash,processed);",
     "CREATE INDEX IF NOT EXISTS staging_microblocks_index_hash_orphaned ON staging_microblocks(index_block_hash,orphaned);",
+    "CREATE INDEX IF NOT EXISTS staging_microblocks_microblock_hash ON staging_microblocks(microblock_hash);",
     "CREATE INDEX IF NOT EXISTS processed_stacks_blocks ON staging_blocks(processed,anchored_block_hash,consensus_hash);",
     "CREATE INDEX IF NOT EXISTS orphaned_stacks_blocks ON staging_blocks(orphaned,anchored_block_hash,consensus_hash);",
     "CREATE INDEX IF NOT EXISTS parent_blocks ON staging_blocks(parent_anchored_block_hash);",
@@ -1724,15 +1737,15 @@ impl StacksChainState {
     }
 
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
-    pub fn chainstate_block_begin<'a>(
-        chainstate_tx: &'a ChainstateTx<'a>,
+    pub fn chainstate_block_begin<'a, 'b>(
+        chainstate_tx: &'b ChainstateTx<'b>,
         clarity_instance: &'a mut ClarityInstance,
-        burn_dbconn: &'a dyn BurnStateDB,
+        burn_dbconn: &'b dyn BurnStateDB,
         parent_consensus_hash: &ConsensusHash,
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-    ) -> ClarityTx<'a> {
+    ) -> ClarityTx<'a, 'b> {
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(
             conf,
@@ -1755,7 +1768,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-    ) -> ClarityTx<'a> {
+    ) -> ClarityTx<'a, 'a> {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
             conf,
@@ -1779,7 +1792,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-    ) -> ClarityTx<'a> {
+    ) -> ClarityTx<'a, 'a> {
         let conf = self.config();
         let db = &self.state_index;
         let clarity_instance = &mut self.clarity_state;
@@ -1946,13 +1959,13 @@ impl StacksChainState {
     }
 
     /// Begin an unconfirmed VM transaction, if there's no other open transaction for it.
-    pub fn chainstate_begin_unconfirmed<'a>(
+    pub fn chainstate_begin_unconfirmed<'a, 'b>(
         conf: DBConfig,
-        headers_db: &'a dyn HeadersDB,
+        headers_db: &'b dyn HeadersDB,
         clarity_instance: &'a mut ClarityInstance,
-        burn_dbconn: &'a dyn BurnStateDB,
+        burn_dbconn: &'b dyn BurnStateDB,
         tip: &StacksBlockId,
-    ) -> ClarityTx<'a> {
+    ) -> ClarityTx<'a, 'b> {
         let inner_clarity_tx = clarity_instance.begin_unconfirmed(tip, headers_db, burn_dbconn);
         ClarityTx {
             block: inner_clarity_tx,
@@ -1964,7 +1977,7 @@ impl StacksChainState {
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
         burn_dbconn: &'a dyn BurnStateDB,
-    ) -> Option<ClarityTx<'a>> {
+    ) -> Option<ClarityTx<'a, 'a>> {
         let conf = self.config();
         if let Some(ref mut unconfirmed) = self.unconfirmed_state {
             if !unconfirmed.is_writable() {
@@ -1986,16 +1999,16 @@ impl StacksChainState {
     }
 
     /// Create a Clarity VM database transaction
-    fn inner_clarity_tx_begin<'a>(
+    fn inner_clarity_tx_begin<'a, 'b>(
         conf: DBConfig,
-        headers_db: &'a dyn HeadersDB,
+        headers_db: &'b dyn HeadersDB,
         clarity_instance: &'a mut ClarityInstance,
-        burn_dbconn: &'a dyn BurnStateDB,
+        burn_dbconn: &'b dyn BurnStateDB,
         parent_consensus_hash: &ConsensusHash,
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
-    ) -> ClarityTx<'a> {
+    ) -> ClarityTx<'a, 'b> {
         // mix consensus hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the pair is)
         let parent_index_block =
@@ -2175,12 +2188,12 @@ impl StacksChainState {
 pub mod test {
     use std::{env, fs};
 
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::*;
+    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::*;
+    use clarity::vm::test_util::TEST_BURN_STATE_DB;
     use stx_genesis::GenesisData;
-    use vm::test_util::TEST_BURN_STATE_DB;
 
-    use util_lib::boot::boot_code_test_addr;
+    use crate::util_lib::boot::boot_code_test_addr;
 
     use super::*;
 
