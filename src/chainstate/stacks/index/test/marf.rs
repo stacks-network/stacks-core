@@ -27,6 +27,11 @@ use crate::chainstate::stacks::index::proofs::*;
 use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::test::*;
 use crate::chainstate::stacks::index::trie::*;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::MARFValue;
+use crate::chainstate::stacks::index::TrieHashExtension;
+use crate::chainstate::stacks::index::TrieLeaf;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::to_hex;
 

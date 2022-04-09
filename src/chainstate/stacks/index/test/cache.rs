@@ -28,7 +28,7 @@ use rand::thread_rng;
 use rand::Rng;
 
 use sha2::Digest;
-use util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use std::time::SystemTime;
 
