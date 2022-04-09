@@ -463,6 +463,9 @@ impl BlockDownloader {
                         } else {
                             self.dead_peers.push(event_id);
 
+                            // try again
+                            self.requested_blocks.remove(&block_key.index_block_hash);
+
                             let is_always_allowed = match PeerDB::get_peer(
                                 &network.peerdb.conn(),
                                 block_key.neighbor.network_id,
@@ -586,6 +589,10 @@ impl BlockDownloader {
                             pending_microblock_requests.insert(block_key, event_id);
                         } else {
                             self.dead_peers.push(event_id);
+
+                            // try again
+                            self.requested_microblocks
+                                .remove(&block_key.index_block_hash);
 
                             let is_always_allowed = match PeerDB::get_peer(
                                 &network.peerdb.conn(),

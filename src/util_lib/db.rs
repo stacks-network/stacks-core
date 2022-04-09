@@ -611,14 +611,15 @@ impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
 }
 
 pub fn tx_busy_handler(run_count: i32) -> bool {
-    let mut sleep_count = 10;
+    let mut sleep_count = 2;
     if run_count > 0 {
         sleep_count = 2u64.saturating_pow(run_count as u32);
     }
     sleep_count = sleep_count.saturating_add(thread_rng().gen::<u64>() % sleep_count);
 
-    if sleep_count > 5000 {
-        sleep_count = 5000;
+    if sleep_count > 100 {
+        let jitter = thread_rng().gen::<u64>() % 20;
+        sleep_count = 100 - jitter;
     }
 
     debug!(
