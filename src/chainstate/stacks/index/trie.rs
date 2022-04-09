@@ -87,33 +87,34 @@ impl Trie {
     /// Read the root node.  First try to read it as a back-pointer (since all root nodes except for
     /// the root node in the very first trie will be back-pointers), and if that fails due to a
     /// node ID mismatch (i.e. CorruptionError), then try to read it as a non-backpointer.
-    #[inline]
     fn read_root_maybe_hash<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
         read_hash: bool,
-    ) -> Result<(TrieNodeType, TrieHash), Error> {
+    ) -> Result<(TrieNodeType, Option<TrieHash>), Error> {
         let ptr = TriePtr::new(
             set_backptr(TrieNodeID::Node256 as u8),
             0,
             storage.root_ptr(),
         );
         let res = if read_hash {
-            storage.read_nodetype(&ptr)
-        } else {
             storage
-                .read_nodetype_nohash(&ptr)
-                .map(|node| (node, TrieHash([0u8; TRIEHASH_ENCODED_SIZE])))
+                .read_nodetype(&ptr)
+                .map(|(node, hash)| (node, Some(hash)))
+        } else {
+            storage.read_nodetype_nohash(&ptr).map(|node| (node, None))
         };
 
         match res {
             Err(Error::CorruptionError(_)) => {
                 let non_backptr_ptr = storage.root_trieptr();
                 if read_hash {
-                    storage.read_nodetype(&non_backptr_ptr)
+                    storage
+                        .read_nodetype(&non_backptr_ptr)
+                        .map(|(node, hash)| (node, Some(hash)))
                 } else {
                     storage
                         .read_nodetype_nohash(&non_backptr_ptr)
-                        .map(|node| (node, TrieHash([0u8; TRIEHASH_ENCODED_SIZE])))
+                        .map(|node| (node, None))
                 }
             }
             Err(e) => Err(e),
@@ -121,14 +122,17 @@ impl Trie {
         }
     }
 
-    #[inline]
     pub fn read_root<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
-        Trie::read_root_maybe_hash(storage, true)
+        Trie::read_root_maybe_hash(storage, true).map(|(node, hash_opt)| {
+            (
+                node,
+                hash_opt.expect("FATAL: expected some node hash but got none"),
+            )
+        })
     }
 
-    #[inline]
     pub fn read_root_nohash<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
     ) -> Result<TrieNodeType, Error> {
@@ -140,7 +144,6 @@ impl Trie {
     /// Returns None if we either didn't find the node, or we're out of path, or we're at a leaf.
     /// NOTE: This only works if we're walking a Trie, not a MARF.  Returns Ok(None) if a
     /// back-pointer is found.
-    #[inline]
     fn walk_from_maybe_hash<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
         node: &TrieNodeType,
@@ -173,7 +176,6 @@ impl Trie {
         }
     }
 
-    #[inline]
     pub fn walk_from<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
         node: &TrieNodeType,
@@ -182,7 +184,6 @@ impl Trie {
         Trie::walk_from_maybe_hash(storage, node, cursor, true)
     }
 
-    #[inline]
     pub fn walk_from_nohash<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
         node: &TrieNodeType,
@@ -202,7 +203,6 @@ impl Trie {
     ///
     /// Either way, return the node, its hash, and the ptr to the node in the block in which it was
     /// found (it will _not_ be a back-pointer).
-    #[inline]
     pub fn walk_backptr<T: MarfTrieId>(
         storage: &mut TrieStorageConnection<T>,
         ptr: &TriePtr,

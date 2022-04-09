@@ -616,7 +616,6 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     // helper method for walking a node's backpr
-    #[inline]
     fn walk_backptr(
         storage: &mut TrieStorageConnection<T>,
         start_node: &TrieNodeType,

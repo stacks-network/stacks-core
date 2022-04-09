@@ -59,7 +59,7 @@ use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
-/// Fully-qualified address of a Trie node.  Includes both the block ID and the pointer within the
+/// Fully-qualified address of a Trie node.  Includes both the block's blob rowid and the pointer within the
 /// block's blob as to where it is stored.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct TrieNodeAddr(u32, TriePtr);
@@ -100,20 +100,16 @@ impl<T: MarfTrieId> TrieCacheState<T> {
             self.load_node(block_id, trieptr),
             self.load_node_hash(block_id, trieptr),
         ) {
-            (Some(ref node), Some(ref hash)) => Some(((*node).clone(), (*hash).clone())),
+            (Some(node), Some(hash)) => Some((node, hash)),
             _ => None,
         }
     }
 
     /// Obtain a possibly-cached node
     pub fn load_node(&self, block_id: u32, trieptr: &TriePtr) -> Option<TrieNodeType> {
-        match self
-            .node_cache
+        self.node_cache
             .get(&TrieNodeAddr(block_id, trieptr.clone()))
-        {
-            Some(ref node) => Some((*node).clone()),
-            None => None,
-        }
+            .cloned()
     }
 
     /// Obtain a possibly-cached node hash
@@ -138,7 +134,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     /// Cache just a node
     pub fn store_node(&mut self, block_id: u32, trieptr: TriePtr, node: TrieNodeType) {
         self.node_cache
-            .insert(TrieNodeAddr(block_id, trieptr.clone()), node);
+            .insert(TrieNodeAddr(block_id, trieptr), node);
     }
 
     /// Cache just a node hash

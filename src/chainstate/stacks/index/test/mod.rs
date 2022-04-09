@@ -229,7 +229,6 @@ pub fn make_node_path(
     for i in 0..path_segments.len() - 1 {
         let path_segment = &path_segments[i + 1].0;
         let chr = path_segments[i].1;
-        // let node_ptr = ftell(s).unwrap();
         let node_ptr = s.last_ptr().unwrap();
 
         let node = match TrieNodeID::from_u8(node_id).unwrap() {
@@ -284,7 +283,6 @@ pub fn make_node_path(
     // add a leaf at the end
     let child = TrieLeaf::new(&path_segments[path_segments.len() - 1].0, &leaf_data);
     let child_chr = path_segments[path_segments.len() - 1].1;
-    // let child_ptr = ftell(s).unwrap();
     let child_ptr = s.last_ptr().unwrap();
     s.write_node(
         child_ptr,

@@ -238,7 +238,9 @@ pub fn write_trie_blob<T: MarfTrieId>(
 /// Write the offset/length of a trie blob that was stored to an external file.
 /// Do this only once the trie is actually stored, since only the presence of this information is
 /// what guarantees that the blob is persisted.
-pub fn write_external_trie_blob<T: MarfTrieId>(
+/// If block_id is Some(..), then an existing block ID's metadata will be updated.  Otherwise, a
+/// new row will be created.
+fn inner_write_external_trie_blob<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,
     offset: u64,
@@ -290,6 +292,30 @@ pub fn write_external_trie_blob<T: MarfTrieId>(
     };
 
     Ok(block_id)
+}
+
+/// Update the row for an external trie blob -- i.e. we're migrating blobs from sqlite storage to
+/// file storage.
+pub fn update_external_trie_blob<T: MarfTrieId>(
+    conn: &Connection,
+    block_hash: &T,
+    offset: u64,
+    length: u64,
+    block_id: u32,
+) -> Result<u32, Error> {
+    inner_write_external_trie_blob(conn, block_hash, offset, length, Some(block_id))
+}
+
+/// Add a new row for an external trie blob -- i.e. we're creating a new trie whose blob will be
+/// stored in an external file, but its metadata will be in the DB.
+/// Returns the new row ID
+pub fn write_external_trie_blob<T: MarfTrieId>(
+    conn: &Connection,
+    block_hash: &T,
+    offset: u64,
+    length: u64,
+) -> Result<u32, Error> {
+    inner_write_external_trie_blob(conn, block_hash, offset, length, None)
 }
 
 /// Write a serialized trie blob for a trie that was mined

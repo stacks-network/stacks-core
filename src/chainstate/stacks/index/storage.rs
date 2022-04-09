@@ -72,18 +72,6 @@ use chainstate::stacks::index::TrieHashExtension;
 use chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
-pub fn ftell<F: Seek>(f: &mut F) -> Result<u64, Error> {
-    f.seek(SeekFrom::Current(0)).map_err(Error::IOError)
-}
-
-pub fn fseek<F: Seek>(f: &mut F, off: u64) -> Result<u64, Error> {
-    f.seek(SeekFrom::Start(off)).map_err(Error::IOError)
-}
-
-pub fn fseek_end<F: Seek>(f: &mut F) -> Result<u64, Error> {
-    f.seek(SeekFrom::End(0)).map_err(Error::IOError)
-}
-
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
 /// a trie.
 pub trait NodeHashReader {
@@ -98,7 +86,7 @@ impl<T: MarfTrieId> BlockMap for TrieFileStorage<T> {
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
-        if self.cache.load_block_hash(id).is_none() {
+        if !self.is_block_hash_cached(id) {
             let block_hash = self.get_block_hash(id)?;
             self.cache.store_block_hash(id, block_hash.clone());
         }
@@ -137,7 +125,7 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
-        if self.cache.load_block_hash(id).is_none() {
+        if !self.is_block_hash_cached(id) {
             let block_hash = self.get_block_hash(id)?;
             self.cache.store_block_hash(id, block_hash.clone());
         }
@@ -200,7 +188,7 @@ impl<T: MarfTrieId> BlockMap for TrieSqlHashMapCursor<'_, T> {
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
-        if self.cache.load_block_hash(id).is_none() {
+        if !self.is_block_hash_cached(id) {
             let block_hash = self.get_block_hash(id)?;
             self.cache.store_block_hash(id, block_hash.clone());
         }
@@ -608,12 +596,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
         assert_eq!(node_data_order.len(), offsets.len());
 
         // write parent block ptr
-        fseek(f, 0)?;
+        f.seek(SeekFrom::Start(0))?;
         f.write_all(parent_hash.as_bytes())
             .map_err(|e| Error::IOError(e))?;
         // write zero-identifier (TODO: this is a convenience hack for now, we should remove the
         //    identifier from the trie data blob)
-        fseek(f, BLOCK_HEADER_HASH_ENCODED_SIZE as u64)?;
+        f.seek(SeekFrom::Start(BLOCK_HEADER_HASH_ENCODED_SIZE as u64))?;
         f.write_all(&0u32.to_le_bytes())
             .map_err(|e| Error::IOError(e))?;
 
@@ -626,7 +614,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             )?;
 
             // next node
-            fseek(f, offsets[ix] as u64)?;
+            f.seek(SeekFrom::Start(offsets[ix] as u64))?;
         }
 
         Ok(())
@@ -918,7 +906,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let mut frontier = VecDeque::new();
 
         // read parent
-        fseek(f, 0)?;
+        f.seek(SeekFrom::Start(0))?;
         let parent_hash_bytes = read_hash_bytes(f)?;
         let parent_hash = T::from_bytes(parent_hash_bytes);
 
@@ -1245,6 +1233,12 @@ pub struct TrieStorageConnection<'a, T: MarfTrieId> {
     cache: &'a mut TrieCache<T>,
     bench: &'a mut TrieBenchmark,
     pub hash_calculation_mode: TrieHashCalculationMode,
+
+    /// row ID of a trie that represents unconfirmed state (i.e. trie state that will never become
+    /// part of the MARF, but nevertheless represents a persistent scratch space).  If this field
+    /// is Some(..), then the storage connection here was used to (re-)open an unconfirmed trie
+    /// (via `open_unconfirmed()` or `open_block()` when `self.unconfirmed()` is `true`), or used
+    /// to create an unconfirmed trie (via `extend_to_unconfirmed_block()`).
     unconfirmed_block_id: Option<u32>,
 
     // used in testing in order to short-circuit block-height lookups
@@ -1524,6 +1518,10 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         self.data.readonly
     }
 
+    /// Return true if this storage connection was opened with the intention of operating on an
+    /// unconfirmed trie -- i.e. this is a storage connection for reading and writing a persisted
+    /// scratch space trie, such as one for storing unconfirmed microblock transactions in the
+    /// chain state.
     pub fn unconfirmed(&self) -> bool {
         self.data.unconfirmed
     }
@@ -1657,6 +1655,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         res
     }
 
+    /*
     /// Store a serialized trie, given the flush options and its block hash.
     /// Depending on how the trie storage is configured, the trie will either get dumped into a
     /// blob in the underlying sqlite database, or it will be appended to a flat file that lives
@@ -1675,6 +1674,14 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     test_debug!("Store unconfirmed trie blob {} to db", &bhh);
                     trie_sql::write_trie_blob(&self.db, bhh, buffer)
                 } else {
+                    match self.blobs.as_mut() {
+                        Some(blobs) => blobs.store_trie_blob(&self.db, bhh, buffer, None),
+                        None => {
+                            test_debug!("Stored trie blob {} to db", &bhh);
+                            trie_sql::write_trie_blob(&self.db, bhh, buffer)
+                        }
+                    }
+                    /*
                     self.with_trie_blobs(|db, blobs| match blobs {
                         Some(blobs) => blobs.store_trie_blob(db, bhh, buffer, None),
                         None => {
@@ -1682,6 +1689,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                             trie_sql::write_trie_blob(db, bhh, buffer)
                         }
                     })
+                    */
                 }
             }
             FlushOptions::NewHeader(real_bhh) => {
@@ -1690,6 +1698,14 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     test_debug!("Store unconfirmed trie blob {} to db", &real_bhh);
                     trie_sql::write_trie_blob(&self.db, real_bhh, buffer)
                 } else {
+                    match self.blobs.as_mut() {
+                        Some(blobs) => blobs.store_trie_blob(&self.db, real_bhh, buffer, None),
+                        None => {
+                            test_debug!("Stored trie blob {} to db", &real_bhh);
+                            trie_sql::write_trie_blob(&self.db, real_bhh, buffer)
+                        }
+                    }
+                    /*
                     self.with_trie_blobs(|db, blobs| match blobs {
                         Some(blobs) => blobs.store_trie_blob(db, real_bhh, buffer, None),
                         None => {
@@ -1697,6 +1713,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                             trie_sql::write_trie_blob(db, real_bhh, buffer)
                         }
                     })
+                    */
                 }
             }
             FlushOptions::MinedTable(real_bhh) => {
@@ -1707,6 +1724,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             }
         }
     }
+    */
 
     /// Inner method for flushing the UncommittedState's TrieRAM to disk.
     fn inner_flush(&mut self, flush_options: FlushOptions<'_, T>) -> Result<(), Error> {
@@ -1732,10 +1750,16 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
             let block_id = match flush_options {
                 FlushOptions::CurrentHeader => {
-                    if self.data.unconfirmed {
+                    if self.unconfirmed() {
                         return Err(Error::UnconfirmedError);
                     }
-                    self.inner_store_trie_blob(FlushOptions::CurrentHeader, &bhh, &buffer)?
+                    self.with_trie_blobs(|db, blobs| match blobs {
+                        Some(blobs) => blobs.store_trie_blob(&db, &bhh, &buffer),
+                        None => {
+                            test_debug!("Stored trie blob {} to db", &bhh);
+                            trie_sql::write_trie_blob(&db, &bhh, &buffer)
+                        }
+                    })?
                 }
                 FlushOptions::NewHeader(real_bhh) => {
                     // If we opened a block with a given hash, but want to store it as a block with a *different*
@@ -1754,19 +1778,25 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                         // switch over state
                         self.data.retarget_block(real_bhh.clone());
                     }
-                    self.inner_store_trie_blob(FlushOptions::NewHeader(real_bhh), &bhh, &buffer)?
+                    self.with_trie_blobs(|db, blobs| match blobs {
+                        Some(blobs) => blobs.store_trie_blob(db, real_bhh, &buffer),
+                        None => {
+                            test_debug!("Stored trie blob {} to db", real_bhh);
+                            trie_sql::write_trie_blob(db, real_bhh, &buffer)
+                        }
+                    })?
                 }
                 FlushOptions::MinedTable(real_bhh) => {
-                    if self.data.unconfirmed {
+                    if self.unconfirmed() {
                         return Err(Error::UnconfirmedError);
                     }
-                    self.inner_store_trie_blob(FlushOptions::MinedTable(real_bhh), &bhh, &buffer)?
+                    trie_sql::write_trie_blob_to_mined(&self.db, real_bhh, &buffer)?
                 }
                 FlushOptions::UnconfirmedTable => {
-                    if !self.data.unconfirmed {
+                    if !self.unconfirmed() {
                         return Err(Error::UnconfirmedError);
                     }
-                    self.inner_store_trie_blob(FlushOptions::UnconfirmedTable, &bhh, &buffer)?
+                    trie_sql::write_trie_blob_to_unconfirmed(&self.db, &bhh, &buffer)?
                 }
             };
 

@@ -55,19 +55,13 @@ fn test_load_store_trie_blob() {
     trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
 
     blobs
-        .store_trie_blob::<BlockHeaderHash>(
-            &db,
-            &BlockHeaderHash([0x01; 32]),
-            &[1, 2, 3, 4, 5],
-            None,
-        )
+        .store_trie_blob::<BlockHeaderHash>(&db, &BlockHeaderHash([0x01; 32]), &[1, 2, 3, 4, 5])
         .unwrap();
     blobs
         .store_trie_blob::<BlockHeaderHash>(
             &db,
             &BlockHeaderHash([0x02; 32]),
             &[10, 20, 30, 40, 50],
-            None,
         )
         .unwrap();
 

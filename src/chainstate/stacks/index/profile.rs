@@ -16,7 +16,8 @@
 
 use std::time::SystemTime;
 
-/// Fine-grained profiling data for Trie storage ops
+/// Fine-grained profiling data for Trie storage ops.
+/// The implementation is only active when compiled for tests; nothing happens in production.
 #[derive(Debug, Clone)]
 pub struct TrieBenchmark {
     /// Total number of nanoseconds spent reading a node from storage
@@ -91,6 +92,7 @@ pub struct TrieBenchmark {
     time_errors: u64,
 }
 
+#[cfg(test)]
 impl TrieBenchmark {
     pub fn new() -> TrieBenchmark {
         TrieBenchmark {
@@ -406,4 +408,104 @@ impl TrieBenchmark {
             self.time_errors += 1;
         }
     }
+}
+
+#[cfg(not(test))]
+impl TrieBenchmark {
+    pub fn new() -> TrieBenchmark {
+        TrieBenchmark {
+            total_read_nodetype_time_ns: 0,
+            total_read_node_hash_time_ns: 0,
+            total_write_children_hashes_time_ns: 0,
+            total_open_block_time_ns: 0,
+            total_get_block_hash_caching_time_ns: 0,
+
+            total_read_nodetype: 0,
+            total_read_node_hash: 0,
+            total_write_children_hashes: 0,
+            total_open_block: 0,
+            total_open_block_ram: 0,
+            cache_hits_read_nodetype: 0,
+            cache_hits_read_node_hash: 0,
+            write_children_hashes_ram: 0,
+
+            total_write_children_hashes_empty: 0,
+            total_write_children_hashes_same_block: 0,
+            total_write_children_hashes_ancestor_block: 0,
+
+            total_write_children_hashes_empty_time_ns: 0,
+            total_write_children_hashes_same_block_time_ns: 0,
+            total_write_children_hashes_ancestor_block_time_ns: 0,
+
+            total_marf_walk_from_time_ns: 0,
+            total_marf_walk_backptr_time_ns: 0,
+            total_marf_walk_find_backptr_node_time_ns: 0,
+
+            read_nodetype_start_time: SystemTime::now(),
+            read_node_hash_start_time: SystemTime::now(),
+            open_block_start_time: SystemTime::now(),
+            get_block_hash_caching_start_time: SystemTime::now(),
+            marf_walk_from_start_time: SystemTime::now(),
+            marf_walk_backptr_start_time: SystemTime::now(),
+            marf_walk_find_backptr_node_start_time: SystemTime::now(),
+
+            time_errors: 0,
+        }
+    }
+
+    pub fn reset(&mut self) {}
+
+    pub fn add(&mut self, _other: &TrieBenchmark) {}
+
+    pub fn read_nodetype_start(&mut self) {}
+
+    pub fn read_nodetype_finish(&mut self, _cache_hit: bool) {}
+
+    pub fn read_node_hash_start(&mut self) {}
+
+    pub fn read_node_hash_finish(&mut self, _cache_hit: bool) {}
+
+    pub fn write_children_hashes_start(&mut self) -> SystemTime {
+        SystemTime::now()
+    }
+
+    pub fn write_children_hashes_finish(&mut self, _start_time: SystemTime, _in_ram: bool) {}
+
+    pub fn write_children_hashes_empty_start(&mut self) -> SystemTime {
+        SystemTime::now()
+    }
+
+    pub fn write_children_hashes_empty_finish(&mut self, _start_time: SystemTime) {}
+
+    pub fn write_children_hashes_same_block_start(&mut self) -> SystemTime {
+        SystemTime::now()
+    }
+
+    pub fn write_children_hashes_same_block_finish(&mut self, _start_time: SystemTime) {}
+
+    pub fn write_children_hashes_ancestor_block_start(&mut self) -> SystemTime {
+        SystemTime::now()
+    }
+
+    pub fn write_children_hashes_ancestor_block_finish(&mut self, _start_time: SystemTime) {}
+
+    pub fn open_block_start(&mut self) {}
+
+    pub fn open_block_finish(&mut self, _in_ram: bool) {}
+
+    pub fn get_block_hash_caching_start(&mut self) {}
+
+    pub fn get_block_hash_caching_finish(&mut self) {}
+
+    pub fn marf_walk_from_start(&mut self) {}
+
+    pub fn marf_walk_from_finish(&mut self) {}
+
+    pub fn marf_walk_backptr_start(&mut self) {}
+
+    pub fn marf_walk_backptr_finish(&mut self) {}
+
+    pub fn marf_find_backptr_node_start(&mut self) {}
+
+    pub fn marf_find_backptr_node_finish(&mut self) {}
 }

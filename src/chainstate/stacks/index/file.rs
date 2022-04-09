@@ -40,7 +40,8 @@ use rusqlite::{
 
 use chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
-    read_nodetype, read_nodetype_at_head, read_root_hash, write_nodetype_bytes,
+    read_nodetype, read_nodetype_at_head, read_nodetype_at_head_nohash, read_root_hash,
+    write_nodetype_bytes,
 };
 use chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
@@ -80,6 +81,12 @@ pub struct TrieFileRAM {
     trie_offsets: TrieIdOffsets,
 }
 
+/// This is flat-file storage for a MARF's tries.  All tries are stored as contiguous byte arrays
+/// within a larger byte array.  The variants differ in how those bytes are backed.  The `RAM`
+/// variant stores data in RAM in a byte buffer, and the `Disk` variant stores data in a flat file
+/// on disk.  This structure is used to support external trie blobs, so that the tries don't need
+/// to be stored in sqlite blobs (which incurs a sqlite paging overhead).  This is useful for when
+/// the tries are too big to fit into a single page, such as the Stacks chainstate.
 pub enum TrieFile {
     RAM(TrieFileRAM),
     Disk(TrieFileDisk),
@@ -149,18 +156,17 @@ impl TrieFile {
         }
     }
 
-    /// Write a trie blob to external storage, and add the offset and length to the trie DB.
+    /// Append a new trie blob to external storage, and add the offset and length to the trie DB.
     /// Return the trie ID
     pub fn store_trie_blob<T: MarfTrieId>(
         &mut self,
         db: &Connection,
         bhh: &T,
         buffer: &[u8],
-        block_id: Option<u32>,
     ) -> Result<u32, Error> {
         let offset = self.append_trie_blob(db, buffer)?;
         test_debug!("Stored trie blob {} to offset {}", bhh, offset);
-        trie_sql::write_external_trie_blob(db, bhh, offset, buffer.len() as u64, block_id)
+        trie_sql::write_external_trie_blob(db, bhh, offset, buffer.len() as u64)
     }
 
     /// Read a trie blob in its entirety from the DB
@@ -211,10 +217,12 @@ impl TrieFile {
                     let bhh: T = trie_sql::get_block_hash(db, block_id)?;
 
                     // append the blob, replacing the current trie blob
-                    info!(
-                        "Migrate block {} ({} of {}) to external blob storage",
-                        &bhh, block_id, max_block
-                    );
+                    if block_id % 1000 == 0 {
+                        info!(
+                            "Migrate block {} ({} of {}) to external blob storage",
+                            &bhh, block_id, max_block
+                        );
+                    }
 
                     // append directly to file, so we can get the true offset
                     self.seek(SeekFrom::End(0))?;
@@ -223,12 +231,12 @@ impl TrieFile {
                     self.flush()?;
 
                     test_debug!("Stored trie blob {} to offset {}", bhh, offset);
-                    trie_sql::write_external_trie_blob(
+                    trie_sql::update_external_trie_blob(
                         db,
                         &bhh,
                         offset,
                         trie_blob.len() as u64,
-                        Some(block_id),
+                        block_id,
                     )?;
                 }
                 Err(e) => {
@@ -316,7 +324,7 @@ impl TrieFile {
     ) -> Result<(TrieNodeType, TrieHash), Error> {
         let offset = self.get_trie_offset(db, block_id)?;
         self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
-        read_nodetype_at_head(self, ptr.id(), true)
+        read_nodetype_at_head(self, ptr.id())
     }
 
     /// Obtain a TrieNodeType, given its block ID and pointer
@@ -328,7 +336,7 @@ impl TrieFile {
     ) -> Result<TrieNodeType, Error> {
         let offset = self.get_trie_offset(db, block_id)?;
         self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
-        read_nodetype_at_head(self, ptr.id(), false).map(|(node, _)| node)
+        read_nodetype_at_head_nohash(self, ptr.id())
     }
 
     /// Obtain a TrieHash for a node, given the node's block's hash (used only in testing)
