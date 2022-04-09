@@ -23,23 +23,23 @@ use std::marker::PhantomData;
 
 use sha2::Digest;
 
-use chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
-use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::node::{
+use crate::chainstate::stacks::index::bits::{
+    get_leaf_hash, get_node_hash, get_nodetype_hash_bytes,
+};
+use crate::chainstate::stacks::index::marf::MARF;
+use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode, TrieNode16,
     TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
-use chainstate::stacks::index::storage::{
-    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
-};
-use chainstate::stacks::index::Error;
-use chainstate::stacks::index::{MarfTrieId, TrieHasher};
-use util::hash::to_hex;
-use util::log;
-use util::macros::is_trace;
+use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
+use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::{MarfTrieId, TrieHasher};
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::macros::is_trace;
 
-use chainstate::stacks::index::TrieHashExtension;
-use chainstate::stacks::index::TrieLeaf;
+use crate::chainstate::stacks::index::TrieHashExtension;
+use crate::chainstate::stacks::index::TrieLeaf;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;

@@ -24,9 +24,9 @@ use std::ptr;
 use sha2::Digest;
 use sha2::Sha512_256 as TrieHasher;
 
-use util::hash::to_hex;
-use util::log;
-use util_lib::db::Error as db_error;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;

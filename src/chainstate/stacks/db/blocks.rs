@@ -31,61 +31,62 @@ use rusqlite::Connection;
 use rusqlite::DatabaseName;
 use rusqlite::{Error as sqlite_error, OptionalExtension};
 
-use crate::codec::MAX_MESSAGE_LEN;
-use crate::codec::{read_next, write_next};
-use chainstate::burn::db::sortdb::*;
-use chainstate::burn::operations::*;
-use chainstate::burn::BlockSnapshot;
-use chainstate::stacks::db::accounts::MinerReward;
-use chainstate::stacks::db::transactions::TransactionNonceMismatch;
-use chainstate::stacks::db::*;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use chainstate::stacks::{
+use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::db::accounts::MinerReward;
+use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
+use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
-use core::mempool::MemPoolDB;
-use core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
-use core::*;
-use cost_estimates::EstimatorError;
-use net::BlocksInvData;
-use net::Error as net_error;
-use net::ExtendedStacksHeader;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::retry::BoundReader;
-use util_lib::db::u64_to_sql;
-use util_lib::db::Error as db_error;
-use util_lib::db::{
+use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
+use crate::codec::MAX_MESSAGE_LEN;
+use crate::codec::{read_next, write_next};
+use crate::core::mempool::MemPoolDB;
+use crate::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
+use crate::core::*;
+use crate::cost_estimates::EstimatorError;
+use crate::net::BlocksInvData;
+use crate::net::Error as net_error;
+use crate::net::ExtendedStacksHeader;
+use crate::util_lib::db::u64_to_sql;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{
     query_count, query_int, query_row, query_row_columns, query_row_panic, query_rows,
     tx_busy_handler, DBConn, FromColumn, FromRow,
 };
-use util_lib::strings::StacksString;
-pub use vm::analysis::errors::{CheckError, CheckErrors};
-use vm::analysis::run_analysis;
-use vm::ast::build_ast;
-use vm::clarity::TransactionConnection;
-use vm::contexts::AssetMap;
-use vm::contracts::Contract;
-use vm::costs::LimitedCostTracker;
-use vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB};
-use vm::types::{
+use crate::util_lib::strings::StacksString;
+pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
+use clarity::vm::analysis::run_analysis;
+use clarity::vm::ast::build_ast;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::contexts::AssetMap;
+use clarity::vm::contracts::Contract;
+use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB};
+use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::retry::BoundReader;
 
+use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::monitoring::set_last_execution_cost_observed;
+use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
-use chainstate::stacks::address::StacksAddressExtensions;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksMicroblockHeader;
-use monitoring::set_last_execution_cost_observed;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
-use types::chainstate::BurnchainHeaderHash;
-use util_lib::boot::boot_code_id;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -159,8 +160,8 @@ pub enum MemPoolRejection {
     Other(String),
 }
 
-pub struct SetupBlockResult<'a> {
-    pub clarity_tx: ClarityTx<'a>,
+pub struct SetupBlockResult<'a, 'b> {
+    pub clarity_tx: ClarityTx<'a, 'b>,
     pub tx_receipts: Vec<StacksTransactionReceipt>,
     pub microblock_execution_cost: ExecutionCost,
     pub microblock_fees: u128,
@@ -170,6 +171,52 @@ pub struct SetupBlockResult<'a> {
         Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
     pub evaluated_epoch: StacksEpochId,
     pub applied_epoch_transition: bool,
+}
+
+pub struct DummyEventDispatcher;
+
+impl BlockEventDispatcher for DummyEventDispatcher {
+    fn announce_block(
+        &self,
+        _block: &StacksBlock,
+        _metadata: &StacksHeaderInfo,
+        _receipts: &Vec<StacksTransactionReceipt>,
+        _parent: &StacksBlockId,
+        _winner_txid: Txid,
+        _rewards: &Vec<MinerReward>,
+        _rewards_info: Option<&MinerRewardInfo>,
+        _parent_burn_block_hash: BurnchainHeaderHash,
+        _parent_burn_block_height: u32,
+        _parent_burn_block_timestamp: u64,
+        _anchor_block_cost: &ExecutionCost,
+        _confirmed_mblock_cost: &ExecutionCost,
+    ) {
+        assert!(
+            false,
+            "We should never try to announce to the dummy dispatcher"
+        );
+    }
+
+    fn announce_burn_block(
+        &self,
+        _burn_block: &BurnchainHeaderHash,
+        _burn_block_height: u64,
+        _rewards: Vec<(StacksAddress, u64)>,
+        _burns: u64,
+        _slot_holders: Vec<StacksAddress>,
+    ) {
+        assert!(
+            false,
+            "We should never try to announce to the dummy dispatcher"
+        );
+    }
+
+    fn dispatch_boot_receipts(&mut self, _receipts: Vec<StacksTransactionReceipt>) {
+        assert!(
+            false,
+            "We should never try to dispatch boot receipts to the dummy dispatcher"
+        );
+    }
 }
 
 impl MemPoolRejection {
@@ -1667,6 +1714,7 @@ impl StacksChainState {
             .map_err(|e| Error::from(db_error::from(e)))
     }
 
+    /// only used in integration tests with stacks-node
     pub fn get_parent_consensus_hash(
         sort_ic: &SortitionDBConn,
         parent_block_hash: &BlockHeaderHash,
@@ -1691,6 +1739,7 @@ impl StacksChainState {
 
     /// Get an anchored block's parent block header.
     /// Doesn't matter if it's staging or not.
+    #[cfg(test)]
     pub fn load_parent_block_header(
         sort_ic: &SortitionDBConn,
         blocks_path: &str,
@@ -4649,8 +4698,8 @@ impl StacksChainState {
 
     /// Process a single matured miner reward.
     /// Grant it STX tokens.
-    fn process_matured_miner_reward<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    fn process_matured_miner_reward(
+        clarity_tx: &mut ClarityTx,
         miner_reward: &MinerReward,
     ) -> Result<(), Error> {
         let miner_reward_total = miner_reward.total();
@@ -4680,8 +4729,8 @@ impl StacksChainState {
 
     /// Process matured miner rewards for this block.
     /// Returns the number of liquid uSTX created -- i.e. the coinbase
-    pub fn process_matured_miner_rewards<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn process_matured_miner_rewards<'a, 'b>(
+        clarity_tx: &mut ClarityTx<'a, 'b>,
         miner_share: &MinerReward,
         users_share: &Vec<MinerReward>,
         parent_share: &MinerReward,
@@ -4701,8 +4750,8 @@ impl StacksChainState {
 
     /// Process all STX that unlock at this block height.
     /// Return the total number of uSTX unlocked in this block
-    pub fn process_stx_unlocks<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn process_stx_unlocks<'a, 'b>(
+        clarity_tx: &mut ClarityTx<'a, 'b>,
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
         let mainnet = clarity_tx.config.mainnet;
         let lockup_contract_id = boot_code_id("lockup", mainnet);
@@ -4794,10 +4843,10 @@ impl StacksChainState {
     /// microblock fees, microblock burns, list of microblock tx receipts,
     /// miner rewards tuples, the stacks epoch id, and a boolean that
     /// represents whether the epoch transition has been applied.
-    pub fn setup_block<'a>(
-        chainstate_tx: &'a mut ChainstateTx,
+    pub fn setup_block<'a, 'b>(
+        chainstate_tx: &'b mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
-        burn_dbconn: &'a dyn BurnStateDB,
+        burn_dbconn: &'b dyn BurnStateDB,
         conn: &Connection,
         chain_tip: &StacksHeaderInfo,
         burn_tip: BurnchainHeaderHash,
@@ -4807,7 +4856,7 @@ impl StacksChainState {
         parent_microblocks: &Vec<StacksMicroblock>,
         mainnet: bool,
         miner_id_opt: Option<usize>,
-    ) -> Result<SetupBlockResult<'a>, Error> {
+    ) -> Result<SetupBlockResult<'a, 'b>, Error> {
         let parent_index_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
 
@@ -5022,17 +5071,28 @@ impl StacksChainState {
     }
 
     /// Process the next pre-processed staging block.
-    /// We've already processed parent_chain_tip.  chain_tip refers to a block we have _not_
+    /// We've already processed `parent_chain_tip`, whereas `chain_tip` refers to a block we have _not_
     /// processed yet.
-    /// Returns a StacksHeaderInfo with the microblock stream and chain state index root hash filled in, corresponding to the next block to process.
-    /// In addition, returns the list of transaction receipts for both the preceeding microblock
-    /// stream that the block confirms, as well as the transaction receipts for the anchored
-    /// block's transactions.  Finally, it returns the execution costs for the microblock stream
-    /// and for the anchored block (separately).
-    /// Returns None if we're out of blocks to process.
-    fn append_block(
+    ///
+    /// Returns a `StacksEpochReceipt` containing receipts and events from the transactions executed
+    /// in the block, and a `PreCommitClarityBlock` struct.
+    ///
+    /// The `StacksEpochReceipts` contains the list of transaction
+    /// receipts for both the preceeding microblock stream that the
+    /// block confirms, as well as the transaction receipts for the
+    /// anchored block's transactions. Finally, it returns the
+    /// execution costs for the microblock stream and for the anchored
+    /// block (separately).
+    ///
+    /// The `PreCommitClarityBlock` struct represents a finished
+    /// Clarity block that has not been committed to the Clarity
+    /// backing store (MARF and side storage) yet.  This struct is
+    /// necessary so that the Headers database and Clarity database's
+    /// transactions can commit very close to one another, after the
+    /// event observer has emitted.
+    fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
-        clarity_instance: &mut ClarityInstance,
+        clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleTx,
         parent_chain_tip: &StacksHeaderInfo,
         chain_tip_consensus_hash: &ConsensusHash,
@@ -5045,7 +5105,7 @@ impl StacksChainState {
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
         user_burns: &Vec<StagingUserBurnSupport>,
-    ) -> Result<StacksEpochReceipt, Error> {
+    ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
         debug!(
             "Process block {:?} with {} transactions",
             &block.block_hash().to_hex(),
@@ -5166,6 +5226,7 @@ impl StacksChainState {
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
+            clarity_commit,
         ) = {
             // get previous burn block stats
             let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
@@ -5327,7 +5388,8 @@ impl StacksChainState {
                    "block cost" => %block_cost);
 
             // good to go!
-            clarity_tx.commit_to_block(chain_tip_consensus_hash, &block.block_hash());
+            let clarity_commit =
+                clarity_tx.precommit_to_block(chain_tip_consensus_hash, &block.block_hash());
 
             // figure out if there any accumulated rewards by
             //   getting the snapshot that elected this block.
@@ -5372,6 +5434,7 @@ impl StacksChainState {
                 parent_burn_block_hash,
                 parent_burn_block_height,
                 parent_burn_block_timestamp,
+                clarity_commit,
             )
         };
 
@@ -5415,7 +5478,7 @@ impl StacksChainState {
             evaluated_epoch,
         };
 
-        Ok(epoch_receipt)
+        Ok((epoch_receipt, clarity_commit))
     }
 
     /// Verify that a Stacks anchored block attaches to its parent anchored block.
@@ -5556,9 +5619,10 @@ impl StacksChainState {
     /// Return a poison microblock transaction payload if the microblock stream contains a
     /// deliberate miner fork (this is NOT consensus-critical information, but is instead meant for
     /// consumption by future miners).
-    pub fn process_next_staging_block(
+    pub fn process_next_staging_block<'a, T: BlockEventDispatcher>(
         &mut self,
         sort_tx: &mut SortitionHandleTx,
+        dispatcher_opt: Option<&'a T>,
     ) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let blocks_path = self.blocks_path.clone();
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
@@ -5580,7 +5644,7 @@ impl StacksChainState {
                 }
             };
 
-        let (burn_header_hash, burn_header_height, burn_header_timestamp) =
+        let (burn_header_hash, burn_header_height, burn_header_timestamp, winning_block_txid) =
             match SortitionDB::get_block_snapshot_consensus(
                 sort_tx,
                 &next_staging_block.consensus_hash,
@@ -5589,6 +5653,7 @@ impl StacksChainState {
                     sn.burn_header_hash,
                     sn.block_height as u32,
                     sn.burn_header_timestamp,
+                    sn.winning_block_txid,
                 ),
                 None => {
                     // shouldn't happen
@@ -5709,7 +5774,7 @@ impl StacksChainState {
         // attach the block to the chain state and calculate the next chain tip.
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
-        let epoch_receipt = match StacksChainState::append_block(
+        let (epoch_receipt, clarity_commit) = match StacksChainState::append_block(
             &mut chainstate_tx,
             clarity_instance,
             sort_tx,
@@ -5821,6 +5886,27 @@ impl StacksChainState {
             )?;
         }
 
+        if let Some(dispatcher) = dispatcher_opt {
+            let parent_id = StacksBlockId::new(
+                &next_staging_block.parent_consensus_hash,
+                &next_staging_block.parent_anchored_block_hash,
+            );
+            dispatcher.announce_block(
+                &block,
+                &epoch_receipt.header.clone(),
+                &epoch_receipt.tx_receipts,
+                &parent_id,
+                winning_block_txid,
+                &epoch_receipt.matured_rewards,
+                epoch_receipt.matured_rewards_info.as_ref(),
+                epoch_receipt.parent_burn_block_hash,
+                epoch_receipt.parent_burn_block_height,
+                epoch_receipt.parent_burn_block_timestamp,
+                &epoch_receipt.anchored_block_cost,
+                &epoch_receipt.parent_microblocks_cost,
+            );
+        }
+
         StacksChainState::set_block_processed(
             chainstate_tx.deref_mut(),
             Some(sort_tx),
@@ -5830,7 +5916,14 @@ impl StacksChainState {
             true,
         )?;
 
-        chainstate_tx.commit().map_err(Error::DBError)?;
+        // this will panic if the Clarity commit fails.
+        clarity_commit.commit();
+        chainstate_tx.commit()
+            .unwrap_or_else(|e| {
+                error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
+                       "error" => ?e);
+                panic!()
+            });
 
         Ok((Some(epoch_receipt), None))
     }
@@ -5847,17 +5940,19 @@ impl StacksChainState {
         max_blocks: usize,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         let tx = sort_db.tx_begin_at_tip();
-        self.process_blocks(tx, max_blocks)
+        let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
+        self.process_blocks(tx, max_blocks, null_event_dispatcher)
     }
 
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.  For each chain tip produced, return the header info, receipts, parent microblock
     /// stream execution cost, and block execution cost
-    pub fn process_blocks(
+    pub fn process_blocks<'a, T: BlockEventDispatcher>(
         &mut self,
         mut sort_tx: SortitionHandleTx,
         max_blocks: usize,
+        dispatcher_opt: Option<&'a T>,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         debug!("Process up to {} blocks", max_blocks);
 
@@ -5870,7 +5965,7 @@ impl StacksChainState {
 
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
-            match self.process_next_staging_block(&mut sort_tx) {
+            match self.process_next_staging_block(&mut sort_tx, dispatcher_opt) {
                 Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
                     Some(next_tip) => {
                         ret.push((Some(next_tip), next_microblock_poison_opt));
@@ -6291,23 +6386,23 @@ pub mod test {
     use rand::thread_rng;
     use rand::Rng;
 
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::*;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::miner::test::*;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::Error as chainstate_error;
-    use chainstate::stacks::*;
-    use core::mempool::*;
-    use net::test::*;
-    use net::ExtendedStacksHeader;
-    use util::hash::*;
-    use util::retry::*;
-    use util_lib::db::Error as db_error;
-    use util_lib::db::*;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::miner::test::*;
+    use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::Error as chainstate_error;
+    use crate::chainstate::stacks::*;
+    use crate::core::mempool::*;
+    use crate::net::test::*;
+    use crate::net::ExtendedStacksHeader;
+    use crate::util_lib::db::Error as db_error;
+    use crate::util_lib::db::*;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::retry::*;
 
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;

@@ -25,24 +25,24 @@ use std::path::PathBuf;
 use rusqlite::{Connection, Transaction};
 use sha2::Digest;
 
-use chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash, read_root_hash};
-use chainstate::stacks::index::node::{
+use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash, read_root_hash};
+use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode, TrieNode16,
     TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr, TRIEPTR_SIZE,
 };
-use chainstate::stacks::index::storage::{
+use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
 };
-use chainstate::stacks::index::trie::Trie;
-use chainstate::stacks::index::Error;
-use chainstate::stacks::index::MARFValue;
-use chainstate::stacks::index::MarfTrieId;
-use util::hash::Sha512Trunc256Sum;
-use util::log;
-use util_lib::db::Error as db_error;
+use crate::chainstate::stacks::index::trie::Trie;
+use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::MARFValue;
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::log;
 
-use chainstate::stacks::index::TrieHashExtension;
-use chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf, TrieMerkleProof};
+use crate::chainstate::stacks::index::TrieHashExtension;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf, TrieMerkleProof};
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::TRIEHASH_ENCODED_SIZE;

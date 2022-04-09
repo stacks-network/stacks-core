@@ -19,29 +19,29 @@ use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::{fmt, io};
 
-use address::b58;
-use address::c32::c32_address;
-use address::c32::c32_address_decode;
-use address::public_keys_to_address_hash;
-use address::AddressHashMode;
-use burnchains::bitcoin::address::{
+use crate::burnchains::bitcoin::address::{
     address_type_to_version_byte, to_b58_version_byte, to_c32_version_byte,
     version_byte_to_address_type, BitcoinAddress, BitcoinAddressType,
 };
-use burnchains::{Address, BurnchainSigner, PublicKey};
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::{
+use crate::burnchains::{Address, BurnchainSigner, PublicKey};
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use crate::net::Error as net_error;
+use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use clarity::vm::types::{TupleData, Value};
-use net::Error as net_error;
+use stacks_common::address::b58;
+use stacks_common::address::c32::c32_address;
+use stacks_common::address::c32::c32_address_decode;
+use stacks_common::address::public_keys_to_address_hash;
+use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as BtcOp;
 use stacks_common::deps_common::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
-use util::hash::Hash160;
-use util::hash::HASH160_ENCODED_SIZE;
-use vm::types::{PrincipalData, StandardPrincipalData};
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::HASH160_ENCODED_SIZE;
 
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::StacksAddress;
@@ -114,12 +114,12 @@ impl StacksAddressExtensions for StacksAddress {
 
 #[cfg(test)]
 mod test {
-    use chainstate::stacks::*;
-    use net::codec::test::check_codec_and_corruption;
-    use net::codec::*;
-    use net::*;
-    use util::hash::*;
-    use util::secp256k1::Secp256k1PublicKey as PubKey;
+    use crate::chainstate::stacks::*;
+    use crate::net::codec::test::check_codec_and_corruption;
+    use crate::net::codec::*;
+    use crate::net::*;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::secp256k1::Secp256k1PublicKey as PubKey;
 
     use super::*;
 

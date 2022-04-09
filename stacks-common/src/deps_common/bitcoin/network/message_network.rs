@@ -18,9 +18,9 @@
 //! capabilities
 //!
 
-use deps_common::bitcoin::network::address::Address;
-use deps_common::bitcoin::network::constants;
-use util;
+use crate::deps_common::bitcoin::network::address::Address;
+use crate::deps_common::bitcoin::network::constants;
+use crate::util;
 
 /// Some simple messages
 
@@ -66,9 +66,9 @@ impl_consensus_encoding!(
 mod tests {
     use super::VersionMessage;
 
-    use util::hash::hex_bytes as hex_decode;
+    use crate::util::hash::hex_bytes as hex_decode;
 
-    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]
     fn version_message_test() {

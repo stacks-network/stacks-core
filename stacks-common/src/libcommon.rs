@@ -43,11 +43,11 @@ pub mod address;
 
 pub mod deps_common;
 
-use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
 
 pub mod consts {
-    use types::chainstate::BlockHeaderHash;
-    use types::chainstate::ConsensusHash;
+    use crate::types::chainstate::BlockHeaderHash;
+    use crate::types::chainstate::ConsensusHash;
 
     pub const TOKEN_TRANSFER_MEMO_LENGTH: usize = 34; // same as it is in Stacks v1
 

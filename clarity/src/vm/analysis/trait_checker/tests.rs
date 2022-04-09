@@ -14,14 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::errors::CheckErrors;
-use vm::analysis::mem_type_check;
-use vm::analysis::type_check;
-use vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
-use vm::ast::errors::ParseErrors;
-use vm::ast::{build_ast, parse};
-use vm::database::MemoryBackingStore;
-use vm::types::{QualifiedContractIdentifier, TypeSignature};
+use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::mem_type_check;
+use crate::vm::analysis::type_check;
+use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
+use crate::vm::ast::errors::ParseErrors;
+use crate::vm::ast::{build_ast, parse};
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 
 #[test]
 fn test_dynamic_dispatch_by_defining_trait() {

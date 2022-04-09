@@ -14,15 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::{FunctionType, TraitIdentifier, TypeSignature};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use vm::representations::{ClarityName, SymbolicExpression};
-use vm::types::signatures::FunctionSignature;
-use vm::types::{FunctionType, TraitIdentifier, TypeSignature};
 
-use vm::contexts::MAX_CONTEXT_DEPTH;
+use crate::vm::contexts::MAX_CONTEXT_DEPTH;
 
-use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
-use vm::analysis::types::ContractAnalysis;
+use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::types::ContractAnalysis;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TypeMap {

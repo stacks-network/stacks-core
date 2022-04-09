@@ -17,14 +17,14 @@
 use assert_json_diff;
 use serde_json;
 
-use vm::analysis::errors::CheckErrors;
-use vm::analysis::mem_type_check;
-use vm::analysis::type_check;
-use vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
-use vm::ast::parse;
-use vm::database::MemoryBackingStore;
-use vm::types::QualifiedContractIdentifier;
-use vm::{
+use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::mem_type_check;
+use crate::vm::analysis::type_check;
+use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
+use crate::vm::ast::parse;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::{
     analysis::{CheckError, ContractAnalysis},
     costs::LimitedCostTracker,
     SymbolicExpression,
@@ -516,7 +516,7 @@ fn test_same_function_name() {
 
 #[test]
 fn test_expects() {
-    use vm::analysis::type_check;
+    use crate::vm::analysis::type_check;
     let okay = "(define-map tokens { id: int } { balance: int })
          (define-private (my-get-token-balance)
             (let ((balance (unwrap!

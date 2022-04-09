@@ -149,7 +149,7 @@ macro_rules! guarded_string {
         impl TryFrom<String> for $Name {
             type Error = $ErrorType;
             fn try_from(value: String) -> Result<Self, Self::Error> {
-                if value.len() > (::vm::representations::MAX_STRING_LEN as usize) {
+                if value.len() > (crate::vm::representations::MAX_STRING_LEN as usize) {
                     return Err($ErrorVariant($Label, value));
                 }
                 if $Regex.is_match(&value) {
@@ -444,13 +444,13 @@ macro_rules! impl_byte_array_newtype {
         impl $thing {
             /// Instantiates from a hex string
             #[allow(dead_code)]
-            pub fn from_hex(hex_str: &str) -> Result<$thing, ::util::HexError> {
-                use util::hash::hex_bytes;
+            pub fn from_hex(hex_str: &str) -> Result<$thing, crate::util::HexError> {
+                use crate::util::hash::hex_bytes;
                 let _hex_len = $len * 2;
                 match (hex_str.len(), hex_bytes(hex_str)) {
                     (_hex_len, Ok(bytes)) => {
                         if bytes.len() != $len {
-                            return Err(::util::HexError::BadLength(hex_str.len()));
+                            return Err(crate::util::HexError::BadLength(hex_str.len()));
                         }
                         let mut ret = [0; $len];
                         ret.copy_from_slice(&bytes);
@@ -513,7 +513,7 @@ macro_rules! impl_byte_array_newtype {
             /// Convert to a hex string
             #[allow(dead_code)]
             pub fn to_hex(&self) -> String {
-                use util::hash::to_hex;
+                use crate::util::hash::to_hex;
                 to_hex(&self.0)
             }
         }
@@ -590,7 +590,7 @@ macro_rules! trace {
     ($($arg:tt)*) => (
         #[cfg(test)]
         {
-            if ::util::macros::is_trace() {
+            if crate::util::macros::is_trace() {
                 debug!($($arg)*);
             }
         }
@@ -630,7 +630,7 @@ macro_rules! impl_byte_array_rusqlite_only {
                 value: rusqlite::types::ValueRef,
             ) -> rusqlite::types::FromSqlResult<Self> {
                 let hex_str = value.as_str()?;
-                let byte_str = ::util::hash::hex_bytes(hex_str)
+                let byte_str = crate::util::hash::hex_bytes(hex_str)
                     .map_err(|_e| rusqlite::types::FromSqlError::InvalidType)?;
                 let inst = $thing::from_bytes(&byte_str)
                     .ok_or(rusqlite::types::FromSqlError::InvalidType)?;

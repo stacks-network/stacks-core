@@ -24,19 +24,19 @@ use std::marker::PhantomData;
 
 use rusqlite::Error as sqlite_error;
 
-use address::AddressHashMode;
-use chainstate::burn::distribution::BurnSamplePoint;
-use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
-use chainstate::burn::operations::BlockstackOperationType;
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::LeaderKeyRegisterOp;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::StacksPublicKey;
-use core::*;
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use util::hash::Hash160;
-use util::secp256k1::MessageSignature;
-use util_lib::db::Error as db_error;
+use crate::chainstate::burn::distribution::BurnSamplePoint;
+use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
+use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::burn::operations::Error as op_error;
+use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::*;
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::PoxId;
@@ -53,7 +53,7 @@ use self::bitcoin::{
     BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
 };
 
-pub use types::{Address, PrivateKey, PublicKey};
+pub use stacks_common::types::{Address, PrivateKey, PublicKey};
 
 /// This module contains drivers and types for all burn chains we support.
 pub mod bitcoin;
@@ -550,22 +550,22 @@ impl BurnchainView {
 pub mod test {
     use std::collections::HashMap;
 
-    use address::*;
-    use burnchains::db::*;
-    use burnchains::Burnchain;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::BlockstackOperationType;
-    use chainstate::burn::operations::*;
-    use chainstate::burn::*;
-    use chainstate::coordinator::comm::*;
-    use chainstate::coordinator::*;
-    use chainstate::stacks::*;
-    use util::get_epoch_time_secs;
-    use util::hash::*;
-    use util::secp256k1::*;
-    use util::vrf::*;
-    use util_lib::db::*;
+    use crate::burnchains::db::*;
+    use crate::burnchains::Burnchain;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::operations::BlockstackOperationType;
+    use crate::chainstate::burn::operations::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::coordinator::comm::*;
+    use crate::chainstate::coordinator::*;
+    use crate::chainstate::stacks::*;
+    use crate::util_lib::db::*;
+    use stacks_common::address::*;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::secp256k1::*;
+    use stacks_common::util::vrf::*;
 
     use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 

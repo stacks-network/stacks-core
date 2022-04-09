@@ -9,10 +9,10 @@ use rusqlite::{
 };
 use serde_json::Value as JsonValue;
 
-use chainstate::stacks::TransactionPayload;
-use util_lib::db::sqlite_open;
-use util_lib::db::u64_to_sql;
-use vm::costs::ExecutionCost;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::u64_to_sql;
+use clarity::vm::costs::ExecutionCost;
 
 use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::table_exists;

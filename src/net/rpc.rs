@@ -31,73 +31,70 @@ use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
 
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::burnchains::*;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::blocks::CheckError;
+use crate::chainstate::stacks::db::{
+    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState, StreamCursor,
+};
+use crate::chainstate::stacks::Error as chain_error;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::ClarityConnection;
 use crate::codec::StacksMessageCodec;
+use crate::core::mempool::*;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::FeeEstimator;
+use crate::monitoring;
+use crate::net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use crate::net::connection::ConnectionHttp;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ReplyHandleHttp;
+use crate::net::db::PeerDB;
+use crate::net::http::*;
+use crate::net::p2p::PeerMap;
+use crate::net::p2p::PeerNetwork;
+use crate::net::relay::Relayer;
 use crate::net::BlocksDatum;
+use crate::net::Error as net_error;
+use crate::net::HttpRequestMetadata;
+use crate::net::HttpRequestType;
+use crate::net::HttpResponseMetadata;
+use crate::net::HttpResponseType;
+use crate::net::MemPoolSyncData;
+use crate::net::MicroblocksData;
+use crate::net::NeighborAddress;
+use crate::net::NeighborsData;
+use crate::net::PeerAddress;
+use crate::net::PeerHost;
+use crate::net::ProtocolFamily;
 use crate::net::RPCFeeEstimate;
 use crate::net::RPCFeeEstimateResponse;
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use burnchains::*;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::blocks::CheckError;
-use chainstate::stacks::db::{
-    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState, StreamCursor,
-};
-use chainstate::stacks::Error as chain_error;
-use chainstate::stacks::*;
-use clarity_vm::clarity::ClarityConnection;
-use core::mempool::*;
-use monitoring;
-use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use net::connection::ConnectionHttp;
-use net::connection::ConnectionOptions;
-use net::connection::ReplyHandleHttp;
-use net::db::PeerDB;
-use net::http::*;
-use net::p2p::PeerMap;
-use net::p2p::PeerNetwork;
-use net::relay::Relayer;
-use net::Error as net_error;
-use net::HttpRequestMetadata;
-use net::HttpRequestType;
-use net::HttpResponseMetadata;
-use net::HttpResponseType;
-use net::MemPoolSyncData;
-use net::MicroblocksData;
-use net::NeighborAddress;
-use net::NeighborsData;
-use net::PeerAddress;
-use net::PeerHost;
-use net::ProtocolFamily;
-use net::StacksHttp;
-use net::StacksHttpMessage;
-use net::StacksMessageType;
-use net::UnconfirmedTransactionResponse;
-use net::UnconfirmedTransactionStatus;
-use net::UrlString;
-use net::HTTP_REQUEST_ID_RESERVED;
-use net::MAX_HEADERS;
-use net::MAX_NEIGHBORS_DATA_LEN;
-use net::{
+use crate::net::StacksHttp;
+use crate::net::StacksHttpMessage;
+use crate::net::StacksMessageType;
+use crate::net::UnconfirmedTransactionResponse;
+use crate::net::UnconfirmedTransactionStatus;
+use crate::net::UrlString;
+use crate::net::HTTP_REQUEST_ID_RESERVED;
+use crate::net::MAX_HEADERS;
+use crate::net::MAX_NEIGHBORS_DATA_LEN;
+use crate::net::{
     AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
     DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
 };
-use net::{BlocksData, GetIsTraitImplementedResponse};
-use net::{ClientError, TipRequest};
-use net::{RPCNeighbor, RPCNeighborsInfo};
-use net::{RPCPeerInfoData, RPCPoxInfoData};
-use util::get_epoch_time_secs;
-use util::hash::Hash160;
-use util::hash::{hex_bytes, to_hex};
-use util_lib::db::DBConn;
-use util_lib::db::Error as db_error;
-use vm::database::clarity_store::make_contract_hash_key;
-use vm::types::TraitIdentifier;
-use vm::{
+use crate::net::{BlocksData, GetIsTraitImplementedResponse};
+use crate::net::{ClientError, TipRequest};
+use crate::net::{RPCNeighbor, RPCNeighborsInfo};
+use crate::net::{RPCPeerInfoData, RPCPoxInfoData};
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use clarity::vm::database::clarity_store::make_contract_hash_key;
+use clarity::vm::types::TraitIdentifier;
+use clarity::vm::{
     analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
@@ -110,18 +107,22 @@ use vm::{
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
 };
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
+use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
-use chainstate::stacks::StacksBlockHeader;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::StacksPublicKeyBuffer;
 
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
     util::hash::Sha256Sum, version_string,
 };
 
-use util_lib::boot::boot_code_id;
+use crate::util_lib::boot::boot_code_id;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
@@ -228,6 +229,10 @@ impl RPCPeerInfoData {
             None => (None, None),
         };
 
+        let public_key = StacksPublicKey::from_private(&network.local_peer.private_key);
+        let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
+        let public_key_hash = Hash160::from_node_public_key(&public_key);
+
         RPCPeerInfoData {
             peer_version: network.burnchain.peer_version,
             pox_consensus: network.burnchain_tip.consensus_hash.clone(),
@@ -247,6 +252,8 @@ impl RPCPeerInfoData {
             unanchored_seq: unconfirmed_seq,
             exit_at_block_height: exit_at_block_height.cloned(),
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
+            node_public_key: Some(public_key_buf),
+            node_public_key_hash: Some(public_key_hash),
         }
     }
 }
@@ -3021,6 +3028,10 @@ impl ConversationHttp {
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
                     if req.metadata().canonical_stacks_tip_height.is_some() {
+                        test_debug!(
+                            "Request metadata: canonical stacks tip height is {:?}",
+                            &req.metadata().canonical_stacks_tip_height
+                        );
                         self.canonical_stacks_tip_height =
                             req.metadata().canonical_stacks_tip_height;
                     }
@@ -3040,6 +3051,10 @@ impl ConversationHttp {
                     // Is there someone else waiting for this message?  If so, pass it along.
                     // (this _should_ be our pending_request handle)
                     if resp.metadata().canonical_stacks_tip_height.is_some() {
+                        test_debug!(
+                            "Response metadata: canonical stacks tip height is {:?}",
+                            &resp.metadata().canonical_stacks_tip_height
+                        );
                         self.canonical_stacks_tip_height =
                             resp.metadata().canonical_stacks_tip_height;
                     }
@@ -3374,32 +3389,32 @@ mod test {
     use std::convert::TryInto;
     use std::iter::FromIterator;
 
-    use address::*;
-    use burnchains::Burnchain;
-    use burnchains::BurnchainView;
-    use burnchains::*;
-    use chainstate::burn::ConsensusHash;
-    use chainstate::stacks::db::blocks::test::*;
-    use chainstate::stacks::db::StacksChainState;
-    use chainstate::stacks::db::StreamCursor;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::Error as chain_error;
-    use chainstate::stacks::*;
-    use net::codec::*;
-    use net::http::*;
-    use net::test::*;
-    use net::*;
-    use util::get_epoch_time_secs;
-    use util::hash::hex_bytes;
-    use util::pipe::*;
-    use vm::types::*;
+    use crate::burnchains::Burnchain;
+    use crate::burnchains::BurnchainView;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::ConsensusHash;
+    use crate::chainstate::stacks::db::blocks::test::*;
+    use crate::chainstate::stacks::db::StacksChainState;
+    use crate::chainstate::stacks::db::StreamCursor;
+    use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::Error as chain_error;
+    use crate::chainstate::stacks::*;
+    use crate::net::codec::*;
+    use crate::net::http::*;
+    use crate::net::test::*;
+    use crate::net::*;
+    use clarity::vm::types::*;
+    use stacks_common::address::*;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::pipe::*;
 
+    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::types::chainstate::BlockHeaderHash;
     use crate::types::chainstate::BurnchainHeaderHash;
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
-    use core::mempool::{BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
+    use crate::core::mempool::{BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
 
     use super::*;
 
@@ -3814,6 +3829,24 @@ mod test {
         mempool_tx.commit().unwrap();
         peer_2.mempool.replace(mempool);
 
+        let peer_1_sortdb = peer_1.sortdb.take().unwrap();
+        let peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+        let _ = peer_1
+            .network
+            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .unwrap();
+        peer_1.sortdb = Some(peer_1_sortdb);
+        peer_1.stacks_node = Some(peer_1_stacks_node);
+
+        let peer_2_sortdb = peer_2.sortdb.take().unwrap();
+        let peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
+        let _ = peer_2
+            .network
+            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .unwrap();
+        peer_2.sortdb = Some(peer_2_sortdb);
+        peer_2.stacks_node = Some(peer_2_stacks_node);
+
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
 
@@ -3882,6 +3915,11 @@ mod test {
         let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let mut peer_2_mempool = peer_2.mempool.take().unwrap();
 
+        let _ = peer_2
+            .network
+            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .unwrap();
+
         Relayer::setup_unconfirmed_state(&mut peer_2_stacks_node.chainstate, &peer_2_sortdb)
             .unwrap();
 
@@ -3924,6 +3962,11 @@ mod test {
 
         let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+
+        let _ = peer_1
+            .network
+            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .unwrap();
 
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
             .unwrap();
@@ -4007,6 +4050,19 @@ mod test {
                 match http_response {
                     HttpResponseType::PeerInfo(response_md, peer_data) => {
                         assert_eq!(Some((*peer_data).clone()), *peer_server_info.borrow());
+                        assert!(peer_data.node_public_key.is_some());
+                        assert!(peer_data.node_public_key_hash.is_some());
+                        assert_eq!(
+                            peer_data.node_public_key_hash,
+                            Some(Hash160::from_node_public_key(
+                                &peer_data
+                                    .node_public_key
+                                    .clone()
+                                    .unwrap()
+                                    .to_public_key()
+                                    .unwrap()
+                            ))
+                        );
                         true
                     }
                     _ => {
@@ -6110,5 +6166,23 @@ mod test {
                 }
             },
         );
+    }
+
+    #[test]
+    fn test_getinfo_compat() {
+        let old_getinfo_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null}"#;
+        let getinfo_no_pubkey_hash_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null,"node_public_key":"029b27d345e7bd2a6627262cefe6e97d9bc482f41ec32ec76a7bec391bb441798d"}"#;
+        let getinfo_no_pubkey_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null,"node_public_key_hash":"046e6f832a83ff0da4a550907d3a44412cc1e4bf"}"#;
+        let getinfo_full_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null,"node_public_key":"029b27d345e7bd2a6627262cefe6e97d9bc482f41ec32ec76a7bec391bb441798d","node_public_key_hash":"046e6f832a83ff0da4a550907d3a44412cc1e4bf"}"#;
+
+        // they all parse
+        for json_obj in &[
+            &old_getinfo_json,
+            &getinfo_no_pubkey_json,
+            &getinfo_no_pubkey_hash_json,
+            &getinfo_full_json,
+        ] {
+            let _v: RPCPeerInfoData = serde_json::from_str(json_obj).unwrap();
+        }
     }
 }

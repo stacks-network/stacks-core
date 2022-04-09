@@ -24,7 +24,7 @@ use stacks::chainstate::coordinator::{
     check_chainstate_db_versions, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
-use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance};
+use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE};
 use stx_genesis::GenesisData;
 
 use crate::monitoring::start_serving_monitoring_metrics;
@@ -158,7 +158,7 @@ impl RunLoop {
 
         let mut event_dispatcher = EventDispatcher::new();
         for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer, should_keep_running.clone());
+            event_dispatcher.register_observer(observer);
         }
 
         Self {
@@ -323,6 +323,12 @@ impl RunLoop {
             Some(self.should_keep_running.clone()),
         );
 
+        // Invoke connect() to perform any db instantiation and migration early
+        if let Err(e) = burnchain_controller.connect_dbs() {
+            error!("Failed to connect to burnchain databases: {}", e);
+            panic!();
+        };
+
         let burnchain_config = burnchain_controller.get_burnchain();
         let epochs = burnchain_controller.get_stacks_epochs();
         if !check_chainstate_db_versions(
@@ -364,12 +370,6 @@ impl RunLoop {
                 error!("Burnchain controller stopped: {}", e);
                 panic!();
             }
-        };
-
-        // Invoke connect() to perform any db instantiation early
-        if let Err(e) = burnchain_controller.connect_dbs() {
-            error!("Failed to connect to burnchain databases: {}", e);
-            panic!();
         };
 
         // TODO (hack) instantiate the sortdb in the burnchain
@@ -439,7 +439,7 @@ impl RunLoop {
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
         let mut coordinator_dispatcher = self.event_dispatcher.clone();
-        let (attachments_tx, attachments_rx) = sync_channel(1);
+        let (attachments_tx, attachments_rx) = sync_channel(ATTACHMENTS_CHANNEL_SIZE);
 
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())

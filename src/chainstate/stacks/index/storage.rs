@@ -38,38 +38,33 @@ use rusqlite::{
 };
 use sha2::Digest;
 
-use chainstate::stacks::index::bits::{
+use crate::chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
     read_nodetype, read_root_hash, write_nodetype_bytes,
 };
-use chainstate::stacks::index::cache::*;
-use chainstate::stacks::index::file::TrieFile;
-use chainstate::stacks::index::file::TrieFileNodeHashReader;
-use chainstate::stacks::index::marf::MARFOpenOpts;
-use chainstate::stacks::index::node::{
+use crate::chainstate::stacks::index::cache::*;
+use crate::chainstate::stacks::index::file::TrieFile;
+use crate::chainstate::stacks::index::file::TrieFileNodeHashReader;
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
 };
-use chainstate::stacks::index::profile::TrieBenchmark;
-use chainstate::stacks::index::trie::Trie;
-use chainstate::stacks::index::Error;
-use chainstate::stacks::index::TrieHasher;
-use chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
+use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
+use crate::util_lib::db::sql_pragma;
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::tx_begin_immediate;
+use crate::util_lib::db::tx_busy_handler;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::SQLITE_MMAP_SIZE;
+use crate::util_lib::db::SQLITE_MARF_PAGE_SIZE;
+use stacks_common::util::log;
 
-use stacks_common::util::hash::to_hex;
-use util::log;
-use util_lib::db::sql_pragma;
-use util_lib::db::sqlite_open;
-use util_lib::db::tx_begin_immediate;
-use util_lib::db::tx_busy_handler;
-use util_lib::db::Error as db_error;
-use util_lib::db::SQLITE_MARF_PAGE_SIZE;
-use util_lib::db::SQLITE_MMAP_SIZE;
-
+use crate::chainstate::stacks::index::TrieHashExtension;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use chainstate::stacks::index::TrieHashExtension;
-use chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf};
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in

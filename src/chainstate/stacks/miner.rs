@@ -20,44 +20,44 @@ use std::convert::From;
 use std::fs;
 use std::mem;
 
-use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::CostEstimator;
-use crate::types::StacksPublicKeyBuffer;
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
-use chainstate::burn::operations::*;
-use chainstate::burn::*;
-use chainstate::stacks::db::unconfirmed::UnconfirmedState;
-use chainstate::stacks::db::{
+use crate::burnchains::PrivateKey;
+use crate::burnchains::PublicKey;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::*;
+use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
+use crate::chainstate::stacks::db::{
     blocks::MemPoolRejection, ChainstateTx, ClarityTx, MinerRewardInfo, StacksChainState,
     MINER_REWARD_MATURITY,
 };
-use chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use clarity_vm::clarity::{ClarityConnection, ClarityInstance};
-use core::mempool::*;
-use core::*;
-use net::Error as net_error;
+use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
+use crate::core::mempool::*;
+use crate::core::*;
+use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::CostEstimator;
+use crate::net::Error as net_error;
+use crate::types::StacksPublicKeyBuffer;
+use clarity::vm::database::BurnStateDB;
 use serde::Deserialize;
-use util::get_epoch_time_ms;
-use util::hash::MerkleTree;
-use util::hash::Sha512Trunc256Sum;
-use util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
-use util::vrf::*;
-use vm::database::BurnStateDB;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::vrf::*;
 
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::db::blocks::SetupBlockResult;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
-use chainstate::stacks::address::StacksAddressExtensions;
-use chainstate::stacks::db::blocks::SetupBlockResult;
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksMicroblockHeader;
-use vm::clarity::TransactionConnection;
+use clarity::vm::clarity::TransactionConnection;
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
@@ -390,7 +390,7 @@ pub struct StacksMicroblockBuilder<'a> {
     anchor_block_consensus_hash: ConsensusHash,
     anchor_block_height: u64,
     header_reader: StacksChainState,
-    clarity_tx: Option<ClarityTx<'a>>,
+    clarity_tx: Option<ClarityTx<'a, 'a>>,
     unconfirmed: bool,
     runtime: MicroblockMinerRuntime,
     settings: BlockBuilderSettings,
@@ -626,7 +626,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     /// # Error Handling
     /// - If the error when processing a tx is `CostOverflowError`, reset the cost of the block.
     fn mine_next_transaction(
-        clarity_tx: &mut ClarityTx<'a>,
+        clarity_tx: &mut ClarityTx,
         tx: StacksTransaction,
         tx_len: u64,
         bytes_so_far: u64,
@@ -789,7 +789,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                         == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                     {
                                         test_debug!(
-                                            "Stop mining anchored block due to limit exceeded"
+                                            "Stop mining microblock block due to limit exceeded"
                                         );
                                         break;
                                     }
@@ -1398,9 +1398,9 @@ impl StacksBlockBuilder {
     /// Append a transaction if doing so won't exceed the epoch data size.
     /// Does not check for errors
     #[cfg(test)]
-    pub fn force_mine_tx<'a>(
+    pub fn force_mine_tx(
         &mut self,
-        clarity_tx: &mut ClarityTx<'a>,
+        clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
     ) -> Result<(), Error> {
         let mut tx_bytes = vec![];
@@ -1711,7 +1711,7 @@ impl StacksBlockBuilder {
         &mut self,
         burn_dbconn: &'a SortitionDBConn,
         info: &'b mut MinerEpochInfo<'a>,
-    ) -> Result<(ClarityTx<'b>, ExecutionCost), Error> {
+    ) -> Result<(ClarityTx<'b, 'b>, ExecutionCost), Error> {
         let SetupBlockResult {
             clarity_tx,
             microblock_execution_cost,
@@ -2182,26 +2182,26 @@ pub mod test {
     use rand::thread_rng;
     use rand::Rng;
 
-    use address::*;
-    use burnchains::test::*;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::{
+    use crate::burnchains::test::*;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::burn::*;
-    use chainstate::coordinator::Error as CoordinatorError;
-    use chainstate::stacks::db::blocks::test::store_staging_block;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::Error as ChainstateError;
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-    use chainstate::stacks::*;
-    use net::test::*;
-    use util::sleep_ms;
-    use util::vrf::VRFProof;
-    use util_lib::db::Error as db_error;
-    use vm::types::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::coordinator::Error as CoordinatorError;
+    use crate::chainstate::stacks::db::blocks::test::store_staging_block;
+    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::Error as ChainstateError;
+    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+    use crate::chainstate::stacks::*;
+    use crate::net::test::*;
+    use crate::util_lib::db::Error as db_error;
+    use clarity::vm::types::*;
+    use stacks_common::address::*;
+    use stacks_common::util::sleep_ms;
+    use stacks_common::util::vrf::VRFProof;
 
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;
@@ -2675,7 +2675,7 @@ pub mod test {
             return None;
         }
 
-        pub fn get_miner_balance<'a>(clarity_tx: &mut ClarityTx<'a>, addr: &StacksAddress) -> u128 {
+        pub fn get_miner_balance(clarity_tx: &mut ClarityTx, addr: &StacksAddress) -> u128 {
             clarity_tx.with_clarity_db_readonly(|db| {
                 db.get_account_stx_balance(&StandardPrincipalData::from(addr.clone()).into())
                     .amount_unlocked
@@ -2969,8 +2969,8 @@ pub mod test {
     }
 
     /// Verify that the miner got the expected block reward
-    fn check_mining_reward<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    fn check_mining_reward(
+        clarity_tx: &mut ClarityTx,
         miner: &mut TestMiner,
         block_height: u64,
         prev_block_rewards: &Vec<Vec<MinerPaymentSchedule>>,
@@ -5816,8 +5816,8 @@ pub mod test {
         tx_coinbase_signed
     }
 
-    pub fn mine_empty_anchored_block<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_empty_anchored_block(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -5846,8 +5846,8 @@ pub mod test {
         (stacks_block, vec![])
     }
 
-    pub fn mine_empty_anchored_block_with_burn_height_pubkh<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_empty_anchored_block_with_burn_height_pubkh(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -5882,8 +5882,8 @@ pub mod test {
         (stacks_block, vec![])
     }
 
-    pub fn mine_empty_anchored_block_with_stacks_height_pubkh<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_empty_anchored_block_with_stacks_height_pubkh(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -6028,8 +6028,8 @@ pub mod test {
     }
 
     /// Mine invalid token transfers
-    pub fn mine_invalid_token_transfers_block<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_invalid_token_transfers_block(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -6106,8 +6106,8 @@ pub mod test {
 
     /// mine a smart contract in an anchored block, and mine a contract-call in the same anchored
     /// block
-    pub fn mine_smart_contract_contract_call_block<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_smart_contract_contract_call_block(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -6156,8 +6156,8 @@ pub mod test {
     }
 
     /// mine a smart contract in an anchored block, and mine some contract-calls to it in a microblock tail
-    pub fn mine_smart_contract_block_contract_call_microblock<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_smart_contract_block_contract_call_microblock(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -6242,8 +6242,8 @@ pub mod test {
     /// mine a smart contract in an anchored block, and mine a contract-call to it in a microblock.
     /// Make it so all microblocks throw a runtime exception, but confirm that they are still mined
     /// anyway.
-    pub fn mine_smart_contract_block_contract_call_microblock_exception<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_smart_contract_block_contract_call_microblock_exception(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,

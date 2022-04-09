@@ -14,30 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core::PEER_VERSION_TESTNET;
+use crate::core::PEER_VERSION_TESTNET;
 
-use net::asn::ASEntry4;
-use net::db::PeerDB;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
+use crate::net::asn::ASEntry4;
+use crate::net::db::PeerDB;
+use crate::net::Error as net_error;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
 
-use net::codec::*;
-use net::*;
+use crate::net::codec::*;
+use crate::net::*;
 
-use net::connection::ConnectionOptions;
-use net::connection::ReplyHandleP2P;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ReplyHandleP2P;
 
-use net::db::LocalPeer;
+use crate::net::db::LocalPeer;
 
-use net::p2p::*;
+use crate::net::p2p::*;
 
-use util_lib::db::DBConn;
-use util_lib::db::DBTx;
-use util_lib::db::Error as db_error;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use crate::util_lib::db::Error as db_error;
 
-use util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use std::cmp;
 use std::mem;
@@ -46,16 +46,16 @@ use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use burnchains::PublicKey;
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::burnchains::PublicKey;
 
 use rand::prelude::*;
 use rand::thread_rng;
-use util::get_epoch_time_secs;
-use util::hash::*;
-use util::log;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::*;
+use stacks_common::util::log;
 
 #[cfg(test)]
 pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL: u64 = 0;
@@ -3085,17 +3085,17 @@ impl PeerNetwork {
 #[cfg(test)]
 mod test {
     use super::*;
-    use core::{
+    use crate::core::{
         StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
         STACKS_EPOCH_MAX,
     };
-    use net::asn::*;
-    use net::chat::*;
-    use net::db::*;
-    use net::test::*;
-    use util::hash::*;
-    use util::sleep_ms;
-    use util_lib::test::*;
+    use crate::net::asn::*;
+    use crate::net::chat::*;
+    use crate::net::db::*;
+    use crate::net::test::*;
+    use crate::util_lib::test::*;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::sleep_ms;
 
     const TEST_IN_OUT_DEGREES: u64 = 0x1;
 

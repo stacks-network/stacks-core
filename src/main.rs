@@ -50,6 +50,7 @@ use blockstack_lib::burnchains::db::BurnchainDB;
 use blockstack_lib::burnchains::Address;
 use blockstack_lib::burnchains::Burnchain;
 use blockstack_lib::chainstate::burn::ConsensusHash;
+use blockstack_lib::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use blockstack_lib::chainstate::stacks::db::blocks::StagingBlock;
 use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
 use blockstack_lib::chainstate::stacks::index::marf::MARFOpenOpts;
@@ -744,7 +745,10 @@ simulating a miner.
             .unwrap()
             .sortition_id;
         let mut tx = sortition_db.tx_handle_begin(&sortition_tip).unwrap();
-        chainstate.process_next_staging_block(&mut tx).unwrap();
+        let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
+        chainstate
+            .process_next_staging_block(&mut tx, null_event_dispatcher)
+            .unwrap();
         return;
     }
 
@@ -951,6 +955,7 @@ simulating a miner.
                         &burnchain,
                         &sortition_tip.sortition_id,
                         None,
+                        |_| {},
                     )
                     .unwrap()
             };
@@ -1043,7 +1048,10 @@ simulating a miner.
                         .unwrap()
                         .sortition_id;
                 let sortition_tx = new_sortition_db.tx_handle_begin(&sortition_tip).unwrap();
-                let receipts = new_chainstate.process_blocks(sortition_tx, 1).unwrap();
+                let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
+                let receipts = new_chainstate
+                    .process_blocks(sortition_tx, 1, null_event_dispatcher)
+                    .unwrap();
                 if receipts.len() == 0 {
                     break;
                 }

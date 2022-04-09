@@ -2,18 +2,20 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
-use chainstate::stacks::index::{Error, MarfTrieId};
-use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use util_lib::db::IndexDBConn;
-use vm::analysis::AnalysisDatabase;
-use vm::database::{
+use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
+use crate::chainstate::stacks::index::{Error, MarfTrieId};
+use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use crate::util_lib::db::IndexDBConn;
+use clarity::vm::analysis::AnalysisDatabase;
+use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
 };
-use vm::errors::{IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
-use vm::types::QualifiedContractIdentifier;
+use clarity::vm::errors::{
+    IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
+};
+use clarity::vm::types::QualifiedContractIdentifier;
 
-use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
 use clarity::vm::database::SpecialCaseHandler;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
@@ -109,8 +111,8 @@ impl MarfedKV {
     // used by benchmarks
     pub fn temporary() -> MarfedKV {
         use rand::Rng;
+        use stacks_common::util::hash::to_hex;
         use std::env;
-        use util::hash::to_hex;
 
         let mut path = env::temp_dir();
         let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
