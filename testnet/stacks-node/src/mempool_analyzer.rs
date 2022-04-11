@@ -35,6 +35,7 @@ use stacks::{
     vm::costs::ExecutionCost,
 };
 
+#[derive(Debug)]
 /// Prints transaction events to the standard output.
 struct PrintDebugEventDispatcher {}
 

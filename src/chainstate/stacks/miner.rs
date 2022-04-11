@@ -1876,6 +1876,10 @@ impl StacksBlockBuilder {
         let deadline = ts_start + (max_miner_time_ms as u128);
         let mut num_txs = 0;
 
+        let mut total_tx = 0;
+        let mut total_success = 0;
+        let mut total_skipped = 0;
+        let mut total_error = 0;
         debug!(
             "Anchored block transaction selection begins (child of {})",
             &parent_stacks_header.anchored_header.block_hash()
@@ -1929,7 +1933,23 @@ impl StacksBlockBuilder {
                             txinfo.metadata.len,
                             &block_limit_hit,
                         );
-                        tx_events.push(tx_result.convert_to_event());
+
+                        let tx_event = tx_result.convert_to_event();
+                        total_tx += 1;
+                        match &tx_event {
+                            TransactionEvent::Success(_) => {
+                                total_success += 1;
+                            },
+                            TransactionEvent::Skipped(_) => {
+                                total_skipped += 1;
+
+                            },
+                            TransactionEvent::ProcessingError(_) => {
+                                total_error += 1;
+                            },
+                        };
+                        info!("total_tx {} total_success {} total_skipped {} total_error {}", total_tx, total_success, total_skipped, total_error);
+                        tx_events.push(tx_event);
 
                         match tx_result {
                             TransactionResult::Success(TransactionSuccess { receipt, .. }) => {
