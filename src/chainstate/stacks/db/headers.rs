@@ -112,7 +112,7 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
 impl StacksChainState {
     /// Insert a block header that is paired with an already-existing block commit and snapshot
     pub fn insert_stacks_block_header(
-        tx: &mut StacksDBTx,
+        tx: &mut DBTx,
         parent_id: &StacksBlockId,
         tip_info: &StacksHeaderInfo,
         anchored_block_cost: &ExecutionCost,

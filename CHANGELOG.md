@@ -11,6 +11,16 @@ the node to spend up to 30 minutes migrating the data to a new schema.
 ## [Unreleased]
 
 ### Changed
+- The MARF implementation will now defer calculating the root hash of a new trie
+  until the moment the trie is committed to disk.  This avoids gratuitous hash
+calculations, and yields a performance improvement of anywhere between 10x and
+200x (#3041).
+- The MARF implementation will now store tries to an external file for instances
+  where the tries are expected to exceed the SQLite page size (namely, the
+Clarity database). This improves read performance by a factor of 10x to 14x
+(#3059).
+- The MARF implementation may now cache trie nodes in RAM if directed to do so
+  by an environment variable (#3042).
 - Sortition processing performance has been improved by about an order of
   magnitude, by avoiding a slew of expensive database reads (#3045).  WARNING:
 applying this change to an existing chainstate directory will take a few

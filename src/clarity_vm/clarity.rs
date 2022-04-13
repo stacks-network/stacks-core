@@ -755,9 +755,8 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         r
     }
 
-    /// Get the MARF root hash
-    pub fn get_root_hash(&mut self) -> TrieHash {
-        self.datastore.get_root_hash()
+    pub fn seal(&mut self) -> TrieHash {
+        self.datastore.seal()
     }
 
     pub fn destruct(self) -> WritableMarfStore<'a> {
@@ -1303,7 +1302,7 @@ mod tests {
             fs::remove_dir_all(test_name).unwrap();
         }
 
-        let confirmed_marf = MarfedKV::open(test_name, None).unwrap();
+        let confirmed_marf = MarfedKV::open(test_name, None, None).unwrap();
         let mut confirmed_clarity_instance = ClarityInstance::new(false, confirmed_marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1323,7 +1322,7 @@ mod tests {
             )
             .commit_block();
 
-        let marf = MarfedKV::open_unconfirmed(test_name, None).unwrap();
+        let marf = MarfedKV::open_unconfirmed(test_name, None, None).unwrap();
 
         let genesis_metadata_entries = marf
             .sql_conn()

@@ -570,17 +570,25 @@ macro_rules! test_debug {
     )
 }
 
-// enables/disables trace!() at compile-time
+#[cfg(test)]
 pub const TRACE_ENABLED: bool = true;
 
+#[cfg(test)]
 pub fn is_trace() -> bool {
     use std::env;
     TRACE_ENABLED && env::var("BLOCKSTACK_TRACE") == Ok("1".to_string())
 }
 
+#[cfg(not(test))]
+#[inline]
+pub fn is_trace() -> bool {
+    false
+}
+
 #[allow(unused_macros)]
 macro_rules! trace {
     ($($arg:tt)*) => (
+        #[cfg(test)]
         {
             if crate::util::macros::is_trace() {
                 debug!($($arg)*);
