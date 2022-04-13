@@ -108,12 +108,12 @@ pub struct BlockExitRewardCycleInfo {
     /// The reward cycle of the block that corresponds to this exit cycle information
     pub block_reward_cycle: u64,
     /// This value is non-None when consensus has been achieved on a vote; the cycle after this
-    /// proposal was voted on will be a veto period for miners
+    /// proposal was voted on will be a rejection period for miners
     pub curr_exit_proposal: Option<u64>,
     /// The current exit reward cycle for node (can be None; when set, this values rises monotonically)
     pub curr_exit_at_reward_cycle: Option<u64>,
     /// A list of reward cycles to skip over when tallying votes (these are cycles that were
-    /// previously proposed and/or vetoed).
+    /// previously proposed and/or rejected).
     pub invalid_reward_cycles: Vec<u64>,
 }
 
@@ -708,11 +708,11 @@ impl<
         Ok(())
     }
 
-    /// This function reads veto-related information from the exit-at-rc clarity contract.
-    /// It returns true if the veto succeeded, and false if it failed.
-    pub fn read_veto_state(
+    /// This function reads rejection-related information from the exit-at-rc clarity contract.
+    /// It returns true if the rejection succeeded, and false if it failed.
+    pub fn read_rejection_state(
         &mut self,
-        rc_cycle_of_veto: u64,
+        rc_cycle_of_rejection: u64,
         proposed_exit_rc: u64,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
@@ -720,35 +720,35 @@ impl<
     ) -> Result<bool, Error> {
         let stacks_block_id = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         let reward_cycle_length = self.burnchain.pox_constants.reward_cycle_length;
-        let veto_percent_threshold = self
+        let rejection_percent_threshold = self
             .burnchain
             .exit_contract_constants
-            .veto_confirmation_percent;
+            .rejection_confirmation_percent;
         let is_mainnet = self.burnchain.is_mainnet();
         self.chain_state_db
             .with_read_only_clarity_tx(&self.sortition_db.index_conn(), &stacks_block_id, |conn| {
                 conn.with_clarity_db_readonly(|db| {
-                    // from map rc-proposal-vetoes, use key pair (proposed_rc, curr_rc) to get the # of vetos
+                    // from map rc-proposal-rejections, use key pair (proposed_rc, curr_rc) to get the # of rejections
                     let entry = db
                         .fetch_entry_unknown_descriptor(
                             exit_contract_id,
-                            "rc-proposal-vetoes",
+                            "rc-proposal-rejections",
                             &Value::from(
                                 TupleData::from_data(vec![
                                     ("proposed-rc".into(), Value::UInt(proposed_exit_rc as u128)),
-                                    ("curr-rc".into(), Value::UInt(rc_cycle_of_veto as u128)),
+                                    ("curr-rc".into(), Value::UInt(rc_cycle_of_rejection as u128)),
                                 ])
                                 .expect("BUG: failed to construct simple tuple"),
                             ),
                         )
-                        .expect("BUG: Failed querying rc-proposal-vetoes")
+                        .expect("BUG: Failed querying rc-proposal-rejections")
                         .expect_optional();
 
-                    let num_vetos = match entry {
+                    let num_rejections = match entry {
                         Some(val) => {
                             let tuple_data = val.expect_tuple();
                             tuple_data
-                                .get("vetoes")
+                                .get("rejections")
                                 .expect("BUG: malformed cost proposal tuple")
                                 .to_owned()
                                 .expect_u128()
@@ -757,13 +757,13 @@ impl<
                     };
 
                     info!(
-                        "chains coordinator: in veto check, proposed_exit: {}, num vetos: {:?}",
-                        proposed_exit_rc, num_vetos
+                        "chains coordinator: in rejection check, proposed_exit: {}, num num_rejections: {:?}",
+                        proposed_exit_rc, num_rejections
                     );
-                    // Check if the percent veto crosses the minimum threshold
-                    let percent_veto = num_vetos * 100 / (reward_cycle_length as u128);
+                    // Check if the percent rejection crosses the minimum threshold
+                    let percent_rejection = num_rejections * 100 / (reward_cycle_length as u128);
 
-                    Ok(percent_veto >= (veto_percent_threshold as u128))
+                    Ok(percent_rejection >= (rejection_percent_threshold as u128))
                 })
             })
             .ok_or(Error::DBError(NotFoundError))?
@@ -865,6 +865,8 @@ impl<
     /// Regarding vote validity: we discard votes for invalid reward cycles. Examples of invalid
     /// reward cycles include those that are the absolute minimum exit cycle, or those below a
     /// previously confirmed exit RC.
+    /// This function returns a result. If ok, it returns an option of the agreed upon
+    /// proposal for the exit reward cycle, where the option is None is there is no valid proposal.
     pub fn tally_votes(
         &mut self,
         rc_cycle_of_vote: u64,
@@ -939,7 +941,7 @@ impl<
             accrued_votes += curr_votes;
             if accrued_votes > min_stx_for_consensus {
                 // If the accrued votes is greater than the minimum needed to achieve consensus,
-                // store this value for the upcoming veto
+                // store this value for the upcoming rejection
                 return Ok(Some(*curr_rc_proposal));
             }
         }
@@ -1050,22 +1052,25 @@ impl<
             // We process the previous reward cycle as soon as we transition to the next one.
             if parent_exit_info.block_reward_cycle < current_reward_cycle {
                 info!("RCPR: cc: ancestor - rc is greater than parent rc");
-                // Check if there is some proposal. If so, need to check for a veto.
+                // Check if there is some proposal. If so, need to check for a rejection.
                 if let Some(curr_exit_proposal) = parent_exit_info.curr_exit_proposal {
-                    let veto_passed = self.read_veto_state(
+                    let rejection_passed = self.read_rejection_state(
                         parent_exit_info.block_reward_cycle,
                         curr_exit_proposal,
                         &block_receipt.header.consensus_hash,
                         &block_hash,
                         exit_contract_id,
                     )?;
-                    // if veto fails, record exit block height
-                    if !veto_passed {
-                        info!("RCPR: cc: veto did not pass for {}", curr_exit_proposal);
+                    // if rejection fails, record exit block height
+                    if !rejection_passed {
+                        info!(
+                            "RCPR: cc: rejection did not pass for {}",
+                            curr_exit_proposal
+                        );
                         current_exit_at_rc = Some(curr_exit_proposal);
                     }
                 } else {
-                    // tally votes of previous reward cycle if there is no veto happening
+                    // tally votes of previous reward cycle if there is no rejection happening
                     // if there is consensus for some proposal, record it
                     current_proposal = self.tally_votes(
                         parent_exit_info.block_reward_cycle,

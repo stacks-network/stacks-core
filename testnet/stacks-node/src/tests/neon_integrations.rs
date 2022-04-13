@@ -7328,7 +7328,7 @@ fn exit_at_rc_integration_test() {
                 260,
                 &spender_4_stacks_addr,
                 "exit-at-rc",
-                "veto-exit-rc",
+                "reject-exit-rc",
                 &[Value::UInt(30), Value::UInt(block_height)],
             );
 
@@ -8123,7 +8123,7 @@ fn exit_at_rc_integration_test() {
             260,
             &spender_4_stacks_addr,
             "exit-at-rc",
-            "veto-exit-rc",
+            "reject-exit-rc",
             &[Value::UInt(53), Value::UInt(block_height)],
         );
 

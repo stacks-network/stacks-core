@@ -1763,12 +1763,11 @@ fn test_vote_for_exit_rc() {
     });
 }
 
-// Tests the veto function of the exit-at-rc contract. Tests the following conditions:
-// - Need to ensure voter is previous miner, so try sending vote from 2 miners ago (should fail)
-// - Try veto'ing twice as miner in the same block - should fail
-// - Make sure veto count makes sense at end of test
+// Tests the reject function of the exit-at-rc contract. Tests the following conditions:
+// - Try rejecting twice as miner in the same block - should fail
+// - Make sure rejection count makes sense at end of test
 #[test]
-fn test_miner_veto_for_exit_rc() {
+fn test_miner_rejection_for_exit_rc() {
     let mut sim = ClarityTestSim::new();
 
     // initialize the exit at reward cycle contract
@@ -1787,7 +1786,7 @@ fn test_miner_veto_for_exit_rc() {
             env.execute_transaction(
                 (&USER_KEYS[0].clone()).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
-                "veto-exit-rc",
+                "reject-exit-rc",
                 &symbols_from_values(vec![Value::UInt(25), Value::UInt(burn_height - 1)])
             )
             .unwrap()
@@ -1803,7 +1802,7 @@ fn test_miner_veto_for_exit_rc() {
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
-                "veto-exit-rc",
+                "reject-exit-rc",
                 &symbols_from_values(vec![Value::UInt(25), Value::UInt(burn_height - 1)])
             )
             .unwrap()
@@ -1819,7 +1818,7 @@ fn test_miner_veto_for_exit_rc() {
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
-                "veto-exit-rc",
+                "reject-exit-rc",
                 &symbols_from_values(vec![Value::UInt(25), Value::UInt(burn_height - 1)])
             )
             .unwrap()
@@ -1839,7 +1838,7 @@ fn test_miner_veto_for_exit_rc() {
             env.execute_transaction(
                 (&MINER_KEY.clone()).into(),
                 EXIT_AT_RC_CONTRACT_TESTNET.clone(),
-                "veto-exit-rc",
+                "reject-exit-rc",
                 &symbols_from_values(vec![Value::UInt(25), Value::UInt(burn_height - 1)])
             )
             .unwrap()

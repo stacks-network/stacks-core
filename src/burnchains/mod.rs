@@ -328,9 +328,9 @@ pub struct PoxConstants {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ExitContractConstants {
+    // This percent of mined blocks in the rejection period must have rejected the proposal for the rejection to succeed.
+    pub rejection_confirmation_percent: u8,
     // The chosen exit reward cycle must have this percent of stackers that voted for it or for a lower reward cycle to be confirmed
-    pub veto_confirmation_percent: u8,
-    // This percent of mined blocks in the veto period must have vetoed the proposal for the veto to succeed.
     pub vote_confirmation_percent: u8,
     // For a vote to be valid in a certain reward cycle, this percent of STX must be stacked
     pub percent_stacked_stx_for_valid_vote: u8,
@@ -345,12 +345,12 @@ pub struct ExitContractConstants {
 impl ExitContractConstants {
     /// Default constants were chosen in the exit contract proposal in the stacks-blockchain repo.
     pub fn new(
-        veto_confirmation_percent: u8,
+        rejection_confirmation_percent: u8,
         vote_confirmation_percent: u8,
         percent_stacked_stx_for_valid_vote: u8,
     ) -> ExitContractConstants {
         ExitContractConstants {
-            veto_confirmation_percent,
+            rejection_confirmation_percent,
             vote_confirmation_percent,
             percent_stacked_stx_for_valid_vote,
             absolute_minimum_exit_rc: EXIT_RC_ABSOLUTE_MINIMUM_EXIT_RC,

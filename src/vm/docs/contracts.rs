@@ -155,10 +155,10 @@ If your name is in a namespace where names do not expire, then you never need to
         relative to the current reward cycle).",
         ),
         (
-            "veto-exit-rc",
-            "Block miners call this function during the veto period for a specific \
-        exit proposal to veto the proposal. The veto is only valid if they were the miner of the\
-        previous block.",
+            "reject-exit-rc",
+            "Block miners call this function during the rejection period for a specific \
+        exit proposal to reject the proposal. The rejection is only valid if they were the miner of a\
+        block within the rejection period.",
         ),
     ];
 

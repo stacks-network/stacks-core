@@ -2,14 +2,14 @@
 ;; Error codes
 (define-constant ERR_AMOUNT_NOT_POSITIVE 2)
 (define-constant ERR_PREVIOUS_VOTE_VALID 7)
-(define-constant ERR_ALREADY_VETOED 9)
+(define-constant ERR_ALREADY_REJECTED 9)
 (define-constant ERR_UNAUTHORIZED_CALLER 10)
 (define-constant ERR_VOTER_NOT_STACKING 13)
 (define-constant ERR_BURN_BLOCK_HEIGHT_TOO_LOW 14)
 (define-constant ERR_FETCHING_BLOCK_INFO 16)
 (define-constant ERR_NOT_ALLOWED 19)
 (define-constant ERR_INVALID_PROPOSED_RC 21)
-(define-constant ERR_VETO_TOO_LATE 22)
+(define-constant ERR_REJECTION_TOO_LATE 22)
 (define-constant ERR_INVALID_MINE_HEIGHT 23)
 
 ;; Constants
@@ -43,22 +43,22 @@
     { votes: uint }
 )
 
-;; Stores number of vetos for exit proposals by coupling it with the reward cycle the veto is cast in.
-(define-map rc-proposal-vetoes
+;; Stores number of rejections for exit proposals by coupling it with the reward cycle the rejection is cast in.
+(define-map rc-proposal-rejections
     {
         proposed-rc: uint,
         curr-rc: uint
     }
-    { vetoes: uint }
+    { rejections: uint }
 )
 
-;; Keeps track of miner vetos; used to ensure that a miner cannot cast multiple vetos in the same block.
-(define-map exercised-veto
+;; Keeps track of miner rejections; used to ensure that a miner cannot cast multiple rejections in the same block.
+(define-map exercised-rejection
     {
         proposed-rc: uint,
-        veto-height: uint
+        rejection-height: uint
     }
-    { vetoed: bool }
+    { rejected: bool }
 )
 
 ;; Keeps track of voter specific information; used to ensure a voter doesn't vote twice in the same stacking period.
@@ -184,50 +184,50 @@
 )
 
 
-(define-private (can-veto-exit-rc? (proposed-exit-rc uint) (mined-block-height uint))
+(define-private (can-reject-exit-rc? (proposed-exit-rc uint) (mined-block-height uint))
     (let (
         (current-reward-cycle (unwrap-panic (current-pox-reward-cycle)))
         (mined-block-id (unwrap! (get-block-info? id-header-hash mined-block-height) (err ERR_INVALID_MINE_HEIGHT)))
         (mined-burn-block-height (at-block mined-block-id burn-block-height))
         (mined-reward-cycle (burn-height-to-reward-cycle mined-burn-block-height))
-        (curr-vetoes (default-to u0 (get vetoes (map-get? rc-proposal-vetoes { proposed-rc: proposed-exit-rc, curr-rc: current-reward-cycle } ))))
+        (curr-rejections (default-to u0 (get rejections (map-get? rc-proposal-rejections { proposed-rc: proposed-exit-rc, curr-rc: current-reward-cycle } ))))
         (miner-address (unwrap! (get-block-info? miner-address mined-block-height) (err ERR_INVALID_MINE_HEIGHT)))
-        (vetoed (default-to false (get vetoed (map-get? exercised-veto { proposed-rc: proposed-exit-rc, veto-height: mined-block-height }))))
+        (rejected (default-to false (get rejected (map-get? exercised-rejection { proposed-rc: proposed-exit-rc, rejection-height: mined-block-height }))))
     )
 
-    ;; a miner can only veto once per block mined
-    (asserts! (not vetoed) (err ERR_ALREADY_VETOED))
+    ;; a miner can only reject once per block mined
+    (asserts! (not rejected) (err ERR_ALREADY_REJECTED))
 
-    ;; a miner needs to submit their veto within the same reward cycle of mining a block
-    (asserts! (<= (- current-reward-cycle mined-reward-cycle) u0) (err ERR_VETO_TOO_LATE))
+    ;; a miner needs to submit their rejection within the same reward cycle of mining a block
+    (asserts! (<= (- current-reward-cycle mined-reward-cycle) u0) (err ERR_REJECTION_TOO_LATE))
 
-    ;; a miner can only veto if they mined the block at the given height
+    ;; a miner can only reject if they mined the block at the given height
     (asserts! (is-eq contract-caller miner-address) (err ERR_UNAUTHORIZED_CALLER))
 
-    (ok {curr-rc: current-reward-cycle, curr-vetoes: curr-vetoes})
+    (ok {curr-rc: current-reward-cycle, curr-rejections: curr-rejections})
     )
 )
 
-(define-private (inner-fulfill-veto (proposed-exit-rc uint) (mined-block-height uint) (veto-data {curr-rc: uint, curr-vetoes: uint}))
+(define-private (inner-fulfill-rejection (proposed-exit-rc uint) (mined-block-height uint) (rejection-data {curr-rc: uint, curr-rejections: uint}))
     (begin
-         ;; modify state to store veto
-        (map-set rc-proposal-vetoes { proposed-rc: proposed-exit-rc, curr-rc: (get curr-rc veto-data) } { vetoes: (+ u1 (get curr-vetoes veto-data)) })
-        (map-set exercised-veto { proposed-rc: proposed-exit-rc, veto-height: mined-block-height }
-                                { vetoed: true })
+         ;; modify state to store rejection
+        (map-set rc-proposal-rejections { proposed-rc: proposed-exit-rc, curr-rc: (get curr-rc rejection-data) } { rejections: (+ u1 (get curr-rejections rejection-data)) })
+        (map-set exercised-rejection { proposed-rc: proposed-exit-rc, rejection-height: mined-block-height }
+                                { rejected: true })
 
         (ok true)
     )
 )
 
-;; This function is used by miners to veto a proposed exit reward cycle. The veto period is active the reward cycle
+;; This function is used by miners to reject a proposed exit reward cycle. The rejection period is active the reward cycle
 ;; after a vote is confirmed.
-;; The miner must send in the reward cycle number of the proposal they want to veto, as well as the burn height
-;; of a block they mined during the veto period.
-;; Note: a miner can send in a veto for each block they mined in the veto period.
-(define-public (veto-exit-rc (proposed-exit-rc uint) (mined-block-height uint))
+;; The miner must send in the reward cycle number of the proposal they want to reject, as well as the burn height
+;; of a block they mined during the rejection period.
+;; Note: a miner can send in a rejection for each block they mined in the rejection period.
+(define-public (reject-exit-rc (proposed-exit-rc uint) (mined-block-height uint))
     (let (
-        (veto-data (try! (can-veto-exit-rc? proposed-exit-rc mined-block-height)))
+        (rejection-data (try! (can-reject-exit-rc? proposed-exit-rc mined-block-height)))
     )
-        (inner-fulfill-veto proposed-exit-rc mined-block-height veto-data)
+        (inner-fulfill-rejection proposed-exit-rc mined-block-height rejection-data)
     )
 )
