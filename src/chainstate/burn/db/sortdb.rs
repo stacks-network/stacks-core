@@ -40,11 +40,7 @@ use burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
     BurnchainTransaction, BurnchainView, Error as BurnchainError, PoxConstants,
 };
-use chainstate::burn::operations::{
-    leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
-    TransferStxOp, UserBurnSupportOp,
-};
+use chainstate::burn::operations::{leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT}, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp, DepositFtOp, DepositNftOp};
 use chainstate::burn::Opcodes;
 use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
 use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
@@ -74,7 +70,7 @@ use util_lib::db::{
     u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 use vm::representations::{ClarityName, ContractName};
-use vm::types::Value;
+use vm::types::{PrincipalData, Value, QualifiedContractIdentifier};
 
 use chainstate::burn::ConsensusHashExtensions;
 use chainstate::stacks::address::StacksAddressExtensions;
@@ -255,6 +251,54 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
+impl FromRow<DepositFtOp> for DepositFtOp {
+    fn from_row<'a>(row: &'a Row) -> Result<DepositFtOp, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "l1_block_id")?;
+
+        let l1_contract_id = QualifiedContractIdentifier::from_column(row, "l1_contract_id")?;
+        let hc_contract_id = QualifiedContractIdentifier::from_column(row, "hc_contract_id")?;
+        let name: String = row.get_unwrap("name");
+        let amount_str : String = row.get_unwrap("amount");
+        let amount = u128::from_str_radix(&amount_str, 10)
+            .expect("CORRUPTION: bad u128 written to sortdb");
+        let sender = StacksAddress::from_column(row, "sender")?;
+
+        Ok(DepositFtOp {
+            txid,
+            burn_header_hash,
+            l1_contract_id,
+            hc_contract_id,
+            name,
+            amount,
+            sender: PrincipalData::from(sender),
+        })
+    }
+}
+
+impl FromRow<DepositNftOp> for DepositNftOp {
+    fn from_row<'a>(row: &'a Row) -> Result<DepositNftOp, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "l1_block_id")?;
+
+        let l1_contract_id = QualifiedContractIdentifier::from_column(row, "l1_contract_id")?;
+        let hc_contract_id = QualifiedContractIdentifier::from_column(row, "hc_contract_id")?;
+        let id_str : String = row.get_unwrap("id");
+        let id = u128::from_str_radix(&id_str, 10)
+            .expect("CORRUPTION: bad u128 written to sortdb");
+        let sender = StacksAddress::from_column(row, "sender")?;
+
+        Ok(DepositNftOp {
+            txid,
+            burn_header_hash,
+            l1_contract_id,
+            hc_contract_id,
+            id,
+            sender: PrincipalData::from(sender),
+        })
+    }
+}
+
 pub const SORTITION_DB_VERSION: &'static str = "2";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
@@ -329,6 +373,33 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
     );"#,
+    r#"
+     CREATE TABLE deposit_ft(
+         txid TEXT NOT NULL,
+         l1_block_id TEXT NOT NULL,
+         l1_contract_id TEXT NOT NULL,
+         hc_contract_id TEXT NOT NULL,
+         name TEXT NOT NULL,
+         amount INTEGER NOT NULL,
+         sender TEXT NOT NULL,
+         sortition_id TEXT NOT NULL,
+
+         PRIMARY KEY(txid,sortition_id),
+         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
+     );"#,
+    r#"
+     CREATE TABLE deposit_nft(
+         txid TEXT NOT NULL,
+         l1_block_id TEXT NOT NULL,
+         l1_contract_id TEXT NOT NULL,
+         hc_contract_id TEXT NOT NULL,
+         id INTEGER NOT NULL,
+         sender TEXT NOT NULL,
+         sortition_id TEXT NOT NULL,
+
+         PRIMARY KEY(txid,sortition_id),
+         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
+     );"#,
     r#"
     CREATE TABLE user_burn_support(
         txid TEXT NOT NULL,
@@ -2346,6 +2417,28 @@ impl SortitionDB {
         }
     }
 
+    pub fn get_deposit_ft_ops(
+        conn: &Connection,
+        l1_block_id: &BurnchainHeaderHash,
+    ) -> Result<Vec<DepositFtOp>, db_error> {
+        query_rows(
+            conn,
+            "SELECT * FROM deposit_ft WHERE l1_block_id = ?",
+            &[l1_block_id],
+        )
+    }
+
+    pub fn get_deposit_nft_ops(
+        conn: &Connection,
+        l1_block_id: &BurnchainHeaderHash,
+    ) -> Result<Vec<DepositNftOp>, db_error> {
+        query_rows(
+            conn,
+            "SELECT * FROM deposit_nft WHERE l1_block_id = ?",
+            &[l1_block_id],
+        )
+    }
+
     pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.index_handle(&sortition_id)
@@ -2862,8 +2955,7 @@ impl<'a> SortitionHandleTx<'a> {
                     "sender" => %op.sender,
                 );
 
-                // TODO(hyperchains) - store operation!
-                Ok(())
+                self.insert_deposit_ft(op, sort_id)
             }
             BlockstackOperationType::DepositNft(ref op) => {
                 info!(
@@ -2877,8 +2969,7 @@ impl<'a> SortitionHandleTx<'a> {
                     "sender" => %op.sender,
                 );
 
-                // TODO(hyperchains) - store operation!
-                Ok(())
+                self.insert_deposit_nft(op, sort_id)
             }
             BlockstackOperationType::WithdrawFt(ref op) => {
                 info!(
@@ -2935,6 +3026,49 @@ impl<'a> SortitionHandleTx<'a> {
                       VALUES (?1, ?2, ?3, ?4)",
             args,
         )?;
+
+        Ok(())
+    }
+
+    /// Insert a deposit ft op
+    fn insert_deposit_ft(
+        &mut self,
+        op: &DepositFtOp,
+        sort_id: &SortitionId
+    ) -> Result<(), db_error> {
+        let args: &[&dyn ToSql] = &[
+            &op.txid,
+            &op.burn_header_hash,
+            &op.l1_contract_id.to_string(),
+            &op.hc_contract_id.to_string(),
+            &op.name,
+            &op.amount.to_string(),
+            &op.sender.to_string(),
+            sort_id,
+        ];
+
+        self.execute("REPLACE INTO deposit_ft (txid, l1_block_id, l1_contract_id, hc_contract_id, name, amount, sender, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+
+        Ok(())
+    }
+
+    /// Insert a deposit nft op
+    fn insert_deposit_nft(
+        &mut self,
+        op: &DepositNftOp,
+        sort_id: &SortitionId
+    ) -> Result<(), db_error> {
+        let args: &[&dyn ToSql] = &[
+            &op.txid,
+            &op.burn_header_hash,
+            &op.l1_contract_id.to_string(),
+            &op.hc_contract_id.to_string(),
+            &op.id.to_string(),
+            &op.sender.to_string(),
+            sort_id,
+        ];
+
+        self.execute("REPLACE INTO deposit_ft (txid, l1_block_id, l1_contract_id, hc_contract_id, id, sender, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", args)?;
 
         Ok(())
     }
