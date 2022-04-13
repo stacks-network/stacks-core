@@ -25,6 +25,9 @@ extern crate rusqlite;
 #[macro_use]
 extern crate stacks_common;
 
+#[macro_use]
+extern crate serde_json;
+
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
@@ -49,6 +52,7 @@ use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
 use blockstack_lib::burnchains::db::BurnchainDB;
 use blockstack_lib::burnchains::Address;
 use blockstack_lib::burnchains::Burnchain;
+use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::burn::ConsensusHash;
 use blockstack_lib::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use blockstack_lib::chainstate::stacks::db::blocks::StagingBlock;
@@ -219,6 +223,257 @@ fn main() {
             .unwrap();
 
         println!("{:#?}", &block);
+        process::exit(0);
+    }
+
+    if argv[1] == "get-tenure" {
+        if argv.len() < 4 {
+            eprintln!("Usage: {} get-tenure CHAIN_STATE_DIR BLOCK_HASH", argv[0]);
+            process::exit(1);
+        }
+
+        let index_block_hash = &argv[3];
+        let index_block_hash = StacksBlockId::from_hex(&index_block_hash).unwrap();
+        let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
+
+        let (chainstate, _) =
+            StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path).unwrap();
+
+        let (consensus_hash, block_hash) = chainstate
+            .get_block_header_hashes(&index_block_hash)
+            .unwrap()
+            .expect("FATAL: no such block");
+        let mut block_info =
+            StacksChainState::load_staging_block_info(chainstate.db(), &index_block_hash)
+                .unwrap()
+                .expect("No such block");
+        block_info.block_data = StacksChainState::load_block_bytes(
+            &chainstate.blocks_path,
+            &consensus_hash,
+            &block_hash,
+        )
+        .unwrap()
+        .expect("No such block");
+
+        let block =
+            StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_info.block_data))
+                .map_err(|_e| {
+                    eprintln!("Failed to decode block");
+                    process::exit(1);
+                })
+                .unwrap();
+
+        let microblocks =
+            StacksChainState::find_parent_microblock_stream(chainstate.db(), &block_info)
+                .unwrap()
+                .unwrap_or(vec![]);
+
+        let mut mblock_report = vec![];
+        for mblock in microblocks.iter() {
+            let mut tx_report = vec![];
+            for tx in mblock.txs.iter() {
+                tx_report.push(json!({
+                    "txid": format!("{}", tx.txid()),
+                    "fee": format!("{}", tx.get_tx_fee()),
+                    "tx": format!("{}", to_hex(&tx.serialize_to_vec())),
+                }));
+            }
+            mblock_report.push(json!({
+                "microblock": format!("{}", mblock.block_hash()),
+                "txs": tx_report
+            }));
+        }
+
+        let mut block_tx_report = vec![];
+        for tx in block.txs.iter() {
+            block_tx_report.push(json!({
+                "txid": format!("{}", tx.txid()),
+                "fee": format!("{}", tx.get_tx_fee()),
+                "tx": format!("{}", to_hex(&tx.serialize_to_vec()))
+            }));
+        }
+
+        let report = json!({
+            "block": {
+                "block_id": format!("{}", index_block_hash),
+                "block_hash": format!("{}", block.block_hash()),
+                "height": format!("{}", block.header.total_work.work),
+                "txs": block_tx_report
+            },
+            "microblocks": mblock_report
+        });
+
+        println!("{}", &report.to_string());
+
+        process::exit(0);
+    }
+
+    if argv[1] == "analyze-fees" {
+        if argv.len() < 4 {
+            eprintln!("Usage: {} analyze-fees CHAIN_STATE_DIR NUM_BLOCKS", argv[0]);
+            process::exit(1);
+        }
+
+        let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
+        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
+        let (chainstate, _) =
+            StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path).unwrap();
+        let sort_db = SortitionDB::open(&sort_db_path, false)
+            .expect(&format!("Failed to open {}", &sort_db_path));
+
+        let num_blocks = argv[3].parse::<u64>().unwrap();
+
+        let mut block_info = chainstate
+            .get_stacks_chain_tip(&sort_db)
+            .unwrap()
+            .expect("FATAL: no chain tip");
+        block_info.block_data = StacksChainState::load_block_bytes(
+            &chainstate.blocks_path,
+            &block_info.consensus_hash,
+            &block_info.anchored_block_hash,
+        )
+        .unwrap()
+        .expect("No such block");
+
+        let mut tx_fees = HashMap::new();
+        let mut tx_mined_heights = HashMap::new();
+        let mut tx_mined_deltas: HashMap<u64, Vec<Txid>> = HashMap::new();
+
+        for _i in 0..num_blocks {
+            let block_hash = StacksBlockHeader::make_index_block_hash(
+                &block_info.consensus_hash,
+                &block_info.anchored_block_hash,
+            );
+            debug!("Consider block {} ({} of {})", &block_hash, _i, num_blocks);
+
+            let block =
+                StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_info.block_data))
+                    .map_err(|_e| {
+                        eprintln!("Failed to decode block {}", &block_hash);
+                        process::exit(1);
+                    })
+                    .unwrap();
+
+            let microblocks =
+                StacksChainState::find_parent_microblock_stream(chainstate.db(), &block_info)
+                    .unwrap()
+                    .unwrap_or(vec![]);
+
+            let mut txids_at_height = vec![];
+
+            for mblock in microblocks.iter() {
+                for tx in mblock.txs.iter() {
+                    tx_fees.insert(tx.txid(), tx.get_tx_fee());
+                    txids_at_height.push(tx.txid());
+                }
+            }
+
+            for tx in block.txs.iter() {
+                if tx.get_tx_fee() > 0 {
+                    // not a coinbase
+                    tx_fees.insert(tx.txid(), tx.get_tx_fee());
+                    txids_at_height.push(tx.txid());
+                }
+            }
+
+            tx_mined_heights.insert(block_info.height, txids_at_height);
+
+            // next block
+            block_info = match StacksChainState::load_staging_block_info(
+                chainstate.db(),
+                &StacksBlockHeader::make_index_block_hash(
+                    &block_info.parent_consensus_hash,
+                    &block_info.parent_anchored_block_hash,
+                ),
+            )
+            .unwrap()
+            {
+                Some(blk) => blk,
+                None => {
+                    break;
+                }
+            };
+            block_info.block_data = StacksChainState::load_block_bytes(
+                &chainstate.blocks_path,
+                &block_info.consensus_hash,
+                &block_info.anchored_block_hash,
+            )
+            .unwrap()
+            .expect("No such block");
+        }
+
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
+        let mempool_db =
+            MemPoolDB::open(true, CHAIN_ID_MAINNET, &chain_state_path, estimator, metric)
+                .expect("Failed to open mempool db");
+
+        let mut total_txs = 0;
+        for (_, txids) in tx_mined_heights.iter() {
+            total_txs += txids.len();
+        }
+
+        let mut tx_cnt = 0;
+        for (mined_height, txids) in tx_mined_heights.iter() {
+            for txid in txids.iter() {
+                tx_cnt += 1;
+                if tx_cnt % 100 == 0 {
+                    debug!("Check tx {} of {}", tx_cnt, total_txs);
+                }
+
+                if let Some(txinfo) = MemPoolDB::get_tx(&mempool_db.db, txid).unwrap() {
+                    let delta = mined_height.saturating_sub(txinfo.metadata.block_height);
+                    if let Some(txids_at_delta) = tx_mined_deltas.get_mut(&delta) {
+                        txids_at_delta.push(txid.clone());
+                    } else {
+                        tx_mined_deltas.insert(delta, vec![txid.clone()]);
+                    }
+                }
+            }
+        }
+
+        let mut deltas: Vec<_> = tx_mined_deltas.keys().collect();
+        deltas.sort();
+
+        let mut reports = vec![];
+        for delta in deltas {
+            let mut delta_tx_fees = vec![];
+            let empty_txids = vec![];
+            let txids = tx_mined_deltas.get(&delta).unwrap_or(&empty_txids);
+            for txid in txids.iter() {
+                delta_tx_fees.push(*tx_fees.get(txid).unwrap_or(&0));
+            }
+            delta_tx_fees.sort();
+            let total_tx_fees = delta_tx_fees.iter().fold(0, |acc, x| acc + x);
+
+            let avg_tx_fee = if delta_tx_fees.len() > 0 {
+                total_tx_fees / (delta_tx_fees.len() as u64)
+            } else {
+                0
+            };
+            let min_tx_fee = *delta_tx_fees.iter().min().unwrap_or(&0);
+            let median_tx_fee = delta_tx_fees[delta_tx_fees.len() / 2];
+            let percent_90_tx_fee = delta_tx_fees[(delta_tx_fees.len() * 90) / 100];
+            let percent_95_tx_fee = delta_tx_fees[(delta_tx_fees.len() * 95) / 100];
+            let percent_99_tx_fee = delta_tx_fees[(delta_tx_fees.len() * 99) / 100];
+            let max_tx_fee = *delta_tx_fees.iter().max().unwrap_or(&0);
+
+            reports.push(json!({
+                "delta": format!("{}", delta),
+                "tx_total": format!("{}", delta_tx_fees.len()),
+                "tx_fees": json!({
+                    "avg": format!("{}", avg_tx_fee),
+                    "min": format!("{}", min_tx_fee),
+                    "max": format!("{}", max_tx_fee),
+                    "p50": format!("{}", median_tx_fee),
+                    "p90": format!("{}", percent_90_tx_fee),
+                    "p95": format!("{}", percent_95_tx_fee),
+                    "p99": format!("{}", percent_99_tx_fee),
+                }),
+            }));
+        }
+
+        println!("{}", serde_json::Value::Array(reports).to_string());
         process::exit(0);
     }
 
