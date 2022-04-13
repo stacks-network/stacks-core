@@ -40,7 +40,11 @@ use burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
     BurnchainTransaction, BurnchainView, Error as BurnchainError, PoxConstants,
 };
-use chainstate::burn::operations::{leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT}, BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp, DepositFtOp, DepositNftOp};
+use chainstate::burn::operations::{
+    leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
+    BlockstackOperationType, DepositFtOp, DepositNftOp, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
+};
 use chainstate::burn::Opcodes;
 use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
 use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
@@ -70,7 +74,7 @@ use util_lib::db::{
     u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 use vm::representations::{ClarityName, ContractName};
-use vm::types::{PrincipalData, Value, QualifiedContractIdentifier};
+use vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 
 use chainstate::burn::ConsensusHashExtensions;
 use chainstate::stacks::address::StacksAddressExtensions;
@@ -259,9 +263,9 @@ impl FromRow<DepositFtOp> for DepositFtOp {
         let l1_contract_id = QualifiedContractIdentifier::from_column(row, "l1_contract_id")?;
         let hc_contract_id = QualifiedContractIdentifier::from_column(row, "hc_contract_id")?;
         let name: String = row.get_unwrap("name");
-        let amount_str : String = row.get_unwrap("amount");
-        let amount = u128::from_str_radix(&amount_str, 10)
-            .expect("CORRUPTION: bad u128 written to sortdb");
+        let amount_str: String = row.get_unwrap("amount");
+        let amount =
+            u128::from_str_radix(&amount_str, 10).expect("CORRUPTION: bad u128 written to sortdb");
         let sender = StacksAddress::from_column(row, "sender")?;
 
         Ok(DepositFtOp {
@@ -283,9 +287,8 @@ impl FromRow<DepositNftOp> for DepositNftOp {
 
         let l1_contract_id = QualifiedContractIdentifier::from_column(row, "l1_contract_id")?;
         let hc_contract_id = QualifiedContractIdentifier::from_column(row, "hc_contract_id")?;
-        let id_str : String = row.get_unwrap("id");
-        let id = u128::from_str_radix(&id_str, 10)
-            .expect("CORRUPTION: bad u128 written to sortdb");
+        let id_str: String = row.get_unwrap("id");
+        let id = u128::from_str_radix(&id_str, 10).expect("CORRUPTION: bad u128 written to sortdb");
         let sender = StacksAddress::from_column(row, "sender")?;
 
         Ok(DepositNftOp {
@@ -3034,7 +3037,7 @@ impl<'a> SortitionHandleTx<'a> {
     fn insert_deposit_ft(
         &mut self,
         op: &DepositFtOp,
-        sort_id: &SortitionId
+        sort_id: &SortitionId,
     ) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[
             &op.txid,
@@ -3056,7 +3059,7 @@ impl<'a> SortitionHandleTx<'a> {
     fn insert_deposit_nft(
         &mut self,
         op: &DepositNftOp,
-        sort_id: &SortitionId
+        sort_id: &SortitionId,
     ) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[
             &op.txid,
