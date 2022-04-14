@@ -7057,11 +7057,11 @@ fn exit_at_rc_integration_test() {
 
     // check the sortdb state
     let sort_db = btc_regtest_controller.sortdb_ref();
-    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-        .unwrap()
-        .unwrap();
+    let pox_info = get_pox_info(&http_origin);
+    let exit_rc_info =
+        SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), pox_info.current_cycle.id)
+            .unwrap()
+            .unwrap();
     assert_eq!(exit_rc_info.curr_exit_proposal, None);
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
 
@@ -7219,12 +7219,11 @@ fn exit_at_rc_integration_test() {
 
     // check sortdb - vote threshold not met (<50% of stacked stx involved in vote)
     let sort_db = btc_regtest_controller.sortdb_ref();
-
-    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-        .unwrap()
-        .unwrap();
+    let pox_info = get_pox_info(&http_origin);
+    let exit_rc_info =
+        SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), pox_info.current_cycle.id)
+            .unwrap()
+            .unwrap();
     assert_eq!(exit_rc_info.curr_exit_proposal, None);
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
 
@@ -7309,11 +7308,11 @@ fn exit_at_rc_integration_test() {
 
     // check sortdb - vote threshold met (>=50% of stacked stx involved in vote) - curr_exit_proposal should be set
     let sort_db = btc_regtest_controller.sortdb_ref();
-    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-        .unwrap()
-        .unwrap();
+    let pox_info = get_pox_info(&http_origin);
+    let exit_rc_info =
+        SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), pox_info.current_cycle.id)
+            .unwrap()
+            .unwrap();
     assert_eq!(exit_rc_info.curr_exit_proposal, Some(30));
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
 
@@ -7344,11 +7343,11 @@ fn exit_at_rc_integration_test() {
 
     // check sortdb - veto threshold met (>=60% of blocks in rc had veto) - curr_exit_at_reward_cycle should not be set
     let sort_db = btc_regtest_controller.sortdb_ref();
-    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-        .unwrap()
-        .unwrap();
+    let pox_info = get_pox_info(&http_origin);
+    let exit_rc_info =
+        SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), pox_info.current_cycle.id)
+            .unwrap()
+            .unwrap();
     assert_eq!(exit_rc_info.curr_exit_proposal, None);
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
 
@@ -7746,12 +7745,11 @@ fn exit_at_rc_integration_test() {
 
     // check sortdb - vote threshold met (>=50% of stacked stx involved in vote) - curr_exit_proposal should be set
     let sort_db = btc_regtest_controller.sortdb_ref();
-
-    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-        .unwrap()
-        .unwrap();
+    let pox_info = get_pox_info(&http_origin);
+    let exit_rc_info =
+        SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), pox_info.current_cycle.id)
+            .unwrap()
+            .unwrap();
     assert_eq!(exit_rc_info.curr_exit_proposal, Some(49));
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, None);
 
@@ -7764,12 +7762,11 @@ fn exit_at_rc_integration_test() {
 
     // check sortdb - veto threshold not met- curr_exit_at_reward_cycle should be set
     let sort_db = btc_regtest_controller.sortdb_ref();
-
-    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-        .unwrap()
-        .unwrap();
+    let pox_info = get_pox_info(&http_origin);
+    let exit_rc_info =
+        SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), pox_info.current_cycle.id)
+            .unwrap()
+            .unwrap();
     assert_eq!(exit_rc_info.curr_exit_proposal, None);
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, Some(49));
 
@@ -7935,12 +7932,11 @@ fn exit_at_rc_integration_test() {
 
     // check sortdb - chains coordinator should invalidate votes for cycles less than the agreed upon exit reward cycle
     let sort_db = btc_regtest_controller.sortdb_ref();
-
-    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-        .unwrap()
-        .unwrap();
+    let pox_info = get_pox_info(&http_origin);
+    let exit_rc_info =
+        SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), pox_info.current_cycle.id)
+            .unwrap()
+            .unwrap();
     assert_eq!(exit_rc_info.curr_exit_proposal, None);
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, Some(49));
 
@@ -8105,11 +8101,11 @@ fn exit_at_rc_integration_test() {
 
     // check sortdb - vote threshold met (>=50% of stacked stx involved in vote) - curr_exit_proposal should be set
     let sort_db = btc_regtest_controller.sortdb_ref();
-    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-        .unwrap()
-        .unwrap();
+    let pox_info = get_pox_info(&http_origin);
+    let exit_rc_info =
+        SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), pox_info.current_cycle.id)
+            .unwrap()
+            .unwrap();
     assert_eq!(exit_rc_info.curr_exit_proposal, Some(53));
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, Some(49));
 
@@ -8145,11 +8141,11 @@ fn exit_at_rc_integration_test() {
 
     // check sortdb - veto threshold not met - curr_exit_proposal should be set
     let sort_db = btc_regtest_controller.sortdb_ref();
-    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
-    let stacks_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
-    let exit_rc_info = SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
-        .unwrap()
-        .unwrap();
+    let pox_info = get_pox_info(&http_origin);
+    let exit_rc_info =
+        SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), pox_info.current_cycle.id)
+            .unwrap()
+            .unwrap();
     assert_eq!(exit_rc_info.curr_exit_proposal, None);
     assert_eq!(exit_rc_info.curr_exit_at_reward_cycle, Some(53));
 

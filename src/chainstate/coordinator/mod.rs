@@ -101,10 +101,6 @@ pub enum PoxAnchorBlockStatus {
 /// It is ultimately stored in the table `exit_at_reward_cycle_info` in the sortition DB.
 #[derive(Debug)]
 pub struct BlockExitRewardCycleInfo {
-    /// The block id that corresponds to this exit cycle information
-    pub block_id: StacksBlockId,
-    /// The block id of the parent
-    pub parent_block_id: StacksBlockId,
     /// The reward cycle of the block that corresponds to this exit cycle information
     pub block_reward_cycle: u64,
     /// This value is non-None when consensus has been achieved on a vote; the cycle after this
@@ -949,35 +945,39 @@ impl<
     }
 
     pub fn reached_exit_reward_cycle(&self, header: &BurnchainBlockHeader) -> Result<bool, Error> {
-        if let Some(chain_tip) = self.canonical_chain_tip {
-            let exit_info_opt =
-                SortitionDB::get_exit_at_reward_cycle_info(self.sortition_db.conn(), &chain_tip)?;
+        let current_reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(header.block_height as u64)
+            .ok_or_else(|| DBError::NotFoundError)?;
+        let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
+            self.sortition_db.conn(),
+            current_reward_cycle,
+        )?;
 
-            if let Some(exit_info) = exit_info_opt {
-                if let Some(exit_reward_cycle) = exit_info.curr_exit_at_reward_cycle {
-                    // get the first reward cycle in this epoch
-                    let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
-                    let curr_epoch = StacksEpoch::get_current_epoch(&epochs, header.block_height);
-                    let first_reward_cycle_in_epoch = self
-                        .burnchain
-                        .block_height_to_reward_cycle(curr_epoch.start_height)
-                        .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
+        if let Some(exit_info) = exit_info_opt {
+            if let Some(exit_reward_cycle) = exit_info.curr_exit_at_reward_cycle {
+                // get the first reward cycle in this epoch
+                let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
+                let curr_epoch = StacksEpoch::get_current_epoch(&epochs, header.block_height);
+                let first_reward_cycle_in_epoch = self
+                    .burnchain
+                    .block_height_to_reward_cycle(curr_epoch.start_height)
+                    .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
 
-                    let curr_reward_cycle = self
-                        .burnchain
-                        .block_height_to_reward_cycle(header.block_height)
-                        .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
-                    if curr_reward_cycle >= exit_reward_cycle
-                        && exit_reward_cycle > first_reward_cycle_in_epoch
-                    {
-                        // the burnchain has reached the exit reward cycle (as voted in the
-                        // "exit-at-rc" contract)
-                        info!("Reached the exit reward cycle that was voted on in the \
+                let curr_reward_cycle = self
+                    .burnchain
+                    .block_height_to_reward_cycle(header.block_height)
+                    .ok_or(Error::ChainstateError(PoxNoRewardCycle))?;
+                if curr_reward_cycle >= exit_reward_cycle
+                    && exit_reward_cycle > first_reward_cycle_in_epoch
+                {
+                    // the burnchain has reached the exit reward cycle (as voted in the
+                    // "exit-at-rc" contract)
+                    info!("Reached the exit reward cycle that was voted on in the \
                                 'exit-at-rc' contract, ignoring subsequent burn blocks";
                                        "exit_reward_cycle" => exit_reward_cycle,
                                        "current_reward_cycle" => curr_reward_cycle);
-                        return Ok(true);
-                    }
+                    return Ok(true);
                 }
             }
         }
@@ -1022,36 +1022,32 @@ impl<
             .burnchain
             .block_height_to_reward_cycle(current_block_height)
             .ok_or_else(|| DBError::NotFoundError)?;
-        let mut current_exit_at_rc = None;
-        let mut current_proposal = None;
-        let mut invalid_reward_cycles = vec![];
-        let stacks_block_id = StacksBlockId::new(&block_receipt.header.consensus_hash, &block_hash);
-        let parent_block_id = self
-            .chain_state_db
-            .get_parent(&stacks_block_id)
-            .expect("BUG: failed to get parent for processed block");
+        let parent_reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(block_receipt.parent_burn_block_height as u64)
+            .ok_or_else(|| DBError::NotFoundError)?;
 
-        // look up parent in exit_at_reward_cycle_info table
-        let exit_info_opt =
-            SortitionDB::get_exit_at_reward_cycle_info(self.sortition_db.conn(), &parent_block_id)?;
+        if parent_reward_cycle < current_reward_cycle {
+            // set up data
+            let mut current_exit_at_rc = None;
+            let mut current_proposal = None;
+            let mut invalid_reward_cycles = vec![];
 
-        if let Some(parent_exit_info) = exit_info_opt {
-            info!("RCPR: cc: parent block info is non-None");
-            // copy info from parent block
-            current_exit_at_rc = parent_exit_info.curr_exit_at_reward_cycle;
-            if parent_exit_info.block_reward_cycle == current_reward_cycle {
-                current_proposal = parent_exit_info.curr_exit_proposal;
-            }
-            invalid_reward_cycles = parent_exit_info
-                .invalid_reward_cycles
-                .iter()
-                .filter(|rc| **rc > current_reward_cycle)
-                .map(|rc| *rc)
-                .collect();
+            // get the exit reward cycle info for the parent's reward cycle
+            let exit_info_opt = SortitionDB::get_exit_at_reward_cycle_info(
+                self.sortition_db.conn(),
+                parent_reward_cycle,
+            )?;
+            if let Some(parent_exit_info) = exit_info_opt {
+                // copy over some information from the parent exit info object
+                current_exit_at_rc = parent_exit_info.curr_exit_at_reward_cycle;
+                invalid_reward_cycles = parent_exit_info
+                    .invalid_reward_cycles
+                    .iter()
+                    .filter(|rc| **rc > current_reward_cycle)
+                    .map(|rc| *rc)
+                    .collect();
 
-            // We process the previous reward cycle as soon as we transition to the next one.
-            if parent_exit_info.block_reward_cycle < current_reward_cycle {
-                info!("RCPR: cc: ancestor - rc is greater than parent rc");
                 // Check if there is some proposal. If so, need to check for a rejection.
                 if let Some(curr_exit_proposal) = parent_exit_info.curr_exit_proposal {
                     let rejection_passed = self.read_rejection_state(
@@ -1086,28 +1082,26 @@ impl<
                         invalid_reward_cycles.push(exit_proposal);
                     }
                 }
+            } else {
+                warn!(
+                    "Block exit reward cycle info not found for reward cycle: {}",
+                    parent_reward_cycle
+                );
             }
-        } else {
-            warn!(
-                "BlockExitRewardCycleInfo not found for this block: {:?}",
-                &parent_block_id
-            );
-        }
 
-        let exit_info = BlockExitRewardCycleInfo {
-            block_id: stacks_block_id,
-            parent_block_id,
-            block_reward_cycle: current_reward_cycle,
-            curr_exit_proposal: current_proposal,
-            curr_exit_at_reward_cycle: current_exit_at_rc,
-            invalid_reward_cycles,
-        };
-        info!("RCPR: cc: exit info is: {:?}", exit_info);
-        let sortdb_tx = self
-            .sortition_db
-            .tx_handle_begin(&canonical_sortition_tip)?;
-        sortdb_tx.store_exit_at_reward_cycle_info(exit_info)?;
-        sortdb_tx.commit()?;
+            let exit_info = BlockExitRewardCycleInfo {
+                block_reward_cycle: current_reward_cycle,
+                curr_exit_proposal: current_proposal,
+                curr_exit_at_reward_cycle: current_exit_at_rc,
+                invalid_reward_cycles,
+            };
+            info!("RCPR: cc: exit info is: {:?}", exit_info);
+            let sortdb_tx = self
+                .sortition_db
+                .tx_handle_begin(&canonical_sortition_tip)?;
+            sortdb_tx.store_exit_at_reward_cycle_info(exit_info)?;
+            sortdb_tx.commit()?;
+        }
 
         Ok(())
     }

@@ -4217,10 +4217,9 @@ fn test_exit_at_rc_short_reward_cycle() {
         //                                            \_  53 _ 54
         // STACKS BLOCK HEIGHT IN CYCLE:                  1    2
         if ix == 48 || ix == 53 || ix == 54 {
-            let stacks_block_id =
-                StacksBlockHeader::make_index_block_hash(&tip.consensus_hash, &block.block_hash());
+            let current_reward_cycle = b.block_height_to_reward_cycle(tip.block_height).unwrap();
             let exit_rc_info =
-                SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), &stacks_block_id)
+                SortitionDB::get_exit_at_reward_cycle_info(sort_db.conn(), current_reward_cycle)
                     .unwrap()
                     .unwrap();
             let expected_proposal = if ix == 48 { Some(33) } else { None };

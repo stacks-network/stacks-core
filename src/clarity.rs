@@ -56,7 +56,8 @@ use burnchains::Txid;
 use burnchains::{ExitContractConstants, PoxConstants};
 
 use chainstate::stacks::boot::{
-    exit_at_reward_cycle_test_id, STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET,
+    exit_at_reward_cycle_test_id, BOOT_CODE_EXIT_AT_RC_TESTNET, STACKS_BOOT_CODE_MAINNET,
+    STACKS_BOOT_CODE_TESTNET,
 };
 use util::boot::{boot_code_addr, boot_code_id};
 
@@ -717,6 +718,44 @@ fn consume_arg(
     }
 }
 
+fn install_boot_contract<C: ClarityStorage>(
+    header_db: &CLIHeadersDB,
+    marf: &mut C,
+    mainnet: bool,
+    boot_code_name: &str,
+    boot_code_contract: &str,
+) {
+    let contract_identifier = QualifiedContractIdentifier::new(
+        boot_code_addr(mainnet).into(),
+        ContractName::try_from(boot_code_name.to_string()).unwrap(),
+    );
+
+    debug!(
+        "Instantiate boot code contract '{}' ({} bytes)...",
+        &contract_identifier,
+        boot_code_contract.len()
+    );
+
+    let mut ast = friendly_expect(
+        parse(&contract_identifier, boot_code_contract),
+        "Failed to parse program.",
+    );
+
+    let analysis_result = run_analysis_free(&contract_identifier, &mut ast, marf, true);
+    match analysis_result {
+        Ok(_) => {
+            let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
+            let mut vm_env = OwnedEnvironment::new_free(mainnet, db, DEFAULT_CLI_EPOCH);
+            vm_env
+                .initialize_contract(contract_identifier, boot_code_contract)
+                .unwrap();
+        }
+        Err(e) => {
+            panic!("failed to instantiate boot contract: {:?}", e);
+        }
+    };
+}
+
 /// Only called by `invoke_command` in clarity.rs.
 /// Uses the test version of "exit-at-rc" contract.
 fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) {
@@ -728,36 +767,16 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     };
 
     for (boot_code_name, boot_code_contract) in boot_code.iter() {
-        let contract_identifier = QualifiedContractIdentifier::new(
-            boot_code_addr(mainnet).into(),
-            ContractName::try_from(boot_code_name.to_string()).unwrap(),
+        install_boot_contract(header_db, marf, mainnet, boot_code_name, boot_code_contract);
+    }
+    if !mainnet {
+        install_boot_contract(
+            header_db,
+            marf,
+            mainnet,
+            "exit-at-rc",
+            &BOOT_CODE_EXIT_AT_RC_TESTNET,
         );
-        let contract_content = *boot_code_contract;
-
-        debug!(
-            "Instantiate boot code contract '{}' ({} bytes)...",
-            &contract_identifier,
-            boot_code_contract.len()
-        );
-
-        let mut ast = friendly_expect(
-            parse(&contract_identifier, &contract_content),
-            "Failed to parse program.",
-        );
-
-        let analysis_result = run_analysis_free(&contract_identifier, &mut ast, marf, true);
-        match analysis_result {
-            Ok(_) => {
-                let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-                let mut vm_env = OwnedEnvironment::new_free(mainnet, db, DEFAULT_CLI_EPOCH);
-                vm_env
-                    .initialize_contract(contract_identifier, &contract_content)
-                    .unwrap();
-            }
-            Err(e) => {
-                panic!("failed to instantiate boot contract: {:?}", e);
-            }
-        };
     }
 
     // set up PoX
@@ -799,14 +818,16 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         SymbolicExpression::atom_value(Value::UInt(pox_params.reward_cycle_length as u128)),
         SymbolicExpression::atom_value(Value::UInt(exit_params.absolute_minimum_exit_rc as u128)),
     ];
-    vm_env
-        .execute_transaction(
-            sender,
-            exit_at_rc_contract,
-            "set-burnchain-parameters",
-            params.as_slice(),
-        )
-        .unwrap();
+    if !mainnet {
+        vm_env
+            .execute_transaction(
+                sender,
+                exit_at_rc_contract,
+                "set-burnchain-parameters",
+                params.as_slice(),
+            )
+            .unwrap();
+    }
 }
 
 pub fn add_costs(result: &mut serde_json::Value, costs: bool, runtime: ExecutionCost) {

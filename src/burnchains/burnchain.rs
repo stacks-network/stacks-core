@@ -514,6 +514,7 @@ impl Burnchain {
         self.first_block_height + reward_cycle * (self.pox_constants.reward_cycle_length as u64) + 1
     }
 
+    // Takes in the burn block height
     pub fn block_height_to_reward_cycle(&self, block_height: u64) -> Option<u64> {
         if block_height < self.first_block_height {
             return None;

@@ -447,8 +447,6 @@ impl FromRow<StacksEpoch> for StacksEpoch {
 
 impl FromRow<BlockExitRewardCycleInfo> for BlockExitRewardCycleInfo {
     fn from_row<'a>(row: &'a Row) -> Result<BlockExitRewardCycleInfo, db_error> {
-        let block_id = StacksBlockId::from_column(row, "block_id")?;
-        let parent_block_id = StacksBlockId::from_column(row, "parent_block_id")?;
         let block_reward_cycle = u64::from_column(row, "block_reward_cycle")?;
         let curr_exit_proposal = Option::<u64>::from_column(row, "curr_exit_proposal")?;
         let curr_exit_at_reward_cycle =
@@ -458,8 +456,6 @@ impl FromRow<BlockExitRewardCycleInfo> for BlockExitRewardCycleInfo {
             .map_err(|e| db_error::SerializationError(e))?;
 
         let exit_cycle_info = BlockExitRewardCycleInfo {
-            block_id,
-            parent_block_id,
             block_reward_cycle,
             curr_exit_proposal,
             curr_exit_at_reward_cycle,
@@ -638,14 +634,12 @@ const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
 
 const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
     CREATE TABLE exit_at_reward_cycle_info (
-        block_id TEXT NOT NULL,
-        parent_block_id TEXT NOT NULL,
         block_reward_cycle INTEGER NOT NULL,
         curr_exit_proposal INTEGER,
         curr_exit_at_reward_cycle INTEGER,
         invalid_reward_cycles TEXT NOT NULL,
 
-        PRIMARY KEY(block_id)
+        PRIMARY KEY(block_reward_cycle)
     );"#];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
@@ -666,7 +660,7 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);",
     "CREATE INDEX IF NOT EXISTS canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
-    "CREATE INDEX IF NOT EXISTS exit_reward_cycle_block_ids ON exit_at_reward_cycle_info(block_id);",
+    "CREATE INDEX IF NOT EXISTS exit_reward_cycle_block_ids ON exit_at_reward_cycle_info(block_reward_cycle);",
 ];
 
 pub struct SortitionDB {
@@ -3657,10 +3651,10 @@ impl SortitionDB {
     /// Get reward cycle info for a particular block
     pub fn get_exit_at_reward_cycle_info(
         conn: &Connection,
-        stacks_block_id: &StacksBlockId,
+        reward_cycle: u64,
     ) -> Result<Option<BlockExitRewardCycleInfo>, db_error> {
-        let qry = "SELECT * FROM exit_at_reward_cycle_info WHERE block_id = ?1";
-        let result = query_row_panic(conn, qry, &[&stacks_block_id], || {
+        let qry = "SELECT * FROM exit_at_reward_cycle_info WHERE block_reward_cycle = ?1";
+        let result = query_row_panic(conn, qry, &[&u64_to_sql(reward_cycle)?], || {
             "FATAL: multiple rows for reward cycle info for one block".into()
         })?;
         Ok(result)
@@ -3799,10 +3793,8 @@ impl<'a> SortitionHandleTx<'a> {
                 None
             };
 
-        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_id, parent_block_id, block_reward_cycle, invalid_reward_cycles, curr_exit_proposal, curr_exit_at_reward_cycle) VALUES (?, ?, ?, ?, ?, ?)";
+        let sql = "INSERT or REPLACE INTO exit_at_reward_cycle_info (block_reward_cycle, invalid_reward_cycles, curr_exit_proposal, curr_exit_at_reward_cycle) VALUES (?, ?, ?, ?)";
         let args: &[&dyn ToSql] = &[
-            &exit_at_reward_cycle_info.block_id,
-            &exit_at_reward_cycle_info.parent_block_id,
             &u64_to_sql(exit_at_reward_cycle_info.block_reward_cycle)?,
             &serde_json::to_string(&exit_at_reward_cycle_info.invalid_reward_cycles).unwrap(),
             &exit_proposal,
